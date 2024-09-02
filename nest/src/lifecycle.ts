@@ -1,10 +1,8 @@
 import { INestApplication, Logger } from '@nestjs/common';
-
-import { f } from '@app/utils/utils';
-
-import os from 'node:os';
-
 import _ from 'lodash';
+
+import { f } from '@app/utils';
+import os from 'node:os';
 
 export const runApp = <App extends INestApplication>(app: App) => {
   process.on('uncaughtException', async (err) => {

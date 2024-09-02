@@ -1,27 +1,17 @@
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import { plainToInstance, Transform, TransformFnParams } from 'class-transformer';
 import { Logger } from '@nestjs/common';
+import { config } from 'dotenv';
+import _ from 'lodash';
 
 import { f, onelineStack } from '@app/utils';
-
 import os from 'node:os';
-
-import { plainToInstance, Transform, TransformFnParams } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
-import { config } from 'dotenv';
 import JSON from 'json5';
-import _ from 'lodash';
 
 export enum Environment {
   Development = 'development',
   Production = 'production',
   Test = 'test',
-}
-
-// NODE_ENV 为 production，业务中并不一定是生产环境，因此需要 ENV 来标记
-export const isNodeProduction = process.env.NODE_ENV === Environment.Production;
-export class Env {
-  static readonly isProd = process.env.ENV === 'prod';
-  static readonly isStg = process.env.ENV === 'stg';
-  static readonly isDev = !this.isProd && !this.isStg;
 }
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
@@ -149,6 +139,15 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
   public readonly vars: T;
 
+  /**
+   * Order of precedence:
+   * process.env
+   * .env.$(NODE_ENV).local
+   * .env.local (Not checked when NODE_ENV is test.)
+   * .env.$(NODE_ENV)
+   * .env
+   * @param EnvsClass
+   */
   constructor(readonly EnvsClass: new () => T) {
     const envFilePath = _.cond([
       [_.matches(Environment.Test), _.constant(['.env.local', '.env.test'])],

@@ -1,5 +1,3 @@
-import { Prisma } from '@prisma/client';
-
 import {
   BadRequestException,
   ConflictException,
@@ -8,17 +6,17 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
-import { HttpStatus } from '@nestjs/common/enums';
 import { ThrottlerException } from '@nestjs/throttler';
+import { HttpStatus } from '@nestjs/common/enums';
+import { Prisma } from '@prisma/client';
+import { ZodError } from 'zod';
+import _ from 'lodash';
 
-import { ApiRes } from '@app/nest/response';
+import { ErrorCodes } from '@app/nest/error-codes';
+import { ApiRes } from '@app/nest';
 import { f } from '@app/utils';
 
-import _ from 'lodash';
-import { ZodError } from 'zod';
-
-import { ErrorCodes } from './error-codes';
+import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(this.constructor.name);
@@ -29,7 +27,10 @@ export class AnyExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse();
 
     // throw directly if it is a graphql request
-    if (!response.status) throw exception;
+    if (!response.status) {
+      this.logger.error(f`(${request?.uid})[${request?.ip}] ${exception.name} ${exception}`, exception.stack);
+      throw exception;
+    }
 
     if (exception instanceof ZodError) {
       const errors = exception.errors;
@@ -38,7 +39,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.ZodError,
           message: 'invalid parameters',
-          statusCode: HttpStatus.BAD_REQUEST,
+          // statusCode: HttpStatus.BAD_REQUEST,
           errors,
         }),
       );
@@ -52,7 +53,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.BadRequest,
           message: exception.message,
-          statusCode: HttpStatus.BAD_REQUEST,
+          // statusCode: HttpStatus.BAD_REQUEST,
           errors: _.get(exception.getResponse(), 'message'),
         }),
       );
@@ -63,7 +64,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.PrismaClientKnownRequestError,
           message: 'cannot process your request',
-          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+          // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         }),
       );
     }
@@ -73,7 +74,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.TooManyRequests,
           message: exception.message,
-          statusCode: HttpStatus.TOO_MANY_REQUESTS as any,
+          // statusCode: HttpStatus.TOO_MANY_REQUESTS as any,
           errors: _.get(exception.getResponse(), 'message'),
         }),
       );
@@ -84,7 +85,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.NotFound,
           message: exception.message,
-          statusCode: HttpStatus.NOT_FOUND,
+          // statusCode: HttpStatus.NOT_FOUND,
           errors: _.get(exception.getResponse(), 'message'),
         }),
       );
@@ -95,7 +96,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.FetchError,
           message: `FetchError ${exception.type}`,
-          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+          // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         }),
       );
     }
@@ -105,7 +106,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.Unauthorized,
           message: exception.message,
-          statusCode: HttpStatus.UNAUTHORIZED,
+          // statusCode: HttpStatus.UNAUTHORIZED,
           errors: _.get(exception.getResponse(), 'message'),
         }),
       );
@@ -116,7 +117,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: ErrorCodes.Conflict,
           message: exception.message,
-          statusCode: HttpStatus.CONFLICT,
+          // statusCode: HttpStatus.CONFLICT,
           errors: _.get(exception.getResponse(), 'message'),
         }),
       );
@@ -131,7 +132,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failureV2({
           code: cause,
           message: exception.message,
-          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+          // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
           errors: _.get(exception.getResponse(), 'message'),
         }),
       );

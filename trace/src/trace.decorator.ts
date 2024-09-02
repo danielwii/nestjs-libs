@@ -1,5 +1,4 @@
 import { context, Span, SpanKind, trace } from '@opentelemetry/api';
-import { SpanStatusCode } from '@opentelemetry/api/build/src/trace/status';
 
 /**
  * 放在方法上，自动创建一个 span，需要放在最下方
@@ -25,7 +24,7 @@ export const Trace =
         );
       } catch (error) {
         span.setStatus({
-          code: SpanStatusCode.ERROR,
+          code: 2,
           message: error.message,
         });
         throw error;

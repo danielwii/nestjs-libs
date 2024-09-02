@@ -107,7 +107,7 @@ export async function bootstrap(AppModule: any) {
   app.use(compression());
   app.use(responseTime());
 
-  const port = AppEnv.PORT ?? 3300;
+  const port = AppEnv.PORT ?? 3100;
   runApp(app)
     .listen(port)
     .then(() => {

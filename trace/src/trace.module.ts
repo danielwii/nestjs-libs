@@ -1,14 +1,11 @@
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { SentryPropagator, SentrySpanProcessor } from '@sentry/opentelemetry-node';
-
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 
-import { AppEnv } from '@app/env';
-
-import { Injector } from './injector';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { LoggerInjector } from './logger.injector';
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { Injector } from './injector';
+import { AppEnv } from '@app/env';
 
 interface TraceModuleOptions {}
 
@@ -55,7 +52,7 @@ export class TraceModule {
     if (AppEnv.TRACING_ENABLED) {
       const serviceName = AppEnv.SERVICE_NAME ?? `api-server`;
       const exporterUrl = AppEnv.TRACING_EXPORTER_URL ?? 'http://localhost:4318/v1/traces';
-      Logger.log(`<OTEL> Tracing enabled. Service name: ${serviceName}, exporter url: ${exporterUrl}`);
+      Logger.log(`<OTEL> Tracing enabled. Service name: ${serviceName}, exporter url: ${exporterUrl}`, 'TraceModule');
       const traceExporter = new OTLPTraceExporter({ url: exporterUrl });
       // const metricExporter = new OTLPMetricExporter({ url: exporterUrl });
       // const spanProcessor = isProduction ? new BatchSpanProcessor(traceExporter) : new SimpleSpanProcessor(traceExporter);
@@ -63,13 +60,21 @@ export class TraceModule {
         serviceName,
         traceExporter,
         // metricReader: new PeriodicExportingMetricReader({ exporter: new ConsoleMetricExporter() }),
-        instrumentations: [getNodeAutoInstrumentations()],
-        spanProcessor: new SentrySpanProcessor(),
-        textMapPropagator: new SentryPropagator(),
+        instrumentations: [
+          getNodeAutoInstrumentations({
+            '@opentelemetry/instrumentation-http': {
+              responseHook: (span, response) => {
+                const traceID = span.spanContext().traceId;
+                (response as any).setHeader('X-Trace-Id', traceID);
+              },
+            },
+          }),
+          // new PrismaInstrumentation(),
+        ],
       });
       sdk.start();
     } else {
-      Logger.log(`<OTEL> Tracing disabled.`);
+      Logger.log(`<OTEL> Tracing disabled.`, 'TraceModule');
     }
   }
 }
