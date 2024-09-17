@@ -15,7 +15,11 @@ export const runApp = <App extends INestApplication>(app: App) => {
     process.exit(1);
   });
   process.on('unhandledRejection', async (err: Error) => {
-    Logger.error(f`(${os.hostname}) unhandledRejection: ${err.message ?? err}`, err.stack, 'process');
+    Logger.error(
+      f`(${os.hostname}) unhandledRejection: ${err.message ?? err} - ${_.get(err, 'cause', 'unknown cause')} -`,
+      err.stack,
+      'process',
+    );
     // Sentry.captureException(err);
     await app.close();
     Logger.error(`(${os.hostname}) exit by unhandledRejection...`, 'Process');

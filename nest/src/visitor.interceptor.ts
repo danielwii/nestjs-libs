@@ -20,7 +20,7 @@ export class VisitorInterceptor implements NestInterceptor {
     req.visitorId = req.headers['x-visitor-id'] as string;
 
     // ws subscription request
-    if (!req || !res['getHeader']) {
+    if (!req || !res?.['getHeader']) {
       return next.handle();
     }
 

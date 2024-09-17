@@ -5,14 +5,9 @@ import { config } from 'dotenv';
 import _ from 'lodash';
 
 import { f, onelineStack } from '@app/utils';
+import { Environment } from './env';
 import os from 'node:os';
 import JSON from 'json5';
-
-export enum Environment {
-  Development = 'development',
-  Production = 'production',
-  Test = 'test',
-}
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   Logger.log(f`[Transform] ${{ key, origin: obj[key] }}`, 'Configure');
@@ -54,7 +49,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   @IsEnum(['prod', 'stg', 'dev']) @IsOptional() ENV: 'prod' | 'stg' | 'dev' = 'dev';
   @IsEnum(Environment) NODE_ENV: Environment = Environment.Development;
-  @IsNumber() @IsOptional() PORT: number;
+  @IsNumber() @IsOptional() PORT?: number;
   @IsString() TZ = 'UTC';
 
   @IsString() @IsOptional() API_KEY?: string;

@@ -1,22 +1,20 @@
-import { ClassSerializerInterceptor, Logger, ValidationPipe } from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
-import { NestFactory, Reflector } from '@nestjs/core';
+import { ClassSerializerInterceptor, Logger, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
-
-import { AppEnv } from '@app/env';
-import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
-import { runApp } from '@app/nest/lifecycle';
-import { LoggerInterceptor } from '@app/nest/logger.interceptor';
-import { initStackTraceFormatter } from '@app/nest/logger.utils';
-import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
-import { f } from '@app/utils';
-
-import os from 'node:os';
-
+import { NestFactory, Reflector } from '@nestjs/core';
+import responseTime from 'response-time';
 import { oneLine } from 'common-tags';
 import compression from 'compression';
 import helmet from 'helmet';
-import responseTime from 'response-time';
+
+import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
+import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
+import { LoggerInterceptor } from '@app/nest/logger.interceptor';
+import { initStackTraceFormatter } from '@app/nest/logger.utils';
+import { runApp } from '@app/nest/lifecycle';
+import { AppEnv } from '@app/env';
+import { f } from '@app/utils';
+import os from 'node:os';
 
 export async function bootstrap(AppModule: any) {
   const now = Date.now();
@@ -108,7 +106,7 @@ export async function bootstrap(AppModule: any) {
   app.use(responseTime());
 
   const port = AppEnv.PORT ?? 3100;
-  runApp(app)
+  await runApp(app)
     .listen(port)
     .then(() => {
       Logger.log(
@@ -119,4 +117,6 @@ export async function bootstrap(AppModule: any) {
       );
       initStackTraceFormatter();
     });
+
+  return app;
 }
