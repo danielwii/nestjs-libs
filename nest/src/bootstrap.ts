@@ -1,5 +1,5 @@
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
-import { ClassSerializerInterceptor, Logger, ValidationPipe } from '@nestjs/common';
+import { ClassSerializerInterceptor, INestApplication, Logger, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { NestFactory, Reflector } from '@nestjs/core';
 import responseTime from 'response-time';
@@ -16,7 +16,7 @@ import { AppEnv } from '@app/env';
 import { f } from '@app/utils';
 import os from 'node:os';
 
-export async function bootstrap(AppModule: any) {
+export async function bootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
   const now = Date.now();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
@@ -106,6 +106,9 @@ export async function bootstrap(AppModule: any) {
   app.use(responseTime());
 
   const port = AppEnv.PORT ?? 3100;
+
+  if (onInit) await onInit(app);
+
   await runApp(app)
     .listen(port)
     .then(() => {
