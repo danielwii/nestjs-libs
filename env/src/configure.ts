@@ -52,6 +52,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsNumber() @IsOptional() PORT?: number;
   @IsString() TZ = 'UTC';
 
+  @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
+  LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
+
   @IsString() @IsOptional() API_KEY?: string;
 
   // used to debug dependency issues
@@ -153,7 +156,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
     this.logger.log(f`envFilePath: ${envFilePath}`);
     _.forEach(envFilePath, (env) => {
-      config({ path: env, debug: true, override: false });
+      config({ path: env, debug: false, override: false });
     });
     this.vars = this.validate();
   }
@@ -177,10 +180,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       _.each(validatedConfig, (value, key) => {
-        if (key.includes('_ENABLE')) this.logger.log(f`[Feature] ${{ key, value, origin: config[key] }}`);
+        if (key.includes('_ENABLE')) this.logger.log(f`[Feature] ${{ key, value, /* origin: config[key] */ }}`);
       });
       _.each(validatedConfig, (value, key) => {
-        if (key.startsWith('APP_')) this.logger.log(f`[App.Feature] ${{ key, value, origin: config[key] }}`);
+        if (key.startsWith('APP_')) this.logger.log(f`[App.Feature] ${{ key, value, /* origin: config[key] */ }}`);
       });
     }
     // Logger.log(f`[Config] ${validatedConfig}`);

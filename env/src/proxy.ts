@@ -17,5 +17,5 @@ export const Proxy = {
 };
 
 if (AppEnv.APP_PROXY_ENABLED) {
-  Logger.log(f`init with url ${proxy}`, Proxy.constructor.name);
+  Logger.log(f`init with url ${proxy}`, '[AppProxy]');
 }

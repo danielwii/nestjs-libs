@@ -1,5 +1,5 @@
+import { ClassSerializerInterceptor, INestApplication, Logger, LogLevel, ValidationPipe } from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
-import { ClassSerializerInterceptor, INestApplication, Logger, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { NestFactory, Reflector } from '@nestjs/core';
 import responseTime from 'response-time';
@@ -16,9 +16,19 @@ import { AppEnv } from '@app/env';
 import { f } from '@app/utils';
 import os from 'node:os';
 
+const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
+
 export async function bootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
   const now = Date.now();
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const levels = allLogLevels.slice(
+    allLogLevels.indexOf((AppEnv.LOG_LEVEL || 'debug') as LogLevel),
+    allLogLevels.length,
+  );
+
+  Logger.log(f`setup log level ${AppEnv.LOG_LEVEL} - ${levels}`, 'Bootstrap');
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: levels,
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({

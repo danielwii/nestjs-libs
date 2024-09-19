@@ -1,13 +1,12 @@
-import { context, trace } from '@opentelemetry/api';
-
 import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import _ from 'lodash';
 
+import { catchError, finalize, Observable } from 'rxjs';
+import { context, trace } from '@opentelemetry/api';
 import { f, METADATA_KEYS } from '@app/utils';
 
 import type { Request, Response } from 'express';
-import _ from 'lodash';
-import { catchError, finalize, Observable } from 'rxjs';
 
 export class LoggerInterceptor implements NestInterceptor {
   private readonly logger = new Logger(this.constructor.name);
@@ -21,7 +20,7 @@ export class LoggerInterceptor implements NestInterceptor {
     }
 
     // ws subscription request
-    if (!req || req.url === '/') {
+    if (!req) {
       return next.handle();
     }
 
@@ -50,21 +49,16 @@ export class LoggerInterceptor implements NestInterceptor {
 
     // !!TIPS!! @metinseylan/nestjs-opentelemetry make handler name null
     const named = Reflect.getMetadata(METADATA_KEYS.NAMED, ctx.getHandler());
-    const uid = 'uid' in req && req.uid ? `(${req.uid}) ` : '';
-    const TAG = `${uid}#${ctx.getClass().name}.${ctx.getHandler().name || named}`;
+    const uid = _.get(req, 'user.uid') as any as string;
+    const TAG = `(${uid}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
 
-    if (!res['getHeader']) {
-      return next.handle();
-    }
-
-    const isSse = res.getHeader('Content-Type') === 'text/event-stream';
-    if (res.setHeader && !isSse) {
+    if (res && res.setHeader && req.headers['content-type'] !== 'text/event-stream') {
       const currentSpan = trace.getSpan(context.active());
       if (currentSpan) res.setHeader('X-Trace-Id', currentSpan.spanContext().traceId);
     }
 
-    this.logger.verbose(
-      f`${TAG} call... (${req.ip}, ${req.ips}, ${req.hostname}) ${req.method} ${req.url} ${
+    this.logger.debug(
+      f`-> ${TAG} call... (${req.ip}, ${req.ips}, ${req.hostname}) ${req.method} ${req.url} ${
         req.headers['user-agent']
       } ${['/', '/health'].includes(req.path) ? '' : info}`,
     );
@@ -72,7 +66,7 @@ export class LoggerInterceptor implements NestInterceptor {
     const now = Date.now();
     return next.handle().pipe(
       finalize(() => {
-        this.logger.debug(f`${TAG} spent ${Date.now() - now}ms`);
+        this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
       }),
       catchError((e) => {
         const skipNotFound = _.get(e, 'status') !== 404;
