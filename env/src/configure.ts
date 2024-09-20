@@ -2,12 +2,12 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 
 import { plainToInstance, Transform, TransformFnParams } from 'class-transformer';
 import { Logger } from '@nestjs/common';
 import { config } from 'dotenv';
+import JSON from 'json5';
 import _ from 'lodash';
 
 import { f, onelineStack } from '@app/utils';
-import { Environment } from './env';
+import { NODE_ENV } from './env';
 import os from 'node:os';
-import JSON from 'json5';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   Logger.log(f`[Transform] ${{ key, origin: obj[key] }}`, 'Configure');
@@ -47,8 +47,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   private readonly logger = new Logger(this.constructor.name);
   private readonly hostname = os.hostname();
 
+  // use doppler env instead
   @IsEnum(['prod', 'stg', 'dev']) @IsOptional() ENV: 'prod' | 'stg' | 'dev' = 'dev';
-  @IsEnum(Environment) NODE_ENV: Environment = Environment.Development;
+  @IsEnum(NODE_ENV) NODE_ENV: NODE_ENV = NODE_ENV.Development;
   @IsNumber() @IsOptional() PORT?: number;
   @IsString() TZ = 'UTC';
 
@@ -72,6 +73,15 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_PROXY_ENABLED?: boolean;
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
   @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
+
+  get environment() {
+    const env = this.ENV || this.DOPPLER_ENV;
+    const isProd = env === 'prod';
+    return {
+      env,
+      isProd,
+    };
+  }
 
   /**
    * Retrieves the value of a specified field based on the hostname of the current system.
@@ -148,8 +158,8 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
    */
   constructor(readonly EnvsClass: new () => T) {
     const envFilePath = _.cond([
-      [_.matches(Environment.Test), _.constant(['.env.local', '.env.test'])],
-      [_.matches(Environment.Production), _.constant(['.env.local', '.env'])],
+      [_.matches(NODE_ENV.Test), _.constant(['.env.local', '.env.test'])],
+      [_.matches(NODE_ENV.Production), _.constant(['.env.local', '.env'])],
       // development or other
       [_.stubTrue, _.constant(['.env.development.local', '.env.local', '.env.development', '.env'])],
     ])(process.env.NODE_ENV);
@@ -167,7 +177,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       enableImplicitConversion: true,
     });
 
-    if (process.env.NODE_ENV !== Environment.Test) {
+    if (process.env.NODE_ENV !== NODE_ENV.Test) {
       this.logger.verbose(`[Config] validate...`);
       const errors = validateSync(validatedConfig, {
         skipMissingProperties: false,
@@ -180,10 +190,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       _.each(validatedConfig, (value, key) => {
-        if (key.includes('_ENABLE')) this.logger.log(f`[Feature] ${{ key, value, /* origin: config[key] */ }}`);
+        if (key.includes('_ENABLE')) this.logger.log(f`[Feature] ${{ key, value /* origin: config[key] */ }}`);
       });
       _.each(validatedConfig, (value, key) => {
-        if (key.startsWith('APP_')) this.logger.log(f`[App.Feature] ${{ key, value, /* origin: config[key] */ }}`);
+        if (key.startsWith('APP_')) this.logger.log(f`[App.Feature] ${{ key, value /* origin: config[key] */ }}`);
       });
     }
     // Logger.log(f`[Config] ${validatedConfig}`);

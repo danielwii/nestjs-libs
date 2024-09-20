@@ -1,10 +1,13 @@
 import { INestApplication, Logger } from '@nestjs/common';
 import _ from 'lodash';
 
+import { AppEnv } from '@app/env';
 import { f } from '@app/utils';
 import os from 'node:os';
 
 export const runApp = <App extends INestApplication>(app: App) => {
+  Logger.log(f`(${os.hostname}) runApp in (${AppEnv.environment.env}) env`, 'Process');
+
   process.on('uncaughtException', async (err) => {
     if (_.eq(err, 'request closed')) return;
 
