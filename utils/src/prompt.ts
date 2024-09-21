@@ -48,7 +48,7 @@ const SpecialConsiderationsSchema = z.array(z.string()).optional();
 const PromptSchema = z.object({
   objective: ObjectiveSchema, // 任务目的
   context: ContextSchema, // 上下文/背景知识
-  requirements: RequirementsSchema, // 生成要求
+  requirements: RequirementsSchema.optional(), // 生成要求
   specialConsiderations: SpecialConsiderationsSchema.optional(), // 注意事项
   output: z.string().optional(), // 输出
 });
@@ -57,54 +57,68 @@ type PromptSchema = z.infer<typeof PromptSchema>;
 Handlebars.registerHelper('isArray', (value) => Array.isArray(value));
 Handlebars.registerHelper('isString', (value) => typeof value === 'string');
 
+export function createBasePrompt(id: string, sensitivity: TimeSensitivity = TimeSensitivity.Minute, content: string) {
+  return Handlebars.compile(stripIndent`
+    ID:{{id}} Now:{{now}}
+    ------
+    {{{content}}}
+  `)({ id, now: format(new Date(), sensitivity), content });
+}
+
 export function createPrompt<Context>(
   id: string,
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
   data: PromptSchema,
 ) {
-  return Handlebars.compile(stripIndent`
-    ID:{{id}} Now:{{now}}
-    ------
-    ## Objective / Purpose
-    {{{data.objective.purpose}}}
+  return createBasePrompt(
+    id,
+    sensitivity,
+    Handlebars.compile(stripIndent`
+      ## Objective / Purpose
+      {{{objective.purpose}}}
 
-    ## Context / Background Information
-    {{#if data.context.background}}
-    {{{data.context.background}}}
-    {{/if}}
-    {{#each data.context.additionals}}
-    <{{title}}>
-    {{{content}}}
-    </{{title}}>
-    {{/each}}
+      ## Context / Background Information
+      {{#if context.background}}
+      {{{context.background}}}
+      {{/if}}
+      {{#each context.additionals}}
+      <{{title}}>
+      {{{content}}}
+      </{{title}}>
+      {{/each}}
 
-    ## Requirements / Instructions
-    {{#if (isArray data.requirements)}}
-    {{#each data.requirements}}
-    {{#if (isString this)}}
-    - {{{this}}}
-    {{else}}
-    - {{{this.[0]}}}
-      {{#each this.[1]}}
+      {{#if requirements}}
+      ## Requirements / Instructions
+      {{#if (isArray requirements)}}
+      {{#each requirements}}
+      {{#if (isString this)}}
+      - {{{this}}}
+      {{else}}
+      - {{{this.[0]}}}
+        {{#each this.[1]}}
+        - {{{this}}}
+        {{/each}}
+      {{/if}}
+      {{/each}}
+      {{else}}
+      {{{requirements}}}
+      {{/if}}
+      {{/if}}
+
+      {{#if specialConsiderations}}
+      ## Special Considerations
+      {{#each specialConsiderations}}
       - {{{this}}}
       {{/each}}
-    {{/if}}
-    {{/each}}
-    {{else}}
-    {{{data.requirements}}}
-    {{/if}}
-
-    ## Special Considerations
-    {{#each data.specialConsiderations}}
-    - {{{this}}}
-    {{/each}}
-
-    {{#if data.output}}
-    Output:
-    {{{data.output}}}
-    {{else}}
-    Output:
-    {{{data.output}}}
-    {{/if}}
-  `)({ id, now: format(new Date(), sensitivity), data });
+      {{/if}}
+      
+      {{#if output}}
+      Output:
+      {{{output}}}
+      {{else}}
+      Output:
+      {{{output}}}
+      {{/if}}
+    `)(data),
+  );
 }

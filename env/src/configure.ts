@@ -76,6 +76,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   get environment() {
     const env = this.ENV || this.DOPPLER_ENV;
+    Logger.log(f`${{ ENV: this.ENV, NODE_ENV: this.NODE_ENV, DOPPLER_ENV: this.DOPPLER_ENV }}`, 'Environment');
     const isProd = env === 'prod';
     return {
       env,
