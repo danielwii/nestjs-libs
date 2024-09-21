@@ -61,7 +61,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // used to debug dependency issues
   @IsString() @IsOptional() NEST_DEBUG?: string;
 
-  @IsString() @IsOptional() DOPPLER_ENV?: string;
+  @IsString() @IsOptional() DOPPLER_ENVIRONMENT?: string;
 
   @IsBoolean()
   @IsOptional()
@@ -75,8 +75,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
 
   get environment() {
-    const env = this.ENV || this.DOPPLER_ENV;
-    Logger.log(f`${{ ENV: this.ENV, NODE_ENV: this.NODE_ENV, DOPPLER_ENV: this.DOPPLER_ENV }}`, 'Environment');
+    const env = this.ENV || this.DOPPLER_ENVIRONMENT;
     const isProd = env === 'prod';
     return {
       env,
