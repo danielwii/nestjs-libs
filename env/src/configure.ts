@@ -48,7 +48,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   private readonly hostname = os.hostname();
 
   // use doppler env instead
-  @IsEnum(['prod', 'stg', 'dev']) @IsOptional() ENV: 'prod' | 'stg' | 'dev' = 'dev';
+  @IsEnum(['prd', 'stg', 'dev']) @IsOptional() ENV?: 'prd' | 'stg' | 'dev';
   @IsEnum(NODE_ENV) NODE_ENV: NODE_ENV = NODE_ENV.Development;
   @IsNumber() @IsOptional() PORT?: number;
   @IsString() TZ = 'UTC';
@@ -75,8 +75,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
 
   get environment() {
-    const env = this.ENV || this.DOPPLER_ENVIRONMENT;
-    const isProd = env === 'prod';
+    const env = this.ENV || this.DOPPLER_ENVIRONMENT || 'dev';
+    const isProd = env === 'prd';
     return {
       env,
       isProd,
