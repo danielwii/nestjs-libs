@@ -29,7 +29,7 @@ const ObjectiveSchema = z.object({
 
 const SectionSchema = z.object({
   title: z.string(),
-  content: z.string(),
+  content: z.string().optional(),
 });
 
 // 上下文/背景知识 (Context/Background Information)
@@ -83,7 +83,11 @@ export function createPrompt<Context>(
       {{/if}}
       {{#each context.additionals}}
       <{{title}}>
+      {{#if content}}
       {{{content}}}
+      {{else}}
+      <empty />
+      {{/if}}
       </{{title}}>
       {{/each}}
 
