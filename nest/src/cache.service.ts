@@ -1,11 +1,10 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { formatDistanceToNow } from 'date-fns';
+import { Cache } from 'cache-manager';
+import { Duration } from 'luxon';
 
 import { f } from '@app/utils';
-
-import { Cache } from 'cache-manager';
-import { formatDistanceToNow } from 'date-fns';
-import { Duration } from 'luxon';
 
 /**
  * very light wrapper around cache-manager v1
@@ -32,7 +31,7 @@ export class CacheService {
    */
   async wrap<T>(key: string, fn: () => Promise<T>, _ttl?: number): Promise<T> {
     const ttl = _ttl || CacheService.TTL_1D;
-    const value: T = await this.cacheManager.get(key);
+    const value = await this.cacheManager.get(key);
     if (value) {
       const leftInSeconds = await this.cacheManager.store.ttl(key);
       // threshold is the 1/10 of ttl in milliseconds, min is 5min
@@ -54,18 +53,18 @@ export class CacheService {
           })
           .catch((e) => this.logger.error(f`Cache Refresh Error ${{ key }}`, e.stack));
       }
-      return value;
+      return value as T;
     }
 
     this.logger.debug(f`Cache Miss ${key}`);
     return await this.cacheManager.wrap(key, fn, ttl);
   }
 
-  async get<T>(key: string): Promise<T> {
-    const value: T = await this.cacheManager.get(key);
+  async get<T>(key: string): Promise<T | null> {
+    const value = await this.cacheManager.get(key);
     if (value) {
       this.logger.verbose(f`Cache Hit ${{ key }}`);
-      return value;
+      return value as T;
     } else {
       this.logger.verbose(f`Cache Miss ${{ key }}`);
       return null;

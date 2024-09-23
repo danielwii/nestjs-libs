@@ -10,6 +10,6 @@ export const named: MethodDecorator = function (target, propertyKey, descriptor)
     return Reflect.apply(originalMethod, this, [...args, propertyKey]);
   };
 
-  Reflect.defineMetadata(METADATA_KEYS.NAMED, String(propertyKey), descriptor.value);
+  Reflect.defineMetadata(METADATA_KEYS.NAMED, String(propertyKey), descriptor.value as any);
   return descriptor;
 };

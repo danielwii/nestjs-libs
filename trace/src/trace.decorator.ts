@@ -7,12 +7,12 @@ import { context, Span, SpanKind, trace } from '@opentelemetry/api';
  */
 export const Trace =
   (spanName?: string): MethodDecorator =>
-  (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
+  (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
     const originalMethod = descriptor.value;
 
     descriptor.value = async function (...args: any[]) {
       const tracer = trace.getTracer('default');
-      const actualSpanName = spanName || propertyKey;
+      const actualSpanName = spanName || propertyKey.toString();
       const span: Span = tracer.startSpan(actualSpanName, {
         kind: SpanKind.INTERNAL,
       });
@@ -22,12 +22,12 @@ export const Trace =
           trace.setSpan(context.active(), span),
           async () => await originalMethod.apply(this, args),
         );
-      } catch (error) {
+      } catch (e: any) {
         span.setStatus({
           code: 2,
-          message: error.message,
+          message: e.message,
         });
-        throw error;
+        throw e;
       } finally {
         span.end();
       }

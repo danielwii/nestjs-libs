@@ -1,7 +1,6 @@
 import { Logger } from '@nestjs/common';
-
-import _ from 'lodash';
 import { from, Observable } from 'rxjs';
+import _ from 'lodash';
 
 import { named } from './annotation';
 import { f } from './utils';
@@ -42,7 +41,7 @@ export class ReactiveUtils {
               answer += value;
               observer.next(value);
             }
-          } catch (e) {
+          } catch (e: any) {
             Logger.error(f`#${funcName} generator error ${{ key, e }}`, e.stack, 'ReactiveUtils');
             observer.error(e);
           }
@@ -61,8 +60,8 @@ export class ReactiveUtils {
 
           Logger.log(f`#${funcName} complete ... ${key}`, 'ReactiveUtils');
           observer.complete();
-        } catch (error) {
-          Logger.error(f`#${funcName} error ${{ key, completed, error }}`, error.stack, 'ReactiveUtils');
+        } catch (e: any) {
+          Logger.error(f`#${funcName} error ${{ key, completed, error: e }}`, e.stack, 'ReactiveUtils');
           observer.error('no answer');
         }
       })();

@@ -1,7 +1,6 @@
-import { context, trace } from '@opentelemetry/api';
-
 import { ConsoleLogger, Injectable } from '@nestjs/common';
 
+import { context, trace } from '@opentelemetry/api';
 import { Injector } from './injector';
 
 @Injectable()
@@ -27,7 +26,7 @@ export class LoggerInjector implements Injector {
     const currentSpan = trace.getSpan(context.active());
     if (!currentSpan) return message;
 
-    const spanContext = trace.getSpan(context.active()).spanContext();
+    const spanContext = currentSpan.spanContext();
     currentSpan.addEvent(message);
 
     return `[${spanContext.traceId}] ${message}`;

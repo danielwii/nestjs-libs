@@ -14,7 +14,7 @@ export class ApiFetcher {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(url, { ...options, signal: controller.signal })
+    const response = await fetch(url, { ...options, signal: controller.signal as any })
       .catch((e) => {
         this.logger.error(`<ApiFetcher> #fetch ${url} error ${e.message} ${Date.now() - now}ms...`, e.stack);
         throw new Error(`<ApiFetcher> #fetch error ${e.message}...`);

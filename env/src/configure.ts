@@ -17,7 +17,7 @@ const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
   // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
   try {
     return _.isArray(obj[key]) ? obj[key] : JSON.parse(obj[key] || '[]');
-  } catch (e) {
+  } catch (e: any) {
     Logger.error(
       f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e.message} ${onelineStack(e.stack)}`,
       'Transform',
@@ -94,21 +94,26 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   getByHost<F extends keyof HostSetVariables>(
     field: F,
     fallback?: HostSetVariables[F][0] | boolean,
-  ): HostSetVariables[F][0] {
+  ): HostSetVariables[F][0] | undefined {
     try {
       const index = this.hostIndex;
+      if (_.isNil(index)) {
+        this.logger.warn(f`#getByHost (${this.hostname}) ${{ field, index }}`);
+        return _.isBoolean(fallback) ? _.get(this, [field, 0]) : fallback;
+      }
       this.logger.verbose(f`#getByHost (${this.hostname}) ${{ field, index }}`);
       return _.isBoolean(fallback)
         ? _.get(this[field], index, _.get(this, [field, 0]))
         : _.get(this[field], index, fallback);
-    } catch (e) {
+    } catch (e: any) {
       this.logger.error(f`#getByHost (${this.hostname}) ${field} ${e.message} ${onelineStack(e.stack)}`);
       return _.isBoolean(fallback) ? _.get(this, [field, 0]) : fallback;
     }
   }
 
   get hostIndex() {
-    return parseInt(this.hostname.split('-').pop());
+    const part = this.hostname.split('-').pop();
+    return _.isString(part) ? +part : null;
   }
 
   /**
@@ -131,8 +136,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
     try {
       const host = hostId ?? 0;
       this.hostKeys[host] = _.concat([...(this.hostKeys[host] ?? []), key]);
-      const index = +this.hostname.split('-').pop();
-      const on = _.isNaN(index) ? !!acceptWhenNoIds : index === host;
+      const index = this.hostIndex;
+      const on = _.isNil(index) ? !!acceptWhenNoIds : index === host;
       this.logger.debug(f`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`);
       return on;
     } catch (e) {}
