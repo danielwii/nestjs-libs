@@ -5,15 +5,16 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import responseTime from 'response-time';
 import { oneLine } from 'common-tags';
 import compression from 'compression';
+import { format } from 'date-fns';
 import helmet from 'helmet';
 
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
 import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
+import { f, TimeSensitivity } from '@app/utils';
 import { runApp } from '@app/nest/lifecycle';
 import { AppEnv } from '@app/env';
-import { f } from '@app/utils';
 import os from 'node:os';
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
@@ -125,7 +126,7 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
       Logger.log(
         oneLine`
         🦋 (${os.hostname()}) Listening on port ${port}. in ${Date.now() - now}ms,
-        pid:${process.pid} platform:${process.platform} node_version:${process.version}.`,
+        pid:${process.pid} platform:${process.platform} node_version:${process.version} at ${format(new Date(), TimeSensitivity.Minute)}.`,
         'Bootstrap',
       );
       initStackTraceFormatter();

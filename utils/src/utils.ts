@@ -1,9 +1,9 @@
 import { instanceToPlain } from 'class-transformer';
 import * as process from 'process';
+import JSON from 'json5';
 import _ from 'lodash';
 
 import util from 'node:util';
-import JSON from 'json5';
 
 /**
  * 主要用于日志中复杂数据结构的打印
@@ -21,6 +21,10 @@ export function f(strings: TemplateStringsArray, ...values: any[]): string {
   }
 
   return result;
+}
+
+export function withObject<T, R>(o: T, fn: (o: T) => R): R {
+  return fn(o);
 }
 
 export function r(o: any): string {
