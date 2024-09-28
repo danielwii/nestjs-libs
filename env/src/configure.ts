@@ -35,7 +35,7 @@ const DatabaseFieldFormatSymbol = Symbol('DatabaseFieldFormat');
  * @param format
  * @constructor
  */
-const DatabaseField =
+export const DatabaseField =
   (format: 'string' | 'number' | 'boolean' | 'json' = 'string') =>
   (target: any, propertyKey: string) => {
     Logger.verbose(f`found ${propertyKey}:${format}`, 'DatabaseField');
@@ -203,6 +203,54 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     }
     // Logger.log(f`[Config] ${validatedConfig}`);
     return validatedConfig;
+  }
+
+  static async syncFromDB(prisma: any, envs: Record<string, any>) {
+    const fields = _(Object.getOwnPropertyNames(envs))
+      .map((field) => {
+        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, envs, field);
+        const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, envs, field);
+        return { field, isDatabaseField, format, value: envs[field] };
+      })
+      .filter(({ isDatabaseField }) => isDatabaseField)
+      .value();
+    // Logger.verbose(f`#syncFromDB... ${fields}`, 'AppConfigure');
+
+    Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
+    const appSettings = _.map(await prisma.appSetting.findMany(), ({ value, format, ...rest }) =>
+      /**/
+      ({ ...rest, value: format !== 'string' ? JSON.parse(value) : value, format }),
+    );
+    // Logger.verbose(f`#syncFromDB appSettings... ${{ appSettings }}`, 'AppConfigure');
+    const fieldNamesInDB = _.map(appSettings, (s) => s.key);
+    // 如何 appSettings 中不存在，则用当前的值更新
+    const nonExistsFields = _.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
+    // Logger.verbose(f`#syncFromDB nonExistsFields... ${{ nonExistsFields }}`, 'AppConfigure');
+    if (nonExistsFields.length) {
+      Logger.verbose(f`#syncFromDB create... ${nonExistsFields}`, 'AppConfigure');
+      await prisma.appSetting.createMany({
+        data: nonExistsFields.map(({ field, format }) => {
+          const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
+          const newVar = { key: field, default_value: value, format };
+          Logger.verbose(f`#syncFromDB create... ${newVar}`, 'AppConfigure');
+          return newVar;
+        }),
+        skipDuplicates: true,
+      });
+    }
+
+    // 如何 appSettings 中存在，则用当前的值更新 envs
+    const existsFields = _.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
+    // Logger.verbose(f`#syncFromDB existsFields... ${{ existsFields }}`, 'AppConfigure');
+    for (const { field, value } of existsFields) {
+      const appSetting = _.find(appSettings, { key: field });
+      const dbValue = appSetting.value;
+      const equal = _.isEqual(value, dbValue);
+      if (!_.isNil(appSetting.value) && !equal) {
+        Logger.log(f`#syncFromDB update... ${{ field, value, dbValue }}`, 'AppConfigure');
+        envs[field] = dbValue;
+      }
+    }
   }
 }
 

@@ -79,6 +79,7 @@ export function createPrompt(id: string, sensitivity: TimeSensitivity = TimeSens
       {{#if context.background}}
       {{{context.background}}}
       {{/if}}
+
       {{#each context.additionals}}
       <{{title}}>
       {{#if content}}
@@ -143,6 +144,7 @@ export function createEnhancedPrompt({
   data: PromptSchema;
   logicErrorContext?: {
     background?: string;
+    output?: string;
     additionals: { title: string; content: string }[];
   };
 }) {
@@ -158,11 +160,12 @@ export function createEnhancedPrompt({
             additionals: [...logicErrorContext.additionals, { title: 'Input', content: JSON.stringify(input) }],
           },
           requirements: stripIndent`
-      - 识别并修复输入内容中的逻辑错误
-      - 确保修复后的输入内容逻辑正确且高效
-      - 提供详细的修复说明，解释修复的原因和方法
-    `,
+            - 识别并修复输入内容中的逻辑错误
+            - 确保修复后的输入内容逻辑正确且高效
+            - 提供详细的修复说明，解释修复的原因和方法
+          `,
           specialConsiderations: ['请确保修复后的输入内容逻辑清晰易懂。', '严格基于输入的结构，不要扩展。'],
+          output: logicErrorContext.output,
         })
     : undefined;
 
