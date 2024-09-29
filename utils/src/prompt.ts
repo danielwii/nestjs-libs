@@ -131,7 +131,7 @@ export function createPrompt(id: string, sensitivity: TimeSensitivity = TimeSens
   );
 }
 
-export function createEnhancedPrompt({
+export function createEnhancedPrompt<Response>({
   id,
   version,
   sensitivity,
@@ -143,30 +143,37 @@ export function createEnhancedPrompt({
   sensitivity: TimeSensitivity;
   data: PromptSchema;
   logicErrorContext?: {
+    condition?: (response: Response) => boolean;
     background?: string;
     output?: string;
-    additionals: { title: string; content: string }[];
+    additionals?: { title: string; content: string }[];
   };
 }) {
   const prompt = createPrompt(`${id}-${version}`, sensitivity, data);
   const logicErrorPromptCreator = logicErrorContext
-    ? (input: any) =>
-        createPrompt(`LogicFixer-${id}`, sensitivity || TimeSensitivity.Minute, {
+    ? (response: Response) => {
+        if (logicErrorContext.condition && !logicErrorContext.condition(response)) return null;
+
+        return createPrompt(`LogicFixer-${id}`, sensitivity || TimeSensitivity.Minute, {
           objective: {
             purpose: '你是逻辑问题修复专家。请基于提供的背景信息，修复输入内容中的逻辑错误。',
           },
           context: {
             background: logicErrorContext.background,
-            additionals: [...logicErrorContext.additionals, { title: 'Input', content: JSON.stringify(input) }],
+            additionals: [
+              ...(logicErrorContext.additionals || []),
+              { title: 'Input', content: JSON.stringify(response) },
+            ],
           },
           requirements: stripIndent`
             - 识别并修复输入内容中的逻辑错误
             - 确保修复后的输入内容逻辑正确且高效
             - 提供详细的修复说明，解释修复的原因和方法
           `,
-          specialConsiderations: ['请确保修复后的输入内容逻辑清晰易懂。', '严格基于输入的结构，不要扩展。'],
+          specialConsiderations: ['请确保修复后的输入内容逻辑清晰易懂。', '尽量少修改，只修改有问题的部分。'],
           output: logicErrorContext.output,
-        })
+        });
+      }
     : undefined;
 
   return { prompt, logicErrorPromptCreator };
