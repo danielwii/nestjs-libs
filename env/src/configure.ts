@@ -41,6 +41,11 @@ export const DatabaseField =
     Logger.verbose(f`found ${propertyKey}:${format}`, 'DatabaseField');
     Reflect.defineMetadata(DatabaseFieldSymbol, true, target, propertyKey);
     Reflect.defineMetadata(DatabaseFieldFormatSymbol, format, target, propertyKey);
+    if (format === 'boolean') {
+      Transform(booleanTransformFn)(target, propertyKey);
+      IsBoolean()(target, propertyKey);
+      IsOptional()(target, propertyKey);
+    }
   };
 
 export class AbstractEnvironmentVariables implements HostSetVariables {

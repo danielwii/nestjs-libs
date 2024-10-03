@@ -1,4 +1,4 @@
-import { stripIndent, stripIndents } from 'common-tags';
+import { stripIndent } from 'common-tags';
 import * as Handlebars from 'handlebars';
 import { format } from 'date-fns';
 import { z } from 'zod';
@@ -9,23 +9,8 @@ export enum TimeSensitivity {
   Minute = 'yyyy-MM-dd EEEE hh:QQQQ a BBBB',
 }
 
-export function createPromptContext<Context>(
-  id: string,
-  context: Context,
-  sensitivity: TimeSensitivity = TimeSensitivity.Minute,
-) {
-  return (prompt: string) =>
-    Handlebars.compile(stripIndents`
-      ID:{{id}} Now:{{now}}
-      ------
-      ${prompt}
-    `)({ ...context, id, now: format(new Date(), sensitivity) });
-}
-
 // 目的 (Objective/Purpose)
-const ObjectiveSchema = z.object({
-  purpose: z.string(), // 必须明确的任务目的
-});
+const ObjectiveSchema = z.string(); // 必须明确的任务目的
 
 const SectionSchema = z.object({
   title: z.string(),
@@ -33,24 +18,22 @@ const SectionSchema = z.object({
 });
 
 // 上下文/背景知识 (Context/Background Information)
-const ContextSchema = z.object({
-  background: z.string().optional(), // 描述背景设定或上下文
-  additionals: z.array(SectionSchema).optional(), // 可选的其他背景信息，如复杂的键值对结构
-});
+const ContextSchema = z.array(SectionSchema).optional(); // 可选的其他背景信息，如复杂的键值对结构
 
 // 生成要求 (Requirements/Instructions)
 const RequirementsSchema = z.union([z.string(), z.array(z.string())]);
 
 // 注意事项 (Special Considerations)
-const SpecialConsiderationsSchema = z.array(z.string()).optional();
+const SpecialConsiderationsSchema = z.union([z.string(), z.array(z.string())]).optional();
 
 // 完整的通用 prompt schema
 const PromptSchema = z.object({
-  objective: ObjectiveSchema, // 任务目的
+  purpose: ObjectiveSchema, // 任务目的
+  background: z.string().optional(), // 描述背景设定
   context: ContextSchema, // 上下文/背景知识
   requirements: RequirementsSchema.optional(), // 生成要求
   specialConsiderations: SpecialConsiderationsSchema.optional(), // 注意事项
-  examples: z.string().optional(), // 示例
+  examples: z.union([z.string(), z.array(z.string())]).optional(), // 示例
   output: z.string().optional(), // 输出
 });
 type PromptSchema = z.infer<typeof PromptSchema>;
@@ -58,13 +41,24 @@ type PromptSchema = z.infer<typeof PromptSchema>;
 Handlebars.registerHelper('isArray', (value) => Array.isArray(value));
 Handlebars.registerHelper('isString', (value) => typeof value === 'string');
 
-export function createBasePrompt(id: string, sensitivity: TimeSensitivity = TimeSensitivity.Minute, content: string) {
+export function createBasePrompt(
+  id: string,
+  sensitivity: TimeSensitivity = TimeSensitivity.Minute,
+  content: string,
+  output?: string,
+) {
   const now = format(new Date(), sensitivity);
   return Handlebars.compile(stripIndent`
-    ID:{{id}} Now:{{now}}
+    ID:{{id}}
     ------
     {{{content}}}
-  `)({ id, now, content });
+    ------
+    Now:{{now}}
+    {{#if output}}
+    {{{output}}}
+    {{/if}}
+    Output:
+  `)({ id, now, content, output });
 }
 
 export function createPrompt(id: string, sensitivity: TimeSensitivity = TimeSensitivity.Minute, data: PromptSchema) {
@@ -73,22 +67,12 @@ export function createPrompt(id: string, sensitivity: TimeSensitivity = TimeSens
     sensitivity,
     Handlebars.compile(stripIndent`
       ## Objective / Purpose
-      {{{objective.purpose}}}
+      {{{purpose}}}
 
-      ## Context / Background Information
-      {{#if context.background}}
-      {{{context.background}}}
+      {{#if background}}
+      ## Background Information
+      {{{background}}}
       {{/if}}
-
-      {{#each context.additionals}}
-      <{{title}}>
-      {{#if content}}
-      {{{content}}}
-      {{else}}
-      <empty />
-      {{/if}}
-      </{{title}}>
-      {{/each}}
 
       {{#if requirements}}
       ## Requirements / Instructions
@@ -110,24 +94,40 @@ export function createPrompt(id: string, sensitivity: TimeSensitivity = TimeSens
 
       {{#if specialConsiderations}}
       ## Special Considerations
+      {{#if (isArray specialConsiderations)}}
       {{#each specialConsiderations}}
       - {{{this}}}
       {{/each}}
+      {{else}}
+      {{{specialConsiderations}}}
+      {{/if}}
       {{/if}}
 
       {{#if examples}}
       ## Examples
+      {{#if (isArray examples)}}
+      {{#each examples}}
+      - {{{this}}}
+      {{/each}}
+      {{else}}
       {{{examples}}}
       {{/if}}
+      {{/if}}
 
-      {{#if output}}
-      Output:
-      {{{output}}}
+      {{#if context}}
+      ## Context
+      {{#each context}}
+      <{{title}}>
+      {{#if content}}
+      {{{content}}}
       {{else}}
-      Output:
-      {{{output}}}
+      <empty />
+      {{/if}}
+      </{{title}}>
+      {{/each}}
       {{/if}}
     `)(data),
+    data.output,
   );
 }
 
@@ -155,21 +155,16 @@ export function createEnhancedPrompt<Response>({
         if (logicErrorContext.condition && !logicErrorContext.condition(response)) return null;
 
         return createPrompt(`LogicFixer-${id}`, sensitivity || TimeSensitivity.Minute, {
-          objective: {
-            purpose: '你是逻辑问题修复专家。请基于提供的背景信息，修复输入内容中的逻辑错误。',
-          },
-          context: {
-            background: logicErrorContext.background,
-            additionals: [
-              ...(logicErrorContext.additionals || []),
-              { title: 'Input', content: JSON.stringify(response) },
-            ],
-          },
-          requirements: stripIndent`
-            - 识别并修复输入内容中的逻辑错误
-            - 确保修复后的输入内容逻辑正确且高效
-            - 提供详细的修复说明，解释修复的原因和方法
-          `,
+          purpose: '你是逻辑问题修复专家。请基于提供的背景信息，修复输入内容中的逻辑错误。',
+          background: logicErrorContext.background,
+          context: [...(logicErrorContext.additionals || []), { title: 'Input', content: JSON.stringify(response) }],
+          requirements: [
+            stripIndent`
+              - 识别并修复输入内容中的逻辑错误
+              - 确保修复后的输入内容逻辑正确且高效
+              - 提供详细的修复说明，解释修复的原因和方法
+            `,
+          ],
           specialConsiderations: ['请确保修复后的输入内容逻辑清晰易懂。', '尽量少修改，只修改有问题的部分。'],
           output: logicErrorContext.output,
         });
