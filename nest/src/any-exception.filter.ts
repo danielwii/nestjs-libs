@@ -13,6 +13,7 @@ import { ZodError } from 'zod';
 import _ from 'lodash';
 
 import { ErrorCodes } from '@app/nest/error-codes';
+import { WithSentry } from '@sentry/nestjs';
 import { ApiRes } from '@app/nest';
 import { f } from '@app/utils';
 
@@ -21,6 +22,7 @@ import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(this.constructor.name);
 
+  @WithSentry()
   catch(exception: any, host: ArgumentsHost): any {
     const ctx = host.switchToHttp();
     const request = ctx.getRequest();
