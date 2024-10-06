@@ -171,5 +171,5 @@ export function createEnhancedPrompt<Response>({
       }
     : undefined;
 
-  return { prompt, logicErrorPromptCreator };
+  return { prompt, logicErrorPromptCreator, id, version };
 }
