@@ -6,6 +6,7 @@ import responseTime from 'response-time';
 import { oneLine } from 'common-tags';
 import compression from 'compression';
 import { format } from 'date-fns';
+import { DateTime } from 'luxon';
 import helmet from 'helmet';
 
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
@@ -126,8 +127,9 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
       Logger.log(
         oneLine`
           🦋 (${os.hostname()}) Listening on port ${port}. in ${Date.now() - now}ms,
-          pid:${process.pid} platform:${process.platform} node_version:${process.version} 
-          at ${format(new Date(), TimeSensitivity.Minute)} TZ:${AppEnv.TZ}.
+          pid:${process.pid} platform:${process.platform} node_version:${process.version}
+          at ${format(DateTime.now().setZone(AppEnv.TZ).toJSDate(), TimeSensitivity.Minute)} |
+          ${DateTime.now().setZone(AppEnv.TZ).toLocaleString(DateTime.DATETIME_FULL)} | ${AppEnv.TZ}.
         `,
         'Bootstrap',
       );

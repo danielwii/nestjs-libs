@@ -1,6 +1,7 @@
 import { stripIndent } from 'common-tags';
 import * as Handlebars from 'handlebars';
 import { format } from 'date-fns';
+import { DateTime } from 'luxon';
 import { z } from 'zod';
 
 export enum TimeSensitivity {
@@ -43,11 +44,12 @@ Handlebars.registerHelper('isString', (value) => typeof value === 'string');
 
 export function createBasePrompt(
   id: string,
+  timezone: string | undefined | null,
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
   content: string,
   output?: string,
 ) {
-  const now = format(new Date(), sensitivity);
+  const now = format(timezone ? DateTime.now().setZone(timezone).toJSDate() : new Date(), sensitivity);
   return Handlebars.compile(stripIndent`
     ID:{{id}}
     ------
@@ -61,9 +63,15 @@ export function createBasePrompt(
   `)({ id, now, content, output });
 }
 
-export function createPrompt(id: string, sensitivity: TimeSensitivity = TimeSensitivity.Minute, data: PromptSchema) {
+export function createPrompt(
+  id: string,
+  timezone: string | undefined | null,
+  sensitivity: TimeSensitivity = TimeSensitivity.Minute,
+  data: PromptSchema,
+) {
   return createBasePrompt(
     id,
+    timezone,
     sensitivity,
     Handlebars.compile(stripIndent`
       ## Objective / Purpose
@@ -134,12 +142,14 @@ export function createPrompt(id: string, sensitivity: TimeSensitivity = TimeSens
 export function createEnhancedPrompt<Response>({
   id,
   version,
+  timezone,
   sensitivity,
   data,
   logicErrorContext,
 }: {
   id: string;
   version: string;
+  timezone?: string;
   sensitivity: TimeSensitivity;
   data: PromptSchema;
   logicErrorContext?: {
@@ -149,12 +159,12 @@ export function createEnhancedPrompt<Response>({
     additionals?: { title: string; content: string }[];
   };
 }) {
-  const prompt = createPrompt(`${id}-${version}`, sensitivity, data);
+  const prompt = createPrompt(`${id}-${version}`, timezone ?? process.env.TZ, sensitivity, data);
   const logicErrorPromptCreator = logicErrorContext
     ? (response: Response) => {
         if (logicErrorContext.condition && !logicErrorContext.condition(response)) return null;
 
-        return createPrompt(`LogicFixer-${id}`, sensitivity || TimeSensitivity.Minute, {
+        return createPrompt(`LogicFixer-${id}`, timezone, sensitivity || TimeSensitivity.Minute, {
           purpose: '你是逻辑问题修复专家。请基于提供的背景信息，修复输入内容中的逻辑错误。',
           background: logicErrorContext.background,
           context: [...(logicErrorContext.additionals || []), { title: 'Input', content: JSON.stringify(response) }],
