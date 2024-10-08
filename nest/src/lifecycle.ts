@@ -6,36 +6,46 @@ import { f } from '@app/utils';
 import os from 'node:os';
 
 export const runApp = <App extends INestApplication>(app: App) => {
-  Logger.log(f`(${os.hostname}) runApp in (${AppEnv.environment.env}) env`, 'Process');
+  const logger = new Logger(runApp.name);
+  logger.log(f`(${os.hostname}) runApp in (${AppEnv.environment.env}) env`);
 
   process.on('uncaughtException', async (err) => {
     if (_.eq(err, 'request closed')) return;
 
-    Logger.error(f`(${os.hostname}) uncaughtException: ${err.message ?? err}`, err.stack, 'Process');
+    logger.error(f`(${os.hostname}) uncaughtException: ${err.message ?? err}`, err.stack);
     // Sentry.captureException(err);
-    await app.close();
-    Logger.error(`(${os.hostname}) exit by uncaughtException...`, 'Process');
-    process.exit(1);
+    try {
+      await app.close();
+    } catch (error: any) {
+      logger.error(`(${os.hostname}) exit by uncaughtException error: ${error.message}`, error.stack);
+    } finally {
+      logger.error(`(${os.hostname}) exit by uncaughtException...`);
+      process.exit(1);
+    }
   });
   process.on('unhandledRejection', async (err: Error) => {
-    Logger.error(
+    logger.error(
       f`(${os.hostname}) unhandledRejection: ${err.message ?? err} - ${_.get(err, 'cause', 'unknown cause')} -`,
       err.stack,
-      'process',
     );
     // Sentry.captureException(err);
-    await app.close();
-    Logger.error(`(${os.hostname}) exit by unhandledRejection...`, 'Process');
-    process.exit(1);
+    try {
+      await app.close();
+    } catch (error: any) {
+      logger.error(`(${os.hostname}) exit by unhandledRejection error: ${error.message}`, error.stack);
+    } finally {
+      logger.error(`(${os.hostname}) exit by unhandledRejection...`);
+      process.exit(2);
+    }
   });
   process.on('beforeExit', (reason) => {
-    Logger[reason ? 'error' : 'log'](f`(${os.hostname}) App will exit cause: ${reason}`, 'Process');
+    logger[reason ? 'error' : 'log'](f`(${os.hostname}) App will exit cause: ${reason}`);
   });
   process.on('SIGINT', async (signals) => {
-    Logger.log(f`(${os.hostname}) Received SIGINT. ${signals} (${process.pid})`, 'Process');
+    logger.log(f`(${os.hostname}) Received SIGINT. ${signals} (${process.pid})`);
   });
   process.on('exit', (reason) => {
-    Logger[reason ? 'error' : 'log'](f`(${os.hostname}) App exit cause: ${reason} (${process.pid})`, 'Process');
+    logger[reason ? 'error' : 'log'](f`(${os.hostname}) App exit cause: ${reason} (${process.pid})`);
     // sometimes the process will not exit, so we force exit it
     setTimeout(() => process.exit(0), 3e3);
   });

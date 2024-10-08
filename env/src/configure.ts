@@ -2,6 +2,7 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 
 import { plainToInstance, Transform, TransformFnParams } from 'class-transformer';
 import { Logger } from '@nestjs/common';
 import { config } from 'dotenv';
+import { uid } from 'radash';
 import JSON from 'json5';
 import _ from 'lodash';
 
@@ -61,7 +62,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
 
-  @IsString() @IsOptional() API_KEY?: string;
+  @DatabaseField('string') @IsString() API_KEY: string = uid(64);
 
   // used to debug dependency issues
   @IsString() @IsOptional() NEST_DEBUG?: string;
@@ -232,7 +233,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const nonExistsFields = _.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
     // Logger.verbose(f`#syncFromDB nonExistsFields... ${{ nonExistsFields }}`, 'AppConfigure');
     if (nonExistsFields.length) {
-      Logger.verbose(f`#syncFromDB create... ${nonExistsFields}`, 'AppConfigure');
+      // Logger.verbose(f`#syncFromDB create... ${nonExistsFields}`, 'AppConfigure');
       await prisma.appSetting.createMany({
         data: nonExistsFields.map(({ field, format }) => {
           const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
@@ -252,7 +253,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const dbValue = appSetting.value;
       const equal = _.isEqual(value, dbValue);
       if (!_.isNil(appSetting.value) && !equal) {
-        Logger.log(f`#syncFromDB update... ${{ field, value, dbValue }}`, 'AppConfigure');
+        Logger.log(f`#syncFromDB update... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
         envs[field] = dbValue;
       }
     }

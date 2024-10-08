@@ -125,8 +125,10 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
     .then(() => {
       Logger.log(
         oneLine`
-        🦋 (${os.hostname()}) Listening on port ${port}. in ${Date.now() - now}ms,
-        pid:${process.pid} platform:${process.platform} node_version:${process.version} at ${format(new Date(), TimeSensitivity.Minute)}.`,
+          🦋 (${os.hostname()}) Listening on port ${port}. in ${Date.now() - now}ms,
+          pid:${process.pid} platform:${process.platform} node_version:${process.version} 
+          at ${format(new Date(), TimeSensitivity.Minute)} TZ:${AppEnv.TZ}.
+        `,
         'Bootstrap',
       );
       initStackTraceFormatter();
