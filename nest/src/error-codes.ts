@@ -5,6 +5,7 @@ export enum ErrorCodes {
   TooManyRequests = '0x0005',
 
   Unauthorized = '0x0101',
+  AuthFailed = '0x0102',
   Conflict = '0x0109', // 数据冲突
 
   PrismaClientKnownRequestError = '0x0A0A', // prisma client 发生了已知的错误，通常是因为违反了数据库的约束

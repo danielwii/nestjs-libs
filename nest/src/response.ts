@@ -13,9 +13,9 @@ export type ApiFailRes = {
 
 export type ApiRes<Data = any> =
   | {
-  // statusCode: 200;
-  data?: Data;
-}
+      // statusCode: 200;
+      data?: Data;
+    }
   | ApiFailRes;
 
 export const ApiRes = {
@@ -35,11 +35,11 @@ export const ApiRes = {
     errors: message === errors ? undefined : errors,
   }),
   failureV2: ({
-                code,
-                message,
-                errors,
-                // statusCode,
-              }: {
+    code,
+    message,
+    errors,
+    // statusCode,
+  }: {
     code: ErrorCodes;
     message: string;
     // statusCode?: ErrorHttpStatusCode;
