@@ -1,8 +1,8 @@
 import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
+import { catchError, finalize, Observable } from 'rxjs';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import _ from 'lodash';
 
-import { catchError, finalize, Observable } from 'rxjs';
 import { context, trace } from '@opentelemetry/api';
 import { f, METADATA_KEYS } from '@app/utils';
 
@@ -52,9 +52,12 @@ export class LoggerInterceptor implements NestInterceptor {
     const uid = _.get(req, 'user.uid') as any as string;
     const TAG = `(${uid}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
 
-    if (res && res.setHeader && req.headers['content-type'] !== 'text/event-stream') {
-      const currentSpan = trace.getSpan(context.active());
-      if (currentSpan) res.setHeader('X-Trace-Id', currentSpan.spanContext().traceId);
+    if (res && res.getHeader && res.setHeader) {
+      const isSse = res.getHeader('Content-Type') === 'text/event-stream';
+      if (!isSse) {
+        const currentSpan = trace.getSpan(context.active());
+        if (currentSpan) res.setHeader('X-Trace-Id', currentSpan.spanContext().traceId);
+      }
     }
 
     this.logger.debug(

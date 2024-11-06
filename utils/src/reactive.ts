@@ -42,33 +42,35 @@ export class ReactiveUtils {
               observer.next(value);
             }
           } catch (e: any) {
-            Logger.error(f`#${funcName} generator error ${{ key, e }}`, e.stack, 'ReactiveUtils');
+            logger.error(f`#${funcName} generator error ${{ key, e }}`, e.stack);
             observer.error(e);
           }
 
           completed = true;
 
           if (answer && !validate(answer)) {
-            Logger.log(f`#${funcName} cache ${{ key, answer }}`, 'ReactiveUtils');
+            logger.log(f`#${funcName} cache ${{ key, answer }}`);
             // this.cacheService.cacheManager
             //   .set(key, answer, 60 * 60 * 24 * 1000)
-            //   .catch((e) => Logger.error(f`#${funcName} cache error ${e}`, e.stack), 'ReactiveUtils);
+            //   .catch((e) => logger.error(f`#${funcName} cache error ${e}`, e.stack), 'ReactiveUtils);
             onComplete?.(answer);
           } else {
-            Logger.warn(f`#${funcName} unanswered ${{ key, answer }}`, 'ReactiveUtils');
+            logger.warn(f`#${funcName} unanswered ${{ key, answer }}`);
           }
 
-          Logger.log(f`#${funcName} complete ... ${key}`, 'ReactiveUtils');
+          logger.log(f`#${funcName} complete ... ${key}`);
           observer.complete();
         } catch (e: any) {
-          Logger.error(f`#${funcName} error ${{ key, completed, error: e }}`, e.stack, 'ReactiveUtils');
+          logger.error(f`#${funcName} error ${{ key, completed, error: e }}`, e.stack);
           observer.error('no answer');
         }
       })();
 
       return () => {
-        Logger.log(f`#${funcName} unsubscribe ... ${{ key, completed }}`, 'ReactiveUtils');
+        logger.log(f`#${funcName} unsubscribe ... ${{ key, completed }}`);
       };
     });
   }
 }
+
+const logger = new Logger(ReactiveUtils.name);

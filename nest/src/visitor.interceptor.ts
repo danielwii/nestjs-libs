@@ -1,12 +1,11 @@
-import { context, trace } from '@opentelemetry/api';
-
 import { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
-
-import type { Response } from 'express';
 import { Observable } from 'rxjs';
 
+import { context, trace } from '@opentelemetry/api';
 import { VisitorRequest } from './interface';
+
+import type { Response } from 'express';
 
 export class VisitorInterceptor implements NestInterceptor {
   public intercept(ctx: ExecutionContext, next: CallHandler): Observable<any> | Promise<Observable<any>> {
@@ -25,7 +24,7 @@ export class VisitorInterceptor implements NestInterceptor {
     }
 
     const isSse = res.getHeader('Content-Type') === 'text/event-stream';
-    if (res.setHeader && !isSse) {
+    if (!isSse && res.setHeader) {
       const currentSpan = trace.getSpan(context.active());
       if (currentSpan) res.setHeader('X-Trace-Id', currentSpan.spanContext().traceId);
     }

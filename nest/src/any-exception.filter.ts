@@ -8,12 +8,12 @@ import {
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { HttpStatus } from '@nestjs/common/enums';
+import { WithSentry } from '@sentry/nestjs';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import _ from 'lodash';
 
 import { ErrorCodes } from '@app/nest/error-codes';
-import { WithSentry } from '@sentry/nestjs';
 import { ApiRes } from '@app/nest';
 import { f } from '@app/utils';
 
@@ -103,7 +103,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
     }
     if (exception instanceof UnauthorizedException) {
-      this.logger.warn(f`(${request?.uid})[${request?.ip}] UnauthorizedException ${exception.message}`);
+      const path = _.get(request, 'path');
+      this.logger.warn(f`(${request?.uid})[${request?.ip}] UnauthorizedException ${exception.message} ${path}`);
       return response.status(HttpStatus.UNAUTHORIZED).json(
         ApiRes.failureV2({
           code: ErrorCodes.Unauthorized,
