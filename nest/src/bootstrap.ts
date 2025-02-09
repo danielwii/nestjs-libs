@@ -31,6 +31,7 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: levels,
   });
+  app.set('query parser', 'extended');
 
   app.useGlobalPipes(
     new ValidationPipe({

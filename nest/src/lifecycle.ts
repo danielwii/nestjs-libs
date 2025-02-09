@@ -6,7 +6,7 @@ import { f } from '@app/utils';
 import os from 'node:os';
 
 export const runApp = <App extends INestApplication>(app: App) => {
-  const logger = new Logger(runApp.name);
+  const logger = new Logger('AppRunner');
   logger.log(f`(${os.hostname}) runApp in (${AppEnv.environment.env}) env`);
 
   process.on('uncaughtException', async (err) => {
@@ -34,7 +34,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
     } catch (error: any) {
       logger.error(`(${os.hostname}) exit by unhandledRejection error: ${error.message}`, error.stack);
     } finally {
-      logger.error(`(${os.hostname}) exit by unhandledRejection...`);
+      logger.error(`(${os.hostname}) exit by unhandledRejection... ${err.message}`, err.stack);
       process.exit(2);
     }
   });

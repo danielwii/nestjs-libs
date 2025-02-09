@@ -3,11 +3,14 @@ import * as Handlebars from 'handlebars';
 import { format } from 'date-fns';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
+import _ from 'lodash';
+
+import { generateJsonFormat } from '@/core/prompt/prompt.definition';
 
 export enum TimeSensitivity {
   Day = 'yyyy-MM-dd EEEE BBBB',
   Hour = 'yyyy-MM-dd EEEE hh a BBBB',
-  Minute = 'yyyy-MM-dd EEEE hh:QQQQ a BBBB',
+  Minute = 'yyyy-MM-dd EEEE HH:mm BBBB',
 }
 
 // 目的 (Objective/Purpose)
@@ -49,7 +52,8 @@ export function createBasePrompt(
   content: string,
   output?: string,
 ) {
-  const now = format(timezone ? DateTime.now().setZone(timezone).toJSDate() : new Date(), sensitivity);
+  const datetime = timezone ? DateTime.now().setZone(timezone).toJSDate() : new Date();
+  const now = format(datetime, sensitivity);
   return Handlebars.compile(stripIndent`
     ID:{{id}}
     ------
@@ -183,3 +187,21 @@ export function createEnhancedPrompt<Response>({
 
   return { prompt, logicErrorPromptCreator, id, version };
 }
+
+export const customJsonFormatSupportOutput = (
+  schema: z.ZodSchema,
+  {
+    injectJsonFormat,
+    output,
+  }: {
+    injectJsonFormat?: boolean;
+    output?: string;
+  },
+) =>
+  _.compact([
+    '严格输出符合 Schema 定义的 JSON 格式。枚举原样使用定义中的类型，不要翻译，不要输出任何其他内容，包括注释、解释、提示等。直接从 { 开始，到 } 结束, 不要输出任何其他内容。',
+    injectJsonFormat
+      ? `--- RESPONSE TypeScript Schema JSON FORMAT---\n${generateJsonFormat(schema)}\n--- END OF RESPONSE TYPE-SCRIPT SCHEMA JSON FORMAT ---`
+      : '',
+    output,
+  ]).join('\n');

@@ -11,7 +11,7 @@ import { NODE_ENV } from './env';
 import os from 'node:os';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
-  Logger.log(f`[Transform] ${{ key, origin: obj[key] }}`, 'Configure');
+  Logger.debug(f`[Transform] ${{ key, origin: obj[key] }}`, 'Configure');
   return [true, 'true', '1'].includes(obj[key]);
 };
 const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
@@ -253,7 +253,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const dbValue = appSetting.value;
       const equal = _.isEqual(value, dbValue);
       if (!_.isNil(appSetting.value) && !equal) {
-        Logger.log(f`#syncFromDB update... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
+        Logger.verbose(f`#syncFromDB update... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
         envs[field] = dbValue;
       }
     }
