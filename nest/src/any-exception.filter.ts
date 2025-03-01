@@ -6,9 +6,9 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { ThrottlerException } from '@nestjs/throttler';
 import { HttpStatus } from '@nestjs/common/enums';
-import { WithSentry } from '@sentry/nestjs';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import _ from 'lodash';
@@ -19,10 +19,11 @@ import { f } from '@app/utils';
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 
+// @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(this.constructor.name);
 
-  @WithSentry()
+  @SentryExceptionCaptured()
   catch(exception: any, host: ArgumentsHost): any {
     const ctx = host.switchToHttp();
     const request = ctx.getRequest();
