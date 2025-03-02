@@ -31,17 +31,22 @@ interface HostSetVariables {}
 
 const DatabaseFieldSymbol = Symbol('DatabaseField');
 const DatabaseFieldFormatSymbol = Symbol('DatabaseFieldFormat');
+const DatabaseFieldDescriptionSymbol = Symbol('DatabaseFieldDescription');
 /**
  * 标记字段是否需要同步到数据库, 用于配置项的动态更新, 默认为空的字段需要赋值为 undefined 才能进行同步
- * @param format
+ * @param format 字段格式
+ * @param description 字段描述
  * @constructor
  */
 export const DatabaseField =
-  (format: 'string' | 'number' | 'boolean' | 'json' = 'string') =>
+  (format: 'string' | 'number' | 'boolean' | 'json' = 'string', description?: string) =>
   (target: any, propertyKey: string) => {
-    Logger.verbose(f`found ${propertyKey}:${format}`, 'DatabaseField');
+    Logger.verbose(f`found ${propertyKey}:${format}${description ? ` (${description})` : ''}`, 'DatabaseField');
     Reflect.defineMetadata(DatabaseFieldSymbol, true, target, propertyKey);
     Reflect.defineMetadata(DatabaseFieldFormatSymbol, format, target, propertyKey);
+    if (description) {
+      Reflect.defineMetadata(DatabaseFieldDescriptionSymbol, description, target, propertyKey);
+    }
     if (format === 'boolean') {
       Transform(booleanTransformFn)(target, propertyKey);
       IsBoolean()(target, propertyKey);
@@ -62,7 +67,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
 
-  @DatabaseField('string') @IsString() API_KEY: string = uid(64);
+  @DatabaseField('string', '系统API密钥，用于验证API请求') @IsString() API_KEY: string = uid(64);
 
   // used to debug dependency issues
   @IsString() @IsOptional() NEST_DEBUG?: string;
@@ -216,28 +221,51 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       .map((field) => {
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, envs, field);
         const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, envs, field);
-        return { field, isDatabaseField, format, value: envs[field] };
+        const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, envs, field);
+        
+        // 添加详细日志，特别关注 DEFAULT_LLM_MODEL
+        if (field === 'DEFAULT_LLM_MODEL') {
+          Logger.log(
+            f`#syncFromDB metadata for DEFAULT_LLM_MODEL: ${
+              { isDatabaseField, format, description, value: envs[field] }
+            }`,
+            'AppConfigure'
+          );
+        }
+        
+        return { field, isDatabaseField, format, description, value: envs[field] };
       })
       .filter(({ isDatabaseField }) => isDatabaseField)
       .value();
-    // Logger.verbose(f`#syncFromDB... ${fields}`, 'AppConfigure');
+    
+    // 添加所有待同步字段的详细日志
+    Logger.debug(f`#syncFromDB fields to sync: ${fields}`, 'AppConfigure');
 
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
     const appSettings = _.map(await prisma.appSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' ? JSON.parse(value) : value, format }),
     );
-    // Logger.verbose(f`#syncFromDB appSettings... ${{ appSettings }}`, 'AppConfigure');
+    
+    // 添加数据库中所有设置的详细日志
+    Logger.debug(f`#syncFromDB appSettings from DB: ${appSettings}`, 'AppConfigure');
+    
     const fieldNamesInDB = _.map(appSettings, (s) => s.key);
     // 如何 appSettings 中不存在，则用当前的值更新
     const nonExistsFields = _.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
-    // Logger.verbose(f`#syncFromDB nonExistsFields... ${{ nonExistsFields }}`, 'AppConfigure');
+    Logger.debug(f`#syncFromDB nonExistsFields: ${nonExistsFields}`, 'AppConfigure');
+    
     if (nonExistsFields.length) {
-      // Logger.verbose(f`#syncFromDB create... ${nonExistsFields}`, 'AppConfigure');
+      Logger.debug(f`#syncFromDB creating ${nonExistsFields.length} new fields...`, 'AppConfigure');
       await prisma.appSetting.createMany({
-        data: nonExistsFields.map(({ field, format }) => {
+        data: nonExistsFields.map(({ field, format, description }) => {
           const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
-          const newVar = { key: field, default_value: value, format };
+          const newVar = { 
+            key: field, 
+            default_value: value, 
+            format,
+            description 
+          };
           Logger.verbose(f`#syncFromDB create... ${newVar}`, 'AppConfigure');
           return newVar;
         }),
@@ -247,14 +275,85 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
     // 如何 appSettings 中存在，则用当前的值更新 envs
     const existsFields = _.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
-    // Logger.verbose(f`#syncFromDB existsFields... ${{ existsFields }}`, 'AppConfigure');
-    for (const { field, value } of existsFields) {
+    Logger.debug(f`#syncFromDB existsFields count: ${existsFields.length}`, 'AppConfigure');
+    
+    for (const { field, value, description, format } of existsFields) {
       const appSetting = _.find(appSettings, { key: field });
+      
+      // 添加详细信息日志，特别是对 DEFAULT_LLM_MODEL
+      if (field === 'DEFAULT_LLM_MODEL') {
+        Logger.log(
+          f`#syncFromDB DEFAULT_LLM_MODEL details: ${{
+            field,
+            value,
+            description,
+            format,
+            appSetting_value: appSetting.value,
+            appSetting_default_value: appSetting.default_value,
+            appSetting_description: appSetting.description
+          }}`,
+          'AppConfigure'
+        );
+      }
+      
       const dbValue = appSetting.value;
       const equal = _.isEqual(value, dbValue);
+      
+      // 更新环境变量值
       if (!_.isNil(appSetting.value) && !equal) {
-        Logger.verbose(f`#syncFromDB update... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
+        Logger.verbose(f`#syncFromDB update env value... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
         envs[field] = dbValue;
+      }
+      
+      // 检查并更新默认值和描述
+      const updates: { default_value?: string, description?: string } = {};
+      const valueToStore = value !== undefined ? (typeof value === 'string' ? value : JSON.stringify(value)) : null;
+      
+      // 如果默认值不一样，需要更新
+      if (appSetting.default_value !== valueToStore && valueToStore !== null) {
+        updates.default_value = valueToStore;
+        Logger.debug(f`#syncFromDB will update default_value for ${field}: "${appSetting.default_value}" -> "${valueToStore}"`, 'AppConfigure');
+      }
+      
+      // 如果描述存在并且与数据库中的不同，需要更新
+      if (description && description !== appSetting.description) {
+        updates.description = description;
+        Logger.debug(f`#syncFromDB will update description for ${field}: "${appSetting.description}" -> "${description}"`, 'AppConfigure');
+      }
+      
+      // 执行更新
+      if (!_.isEmpty(updates)) {
+        Logger.verbose(f`#syncFromDB update metadata... ${field}: ${updates}`, 'AppConfigure');
+        try {
+          // 首先检查记录是否存在
+          const existingRecord = await prisma.appSetting.findUnique({
+            where: { key: field },
+          });
+          
+          if (!existingRecord) {
+            Logger.warn(f`#syncFromDB record not found for update: ${field}`, 'AppConfigure');
+            // 记录不存在，创建新记录
+            await prisma.appSetting.create({
+              data: {
+                key: field,
+                value: format === 'string' ? value : JSON.stringify(value),
+                default_value: updates.default_value,
+                format,
+                description: updates.description,
+              },
+            });
+            Logger.log(f`#syncFromDB created record for ${field} since it didn't exist`, 'AppConfigure');
+          } else {
+            // 记录存在，执行更新
+            await prisma.appSetting.update({
+              where: { key: field },
+              data: updates,
+            });
+            Logger.log(f`#syncFromDB successfully updated metadata for ${field}`, 'AppConfigure');
+          }
+        } catch (error: any) {
+          Logger.error(f`#syncFromDB failed to update metadata for ${field}: ${error.message}`, error.stack, 'AppConfigure');
+        }
       }
     }
   }
