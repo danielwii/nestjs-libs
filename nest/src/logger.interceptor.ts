@@ -50,7 +50,7 @@ export class LoggerInterceptor implements NestInterceptor {
     // !!TIPS!! @metinseylan/nestjs-opentelemetry make handler name null
     const named = Reflect.getMetadata(METADATA_KEYS.NAMED, ctx.getHandler());
     const uid = _.get(req, 'user.uid') as any as string;
-    const TAG = `(${uid}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
+    const TAG = `(${uid || 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
 
     if (res && res.getHeader && res.setHeader) {
       const isSse = res.getHeader('Content-Type') === 'text/event-stream';

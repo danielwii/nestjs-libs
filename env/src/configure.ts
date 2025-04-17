@@ -67,7 +67,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
 
-  @DatabaseField('string', '系统API密钥，用于验证API请求') @IsString() API_KEY: string = uid(64);
+  @DatabaseField('string', '系统API密钥，用于验证系统级内部API请求，不要外部使用') @IsString() API_KEY: string = uid(64);
 
   // used to debug dependency issues
   @IsString() @IsOptional() NEST_DEBUG?: string;

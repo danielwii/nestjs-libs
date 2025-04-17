@@ -1,11 +1,61 @@
 import { stripIndent } from 'common-tags';
-import * as Handlebars from 'handlebars';
 import { format } from 'date-fns';
+import * as Handlebars from 'handlebars';
+import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
-import _ from 'lodash';
 
-import { generateJsonFormat } from '@/core/prompt/prompt.definition';
+export function generateJsonFormat(schema: z.ZodSchema, indent = 0): string {
+  // 处理可选和可空类型
+  const isOptional = schema instanceof z.ZodOptional;
+  const isNullable = schema instanceof z.ZodNullable;
+  const innerSchema = isOptional
+    ? (schema._def as any).innerType
+    : isNullable
+      ? (schema._def as any).innerType
+      : schema;
+
+  // 获取基础类型的格式
+  let format = '';
+
+  // 处理基础类型
+  if (innerSchema instanceof z.ZodString) format = '"string"';
+  else if (innerSchema instanceof z.ZodNumber) format = 'number';
+  else if (innerSchema instanceof z.ZodBoolean) format = 'boolean';
+  // 处理数组
+  else if (innerSchema instanceof z.ZodArray) {
+    const innerFormat = generateJsonFormat(innerSchema._def.type, indent + 2);
+    format = `Array<${innerFormat}>`;
+  }
+  // 处理枚举
+  else if (innerSchema instanceof z.ZodEnum) {
+    format = _.map((innerSchema._def as z.ZodEnumDef).values, (value) => `"${value}"`).join(' | ');
+  } else if (innerSchema instanceof z.ZodNativeEnum) {
+    format = _.map(_.keys((innerSchema._def as z.ZodNativeEnumDef).values), (value) => `"${value}"`).join(' | ');
+  }
+  // 处理对象
+  else if (innerSchema instanceof z.ZodObject) {
+    const shape = innerSchema._def.shape();
+    const entries = Object.entries(shape);
+
+    const lines = entries.map(([key, value]) => {
+      const description = (value as any)._def.description;
+      const type = generateJsonFormat(value as z.ZodSchema, indent + 2);
+      const comment = description ? ` // ${description}` : '';
+      return `${' '.repeat(indent + 2)}${key}: ${type}${comment}`;
+    });
+
+    format = `{\n${lines.join(',\n')}\n${' '.repeat(indent)}}`;
+  } else {
+    format = 'unknown';
+  }
+
+  // 添加可选和可空标记
+  if (isNullable) format = `${format}|null`;
+  if (isOptional) format = `${format}?`;
+
+  return format;
+}
 
 export enum TimeSensitivity {
   Day = 'yyyy-MM-dd EEEE BBBB',

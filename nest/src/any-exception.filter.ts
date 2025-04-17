@@ -128,10 +128,17 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
     if (exception instanceof UnprocessableEntityException) {
       const cause = (exception.cause as ErrorCodes) ?? ErrorCodes.Undefined;
-      this.logger[[ErrorCodes.Outdated].includes(exception.cause as ErrorCodes) ? 'warn' : 'error'](
-        f`(${request?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message}`,
-        exception.stack,
-      );
+      const isWarn = [ErrorCodes.Outdated, ErrorCodes.BusinessError].includes(cause);
+      if (isWarn)
+        this.logger.warn(
+          f`(${request?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message}`,
+        );
+      else
+        this.logger.error(
+          f`(${request?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message}`,
+          exception.stack,
+        );
+
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failureV2({
           code: cause,
