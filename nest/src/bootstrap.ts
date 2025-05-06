@@ -20,6 +20,13 @@ import os from 'node:os';
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
 
+export async function simpleBootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  if (onInit) await onInit(app);
+  await runApp(app).listen(AppEnv.PORT ?? 3100);
+  return app;
+}
+
 export async function bootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
   const now = Date.now();
   const levels = allLogLevels.slice(

@@ -7,7 +7,7 @@ export function initStackTraceFormatter() {
   ConsoleLogger.prototype.error = wrapPrototype(ConsoleLogger.prototype.error);
 }
 
-export function wrapPrototype(prototype) {
+export function wrapPrototype(prototype: any) {
   return {
     [prototype.name]: function (...args: any[]) {
       if (args.length === 3 && args[1]) {

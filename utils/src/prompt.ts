@@ -1,9 +1,9 @@
 import { stripIndent } from 'common-tags';
-import { format } from 'date-fns';
 import * as Handlebars from 'handlebars';
-import _ from 'lodash';
+import { format } from 'date-fns';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
+import _ from 'lodash';
 
 export function generateJsonFormat(schema: z.ZodSchema, indent = 0): string {
   // 处理可选和可空类型
@@ -68,7 +68,7 @@ const ObjectiveSchema = z.string(); // 必须明确的任务目的
 
 const SectionSchema = z.object({
   title: z.string(),
-  content: z.string().optional(),
+  content: z.union([z.string(), z.number()]).optional(),
 });
 
 // 上下文/背景知识 (Context/Background Information)

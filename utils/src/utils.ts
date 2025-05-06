@@ -44,7 +44,7 @@ export function inspect(o: any, options: util.InspectOptions = { colors: true, d
     : util.inspect(o, { ...options, colors });
 }
 
-export function onelineStack(stack) {
+export function onelineStack(stack: string) {
   return (
     'StackTrace: ' +
     (process.env.NODE_ENV === 'production'

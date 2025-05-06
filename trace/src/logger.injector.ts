@@ -13,7 +13,7 @@ export class LoggerInjector implements Injector {
     ConsoleLogger.prototype.warn = this.wrapPrototype(ConsoleLogger.prototype.warn);
   }
 
-  private wrapPrototype(prototype) {
+  private wrapPrototype(prototype: any) {
     return {
       [prototype.name]: function (...args: any[]) {
         args[0] = LoggerInjector.getMessage(args[0]);
