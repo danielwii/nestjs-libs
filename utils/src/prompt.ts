@@ -105,7 +105,7 @@ export function createBasePrompt(
   const datetime = timezone ? DateTime.now().setZone(timezone).toJSDate() : new Date();
   const now = format(datetime, sensitivity);
   return Handlebars.compile(stripIndent`
-    ID:{{id}}
+    [{{id}}]
     ------
     {{{content}}}
     ------
