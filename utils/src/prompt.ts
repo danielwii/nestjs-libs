@@ -86,6 +86,7 @@ const PromptSchema = z.object({
   background: z.string().optional(), // 描述背景设定
   context: ContextSchema, // 上下文/背景知识
   requirements: RequirementsSchema.optional(), // 生成要求
+  instructions: z.string().optional(), // 生成要求
   specialConsiderations: SpecialConsiderationsSchema.optional(), // 注意事项
   examples: z.union([z.string(), z.array(z.string())]).optional(), // 示例
   output: z.string().optional(), // 输出
@@ -110,10 +111,10 @@ export function createBasePrompt(
     {{{content}}}
     ------
     Now:{{now}}
+    Output:
     {{#if output}}
     {{{output}}}
     {{/if}}
-    Output:
   `)({ id, now, content, output });
 }
 
@@ -136,8 +137,11 @@ export function createPrompt(
       {{{background}}}
       {{/if}}
 
-      {{#if requirements}}
       ## Requirements / Instructions
+      {{#if instructions}}
+      {{{instructions}}}
+      {{/if}}
+      {{#if requirements}}
       {{#if (isArray requirements)}}
       {{#each requirements}}
       {{#if (isString this)}}

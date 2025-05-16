@@ -7,7 +7,7 @@ export enum ErrorCodes {
   Unauthorized = '0x0101',
   AuthFailed = '0x0102',
   Conflict = '0x0109', // 数据冲突
-  
+
   BusinessError = '0x0110', // 业务逻辑中的预期异常，无需记录 error 日志
   PrismaClientKnownRequestError = '0x0A0A', // prisma client 发生了已知的错误，通常是因为违反了数据库的约束
   FetchError = '0x0A0B', // 访问第三方 api 时发生了错误
