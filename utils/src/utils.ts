@@ -28,7 +28,7 @@ export function withObject<T, R>(o: T, fn: (o: T) => R): R {
 }
 
 export function r(o: any): string {
-  if (!_.isObjectLike(o)) return o;
+  if (!_.isObjectLike(o)) return String(o);
   try {
     const value = instanceToPlain(o);
     return process.env.NODE_ENV === 'production' ? JSON.stringify(value) : inspect(value);
@@ -44,12 +44,16 @@ export function inspect(o: any, options: util.InspectOptions = { colors: true, d
     : util.inspect(o, { ...options, colors });
 }
 
-export function onelineStack(stack: string) {
+export function onelineStack(stack: string | undefined | null): string {
+  if (!stack || typeof stack !== 'string') {
+    return 'StackTrace: No stack trace available';
+  }
+
   return (
     'StackTrace: ' +
     (process.env.NODE_ENV === 'production'
       ? stack
-          ?.replace(/^.*[\\/]node_modules[\\/].*$/gm, '')
+          .replace(/^.*[\\/]node_modules[\\/].*$/gm, '')
           .split('\n')
           .slice(0, 2)
           .join('\\n')
