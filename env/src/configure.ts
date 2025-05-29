@@ -1,15 +1,15 @@
-import path from 'path';
-
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
-import { f, onelineStackFromError } from '@app/utils';
 import { Logger } from '@nestjs/common';
 import _, { stubTrue } from 'lodash';
-import { NODE_ENV } from './env';
 import { config } from 'dotenv';
 import { uid } from 'radash';
-import os from 'node:os';
 import JSON from 'json5';
+import path from 'path';
+
+import { f, onelineStackFromError } from '@app/utils';
+import { NODE_ENV } from './env';
+import os from 'node:os';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   Logger.debug(f`[Transform] ${{ key, origin: obj[key] }}`, 'Configure');
@@ -79,8 +79,12 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
 
-  @DatabaseField('string', '系统API密钥，用于验证系统级内部API请求，不要外部使用') @IsString() API_KEY: string =
-    uid(64);
+  @DatabaseField(
+    'string',
+    '系统API密钥，仅用于验证系统级内部API请求，不自行设置的话每次启动都会变更，注意: 不要外部使用',
+  )
+  @IsString()
+  API_KEY: string = uid(64);
 
   // used to debug dependency issues
   @IsString() @IsOptional() NEST_DEBUG?: string;
@@ -101,6 +105,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsOptional()
   APP_PROXY_PORT?: number;
 
+  @IsString() DATABASE_URL!: string;
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
+
   get environment() {
     const env = this.ENV || this.DOPPLER_ENVIRONMENT || 'dev';
     const isProd = env === 'prd';
@@ -108,6 +115,11 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
       env,
       isProd,
     };
+  }
+
+  static get allFields() {
+    const instance = new AbstractEnvironmentVariables();
+    return Object.getOwnPropertyNames(instance);
   }
 
   /**
@@ -193,7 +205,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
    * .env
    * @param EnvsClass
    */
-  constructor(readonly EnvsClass: new () => T) {
+  constructor(
+    readonly EnvsClass: new () => T,
+    private readonly sys = false,
+  ) {
     const envFilePath = _.cond([
       [_.matches(NODE_ENV.Test), _.constant(['.env.local', '.env.test'])],
       [_.matches(NODE_ENV.Production), _.constant(['.env.local', '.env'])],
@@ -201,15 +216,15 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       [stubTrue, _.constant(['.env.development.local', '.env.local', '.env.development', '.env'])],
     ])(process.env.NODE_ENV);
 
-    this.logger.log(f`envFilePath: ${envFilePath}`);
+    if (this.sys) this.logger.log(f`load env from paths: ${envFilePath}`);
     _.forEach(envFilePath, (env) => {
       // 使用 process.env.PWD 而不是 process.cwd() 的原因：
       // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
       // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
       // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
       const fullPath = path.resolve(process.env.PWD || '', env);
-      this.logger.log(f`envFilePath: ${fullPath}`);
-      config({ path: fullPath, debug: true, override: false });
+      if (this.sys) this.logger.log(f`envFilePath: ${fullPath}`);
+      config({ path: fullPath, debug: this.sys, override: false });
     });
     this.vars = this.validate();
   }
@@ -226,19 +241,44 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       });
 
       if (errors.length > 0) {
-        this.logger.warn(`[Config] these configs are not valid`);
+        this.logger.warn(`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`);
         console.log(_.map(errors, (e) => `${e.property}=`).join('\n'));
         throw new Error(errors.toString());
       }
 
+      if (this.sys) {
+        // display all envs not includes _ENABLE and not starts with APP_
+        _.each(validatedConfig, (value, key) => {
+          if (
+            key.includes('_ENABLE') ||
+            key.startsWith('APP_') ||
+            !_.includes(AbstractEnvironmentVariables.allFields, key) ||
+            ['logger'].includes(key)
+          )
+            return;
+          const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
+          this.logger.log(f`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`);
+        });
+      }
+
       _.each(validatedConfig, (value, key) => {
-        if (key.includes('_ENABLE')) this.logger.log(f`[Feature] ${{ key, value /* origin: config[key] */ }}`);
+        if (!this.sys && !_.includes(Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype), key)) return; // exclude sys envs
+        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
+        if (key.includes('_ENABLE'))
+          this.logger.log(
+            f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
+          );
       });
       _.each(validatedConfig, (value, key) => {
-        if (key.startsWith('APP_')) this.logger.log(f`[App.Feature] ${{ key, value /* origin: config[key] */ }}`);
+        if (!this.sys && !_.includes(Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype), key)) return; // exclude sys envs
+        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
+        if (key.startsWith('APP_'))
+          this.logger.log(
+            f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
+          );
       });
     }
-    // Logger.log(f`[Config] ${validatedConfig}`);
+    Logger.verbose(f`[${this.sys ? 'SYS' : 'App'}] Configure validated`, 'Configure');
     return validatedConfig;
   }
 
@@ -271,7 +311,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     Logger.debug(f`#syncFromDB fields to sync: ${fields}`, 'AppConfigure');
 
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
-    const appSettings = _.map(await prisma.appSetting.findMany(), ({ value, format, ...rest }) =>
+    const appSettings = _.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' ? JSON.parse(value) : value, format }),
     ) as Array<{ key: string; default_value: unknown; format: string; description?: string; value: unknown }>;
@@ -286,7 +326,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
     if (nonExistsFields.length) {
       Logger.debug(f`#syncFromDB creating ${nonExistsFields.length} new fields...`, 'AppConfigure');
-      await prisma.appSetting.createMany({
+      await prisma.sysAppSetting.createMany({
         data: nonExistsFields.map(({ field, format, description }) => {
           const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
           const newVar = {
@@ -365,14 +405,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         Logger.verbose(f`#syncFromDB update metadata... ${field}: ${updates}`, 'AppConfigure');
         try {
           // 首先检查记录是否存在
-          const existingRecord = await prisma.appSetting.findUnique({
+          const existingRecord = await prisma.sysAppSetting.findUnique({
             where: { key: field },
           });
 
           if (!existingRecord) {
             Logger.warn(f`#syncFromDB record not found for update: ${field}`, 'AppConfigure');
             // 记录不存在，创建新记录
-            await prisma.appSetting.create({
+            await prisma.sysAppSetting.create({
               data: {
                 key: field,
                 value: format === 'string' ? value : JSON.stringify(value),
@@ -384,7 +424,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             Logger.log(f`#syncFromDB created record for ${field} since it didn't exist`, 'AppConfigure');
           } else {
             // 记录存在，执行更新
-            await prisma.appSetting.update({
+            await prisma.sysAppSetting.update({
               where: { key: field },
               data: updates,
             });
@@ -402,4 +442,4 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
   }
 }
 
-export const AppEnv = new AppConfigure(AbstractEnvironmentVariables).vars;
+export const SysEnv = new AppConfigure(AbstractEnvironmentVariables, true).vars;

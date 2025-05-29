@@ -1,9 +1,8 @@
 import { ClassSerializerInterceptor, INestApplication, Logger, LogLevel, ValidationPipe } from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { NestFactory, Reflector } from '@nestjs/core';
+import { stripIndent } from 'common-tags';
 import responseTime from 'response-time';
-import { oneLine } from 'common-tags';
 import compression from 'compression';
 import { format } from 'date-fns';
 import { DateTime } from 'luxon';
@@ -13,9 +12,10 @@ import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
 import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
-import { f, TimeSensitivity } from '@app/utils';
+import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
-import { AppEnv } from '@app/env';
+import { TimeSensitivity } from '@app/utils';
+import { SysEnv } from '@app/env';
 import os from 'node:os';
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
@@ -23,30 +23,27 @@ const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'f
 export async function simpleBootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   if (onInit) await onInit(app);
-  await runApp(app).listen(AppEnv.PORT ?? 3100);
+  await runApp(app).listen(SysEnv.PORT ?? 3100);
   return app;
 }
 
 export async function bootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
   const now = Date.now();
-  const levels = allLogLevels.slice(
-    allLogLevels.indexOf((AppEnv.LOG_LEVEL || 'debug') as LogLevel),
-    allLogLevels.length,
-  );
+  const logLevel: LogLevel = SysEnv.LOG_LEVEL || 'debug';
+  const levels = allLogLevels.slice(allLogLevels.indexOf(logLevel), allLogLevels.length);
 
-  Logger.log(f`setup log level ${AppEnv.LOG_LEVEL} - ${levels}`, 'Bootstrap');
+  const notShowLogLevels = allLogLevels.slice(0, allLogLevels.indexOf(logLevel));
+  Logger.log(`[Config] Log level set to "${SysEnv.LOG_LEVEL}" - Enabled levels: ${levels.join(', ')}`, 'Bootstrap');
+  if (notShowLogLevels.length) {
+    Logger.warn(`[Config] Disabled log levels: ${notShowLogLevels.join(', ')}`, 'Bootstrap');
+  }
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: levels,
   });
   app.set('query parser', 'extended');
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      enableDebugMessages: true,
-      transform: true,
-      whitelist: true,
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe({ enableDebugMessages: true, transform: true, whitelist: true }));
   app.useGlobalFilters(new AnyExceptionFilter());
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new VisitorInterceptor());
@@ -70,7 +67,7 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
     // allowedHeaders: '*',
     // methods: '*',
   };
-  Logger.log(f`setup cors ${corsOptions}`, 'Bootstrap');
+  Logger.log(`[Config] CORS enabled with options: ${JSON.stringify(corsOptions)}`, 'Bootstrap');
   app.enableCors(corsOptions);
 
   // see https://expressjs.com/en/guide/behind-proxies.html
@@ -125,19 +122,32 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
   app.use(compression());
   app.use(responseTime());
 
-  const port = AppEnv.PORT ?? 3100;
+  const port = SysEnv.PORT ?? 3100;
 
   if (onInit) await onInit(app);
 
   await runApp(app)
     .listen(port)
     .then(() => {
+      const server = app.getHttpServer();
+      const address = server.address();
+      const bindAddress = address
+        ? typeof address === 'string'
+          ? address
+          : `${address.address}:${address.port}`
+        : 'unknown';
+
       Logger.log(
-        oneLine`
-          🦋 (${os.hostname()}) Listening on port ${port}. in ${Date.now() - now}ms,
-          pid:${process.pid} platform:${process.platform} node_version:${process.version}
-          at ${format(DateTime.now().setZone(AppEnv.TZ).toJSDate(), TimeSensitivity.Minute)} |
-          ${DateTime.now().setZone(AppEnv.TZ).toLocaleString(DateTime.DATETIME_FULL)} | ${AppEnv.TZ}.
+        stripIndent`🦋 [Server] API Server started successfully
+          Host: ${os.hostname()}
+          Bind: ${bindAddress}
+          Port: ${port}
+          PID: ${process.pid}
+          Platform: ${process.platform}
+          Node Version: ${process.version}
+          Startup Time: ${Date.now() - now}ms
+          Time: ${format(DateTime.now().setZone(SysEnv.TZ).toJSDate(), TimeSensitivity.Minute)}
+          Timezone: ${SysEnv.TZ}
         `,
         'Bootstrap',
       );

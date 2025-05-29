@@ -5,7 +5,7 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { LoggerInjector } from './logger.injector';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { Injector } from './injector';
-import { AppEnv } from '@app/env';
+import { SysEnv } from '@app/env';
 
 interface TraceModuleOptions {}
 
@@ -49,9 +49,9 @@ export class TraceModule {
   static runTracing() {
     // For troubleshooting, set the log level to DiagLogLevel.DEBUG
     // diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
-    if (AppEnv.TRACING_ENABLED) {
-      const serviceName = AppEnv.SERVICE_NAME ?? `api-server`;
-      const exporterUrl = AppEnv.TRACING_EXPORTER_URL ?? 'http://localhost:4318/v1/traces';
+    if (SysEnv.TRACING_ENABLED) {
+      const serviceName = SysEnv.SERVICE_NAME ?? `api-server`;
+      const exporterUrl = SysEnv.TRACING_EXPORTER_URL ?? 'http://localhost:4318/v1/traces';
       Logger.log(`<OTEL> Tracing enabled. Service name: ${serviceName}, exporter url: ${exporterUrl}`, 'TraceModule');
       const traceExporter = new OTLPTraceExporter({ url: exporterUrl });
       // const metricExporter = new OTLPMetricExporter({ url: exporterUrl });
