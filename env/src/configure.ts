@@ -1,14 +1,15 @@
+import path from 'path';
+
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
-import { plainToInstance, Transform, TransformFnParams } from 'class-transformer';
+import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
+import { f, onelineStackFromError } from '@app/utils';
 import { Logger } from '@nestjs/common';
+import _, { stubTrue } from 'lodash';
+import { NODE_ENV } from './env';
 import { config } from 'dotenv';
 import { uid } from 'radash';
-import JSON from 'json5';
-import _ from 'lodash';
-
-import { f, onelineStack } from '@app/utils';
-import { NODE_ENV } from './env';
 import os from 'node:os';
+import JSON from 'json5';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   Logger.debug(f`[Transform] ${{ key, origin: obj[key] }}`, 'Configure');
@@ -18,9 +19,10 @@ const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
   // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
   try {
     return _.isArray(obj[key]) ? obj[key] : JSON.parse(obj[key] || '[]');
-  } catch (e: any) {
+  } catch (e: unknown) {
     Logger.error(
-      f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e.message} ${onelineStack(e.stack)}`,
+      f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
+      onelineStackFromError(e),
       'Transform',
     );
     throw e;
@@ -61,13 +63,24 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // use doppler env instead
   @IsEnum(['prd', 'stg', 'dev']) @IsOptional() ENV?: 'prd' | 'stg' | 'dev';
   @IsEnum(NODE_ENV) NODE_ENV: NODE_ENV = NODE_ENV.Development;
-  @IsNumber() @IsOptional() PORT?: number;
+
+  // 使用 @Type(() => Number) 显式指定类型转换
+  // 原因：
+  // 1. 环境变量中的值都是字符串类型
+  // 2. TypeScript 的类型信息在编译后会丢失
+  // 3. 需要显式告诉 class-transformer 如何转换类型
+  // 4. 这样可以确保在所有环境下（如 bun mastra dev）都能正确转换
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  PORT?: number;
   @IsString() TZ = 'UTC';
 
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
 
-  @DatabaseField('string', '系统API密钥，用于验证系统级内部API请求，不要外部使用') @IsString() API_KEY: string = uid(64);
+  @DatabaseField('string', '系统API密钥，用于验证系统级内部API请求，不要外部使用') @IsString() API_KEY: string =
+    uid(64);
 
   // used to debug dependency issues
   @IsString() @IsOptional() NEST_DEBUG?: string;
@@ -83,7 +96,10 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_PROXY_ENABLED?: boolean;
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
-  @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  APP_PROXY_PORT?: number;
 
   get environment() {
     const env = this.ENV || this.DOPPLER_ENVIRONMENT || 'dev';
@@ -116,8 +132,11 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
       return _.isBoolean(fallback)
         ? _.get(this[field], index, _.get(this, [field, 0]))
         : _.get(this[field], index, fallback);
-    } catch (e: any) {
-      this.logger.error(f`#getByHost (${this.hostname}) ${field} ${e.message} ${onelineStack(e.stack)}`);
+    } catch (e: unknown) {
+      this.logger.error(
+        f`#getByHost (${this.hostname}) ${field} ${e instanceof Error ? e.message : String(e)}`,
+        onelineStackFromError(e),
+      );
       return _.isBoolean(fallback) ? _.get(this, [field, 0]) : fallback;
     }
   }
@@ -151,7 +170,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
       const on = _.isNil(index) ? !!acceptWhenNoIds : index === host;
       this.logger.debug(f`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`);
       return on;
-    } catch (e) {}
+    } catch (e: unknown) {
+      this.logger.warn(f`#getUniqueHost no hostIndex for ${this.hostname}`, 'AppConfigure');
+    }
     return !!acceptWhenNoIds;
   }
 
@@ -177,12 +198,18 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       [_.matches(NODE_ENV.Test), _.constant(['.env.local', '.env.test'])],
       [_.matches(NODE_ENV.Production), _.constant(['.env.local', '.env'])],
       // development or other
-      [_.stubTrue, _.constant(['.env.development.local', '.env.local', '.env.development', '.env'])],
+      [stubTrue, _.constant(['.env.development.local', '.env.local', '.env.development', '.env'])],
     ])(process.env.NODE_ENV);
 
     this.logger.log(f`envFilePath: ${envFilePath}`);
     _.forEach(envFilePath, (env) => {
-      config({ path: env, debug: false, override: false });
+      // 使用 process.env.PWD 而不是 process.cwd() 的原因：
+      // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
+      // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
+      // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
+      const fullPath = path.resolve(process.env.PWD || '', env);
+      this.logger.log(f`envFilePath: ${fullPath}`);
+      config({ path: fullPath, debug: true, override: false });
     });
     this.vars = this.validate();
   }
@@ -194,7 +221,6 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     });
 
     if (process.env.NODE_ENV !== NODE_ENV.Test) {
-      this.logger.verbose(`[Config] validate...`);
       const errors = validateSync(validatedConfig, {
         skipMissingProperties: false,
       });
@@ -222,22 +248,25 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, envs, field);
         const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, envs, field);
         const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, envs, field);
-        
+
         // 添加详细日志，特别关注 DEFAULT_LLM_MODEL
         if (field === 'DEFAULT_LLM_MODEL') {
           Logger.log(
-            f`#syncFromDB metadata for DEFAULT_LLM_MODEL: ${
-              { isDatabaseField, format, description, value: envs[field] }
-            }`,
-            'AppConfigure'
+            f`#syncFromDB metadata for DEFAULT_LLM_MODEL: ${{
+              isDatabaseField,
+              format,
+              description,
+              value: envs[field],
+            }}`,
+            'AppConfigure',
           );
         }
-        
+
         return { field, isDatabaseField, format, description, value: envs[field] };
       })
-      .filter(({ isDatabaseField }) => isDatabaseField)
+      .filter(({ isDatabaseField }) => !!isDatabaseField)
       .value();
-    
+
     // 添加所有待同步字段的详细日志
     Logger.debug(f`#syncFromDB fields to sync: ${fields}`, 'AppConfigure');
 
@@ -245,26 +274,26 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const appSettings = _.map(await prisma.appSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' ? JSON.parse(value) : value, format }),
-    );
-    
+    ) as Array<{ key: string; default_value: unknown; format: string; description?: string; value: unknown }>;
+
     // 添加数据库中所有设置的详细日志
     Logger.debug(f`#syncFromDB appSettings from DB: ${appSettings}`, 'AppConfigure');
-    
+
     const fieldNamesInDB = _.map(appSettings, (s) => s.key);
     // 如何 appSettings 中不存在，则用当前的值更新
     const nonExistsFields = _.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
     Logger.debug(f`#syncFromDB nonExistsFields: ${nonExistsFields}`, 'AppConfigure');
-    
+
     if (nonExistsFields.length) {
       Logger.debug(f`#syncFromDB creating ${nonExistsFields.length} new fields...`, 'AppConfigure');
       await prisma.appSetting.createMany({
         data: nonExistsFields.map(({ field, format, description }) => {
           const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
-          const newVar = { 
-            key: field, 
-            default_value: value, 
+          const newVar = {
+            key: field,
+            default_value: value,
             format,
-            description 
+            description,
           };
           Logger.verbose(f`#syncFromDB create... ${newVar}`, 'AppConfigure');
           return newVar;
@@ -276,10 +305,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // 如何 appSettings 中存在，则用当前的值更新 envs
     const existsFields = _.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
     Logger.debug(f`#syncFromDB existsFields count: ${existsFields.length}`, 'AppConfigure');
-    
+
     for (const { field, value, description, format } of existsFields) {
       const appSetting = _.find(appSettings, { key: field });
-      
+      if (!appSetting) {
+        Logger.warn(f`#syncFromDB appSetting not found for ${field}`, 'AppConfigure');
+        continue;
+      }
+
       // 添加详细信息日志，特别是对 DEFAULT_LLM_MODEL
       if (field === 'DEFAULT_LLM_MODEL') {
         Logger.log(
@@ -290,37 +323,43 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             format,
             appSetting_value: appSetting.value,
             appSetting_default_value: appSetting.default_value,
-            appSetting_description: appSetting.description
+            appSetting_description: appSetting.description,
           }}`,
-          'AppConfigure'
+          'AppConfigure',
         );
       }
-      
+
       const dbValue = appSetting.value;
       const equal = _.isEqual(value, dbValue);
-      
+
       // 更新环境变量值
       if (!_.isNil(appSetting.value) && !equal) {
         Logger.verbose(f`#syncFromDB update env value... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
         envs[field] = dbValue;
       }
-      
+
       // 检查并更新默认值和描述
-      const updates: { default_value?: string, description?: string } = {};
+      const updates: { default_value?: string; description?: string } = {};
       const valueToStore = value !== undefined ? (typeof value === 'string' ? value : JSON.stringify(value)) : null;
-      
+
       // 如果默认值不一样，需要更新
       if (appSetting.default_value !== valueToStore && valueToStore !== null) {
         updates.default_value = valueToStore;
-        Logger.debug(f`#syncFromDB will update default_value for ${field}: "${appSetting.default_value}" -> "${valueToStore}"`, 'AppConfigure');
+        Logger.debug(
+          f`#syncFromDB will update default_value for ${field}: "${appSetting.default_value}" -> "${valueToStore}"`,
+          'AppConfigure',
+        );
       }
-      
+
       // 如果描述存在并且与数据库中的不同，需要更新
       if (description && description !== appSetting.description) {
         updates.description = description;
-        Logger.debug(f`#syncFromDB will update description for ${field}: "${appSetting.description}" -> "${description}"`, 'AppConfigure');
+        Logger.debug(
+          f`#syncFromDB will update description for ${field}: "${appSetting.description}" -> "${description}"`,
+          'AppConfigure',
+        );
       }
-      
+
       // 执行更新
       if (!_.isEmpty(updates)) {
         Logger.verbose(f`#syncFromDB update metadata... ${field}: ${updates}`, 'AppConfigure');
@@ -329,7 +368,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           const existingRecord = await prisma.appSetting.findUnique({
             where: { key: field },
           });
-          
+
           if (!existingRecord) {
             Logger.warn(f`#syncFromDB record not found for update: ${field}`, 'AppConfigure');
             // 记录不存在，创建新记录
@@ -351,8 +390,12 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             });
             Logger.log(f`#syncFromDB successfully updated metadata for ${field}`, 'AppConfigure');
           }
-        } catch (error: any) {
-          Logger.error(f`#syncFromDB failed to update metadata for ${field}: ${error.message}`, error.stack, 'AppConfigure');
+        } catch (error: unknown) {
+          Logger.error(
+            f`#syncFromDB failed to update metadata for ${field}: ${error instanceof Error ? error.message : String(error)}`,
+            error instanceof Error ? error.stack : undefined,
+            'AppConfigure',
+          );
         }
       }
     }

@@ -44,9 +44,17 @@ export function inspect(o: any, options: util.InspectOptions = { colors: true, d
     : util.inspect(o, { ...options, colors });
 }
 
-export function onelineStack(stack: string | undefined | null): string {
+export function onelineStackFromError(e: unknown): string | undefined {
+  if (e instanceof Error) {
+    return onelineStack(e.stack);
+  }
+  console.warn(`unresolved error type: ${typeof e}`);
+  return undefined;
+}
+
+export function onelineStack(stack: string | undefined | null): string | undefined {
   if (!stack || typeof stack !== 'string') {
-    return 'StackTrace: No stack trace available';
+    return undefined;
   }
 
   return (
