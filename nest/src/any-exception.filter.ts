@@ -9,6 +9,7 @@ import {
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { ThrottlerException } from '@nestjs/throttler';
 import { HttpStatus } from '@nestjs/common/enums';
+import { Prisma } from '@/generated/prisma';
 import { ZodError } from 'zod';
 import _ from 'lodash';
 
@@ -17,7 +18,6 @@ import { ApiRes } from '@app/nest';
 import { f } from '@app/utils';
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
-import { Prisma } from 'generated/prisma';
 
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
 export class AnyExceptionFilter implements ExceptionFilter {

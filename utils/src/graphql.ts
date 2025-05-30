@@ -2,7 +2,7 @@ import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/gr
 import { plainToInstance } from 'class-transformer';
 
 // import type { RequestInfo } from '../app/auth/types';
-// import type * as DBTypes from '@prisma/client';
+// import type * as DBTypes from '@/generated/prisma';
 //
 // export type GraphqlContext = {
 //   req: RequestInfo<DBTypes.users | DBTypes.user_v2>;
