@@ -1,7 +1,7 @@
+import fetch, { RequestInfo as NodeFetchRequestInfo, RequestInit as NodeFetchRequestInit } from 'node-fetch';
 import { Logger } from '@nestjs/common';
 
 import { f, onelineStackFromError } from './utils';
-import fetch, { RequestInfo } from 'node-fetch';
 import { SysProxy } from '@app/env';
 
 export class ApiFetcher {
@@ -10,8 +10,8 @@ export class ApiFetcher {
 
   static proxyFetch(url: string | URL | Request, options?: RequestInit & { timeout?: number }): Promise<Response> {
     return fetch(
-      url as fetch.RequestInfo,
-      { ...options, agent: SysProxy.agent } as fetch.RequestInit,
+      url as unknown as NodeFetchRequestInfo,
+      { ...options, agent: SysProxy.agent } as NodeFetchRequestInit,
     ) as unknown as Promise<Response>;
   }
 
@@ -23,7 +23,10 @@ export class ApiFetcher {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(url, { ...options, signal: controller.signal } as unknown as fetch.RequestInit)
+    const response = await fetch(
+      url as unknown as NodeFetchRequestInfo,
+      { ...options, signal: controller.signal } as unknown as NodeFetchRequestInit,
+    )
       .catch((e: unknown) => {
         this.logger.error(
           f`<ApiFetcher> #fetch ${url} error ${e instanceof Error ? e.message : 'unknown'} ${Date.now() - now}ms...`,
