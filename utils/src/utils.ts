@@ -1,8 +1,8 @@
 import { instanceToPlain } from 'class-transformer';
 import * as process from 'process';
 import JSON from 'json5';
-import _ from 'lodash';
 
+import { isObjectType } from 'remeda';
 import util from 'node:util';
 
 /**
@@ -28,7 +28,7 @@ export function withObject<T, R>(o: T, fn: (o: T) => R): R {
 }
 
 export function r(o: any): string {
-  if (!_.isObjectLike(o)) return String(o);
+  if (!isObjectType(o)) return String(o);
   try {
     const value = instanceToPlain(o);
     return process.env.NODE_ENV === 'production' ? JSON.stringify(value) : inspect(value);

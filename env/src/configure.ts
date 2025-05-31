@@ -1,7 +1,6 @@
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { Logger } from '@nestjs/common';
-import _, { stubTrue } from 'lodash';
 import { config } from 'dotenv';
 import { uid } from 'radash';
 import JSON from 'json5';
@@ -9,6 +8,7 @@ import path from 'path';
 
 import { f, onelineStackFromError } from '@app/utils';
 import { NODE_ENV } from './env';
+import * as R from 'remeda';
 import os from 'node:os';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
@@ -18,10 +18,10 @@ export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
 const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
   // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
   try {
-    return _.isArray(obj[key]) ? obj[key] : JSON.parse(obj[key] || '[]');
+    return R.isArray(obj[key]) ? obj[key] : JSON.parse(obj[key] || '[]');
   } catch (e: unknown) {
     Logger.error(
-      f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
+      f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: R.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
       onelineStackFromError(e),
       'Transform',
     );
@@ -130,32 +130,32 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    * @param {HostSetVariables[F][0] | boolean} [fallback] - The fallback value to use if the retrieval fails
    * @returns {HostSetVariables[F][0]} - The retrieved value of the specified field
    */
-  getByHost<F extends keyof HostSetVariables>(
-    field: F,
-    fallback?: HostSetVariables[F][0] | boolean,
-  ): HostSetVariables[F][0] | undefined {
-    try {
-      const index = this.hostIndex;
-      if (_.isNil(index)) {
-        this.logger.warn(f`#getByHost (${this.hostname}) ${{ field, index }}`);
-        return _.isBoolean(fallback) ? _.get(this, [field, 0]) : fallback;
-      }
-      this.logger.verbose(f`#getByHost (${this.hostname}) ${{ field, index }}`);
-      return _.isBoolean(fallback)
-        ? _.get(this[field], index, _.get(this, [field, 0]))
-        : _.get(this[field], index, fallback);
-    } catch (e: unknown) {
-      this.logger.error(
-        f`#getByHost (${this.hostname}) ${field} ${e instanceof Error ? e.message : String(e)}`,
-        onelineStackFromError(e),
-      );
-      return _.isBoolean(fallback) ? _.get(this, [field, 0]) : fallback;
-    }
-  }
+  // getByHost<F extends keyof HostSetVariables>(
+  //   field: F,
+  //   fallback?: HostSetVariables[F][0] | boolean,
+  // ): HostSetVariables[F][0] | boolean | undefined {
+  //   try {
+  //     const index = this.hostIndex;
+  //     if (_.isNullish(index)) {
+  //       this.logger.warn(f`#getByHost (${this.hostname}) ${{ field, index }}`);
+  //       return _.isBoolean(fallback) ? _.pathOr(this as any, [field, 0]) : fallback;
+  //     }
+  //     this.logger.verbose(f`#getByHost (${this.hostname}) ${{ field, index }}`);
+  //     return _.isBoolean(fallback)
+  //       ? (_.prop(this[field], index) ?? _.pathOr(this as any, [field, 0]))
+  //       : (_.prop(this[field], index) ?? fallback);
+  //   } catch (e: unknown) {
+  //     this.logger.error(
+  //       f`#getByHost (${this.hostname}) ${field} ${e instanceof Error ? e.message : String(e)}`,
+  //       onelineStackFromError(e),
+  //     );
+  //     return _.isBoolean(fallback) ? _.pathOr(this as any, [field, 0]) : fallback;
+  //   }
+  // }
 
   get hostIndex() {
     const part = this.hostname.split('-').pop();
-    return _.isString(part) ? +part : null;
+    return R.isString(part) ? +part : null;
   }
 
   /**
@@ -177,9 +177,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   }): boolean {
     try {
       const host = hostId ?? 0;
-      this.hostKeys[host] = _.concat([...(this.hostKeys[host] ?? []), key]);
+      this.hostKeys[host] = R.concat(this.hostKeys[host] ?? [], [key]);
       const index = this.hostIndex;
-      const on = _.isNil(index) ? !!acceptWhenNoIds : index === host;
+      const on = R.isNullish(index) ? !!acceptWhenNoIds : index === host;
       this.logger.debug(f`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`);
       return on;
     } catch (e: unknown) {
@@ -209,15 +209,19 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     readonly EnvsClass: new () => T,
     private readonly sys = false,
   ) {
-    const envFilePath = _.cond([
-      [_.matches(NODE_ENV.Test), _.constant(['.env.local', '.env.test'])],
-      [_.matches(NODE_ENV.Production), _.constant(['.env.local', '.env'])],
-      // development or other
-      [stubTrue, _.constant(['.env.development.local', '.env.local', '.env.development', '.env'])],
-    ])(process.env.NODE_ENV);
+    const envFilePath = (() => {
+      switch (process.env.NODE_ENV) {
+        case NODE_ENV.Test:
+          return ['.env.local', '.env.test'];
+        case NODE_ENV.Production:
+          return ['.env.local', '.env'];
+        default:
+          return ['.env.development.local', '.env.local', '.env.development', '.env'];
+      }
+    })();
 
     if (this.sys) this.logger.log(f`load env from paths: ${envFilePath}`);
-    _.forEach(envFilePath, (env) => {
+    R.forEach(envFilePath, (env) => {
       // 使用 process.env.PWD 而不是 process.cwd() 的原因：
       // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
       // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
@@ -242,17 +246,17 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
       if (errors.length > 0) {
         this.logger.warn(`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`);
-        console.log(_.map(errors, (e) => `${e.property}=`).join('\n'));
+        console.log(R.map(errors, (e) => `${e.property}=`).join('\n'));
         throw new Error(errors.toString());
       }
 
       if (this.sys) {
         // display all envs not includes _ENABLE and not starts with APP_
-        _.each(validatedConfig, (value, key) => {
+        R.forEachObj(validatedConfig, (value, key) => {
           if (
             key.includes('_ENABLE') ||
             key.startsWith('APP_') ||
-            !_.includes(AbstractEnvironmentVariables.allFields, key) ||
+            !R.isIncludedIn(key as string, AbstractEnvironmentVariables.allFields) ||
             ['logger'].includes(key)
           )
             return;
@@ -261,16 +265,24 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         });
       }
 
-      _.each(validatedConfig, (value, key) => {
-        if (!this.sys && !_.includes(Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype), key)) return; // exclude sys envs
+      R.forEachObj(validatedConfig, (value, key) => {
+        if (
+          !this.sys &&
+          !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
+        )
+          return; // exclude sys envs
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
         if (key.includes('_ENABLE'))
           this.logger.log(
             f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
           );
       });
-      _.each(validatedConfig, (value, key) => {
-        if (!this.sys && !_.includes(Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype), key)) return; // exclude sys envs
+      R.forEachObj(validatedConfig, (value, key) => {
+        if (
+          !this.sys &&
+          !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
+        )
+          return; // exclude sys envs
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
         if (key.startsWith('APP_'))
           this.logger.log(
@@ -283,8 +295,9 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
   }
 
   static async syncFromDB(prisma: any, envs: Record<string, any>) {
-    const fields = _(Object.getOwnPropertyNames(envs))
-      .map((field) => {
+    const fields = R.pipe(
+      Object.getOwnPropertyNames(envs),
+      R.map((field) => {
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, envs, field);
         const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, envs, field);
         const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, envs, field);
@@ -303,15 +316,15 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         }
 
         return { field, isDatabaseField, format, description, value: envs[field] };
-      })
-      .filter(({ isDatabaseField }) => !!isDatabaseField)
-      .value();
+      }),
+      R.filter(({ isDatabaseField }) => !!isDatabaseField),
+    );
 
     // 添加所有待同步字段的详细日志
     Logger.debug(f`#syncFromDB fields to sync: ${fields}`, 'AppConfigure');
 
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
-    const appSettings = _.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
+    const appSettings = R.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' ? JSON.parse(value) : value, format }),
     ) as Array<{ key: string; default_value: unknown; format: string; description?: string; value: unknown }>;
@@ -319,9 +332,9 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // 添加数据库中所有设置的详细日志
     Logger.debug(f`#syncFromDB appSettings from DB: ${appSettings}`, 'AppConfigure');
 
-    const fieldNamesInDB = _.map(appSettings, (s) => s.key);
+    const fieldNamesInDB = R.map(appSettings, (s) => s.key);
     // 如何 appSettings 中不存在，则用当前的值更新
-    const nonExistsFields = _.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
+    const nonExistsFields = R.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
     Logger.debug(f`#syncFromDB nonExistsFields: ${nonExistsFields}`, 'AppConfigure');
 
     if (nonExistsFields.length) {
@@ -343,11 +356,11 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     }
 
     // 如何 appSettings 中存在，则用当前的值更新 envs
-    const existsFields = _.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
+    const existsFields = R.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
     Logger.debug(f`#syncFromDB existsFields count: ${existsFields.length}`, 'AppConfigure');
 
     for (const { field, value, description, format } of existsFields) {
-      const appSetting = _.find(appSettings, { key: field });
+      const appSetting = R.find(appSettings, (setting) => setting.key === field);
       if (!appSetting) {
         Logger.warn(f`#syncFromDB appSetting not found for ${field}`, 'AppConfigure');
         continue;
@@ -370,10 +383,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       const dbValue = appSetting.value;
-      const equal = _.isEqual(value, dbValue);
+      const equal = R.isDeepEqual(value, dbValue);
 
       // 更新环境变量值
-      if (!_.isNil(appSetting.value) && !equal) {
+      if (!R.isNullish(appSetting.value) && !equal) {
         Logger.verbose(f`#syncFromDB update env value... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
         envs[field] = dbValue;
       }
@@ -401,7 +414,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       // 执行更新
-      if (!_.isEmpty(updates)) {
+      if (!R.isEmpty(updates)) {
         Logger.verbose(f`#syncFromDB update metadata... ${field}: ${updates}`, 'AppConfigure');
         try {
           // 首先检查记录是否存在
