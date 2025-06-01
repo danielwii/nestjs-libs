@@ -119,7 +119,17 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
 
   app.disable('x-powered-by');
 
-  app.use(compression());
+  app.use(
+    compression({
+      filter: (req, res) => {
+        // 不压缩 event-stream 响应，因为 event-stream 响应是流式响应，压缩后会导致响应流式响应中断，目前主要是遇到了 AI-SDK 直接返回了最终结果，没有流式响应
+        if (res.getHeader('Content-Type') === 'text/event-stream') {
+          return false;
+        }
+        return compression.filter(req, res);
+      },
+    }),
+  );
   app.use(responseTime());
 
   const port = SysEnv.PORT ?? 3100;
