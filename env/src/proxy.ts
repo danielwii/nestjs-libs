@@ -2,6 +2,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import { Logger } from '@nestjs/common';
 
 import { SysEnv } from './configure';
+import { ProxyAgent } from 'undici';
 import https from 'node:https';
 import { f } from '@app/utils';
 
@@ -11,6 +12,7 @@ export const SysProxy = {
   unauthorizedAgent: SysEnv.APP_PROXY_ENABLED
     ? new HttpsProxyAgent(proxy, { rejectUnauthorized: false })
     : new https.Agent({ rejectUnauthorized: false }),
+  dispatcher: SysEnv.APP_PROXY_ENABLED ? new ProxyAgent(proxy) : undefined,
 };
 
 Logger.log(f`init with proxy ${{ enabled: SysEnv.APP_PROXY_ENABLED, proxy }}`, 'SysProxy');

@@ -1,17 +1,29 @@
-import fetch, { RequestInfo as NodeFetchRequestInfo, RequestInit as NodeFetchRequestInit } from 'node-fetch';
 import { Logger } from '@nestjs/common';
+import * as NodeFetch from 'node-fetch';
 
 import { f, onelineStackFromError } from './utils';
 import { SysProxy } from '@app/env';
+import * as Undici from 'undici';
 
 export class ApiFetcher {
   private static readonly logger = new Logger(this.constructor.name);
   private static readonly DEFAULT_TIMEOUT = 30e3;
 
-  static proxyFetch(url: string | URL | Request, options?: RequestInit & { timeout?: number }): Promise<Response> {
-    return fetch(
-      url as unknown as NodeFetchRequestInfo,
-      { ...options, agent: SysProxy.agent } as NodeFetchRequestInit,
+  static async undiciFetch(
+    url: string | URL | Request,
+    options?: RequestInit & { duplex?: Undici.RequestDuplex },
+  ): Promise<Response> {
+    const response = await Undici.fetch(
+      url as string,
+      { ...options, dispatcher: SysProxy.dispatcher } as unknown as Undici.RequestInit,
+    );
+    return response as unknown as Response;
+  }
+
+  static async nodeFetch(url: string | URL | Request, options?: RequestInit & { timeout?: number }): Promise<Response> {
+    return NodeFetch.default(
+      url as unknown as NodeFetch.RequestInfo,
+      { ...options, agent: SysProxy.agent } as NodeFetch.RequestInit,
     ) as unknown as Promise<Response>;
   }
 
@@ -23,9 +35,9 @@ export class ApiFetcher {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch(
-      url as unknown as NodeFetchRequestInfo,
-      { ...options, signal: controller.signal } as unknown as NodeFetchRequestInit,
+    const response = await NodeFetch.default(
+      url as unknown as NodeFetch.RequestInfo,
+      { ...options, signal: controller.signal, agent: SysProxy.agent } as unknown as NodeFetch.RequestInit,
     )
       .catch((e: unknown) => {
         this.logger.error(

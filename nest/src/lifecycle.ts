@@ -47,7 +47,11 @@ export const runApp = <App extends INestApplication>(app: App) => {
   process.on('exit', (reason) => {
     logger[reason ? 'error' : 'log'](f`(${os.hostname}) App exit cause: ${reason} (${process.pid})`);
     // sometimes the process will not exit, so we force exit it
-    setTimeout(() => process.exit(0), 3e3);
+    setTimeout(() => process.exit(0), 5e3);
+  });
+  process.on('SIGTERM', async (signals) => {
+    logger.log(f`(${os.hostname}) Received SIGTERM. ${signals} (${process.pid})`);
+    setTimeout(() => process.exit(0), 5e3);
   });
 
   return app;

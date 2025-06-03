@@ -3,12 +3,12 @@ import { plainToInstance, Transform, TransformFnParams, Type } from 'class-trans
 import { Logger } from '@nestjs/common';
 import { config } from 'dotenv';
 import { uid } from 'radash';
+import * as R from 'remeda';
 import JSON from 'json5';
 import path from 'path';
 
 import { f, onelineStackFromError } from '@app/utils';
 import { NODE_ENV } from './env';
-import * as R from 'remeda';
 import os from 'node:os';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
@@ -327,7 +327,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const appSettings = R.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' ? JSON.parse(value) : value, format }),
-    ) as Array<{ key: string; default_value: unknown; format: string; description?: string; value: unknown }>;
+    ) as Array<{ key: string; defaultValue: unknown; format: string; description?: string; value: unknown }>;
 
     // 添加数据库中所有设置的详细日志
     Logger.debug(f`#syncFromDB appSettings from DB: ${appSettings}`, 'AppConfigure');
@@ -344,7 +344,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
           const newVar = {
             key: field,
-            default_value: value,
+            defaultValue: value,
             format,
             description,
           };
@@ -375,7 +375,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             description,
             format,
             appSetting_value: appSetting.value,
-            appSetting_default_value: appSetting.default_value,
+            appSetting_defaultValue: appSetting.defaultValue,
             appSetting_description: appSetting.description,
           }}`,
           'AppConfigure',
@@ -392,14 +392,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       // 检查并更新默认值和描述
-      const updates: { default_value?: string; description?: string } = {};
+      const updates: { defaultValue?: string; description?: string } = {};
       const valueToStore = value !== undefined ? (typeof value === 'string' ? value : JSON.stringify(value)) : null;
 
       // 如果默认值不一样，需要更新
-      if (appSetting.default_value !== valueToStore && valueToStore !== null) {
-        updates.default_value = valueToStore;
+      if (appSetting.defaultValue !== valueToStore && valueToStore !== null) {
+        updates.defaultValue = valueToStore;
         Logger.debug(
-          f`#syncFromDB will update default_value for ${field}: "${appSetting.default_value}" -> "${valueToStore}"`,
+          f`#syncFromDB will update defaultValue for ${field}: "${appSetting.defaultValue}" -> "${valueToStore}"`,
           'AppConfigure',
         );
       }
@@ -429,7 +429,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
               data: {
                 key: field,
                 value: format === 'string' ? value : JSON.stringify(value),
-                default_value: updates.default_value,
+                defaultValue: updates.defaultValue,
                 format,
                 description: updates.description,
               },

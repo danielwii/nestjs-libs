@@ -4,7 +4,6 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { stripIndent } from 'common-tags';
 import responseTime from 'response-time';
 import compression from 'compression';
-import { format } from 'date-fns';
 import { DateTime } from 'luxon';
 import helmet from 'helmet';
 
@@ -14,8 +13,8 @@ import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
-import { TimeSensitivity } from '@app/utils';
 import { SysEnv } from '@app/env';
+import { json } from 'express';
 import os from 'node:os';
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
@@ -131,6 +130,7 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
     }),
   );
   app.use(responseTime());
+  app.use(json({ limit: '1mb' }));
 
   const port = SysEnv.PORT ?? 3100;
 
@@ -147,6 +147,7 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
           : `${address.address}:${address.port}`
         : 'unknown';
 
+      const startTime = DateTime.utc();
       Logger.log(
         stripIndent`🦋 [Server] API Server started successfully
           Host: ${os.hostname()}
@@ -155,9 +156,10 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
           PID: ${process.pid}
           Platform: ${process.platform}
           Node Version: ${process.version}
+          SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})
+          Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
+          UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
           Startup Time: ${Date.now() - now}ms
-          Time: ${format(DateTime.now().setZone(SysEnv.TZ).toJSDate(), TimeSensitivity.Minute)}
-          Timezone: ${SysEnv.TZ}
         `,
         'Bootstrap',
       );
