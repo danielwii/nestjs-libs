@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
-import * as NodeFetch from 'node-fetch';
 
 import { f, onelineStackFromError } from './utils';
+import * as NodeFetch from 'node-fetch';
 import { SysProxy } from '@app/env';
 import * as Undici from 'undici';
 
