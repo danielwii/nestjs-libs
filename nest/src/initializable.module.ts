@@ -35,7 +35,7 @@ export abstract class InitializableModule implements OnModuleInit, OnApplication
       // 设置超时检查
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
-          reject(new Error(`[${this.moduleName}] #onModuleInit timeout, over ${this.timeout.toLocaleString()}s`));
+          reject(new Error(`Initialization timeout, over ${this.timeout.toLocaleString()}s`));
         }, this.timeout * 1000);
       });
 
