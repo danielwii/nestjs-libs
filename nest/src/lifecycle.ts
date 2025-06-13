@@ -13,32 +13,36 @@ export const runApp = <App extends INestApplication>(app: App) => {
     if (_.eq(err, 'request closed')) return;
 
     logger.error(f`(${os.hostname}) uncaughtException: ${err.message ?? err}`, err.stack);
-    // Sentry.captureException(err);
-    // app
-    //   .close()
-    //   .catch((error: Error) => {
-    //     logger.error(f`(${os.hostname}) exit by uncaughtException error: ${error.message}`, error.stack);
-    //   })
-    //   .finally(() => {
-    //     logger.error(f`(${os.hostname}) exit by uncaughtException...`);
-    //     process.exit(1);
-    //   });
+    if (SysEnv.EXIT_ON_ERROR) {
+      // Sentry.captureException(err);
+      app
+        .close()
+        .catch((error: Error) => {
+          logger.error(f`(${os.hostname}) exit by uncaughtException error: ${error.message}`, error.stack);
+        })
+        .finally(() => {
+          logger.error(f`(${os.hostname}) exit by uncaughtException...`);
+          process.exit(1);
+        });
+    }
   });
   process.on('unhandledRejection', (err: Error) => {
     logger.error(
       f`(${os.hostname}) unhandledRejection: ${err.message ?? err} - ${_.get(err, 'cause', 'unknown cause')} -`,
       err.stack,
     );
-    // Sentry.captureException(err);
-    // app
-    //   .close()
-    //   .catch((error: Error) => {
-    //     logger.error(f`(${os.hostname}) exit by unhandledRejection error: ${error.message}`, error.stack);
-    //   })
-    //   .finally(() => {
-    //     logger.error(f`(${os.hostname}) exit by unhandledRejection... ${err.message}`, err.stack);
-    //     process.exit(2);
-    //   });
+    if (SysEnv.EXIT_ON_ERROR) {
+      // Sentry.captureException(err);
+      app
+        .close()
+        .catch((error: Error) => {
+          logger.error(f`(${os.hostname}) exit by unhandledRejection error: ${error.message}`, error.stack);
+        })
+        .finally(() => {
+          logger.error(f`(${os.hostname}) exit by unhandledRejection... ${err.message}`, err.stack);
+          process.exit(2);
+        });
+    }
   });
   process.on('beforeExit', (reason) => {
     logger[reason ? 'error' : 'log'](f`(${os.hostname}) App will exit cause: ${reason}`);

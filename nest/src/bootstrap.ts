@@ -1,10 +1,22 @@
-import { ClassSerializerInterceptor, INestApplication, Logger, LogLevel, ValidationPipe } from '@nestjs/common';
+import {
+  ClassSerializerInterceptor,
+  DynamicModule,
+  ForwardReference,
+  INestApplication,
+  Logger,
+  LogLevel,
+  Type,
+  ValidationPipe,
+} from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { RedisStore } from 'connect-redis';
 import { stripIndent } from 'common-tags';
 import responseTime from 'response-time';
+import session from 'express-session';
 import compression from 'compression';
 import { DateTime } from 'luxon';
+import Redis from 'ioredis';
 import helmet from 'helmet';
 
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
@@ -13,20 +25,24 @@ import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
+import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
+import { AppEnvs } from '@/env';
 import { json } from 'express';
 import os from 'node:os';
 
+type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
+
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
 
-export async function simpleBootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
+export async function simpleBootstrap(AppModule: IEntryNestModule, onInit?: (app: INestApplication) => Promise<void>) {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   if (onInit) await onInit(app);
   await runApp(app).listen(SysEnv.PORT ?? 3100);
   return app;
 }
 
-export async function bootstrap(AppModule: any, onInit?: (app: INestApplication) => Promise<void>) {
+export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INestApplication) => Promise<void>) {
   const now = Date.now();
   const logLevel: LogLevel = SysEnv.LOG_LEVEL || 'debug';
   const levels = allLogLevels.slice(allLogLevels.indexOf(logLevel), allLogLevels.length);
@@ -71,7 +87,21 @@ export async function bootstrap(AppModule: any, onInit?: (app: INestApplication)
 
   // see https://expressjs.com/en/guide/behind-proxies.html
   // 设置以后，req.ips 是 ip 数组；如果未经过代理，则为 []. 若不设置，则 req.ips 恒为 []
-  app.set('trust proxy', true);
+  // app.set('trust proxy', true);
+  app.set('trust proxy', 1);
+  if (SysEnv.SESSION_SECRET) {
+    const client = new Redis(AppEnvs.REDIS_URL, { maxRetriesPerRequest: 3 });
+    Logger.log(`[Config] Session enabled with secret: "${maskSecret(SysEnv.SESSION_SECRET)}"`, 'Bootstrap');
+    app.use(
+      session({
+        store: new RedisStore({ client }),
+        secret: SysEnv.SESSION_SECRET,
+        resave: false,
+        saveUninitialized: true,
+        cookie: SysEnv.environment.isProd ? { secure: true } : {},
+      }),
+    );
+  }
   // app.use((req, res, next) => {
   //   const ip = getClientIp(req);
   //   Object.defineProperty(req, 'clientIp', { get: () => ip, configurable: true });

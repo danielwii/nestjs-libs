@@ -9,25 +9,27 @@ import {
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { ThrottlerException } from '@nestjs/throttler';
 import { HttpStatus } from '@nestjs/common/enums';
-import { Prisma } from '@/generated/prisma';
 import { ZodError } from 'zod';
 import _ from 'lodash';
 
 import { ErrorCodes } from '@app/nest/error-codes';
+import { Prisma } from '@/generated/prisma';
 import { ApiRes } from '@app/nest';
 import { f } from '@app/utils';
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import type { FetchError } from 'node-fetch';
 
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(this.constructor.name);
 
   @SentryExceptionCaptured()
-  catch(exception: any, host: ArgumentsHost): any {
+  catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
-    const request = ctx.getRequest();
-    const response = ctx.getResponse();
+    const request: Request & { uid?: string } = ctx.getRequest();
+    const response: Response = ctx.getResponse();
 
     // throw directly if it is a graphql request
     if (!response.status) {
@@ -98,14 +100,16 @@ export class AnyExceptionFilter implements ExceptionFilter {
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failureV2({
           code: ErrorCodes.FetchError,
-          message: `FetchError ${exception.type}`,
+          message: `FetchError ${(exception as FetchError).type}`,
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         }),
       );
     }
     if (exception instanceof UnauthorizedException) {
       const path = _.get(request, 'path');
-      this.logger.warn(f`(${request?.uid})[${request?.ip}] UnauthorizedException ${exception.message} ${path}`);
+      this.logger.warn(
+        f`(${request?.uid})[${request?.ip}] UnauthorizedException ${exception.message} ${path} ${exception.stack}`,
+      );
       return response.status(HttpStatus.UNAUTHORIZED).json(
         ApiRes.failureV2({
           code: ErrorCodes.Unauthorized,
