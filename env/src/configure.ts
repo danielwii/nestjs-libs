@@ -110,7 +110,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsBoolean()
   @IsOptional()
   @Transform(booleanTransformFn)
-  TRACING_ENABLED?: boolean;
+  TRACING_ENABLED?: boolean = true;
   @IsString() @IsOptional() SERVICE_NAME?: string;
   @IsString() @IsOptional() TRACING_EXPORTER_URL?: string;
 
