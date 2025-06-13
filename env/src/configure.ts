@@ -6,22 +6,36 @@ import { uid } from 'radash';
 import * as R from 'remeda';
 import JSON from 'json5';
 import path from 'path';
+import _ from 'lodash';
 
 import { f, onelineStackFromError } from '@app/utils';
 import { NODE_ENV } from './env';
 import os from 'node:os';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
-  Logger.debug(f`[Transform] ${{ key, origin: obj[key] }}`, 'Configure');
+  // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
   return [true, 'true', '1'].includes(obj[key]);
 };
-const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
-  // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
+export const objectTransformFn = ({ key, value, obj }: TransformFnParams) => {
+  // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }}`);
   try {
-    return R.isArray(obj[key]) ? obj[key] : JSON.parse(obj[key] || '[]');
+    return _.isObject(obj[key]) ? obj[key] : JSON.parse(obj[key] || '{}');
   } catch (e: unknown) {
     Logger.error(
-      f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: R.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
+      f`#objectTransformFn error ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
+      onelineStackFromError(e),
+      'Transform',
+    );
+    throw e;
+  }
+};
+export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
+  // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
+  try {
+    return _.isArray(obj[key]) ? obj[key] : JSON.parse(obj[key] || '[]');
+  } catch (e: unknown) {
+    Logger.error(
+      f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
       onelineStackFromError(e),
       'Transform',
     );
@@ -107,6 +121,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   @IsString() DATABASE_URL!: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
 
   get environment() {
     const env = this.ENV || this.DOPPLER_ENVIRONMENT || 'dev';

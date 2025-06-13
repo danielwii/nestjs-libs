@@ -1,8 +1,8 @@
 import { instanceToPlain } from 'class-transformer';
+import { isObjectType } from 'remeda';
 import * as process from 'process';
 import JSON from 'json5';
 
-import { isObjectType } from 'remeda';
 import util from 'node:util';
 
 /**
