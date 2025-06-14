@@ -2,7 +2,6 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 
 import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { Logger } from '@nestjs/common';
 import { config } from 'dotenv';
-import { uid } from 'radash';
 import * as R from 'remeda';
 import JSON from 'json5';
 import path from 'path';
@@ -98,7 +97,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
     '系统API密钥，仅用于验证系统级内部API请求，不自行设置的话每次启动都会变更，注意: 不要外部使用',
   )
   @IsString()
-  API_KEY: string = uid(64);
+  @IsOptional()
+  API_KEY?: string = undefined;
 
   // used to debug dependency issues
   @IsString() @IsOptional() NEST_DEBUG?: string;
