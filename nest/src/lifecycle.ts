@@ -66,7 +66,14 @@ export const runApp = <App extends INestApplication>(app: App) => {
   });
   process.on('SIGTERM', (signals) => {
     logger.log(f`(${os.hostname}) Received SIGTERM. ${signals} (${process.pid})`);
-    process.exit(0);
+    app
+      .close()
+      .catch((error: Error) => {
+        logger.error(f`(${os.hostname}) exit by SIGTERM error: ${error.message}`, error.stack);
+      })
+      .finally(() => {
+        process.exit(0);
+      });
   });
 
   return app;
