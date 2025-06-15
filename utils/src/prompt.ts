@@ -1,5 +1,5 @@
 import { stripIndent } from 'common-tags';
-import * as Handlebars from 'handlebars';
+import Handlebars from 'handlebars';
 import { format } from 'date-fns';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
