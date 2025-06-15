@@ -45,7 +45,7 @@ export abstract class InitializableModule implements OnModuleInit, OnApplication
       const endTime = DateTime.now();
       const duration = endTime.diff(this.startTime);
 
-      this.logger.debug(f`#onModuleInit initialized in ${duration.toHuman()}`);
+      this.logger.debug(f`#onModuleInit initialized in ${duration.rescale().toHuman()}`);
     } catch (error: unknown) {
       this.logger.error(
         `#onModuleInit failed: ${error instanceof Error ? error.message : String(error)}`,

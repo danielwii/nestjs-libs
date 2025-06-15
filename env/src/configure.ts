@@ -126,7 +126,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
 
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
-  @IsBoolean() EXIT_ON_ERROR: boolean = true;
+  @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;
 
   get environment() {
     const env = this.ENV || this.DOPPLER_ENVIRONMENT || 'dev';
