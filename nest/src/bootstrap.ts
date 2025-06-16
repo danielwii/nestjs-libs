@@ -25,6 +25,7 @@ import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
+import { doMigration } from './migration';
 import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
@@ -43,6 +44,8 @@ export async function simpleBootstrap(AppModule: IEntryNestModule, onInit?: (app
 }
 
 export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INestApplication) => Promise<void>) {
+  await doMigration();
+
   const now = Date.now();
   const logLevel: LogLevel = SysEnv.LOG_LEVEL || 'debug';
   const levels = allLogLevels.slice(allLogLevels.indexOf(logLevel), allLogLevels.length);

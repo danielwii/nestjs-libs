@@ -124,6 +124,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() DATABASE_URL!: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
 
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
   @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;
