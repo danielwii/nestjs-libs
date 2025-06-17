@@ -26,6 +26,7 @@ import { initStackTraceFormatter } from '@app/nest/logger.utils';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
 import { doMigration } from './migration';
+import cookieParser from 'cookie-parser';
 import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
@@ -148,6 +149,8 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
       },
     }),
   );
+
+  app.use(cookieParser());
 
   app.disable('x-powered-by');
 
