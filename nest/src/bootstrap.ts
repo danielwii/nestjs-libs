@@ -10,9 +10,11 @@ import {
 } from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { NestFactory, Reflector } from '@nestjs/core';
 import { RedisStore } from 'connect-redis';
 import { stripIndent } from 'common-tags';
 import responseTime from 'response-time';
+import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import compression from 'compression';
 import { DateTime } from 'luxon';
@@ -23,10 +25,8 @@ import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
 import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
-import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
 import { doMigration } from './migration';
-import cookieParser from 'cookie-parser';
 import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
@@ -168,7 +168,7 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
   app.use(responseTime());
   app.use(json({ limit: '1mb' }));
 
-  const port = SysEnv.PORT ?? 3100;
+  const port = SysEnv.PORT;
 
   if (onInit) await onInit(app);
 
@@ -187,6 +187,7 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
       Logger.log(
         stripIndent`🦋 [Server] API Server started successfully
           Host: ${os.hostname()}
+          Node Name: ${SysEnv.NODE_NAME}
           Bind: ${bindAddress}
           Port: ${port}
           PID: ${process.pid}

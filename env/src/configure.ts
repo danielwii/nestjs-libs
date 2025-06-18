@@ -86,8 +86,13 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @Type(() => Number)
   @IsNumber()
   @IsOptional()
-  PORT?: number;
+  PORT: number = 3100;
   @IsString() TZ = 'UTC';
+
+  get NODE_NAME() {
+    const hostname = os.hostname() === 'localhost' ? `localhost-${Date.now()}` : os.hostname();
+    return `${hostname}:${this.PORT}`;
+  }
 
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
