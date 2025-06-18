@@ -13,7 +13,7 @@ export async function doMigration() {
       execSync('bun prisma migrate status', { stdio: 'inherit' });
       // eslint-disable-next-line no-empty, @typescript-eslint/no-unused-vars
     } catch (e: unknown) {}
-    const { PrismaClient } = await import('@/generated/prisma');
+    const { PrismaClient } = await import('@/generated/prisma/client');
     const prisma = new PrismaClient();
     await prisma.$connect();
     let applied: number | null = null;

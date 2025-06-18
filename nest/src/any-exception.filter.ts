@@ -12,8 +12,8 @@ import { HttpStatus } from '@nestjs/common/enums';
 import { ZodError } from 'zod';
 import _ from 'lodash';
 
+import { Prisma } from '@/generated/prisma/client';
 import { ErrorCodes } from '@app/nest/error-codes';
-import { Prisma } from '@/generated/prisma';
 import { ApiRes } from '@app/nest';
 import { f } from '@app/utils';
 
