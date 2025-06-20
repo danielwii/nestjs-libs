@@ -128,6 +128,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
+  @DatabaseField('number', 'Prisma 事务超时时间（毫秒）') @IsNumber() PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
 
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
   @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;
