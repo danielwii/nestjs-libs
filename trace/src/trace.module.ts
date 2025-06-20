@@ -1,4 +1,5 @@
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
@@ -69,7 +70,7 @@ export class TraceModule {
               },
             },
           }),
-          // new PrismaInstrumentation(),
+          new PrismaInstrumentation(),
         ],
       });
       sdk.start();
