@@ -59,6 +59,14 @@ export const runApp = <App extends INestApplication>(app: App) => {
       }, 3000);
     }
   });
+  process.on('SIGHUP', () => {
+    logger.warn('Process SIGHUP (可能是终端关闭)，强制退出...');
+    process.exit(1);
+  });
+  process.on('disconnect', () => {
+    logger.warn('Process disconnected (可能是终端关闭)，强制退出...');
+    process.exit(1);
+  });
   process.on('exit', (reason) => {
     logger[reason ? 'error' : 'log'](f`(${os.hostname}) App exit cause: ${reason} (${process.pid})`);
     // sometimes the process will not exit, so we force exit it
