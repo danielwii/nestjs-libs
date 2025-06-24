@@ -90,7 +90,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() TZ = 'UTC';
 
   // 因为 有些服务器的 hostname 是 localhost，所以需要添加一个随机数来区分
-  NODE_NAME = os.hostname() === 'localhost' ? `localhost-${Date.now()}:${this.PORT}` : `${os.hostname()}:${this.PORT}`;
+  get NODE_NAME() {
+    return os.hostname() === 'localhost' ? `localhost-${Date.now()}:${this.PORT}` : `${os.hostname()}:${this.PORT}`;
+  }
 
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
