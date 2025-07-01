@@ -1,20 +1,32 @@
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { DynamicModule, Logger, Module } from '@nestjs/common';
+import { compact, map } from 'lodash';
 
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { LoggerInjector } from './logger.injector';
+import { LangfuseExporter } from 'langfuse-vercel';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { Injector } from './injector';
+import { Response } from 'express';
 import { SysEnv } from '@app/env';
+import { AppEnvs } from '@/env';
+import { f } from '@app/utils';
 
-interface TraceModuleOptions {}
+interface TraceModuleOptions {
+  exporters?: {
+    aiExporter?: LangfuseExporter;
+  };
+}
 
 @Module({})
 export class TraceModule {
-  static forRootAsync({}: TraceModuleOptions): DynamicModule {
-    Logger.log(`run tracing...`, 'TraceModule');
-    this.runTracing();
+  private static readonly logger = new Logger('TraceModule');
+
+  static forRootAsync({ exporters }: TraceModuleOptions): DynamicModule {
+    this.logger.log(`run tracing...`);
+    this.sdkStart(exporters);
     return {
       module: TraceModule,
       imports: [],
@@ -47,35 +59,44 @@ export class TraceModule {
     };
   }
 
-  static runTracing() {
+  static sdkStart({ aiExporter }: TraceModuleOptions['exporters'] = {}) {
     // For troubleshooting, set the log level to DiagLogLevel.DEBUG
     // diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
     if (SysEnv.TRACING_ENABLED) {
       const serviceName = SysEnv.SERVICE_NAME ?? `api-server`;
       const exporterUrl = SysEnv.TRACING_EXPORTER_URL ?? 'http://localhost:4318/v1/traces';
-      Logger.log(`<OTEL> Tracing enabled. Service name: ${serviceName}, exporter url: ${exporterUrl}`, 'TraceModule');
+      this.logger.log(`#sdkStart Tracing enabled. Service name: ${serviceName}, exporter url: ${exporterUrl}`);
       const traceExporter = new OTLPTraceExporter({ url: exporterUrl });
       // const metricExporter = new OTLPMetricExporter({ url: exporterUrl });
       // const spanProcessor = isProduction ? new BatchSpanProcessor(traceExporter) : new SimpleSpanProcessor(traceExporter);
+      const autoInstrumentations = getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-http': {
+          responseHook: (span, response) => {
+            const traceID = span.spanContext().traceId;
+            (response as Response).setHeader('X-Trace-Id', traceID);
+          },
+        },
+      });
+      this.logger.debug(
+        f`#sdkStart autoInstrumentations: ${map(autoInstrumentations, 'instrumentationName').join(', ')}`,
+      );
+
+      if (aiExporter) this.logger.log(`#sdkStart Langfuse exporter enabled. to: ${AppEnvs.LANGFUSE_HOST}`);
+
       const sdk = new NodeSDK({
         serviceName,
-        traceExporter,
+        spanProcessors: compact([
+          new BatchSpanProcessor(traceExporter),
+          aiExporter && new BatchSpanProcessor(aiExporter),
+        ]),
+        // traceExporter: new MultiSpanProcessor([traceExporter, langfuseExporter]), // 使用 LangfuseExporter
         // metricReader: new PeriodicExportingMetricReader({ exporter: new ConsoleMetricExporter() }),
-        instrumentations: [
-          getNodeAutoInstrumentations({
-            '@opentelemetry/instrumentation-http': {
-              responseHook: (span, response) => {
-                const traceID = span.spanContext().traceId;
-                (response as any).setHeader('X-Trace-Id', traceID);
-              },
-            },
-          }),
-          new PrismaInstrumentation(),
-        ],
+        instrumentations: [autoInstrumentations, new PrismaInstrumentation()],
       });
       sdk.start();
+      this.logger.log(`#sdkStart sdk start.`);
     } else {
-      Logger.log(`<OTEL> Tracing disabled.`, 'TraceModule');
+      this.logger.log(`#sdkStart Tracing disabled.`);
     }
   }
 }

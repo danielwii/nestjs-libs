@@ -1,10 +1,10 @@
 import { ConsoleLogger } from '@nestjs/common';
 
-import { onelineStack } from '@app/utils';
+import { onelineStack } from '@app/utils/utils';
 
 export function initStackTraceFormatter() {
-  ConsoleLogger.prototype.warn = wrapPrototype(ConsoleLogger.prototype.warn);
-  ConsoleLogger.prototype.error = wrapPrototype(ConsoleLogger.prototype.error);
+  ConsoleLogger.prototype.warn = wrapPrototype(ConsoleLogger.prototype.warn.bind(ConsoleLogger.prototype));
+  ConsoleLogger.prototype.error = wrapPrototype(ConsoleLogger.prototype.error.bind(ConsoleLogger.prototype));
 }
 
 export function wrapPrototype(prototype: any) {

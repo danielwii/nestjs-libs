@@ -26,10 +26,10 @@ export const runApp = <App extends INestApplication>(app: App) => {
         });
     }
   });
-  process.on('unhandledRejection', (err: Error) => {
+  process.on('unhandledRejection', (err: unknown) => {
     logger.error(
-      f`(${os.hostname}) unhandledRejection: ${err.message ?? err} - ${_.get(err, 'cause', 'unknown cause')} -`,
-      err.stack,
+      f`(${os.hostname}) unhandledRejection: ${err instanceof Error ? err.message : err} - ${_.get(err, 'cause', 'unknown cause')} -`,
+      err instanceof Error ? err.stack : undefined,
     );
     if (SysEnv.EXIT_ON_ERROR) {
       // Sentry.captureException(err);
@@ -39,7 +39,10 @@ export const runApp = <App extends INestApplication>(app: App) => {
           logger.error(f`(${os.hostname}) exit by unhandledRejection error: ${error.message}`, error.stack);
         })
         .finally(() => {
-          logger.error(f`(${os.hostname}) exit by unhandledRejection... ${err.message}`, err.stack);
+          logger.error(
+            f`(${os.hostname}) exit by unhandledRejection... ${err instanceof Error ? err.message : err}`,
+            err instanceof Error ? err.stack : undefined,
+          );
           process.exit(2);
         });
     }
