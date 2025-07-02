@@ -2,11 +2,10 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { compact, map } from 'lodash';
 
+import { BatchSpanProcessor, SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { LoggerInjector } from './logger.injector';
-import { LangfuseExporter } from 'langfuse-vercel';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { Injector } from './injector';
 import { Response } from 'express';
@@ -16,7 +15,7 @@ import { f } from '@app/utils';
 
 interface TraceModuleOptions {
   exporters?: {
-    aiExporter?: LangfuseExporter;
+    aiExporter?: SpanExporter;
   };
 }
 

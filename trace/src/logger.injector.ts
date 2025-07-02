@@ -6,20 +6,19 @@ import { Injector } from './injector';
 @Injectable()
 export class LoggerInjector implements Injector {
   public inject() {
-    ConsoleLogger.prototype.log = this.wrapPrototype(ConsoleLogger.prototype.log);
-    ConsoleLogger.prototype.debug = this.wrapPrototype(ConsoleLogger.prototype.debug);
-    ConsoleLogger.prototype.error = this.wrapPrototype(ConsoleLogger.prototype.error);
-    ConsoleLogger.prototype.verbose = this.wrapPrototype(ConsoleLogger.prototype.verbose);
-    ConsoleLogger.prototype.warn = this.wrapPrototype(ConsoleLogger.prototype.warn);
+    ConsoleLogger.prototype.log = this.wrapPrototype(ConsoleLogger.prototype.log.bind(ConsoleLogger.prototype));
+    ConsoleLogger.prototype.debug = this.wrapPrototype(ConsoleLogger.prototype.debug.bind(ConsoleLogger.prototype));
+    ConsoleLogger.prototype.error = this.wrapPrototype(ConsoleLogger.prototype.error.bind(ConsoleLogger.prototype));
+    ConsoleLogger.prototype.verbose = this.wrapPrototype(ConsoleLogger.prototype.verbose.bind(ConsoleLogger.prototype));
+    ConsoleLogger.prototype.warn = this.wrapPrototype(ConsoleLogger.prototype.warn.bind(ConsoleLogger.prototype));
   }
 
   private wrapPrototype(prototype: any) {
-    return {
-      [prototype.name]: function (...args: any[]) {
-        args[0] = LoggerInjector.getMessage(args[0]);
-        prototype.apply(this, args);
-      },
-    }[prototype.name];
+    const originalMethod = prototype;
+    return function (this: any, ...args: any[]) {
+      args[0] = LoggerInjector.getMessage(args[0]);
+      return originalMethod.apply(this, args);
+    };
   }
 
   private static getMessage(message: string) {
@@ -27,7 +26,21 @@ export class LoggerInjector implements Injector {
     if (!currentSpan) return message;
 
     const spanContext = currentSpan.spanContext();
-    currentSpan.addEvent(message);
+
+    // 检查 span 是否已经结束，如果已结束则不再添加事件
+    try {
+      // 使用 span 的内部状态检查是否已结束
+      const spanImpl = currentSpan as any;
+      if (spanImpl && typeof spanImpl.isRecording === 'function' && !spanImpl.isRecording()) {
+        // Span 已结束，只记录 traceId，不添加事件
+        return `[${spanContext.traceId}] ${message}`;
+      }
+
+      currentSpan.addEvent(message);
+    } catch (error) {
+      // 如果 span 已结束，只记录 traceId，不添加事件
+      console.warn(`Cannot add event to ended span: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     return `[${spanContext.traceId}] ${message}`;
   }
