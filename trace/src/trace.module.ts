@@ -1,16 +1,15 @@
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { DynamicModule, Logger, Module } from '@nestjs/common';
 import { compact, map } from 'lodash';
 
 import { BatchSpanProcessor, SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { LoggerInjector } from './logger.injector';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { Injector } from './injector';
 import { Response } from 'express';
 import { SysEnv } from '@app/env';
-import { AppEnvs } from '@/env';
 import { f } from '@app/utils';
 
 interface TraceModuleOptions {
@@ -80,7 +79,7 @@ export class TraceModule {
         f`#sdkStart autoInstrumentations: ${map(autoInstrumentations, 'instrumentationName').join(', ')}`,
       );
 
-      if (aiExporter) this.logger.log(`#sdkStart Langfuse exporter enabled. to: ${AppEnvs.LANGFUSE_HOST}`);
+      if (aiExporter) this.logger.log(`#sdkStart ai exporter enabled.`);
 
       const sdk = new NodeSDK({
         serviceName,
