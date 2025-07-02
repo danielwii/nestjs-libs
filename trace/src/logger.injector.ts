@@ -6,11 +6,11 @@ import { Injector } from './injector';
 @Injectable()
 export class LoggerInjector implements Injector {
   public inject() {
-    ConsoleLogger.prototype.log = this.wrapPrototype(ConsoleLogger.prototype.log.bind(ConsoleLogger.prototype));
-    ConsoleLogger.prototype.debug = this.wrapPrototype(ConsoleLogger.prototype.debug.bind(ConsoleLogger.prototype));
-    ConsoleLogger.prototype.error = this.wrapPrototype(ConsoleLogger.prototype.error.bind(ConsoleLogger.prototype));
-    ConsoleLogger.prototype.verbose = this.wrapPrototype(ConsoleLogger.prototype.verbose.bind(ConsoleLogger.prototype));
-    ConsoleLogger.prototype.warn = this.wrapPrototype(ConsoleLogger.prototype.warn.bind(ConsoleLogger.prototype));
+    ConsoleLogger.prototype.log = this.wrapPrototype(ConsoleLogger.prototype.log);
+    ConsoleLogger.prototype.debug = this.wrapPrototype(ConsoleLogger.prototype.debug);
+    ConsoleLogger.prototype.error = this.wrapPrototype(ConsoleLogger.prototype.error);
+    ConsoleLogger.prototype.verbose = this.wrapPrototype(ConsoleLogger.prototype.verbose);
+    ConsoleLogger.prototype.warn = this.wrapPrototype(ConsoleLogger.prototype.warn);
   }
 
   private wrapPrototype(prototype: any) {
