@@ -7,7 +7,7 @@ import JSON from 'json5';
 import path from 'path';
 import _ from 'lodash';
 
-import { f, onelineStackFromError } from '@app/utils';
+import { f, onelineStackFromError } from '@app/utils/utils';
 import { NODE_ENV } from './env';
 import os from 'node:os';
 

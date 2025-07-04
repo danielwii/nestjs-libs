@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
-import * as NodeFetch from 'node-fetch';
-import * as Undici from 'undici';
 
 import { f, onelineStackFromError } from './utils';
+import * as NodeFetch from 'node-fetch';
 import { SysProxy } from '@app/env';
+import * as Undici from 'undici';
 
 export class ApiFetcher {
   private static readonly logger = new Logger(this.constructor.name);
