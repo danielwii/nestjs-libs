@@ -1,13 +1,13 @@
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { Logger } from '@nestjs/common';
-import { config } from 'dotenv';
 import * as R from 'remeda';
 import JSON from 'json5';
 import path from 'path';
 import _ from 'lodash';
 
 import { f, onelineStackFromError } from '@app/utils/utils';
+import { config } from '@dotenvx/dotenvx';
 import { NODE_ENV } from './env';
 import os from 'node:os';
 
@@ -255,7 +255,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
       const fullPath = path.resolve(process.env.PWD || '', env);
       if (this.sys) this.logger.log(f`envFilePath: ${fullPath}`);
-      config({ path: fullPath, debug: this.sys, override: false });
+      config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
     });
     this.vars = this.validate();
   }
