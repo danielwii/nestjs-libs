@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { NestFactory, Reflector } from '@nestjs/core';
 import { RedisStore } from 'connect-redis';
 import { stripIndent } from 'common-tags';
 import responseTime from 'response-time';
@@ -25,12 +24,14 @@ import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
 import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
+import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
 import { doMigration } from './migration';
 import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
 import { json } from 'express';
+import morgan from 'morgan';
 import os from 'node:os';
 
 type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
@@ -153,6 +154,7 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
   app.use(cookieParser());
 
   app.disable('x-powered-by');
+  app.use(morgan('combined'));
 
   app.use(
     compression({
