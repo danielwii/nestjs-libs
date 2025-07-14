@@ -1,8 +1,4 @@
-import { HttpStatus } from '@nestjs/common/enums';
-
 import { ErrorCodes } from './error-codes';
-
-import type { ErrorHttpStatusCode } from '@nestjs/common/utils/http-error-by-code.util';
 
 export type ApiFailRes = {
   // statusCode: ErrorHttpStatusCode;
@@ -23,18 +19,7 @@ export const ApiRes = {
     data,
     // statusCode: 200,
   }),
-  /**
-   * @deprecated {@see failureV2}
-   * @param message
-   * @param statusCode
-   * @param errors
-   */
-  failure: (message: string, statusCode?: ErrorHttpStatusCode, errors?: any): ApiRes => ({
-    message,
-    // statusCode: statusCode ?? HttpStatus.UNPROCESSABLE_ENTITY,
-    errors: message === errors ? undefined : errors,
-  }),
-  failureV2: ({
+  failure: ({
     code,
     message,
     errors,

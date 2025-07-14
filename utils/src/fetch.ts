@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 
-import { f, onelineStackFromError } from './utils';
+import { f, errorStack } from './utils';
 import * as NodeFetch from 'node-fetch';
 import { SysProxy } from '@app/env';
 import * as Undici from 'undici';
@@ -42,7 +42,7 @@ export class ApiFetcher {
       .catch((e: unknown) => {
         this.logger.error(
           f`<ApiFetcher> #fetch ${url} error ${e instanceof Error ? e.message : 'unknown'} ${Date.now() - now}ms...`,
-          onelineStackFromError(e),
+          errorStack(e),
         );
         throw new Error(`<ApiFetcher> #fetch error ${e instanceof Error ? e.message : 'unknown'}...`);
       })

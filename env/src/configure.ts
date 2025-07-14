@@ -6,7 +6,7 @@ import JSON from 'json5';
 import path from 'path';
 import _ from 'lodash';
 
-import { f, onelineStackFromError } from '@app/utils/utils';
+import { f, errorStack } from '@app/utils/utils';
 import { config } from '@dotenvx/dotenvx';
 import { NODE_ENV } from './env';
 import os from 'node:os';
@@ -22,7 +22,7 @@ export const objectTransformFn = ({ key, value, obj }: TransformFnParams) => {
   } catch (e: unknown) {
     Logger.error(
       f`#objectTransformFn error ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
-      onelineStackFromError(e),
+      errorStack(e),
       'Transform',
     );
     throw e;
@@ -35,7 +35,7 @@ export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
   } catch (e: unknown) {
     Logger.error(
       f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
-      onelineStackFromError(e),
+      errorStack(e),
       'Transform',
     );
     throw e;

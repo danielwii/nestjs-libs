@@ -44,7 +44,7 @@ export function inspect(o: any, options: util.InspectOptions = { colors: true, d
     : util.inspect(o, { ...options, colors });
 }
 
-export function onelineStackFromError(e: unknown): string | undefined {
+export function errorStack(e: unknown): string | undefined {
   if (e instanceof Error) {
     return onelineStack(e.stack);
   }

@@ -41,7 +41,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       const errors = exception.errors;
       this.logger.warn(f`(${request?.uid})[${request?.ip}] ZodError ${errors}`, exception.stack);
       return response.status(HttpStatus.BAD_REQUEST).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.ZodError,
           message: 'invalid parameters',
           // statusCode: HttpStatus.BAD_REQUEST,
@@ -55,7 +55,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         exception.stack,
       );
       return response.status(HttpStatus.BAD_REQUEST).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.BadRequest,
           message: exception.message,
           // statusCode: HttpStatus.BAD_REQUEST,
@@ -66,7 +66,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] PrismaClientKnownRequestError ${exception.message}`);
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.PrismaClientKnownRequestError,
           message: 'cannot process your request',
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -76,7 +76,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (exception instanceof ThrottlerException) {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] ThrottlerException ${exception.message}`);
       return response.status(HttpStatus.TOO_MANY_REQUESTS).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.TooManyRequests,
           message: exception.message,
           // statusCode: HttpStatus.TOO_MANY_REQUESTS as any,
@@ -87,7 +87,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (exception instanceof NotFoundException) {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] NotFoundException ${exception.message}`);
       return response.status(HttpStatus.NOT_FOUND).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.NotFound,
           message: exception.message,
           // statusCode: HttpStatus.NOT_FOUND,
@@ -98,7 +98,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (exception.name === 'FetchError') {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] FetchError ${exception}`);
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.FetchError,
           message: `FetchError ${(exception as FetchError).type}`,
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -111,7 +111,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         f`(${request?.uid})[${request?.ip}] UnauthorizedException ${exception.message} ${path} ${exception.stack}`,
       );
       return response.status(HttpStatus.UNAUTHORIZED).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.Unauthorized,
           message: exception.message,
           // statusCode: HttpStatus.UNAUTHORIZED,
@@ -122,7 +122,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (exception instanceof ConflictException) {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] ConflictException ${exception.message}`);
       return response.status(HttpStatus.CONFLICT).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: ErrorCodes.Conflict,
           message: exception.message,
           // statusCode: HttpStatus.CONFLICT,
@@ -144,7 +144,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         );
 
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-        ApiRes.failureV2({
+        ApiRes.failure({
           code: cause,
           message: exception.message,
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
