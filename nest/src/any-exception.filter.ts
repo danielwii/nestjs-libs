@@ -14,8 +14,8 @@ import _ from 'lodash';
 
 import { Prisma } from '@/generated/prisma/client';
 import { ErrorCodes } from '@app/nest/error-codes';
+import { errorStack, f } from '@app/utils';
 import { ApiRes } from '@app/nest';
-import { f } from '@app/utils';
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import type { Request, Response } from 'express';
@@ -38,8 +38,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
 
     if (exception instanceof ZodError) {
-      const errors = exception.errors;
-      this.logger.warn(f`(${request?.uid})[${request?.ip}] ZodError ${errors}`, exception.stack);
+      const errors = exception.issues;
+      this.logger.warn(f`(${request?.uid})[${request?.ip}] ZodError ${errors} ${errorStack(exception)}`);
       return response.status(HttpStatus.BAD_REQUEST).json(
         ApiRes.failure({
           code: ErrorCodes.ZodError,
@@ -51,8 +51,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
     if (exception instanceof BadRequestException) {
       this.logger.warn(
-        f`(${request?.uid})[${request?.ip}] BadRequestException ${exception.message} ${exception.getResponse()}`,
-        exception.stack,
+        f`(${request?.uid})[${request?.ip}] BadRequestException ${exception.message} ${exception.getResponse()} ${errorStack(exception)}`,
       );
       return response.status(HttpStatus.BAD_REQUEST).json(
         ApiRes.failure({

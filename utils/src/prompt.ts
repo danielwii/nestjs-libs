@@ -1,4 +1,5 @@
 import { stripIndent } from 'common-tags';
+import { zhCN } from 'date-fns/locale';
 import Handlebars from 'handlebars';
 import { format } from 'date-fns';
 import { DateTime } from 'luxon';
@@ -24,18 +25,20 @@ export function generateJsonFormat(schema: z.ZodSchema, indent = 0): string {
   else if (innerSchema instanceof z.ZodBoolean) format = 'boolean';
   // 处理数组
   else if (innerSchema instanceof z.ZodArray) {
-    const innerFormat = generateJsonFormat(innerSchema._def.type, indent + 2);
+    const arrayElement = (innerSchema as any)._def.type || (innerSchema as any).element;
+    const innerFormat = generateJsonFormat(arrayElement, indent + 2);
     format = `Array<${innerFormat}>`;
   }
   // 处理枚举
   else if (innerSchema instanceof z.ZodEnum) {
-    format = _.map((innerSchema._def as z.ZodEnumDef).values, (value) => `"${value}"`).join(' | ');
-  } else if (innerSchema instanceof z.ZodNativeEnum) {
-    format = _.map(_.keys((innerSchema._def as z.ZodNativeEnumDef).values), (value) => `"${value}"`).join(' | ');
+    const enumValues = (innerSchema as any).options || (innerSchema as any)._def.values;
+    format = _.map(enumValues, (value) => `"${value}"`).join(' | ');
+  } else if (innerSchema._def.typeName === 'ZodNativeEnum') {
+    format = _.map(_.keys(innerSchema._def.values), (value) => `"${value}"`).join(' | ');
   }
   // 处理对象
   else if (innerSchema instanceof z.ZodObject) {
-    const shape = innerSchema._def.shape();
+    const shape = (innerSchema as any).shape || (innerSchema as any)._def.shape();
     const entries = Object.entries(shape);
 
     const lines = entries.map(([key, value]) => {
@@ -66,13 +69,8 @@ export enum TimeSensitivity {
 // 目的 (Objective/Purpose)
 const ObjectiveSchema = z.string(); // 必须明确的任务目的
 
-const SectionSchema = z.object({
-  title: z.string(),
-  content: z.union([z.string(), z.number()]).optional(),
-});
-
 // 上下文/背景知识 (Context/Background Information)
-const ContextSchema = z.array(SectionSchema).optional(); // 可选的其他背景信息，如复杂的键值对结构
+// 已移动到XmlPromptSchema内部定义
 
 // 生成要求 (Requirements/Instructions)
 const RequirementsSchema = z.union([z.string(), z.array(z.string())]);
@@ -84,7 +82,14 @@ const SpecialConsiderationsSchema = z.union([z.string(), z.array(z.string())]).o
 const PromptSchema = z.object({
   purpose: ObjectiveSchema, // 任务目的
   background: z.string().optional(), // 描述背景设定
-  context: ContextSchema, // 上下文/背景知识
+  context: z
+    .array(
+      z.object({
+        title: z.string(),
+        content: z.union([z.string(), z.number()]).optional(),
+      }),
+    )
+    .optional(), // 上下文/背景知识
   requirements: RequirementsSchema.optional(), // 生成要求
   instructions: z.string().optional(), // 生成要求
   specialConsiderations: SpecialConsiderationsSchema.optional(), // 注意事项
@@ -104,7 +109,7 @@ export function createBasePrompt(
   output?: string,
 ) {
   const datetime = timezone ? DateTime.now().setZone(timezone).toJSDate() : new Date();
-  const now = format(datetime, sensitivity);
+  const now = format(datetime, sensitivity, { locale: zhCN });
   return Handlebars.compile(stripIndent`
     [{{id}}]
     ------
