@@ -56,12 +56,12 @@ describe('PromptSpec', () => {
         { title: 'conversation_history', content: '对话历史', purpose: '用于参考' },
         { title: 'empty_context' },
       ],
-      output: {
-        type: 'string', // 默认 string
-        // schema: z.string(),
-        useCoT: true, // 嵌套 schema 为 result，没有 schema 时再在 xml 的 output 中输出 output
-        debug: true,
-      },
+      // output: {
+      //   type: 'string', // 默认 string
+      //   // schema: z.string(),
+      //   useCoT: true, // 嵌套 schema 为 result，没有 schema 时再在 xml 的 output 中输出 output
+      //   debug: true,
+      // },
       language: '中文',
     };
 

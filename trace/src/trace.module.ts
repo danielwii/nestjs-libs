@@ -1,5 +1,4 @@
 import { DynamicModule, Module } from '@nestjs/common';
-
 import { LoggerInjector } from './logger.injector';
 import { Injector } from './injector';
 
@@ -8,7 +7,7 @@ import { Injector } from './injector';
  */
 @Module({})
 export class TraceModule {
-  static forRootAsync(): DynamicModule {
+  static forRoot(): DynamicModule {
     return {
       module: TraceModule,
       imports: [],
