@@ -21,6 +21,39 @@ import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { FetchError } from 'node-fetch';
 
+/**
+ * ⚠️  ErrorCodes 迁移说明（针对其他项目）
+ * 
+ * 本文件已更新使用新的维度分类 ErrorCodes。如果你的项目还在使用旧的错误码，
+ * 请参考以下迁移对照表：
+ * 
+ * === 迁移对照表 ===
+ * 旧错误码 → 新错误码 (责任方)
+ * 
+ * BadRequest → CLIENT_INPUT_ERROR (前端开发者)
+ * ZodError → CLIENT_VALIDATION_FAILED (前端开发者) 
+ * NotFound → CLIENT_AUTH_REQUIRED (前端开发者)
+ * Unauthorized → CLIENT_AUTH_REQUIRED (前端开发者)
+ * TooManyRequests → CLIENT_RATE_LIMITED (前端开发者)
+ * 
+ * BusinessError → BUSINESS_RULE_VIOLATION (产品/业务人员)
+ * Conflict → BUSINESS_DATA_CONFLICT (产品/业务人员)
+ * 
+ * FetchError → EXTERNAL_SERVICE_ERROR (运维/DevOps)
+ * 
+ * PrismaClientKnownRequestError → SYSTEM_DATABASE_ERROR (后端开发者)
+ * Unexpected → SYSTEM_INTERNAL_ERROR (后端开发者)
+ * 
+ * Outdated → DATA_VERSION_MISMATCH (数据管理员)
+ * Undefined → 使用具体的错误码替代
+ * 
+ * === 迁移步骤 ===
+ * 1. 更新你项目中的 ErrorCodes 引用
+ * 2. 根据错误场景选择合适的新错误码
+ * 3. 考虑错误的责任方，选择对应维度的错误码
+ * 4. 测试确保错误处理正常工作
+ */
+
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(this.constructor.name);
@@ -42,7 +75,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] ZodError ${errors} ${errorStack(exception)}`);
       return response.status(HttpStatus.BAD_REQUEST).json(
         ApiRes.failure({
-          code: ErrorCodes.ZodError,
+          code: ErrorCodes.CLIENT_VALIDATION_FAILED,
           message: 'invalid parameters',
           // statusCode: HttpStatus.BAD_REQUEST,
           errors,
@@ -55,7 +88,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
       return response.status(HttpStatus.BAD_REQUEST).json(
         ApiRes.failure({
-          code: ErrorCodes.BadRequest,
+          code: ErrorCodes.CLIENT_INPUT_ERROR,
           message: exception.message,
           // statusCode: HttpStatus.BAD_REQUEST,
           errors: _.get(exception.getResponse(), 'message'),
@@ -66,7 +99,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] PrismaClientKnownRequestError ${exception.message}`);
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failure({
-          code: ErrorCodes.PrismaClientKnownRequestError,
+          code: ErrorCodes.SYSTEM_DATABASE_ERROR,
           message: 'cannot process your request',
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         }),
@@ -76,7 +109,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] ThrottlerException ${exception.message}`);
       return response.status(HttpStatus.TOO_MANY_REQUESTS).json(
         ApiRes.failure({
-          code: ErrorCodes.TooManyRequests,
+          code: ErrorCodes.CLIENT_RATE_LIMITED,
           message: exception.message,
           // statusCode: HttpStatus.TOO_MANY_REQUESTS as any,
           errors: _.get(exception.getResponse(), 'message'),
@@ -87,7 +120,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] NotFoundException ${exception.message}`);
       return response.status(HttpStatus.NOT_FOUND).json(
         ApiRes.failure({
-          code: ErrorCodes.NotFound,
+          code: ErrorCodes.CLIENT_AUTH_REQUIRED,
           message: exception.message,
           // statusCode: HttpStatus.NOT_FOUND,
           errors: _.get(exception.getResponse(), 'message'),
@@ -98,7 +131,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] FetchError ${exception}`);
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failure({
-          code: ErrorCodes.FetchError,
+          code: ErrorCodes.EXTERNAL_SERVICE_ERROR,
           message: `FetchError ${(exception as FetchError).type}`,
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         }),
@@ -111,7 +144,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
       return response.status(HttpStatus.UNAUTHORIZED).json(
         ApiRes.failure({
-          code: ErrorCodes.Unauthorized,
+          code: ErrorCodes.CLIENT_AUTH_REQUIRED,
           message: exception.message,
           // statusCode: HttpStatus.UNAUTHORIZED,
           errors: _.get(exception.getResponse(), 'message'),
@@ -122,7 +155,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] ConflictException ${exception.message}`);
       return response.status(HttpStatus.CONFLICT).json(
         ApiRes.failure({
-          code: ErrorCodes.Conflict,
+          code: ErrorCodes.BUSINESS_DATA_CONFLICT,
           message: exception.message,
           // statusCode: HttpStatus.CONFLICT,
           errors: _.get(exception.getResponse(), 'message'),
@@ -130,8 +163,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
     }
     if (exception instanceof UnprocessableEntityException) {
-      const cause = (exception.cause as ErrorCodes) ?? ErrorCodes.Undefined;
-      const isWarn = [ErrorCodes.Outdated, ErrorCodes.BusinessError].includes(cause);
+      const cause = (exception.cause as ErrorCodes) ?? ErrorCodes.SYSTEM_INTERNAL_ERROR;
+      const isWarn = [ErrorCodes.DATA_VERSION_MISMATCH, ErrorCodes.BUSINESS_RULE_VIOLATION].includes(cause);
       if (isWarn)
         this.logger.warn(
           f`(${request?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message}`,
