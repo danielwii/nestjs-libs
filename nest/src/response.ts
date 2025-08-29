@@ -1,38 +1,33 @@
-import { ErrorCodes } from './error-codes';
-
 export type ApiFailRes = {
-  // statusCode: ErrorHttpStatusCode;
   message: string;
   code?: string;
   errors?: any;
 };
 
-export type ApiRes<Data = any> =
+export type ApiRes<Data = unknown> =
   | {
-      // statusCode: 200;
+      success: true;
+      message?: string;
       data?: Data;
     }
   | ApiFailRes;
 
 export const ApiRes = {
-  success: <Data>(data?: Data): ApiRes<Data> => ({
+  success: <Data>(data?: Data, message?: string): ApiRes<Data> => ({
+    success: true as const,
+    message,
     data,
-    // statusCode: 200,
   }),
-  failure: ({
+
+  ok: (message: string): ApiRes => ({
+    success: true as const,
+    message,
+  }),
+
+  failure: ({ code, message, errors }: { code: string; message: string; errors?: any }) => ({
+    success: false,
     code,
     message,
-    errors,
-    // statusCode,
-  }: {
-    code: ErrorCodes;
-    message: string;
-    // statusCode?: ErrorHttpStatusCode;
-    errors?: any;
-  }): ApiRes => ({
-    code,
-    message,
-    // statusCode: statusCode ?? HttpStatus.UNPROCESSABLE_ENTITY,
     errors: message === errors ? undefined : errors,
   }),
 };
