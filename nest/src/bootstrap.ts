@@ -64,7 +64,11 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
   app.set('query parser', 'extended');
 
   app.useGlobalPipes(new ValidationPipe({ enableDebugMessages: true, transform: true, whitelist: true }));
-  app.useGlobalFilters(new AnyExceptionFilter());
+  
+  // 先使用无翻译功能的过滤器，稍后通过应用引用注入
+  app.useGlobalFilters(new AnyExceptionFilter(app));
+  Logger.log('[Config] AnyExceptionFilter initialized with app reference for lazy i18n support', 'Bootstrap');
+  
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new VisitorInterceptor());
   app.useGlobalInterceptors(new LoggerInterceptor());

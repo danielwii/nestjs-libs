@@ -16,8 +16,11 @@ import { Prisma } from '@/generated/prisma/client';
 import { ErrorCodes } from '@app/nest/error-codes';
 import { errorStack, f } from '@app/utils';
 import { ApiRes } from '@app/nest';
+import { IBusinessException } from './business-exception.interface';
+import { II18nService } from './i18n.interface';
+import { AppEnvs } from '@/env';
 
-import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
+import type { ArgumentsHost, ExceptionFilter, INestApplication } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { FetchError } from 'node-fetch';
 
@@ -57,6 +60,12 @@ import type { FetchError } from 'node-fetch';
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(this.constructor.name);
+  private i18nService: II18nService | null = null;
+  private i18nServiceRetrieved = false;
+
+  constructor(
+    private readonly app?: INestApplication // 应用实例，用于延迟获取服务
+  ) {}
 
   @SentryExceptionCaptured()
   catch(exception: any, host: ArgumentsHost) {
@@ -68,6 +77,11 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (!response.status) {
       this.logger.error(f`(${request?.uid})[${request?.ip}] ${exception.name} ${exception}`, exception.stack);
       throw exception;
+    }
+
+    // 处理 BusinessException（优先级最高）
+    if (this.isBusinessException(exception)) {
+      return this.handleBusinessException(exception, request, response);
     }
 
     if (exception instanceof ZodError) {
@@ -195,5 +209,211 @@ export class AnyExceptionFilter implements ExceptionFilter {
       statusCode: status,
       message,
     });
+  }
+
+  /**
+   * 判断是否为 BusinessException
+   */
+  private isBusinessException(exception: any): exception is IBusinessException {
+    return exception && 
+           typeof exception.httpStatus === 'number' &&
+           typeof exception.userMessage === 'string' &&
+           typeof exception.getCombinedCode === 'function';
+  }
+
+  /**
+   * 处理 BusinessException，支持国际化翻译
+   */
+  private async handleBusinessException(
+    exception: IBusinessException, 
+    request: Request & { uid?: string }, 
+    response: Response
+  ) {
+    this.logger.warn(
+      f`(${request?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`
+    );
+
+    // 获取翻译后的错误消息
+    const translatedMessage = await this.getTranslatedMessage(exception, request);
+
+    return response.status(exception.httpStatus).json(
+      ApiRes.failure({
+        code: exception.getCombinedCode(),
+        message: translatedMessage,
+      }),
+    );
+  }
+
+  /**
+   * 延迟获取 I18nService
+   */
+  private getI18nService(): II18nService | null {
+    if (this.i18nServiceRetrieved) {
+      return this.i18nService;
+    }
+
+    this.i18nServiceRetrieved = true;
+    
+    if (!this.app) {
+      return null;
+    }
+
+    try {
+      // 使用字符串 token 获取服务，因为我们不想直接导入具体类
+      const I18nServiceToken = 'I18nService';
+      this.i18nService = this.app.get(I18nServiceToken, { strict: false });
+      this.logger.debug('I18nService successfully retrieved for error translation');
+      return this.i18nService;
+    } catch (error) {
+      this.logger.warn(`Failed to retrieve I18nService: ${error instanceof Error ? error.message : String(error)} - error translation disabled`);
+      return null;
+    }
+  }
+
+  /**
+   * 获取翻译后的错误消息（智能翻译机制）
+   */
+  private async getTranslatedMessage(
+    exception: IBusinessException,
+    request: Request
+  ): Promise<string> {
+    try {
+      const locale = this.getLocaleFromRequest(request);
+      
+      // 如果是默认语言，直接返回原消息
+      if (locale === AppEnvs.APP_I18N_DEFAULT_LOCALE) {
+        return exception.userMessage;
+      }
+
+      // 延迟获取 i18n 服务
+      const i18nService = this.getI18nService();
+      if (!i18nService) {
+        return exception.userMessage;
+      }
+
+      const errorKey = `errors.${exception.getCombinedCode()}`;
+      
+      // 1. 尝试从缓存获取翻译
+      const messages = await i18nService.getMessagesByLocale(locale);
+      // 使用 lodash get 方法来处理嵌套对象访问
+      const cachedTranslation = _.get(messages, errorKey);
+      
+      if (cachedTranslation) {
+        return cachedTranslation;
+      }
+
+      // 2. 没有缓存，启动后台翻译任务（不等待）
+      this.translateInBackground(errorKey, exception.userMessage, locale);
+      
+      // 3. 立即返回原始消息，不阻塞错误响应
+      return exception.userMessage;
+      
+    } catch (error) {
+      this.logger.warn(f`Translation check failed: ${error}`);
+      return exception.userMessage;
+    }
+  }
+
+  /**
+   * 后台异步翻译和缓存
+   */
+  private translateInBackground(
+    errorKey: string,
+    originalMessage: string,
+    locale: string
+  ): void {
+    // 后台异步翻译，不影响当前请求
+    setImmediate(async () => {
+      try {
+        const i18nService = this.getI18nService();
+        if (!i18nService) return;
+        
+        this.logger.debug(f`开始后台翻译: ${errorKey} -> ${locale}`);
+        
+        const translated = await i18nService.translateMessage({
+          key: errorKey,
+          description: '错误消息翻译',
+          sourceMessage: originalMessage,
+          targetLanguage: locale,
+        });
+        
+        // 翻译完成后缓存
+        await this.cacheTranslation(errorKey, originalMessage, translated, locale);
+        
+        this.logger.debug(f`后台翻译完成并缓存: ${errorKey}`);
+        
+      } catch (error) {
+        this.logger.warn(f`后台翻译失败: ${errorKey} - ${error}`);
+      }
+    });
+  }
+
+  /**
+   * 缓存翻译结果到数据库
+   */
+  private async cacheTranslation(
+    errorKey: string,
+    originalMessage: string,
+    translatedMessage: string,
+    locale: string
+  ): Promise<void> {
+    try {
+      const i18nService = this.getI18nService();
+      if (!i18nService) return;
+
+      // 确保翻译键存在
+      await i18nService.prisma.i18nTranslationKey.upsert({
+        where: { key: errorKey },
+        create: { 
+          key: errorKey, 
+          description: f`自动生成: ${originalMessage}` 
+        },
+        update: {}
+      });
+
+      // 保存翻译
+      await i18nService.prisma.i18nMessage.upsert({
+        where: { key_languageCode: { key: errorKey, languageCode: locale } },
+        create: {
+          key: errorKey,
+          languageCode: locale,
+          content: translatedMessage,
+          isAIGenerated: true,
+        },
+        update: {
+          content: translatedMessage,
+          isAIGenerated: true,
+        }
+      });
+      
+      this.logger.debug(f`缓存错误翻译: ${errorKey} -> ${locale}`);
+      
+    } catch (error) {
+      this.logger.warn(f`缓存翻译失败: ${error}`);
+    }
+  }
+
+  /**
+   * 从请求中获取用户语言偏好
+   */
+  private getLocaleFromRequest(request: Request): string {
+    // 1. 优先从自定义头获取
+    const customLocale = request.headers['x-locale'] as string;
+    if (customLocale) {
+      return customLocale;
+    }
+
+    // 2. 从 Accept-Language 头解析
+    const acceptLanguage = request.headers['accept-language'];
+    if (acceptLanguage) {
+      // 解析 Accept-Language: "en-US,en;q=0.9,zh-CN;q=0.8" -> "en"
+      const primaryLanguage = acceptLanguage.split(',')[0]?.split('-')[0]?.trim();
+      if (primaryLanguage) {
+        return primaryLanguage === 'zh' ? 'zh-Hans' : primaryLanguage;
+      }
+    }
+
+    // 3. 默认语言
+    return AppEnvs.APP_I18N_DEFAULT_LOCALE;
   }
 }
