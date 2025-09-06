@@ -1,5 +1,6 @@
 import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/graphql';
 import { plainToInstance } from 'class-transformer';
+import { Allow } from 'class-validator';
 
 // import type { RequestInfo } from '../app/auth/types';
 // import type * as DBTypes from '@/generated/prisma/client';
@@ -21,9 +22,11 @@ export interface CursoredRequest {
 @InputType()
 export class CursoredRequestInput implements CursoredRequest {
   @Field(() => Int, { description: 'page size', nullable: true, defaultValue: 20 })
+  @Allow()
   first: number = 20;
 
   @Field(() => ID, { description: 'latest cursor', nullable: true })
+  @Allow()
   after?: string | number;
 
   static DEFAULT = { first: 20 };
