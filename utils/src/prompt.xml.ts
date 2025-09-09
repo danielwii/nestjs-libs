@@ -301,9 +301,9 @@ function generateXmlPromptContent(data: PromptSpecSchema & { schema?: z.ZodSchem
       ? `<output>Please reply in natural language, no specific format required.</output>`
       : data.output.type === 'string'
         ? `<output>\n  <format>Strictly output in JSON Schema format, do not include any other content.</format>\n  <schema>\n${
-            (data.output.useCoT ?? true)
-              ? defaultCoTSchema(data.schema!, data.output.debug ?? false)
-              : JSON.stringify(zodToJsonSchema(data.schema!))
+            data.output.useCoT === true
+              ? defaultCoTSchema(data.schema ?? z.string(), data.output.debug ?? false)
+              : JSON.stringify(zodToJsonSchema(data.schema ?? z.string()))
           }\n  </schema>\n</output>`
         : undefined
     : undefined;
@@ -479,9 +479,9 @@ Now:${timestamp}`;
     if (this.data.output.type === 'schema') {
       try {
         const schema =
-          (this.data.output.useCoT ?? true)
-            ? defaultCoTSchema(this.data.schema!, this.data.output.debug ?? false)
-            : JSON.stringify(zodToJsonSchema(this.data.schema!));
+          this.data.output.useCoT === true
+            ? defaultCoTSchema(this.data.schema ?? z.string(), this.data.output.debug ?? false)
+            : JSON.stringify(zodToJsonSchema(this.data.schema ?? z.string()));
 
         // // 移除JSON字符串中的注释
         // const cleanSchema = schema
