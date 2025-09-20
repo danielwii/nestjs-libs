@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Logger,
   NotFoundException,
   UnauthorizedException,
@@ -67,7 +68,6 @@ export class AnyExceptionFilter implements ExceptionFilter {
     private readonly app?: INestApplication // 应用实例，用于延迟获取服务
   ) {}
 
-  @SentryExceptionCaptured()
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const request: Request & { uid?: string } = ctx.getRequest();
@@ -79,7 +79,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       throw exception;
     }
 
-    // 处理 BusinessException（优先级最高）
+    // 处理 BusinessException（优先级最高）- 不触发 Sentry
     if (this.isBusinessException(exception)) {
       return this.handleBusinessException(exception, request, response);
     }
@@ -199,6 +199,34 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
     }
 
+    if (exception instanceof HttpException) {
+      const status =
+        typeof exception.getStatus === 'function'
+          ? exception.getStatus()
+          : (exception as any)?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
+      const responseBody =
+        typeof exception.getResponse === 'function' ? exception.getResponse() : exception.message;
+      const message = typeof responseBody === 'string' ? responseBody : _.get(responseBody, 'message', exception.message);
+
+      if (status < HttpStatus.INTERNAL_SERVER_ERROR) {
+        this.logger.warn(
+          f`(${request?.uid})[${request?.ip}] HttpException(${status}) ${exception.name} ${message}`,
+          errorStack(exception),
+        );
+
+        return response.status(status).json(
+          ApiRes.failure({
+            code: ErrorCodes.CLIENT_INPUT_ERROR,
+            message,
+            errors: typeof responseBody === 'object' ? _.get(responseBody, 'message') : undefined,
+          }),
+        );
+      }
+    }
+
+    // 只有未被识别的异常才交给 Sentry
+    this.captureExceptionBySentry(exception, host);
+
     this.logger.error(f`(${request?.uid})[${request?.ip}] ${exception.name} ${exception}`, exception.stack);
 
     // unexpected error, each error should be handled
@@ -215,10 +243,20 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 判断是否为 BusinessException
    */
   private isBusinessException(exception: any): exception is IBusinessException {
-    return exception && 
+    return exception &&
            typeof exception.httpStatus === 'number' &&
            typeof exception.userMessage === 'string' &&
            typeof exception.getCombinedCode === 'function';
+  }
+
+  /**
+   * 选择性捕获异常到 Sentry
+   * 业务异常（422）不应该被 Sentry 捕获，因为这些是预期的业务逻辑
+   */
+  @SentryExceptionCaptured()
+  private captureExceptionBySentry(exception: any, host: ArgumentsHost): void {
+    // 该方法仅用于触发 @SentryExceptionCaptured 装饰器
+    // 实际的异常处理逻辑在 catch 方法中继续执行
   }
 
   /**
