@@ -108,14 +108,13 @@ describe('PromptSpec', () => {
       </instructions>
 
       <rules priority="critical">
-        ## 规则1
-        - 不要提供有害或不当的内容
-
-        ## 规则2
-        - 不要提供有害或不当的内容
+      ## 规则1
+      - 不要提供有害或不当的内容
+      ## 规则2
+      - 不要提供有害或不当的内容
       </rules>
 
-      <examples strict="只能用作参考，不能作为输出">
+      <examples strict="For inspiration only, not to be used as output or reference">
         <example title="正面情感示例">
           <content>用户说："今天心情很好！"，分析结果应该是积极的。</content>
         </example>

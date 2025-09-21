@@ -1,15 +1,17 @@
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
-import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
+import { config } from '@dotenvx/dotenvx';
 import { Logger } from '@nestjs/common';
-import * as R from 'remeda';
-import JSON from 'json5';
 import path from 'path';
 import _ from 'lodash';
 
+import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { f, errorStack } from '@app/utils/utils';
-import { config } from '@dotenvx/dotenvx';
 import { NODE_ENV } from './env';
+import * as R from 'remeda';
 import os from 'node:os';
+import JSON from 'json5';
+
+import type { PrismaClient } from '@/generated/prisma';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
@@ -321,7 +323,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     return validatedConfig;
   }
 
-  static async syncFromDB(prisma: any, envs: Record<string, any>) {
+  static async syncFromDB(prisma: PrismaClient, envs: Record<string, any>) {
     const fields = R.pipe(
       Object.getOwnPropertyNames(envs),
       R.map((field) => {
@@ -353,7 +355,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
     const appSettings = R.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
-      ({ ...rest, value: format !== 'string' ? JSON.parse(value) : value, format }),
+      ({ ...rest, value: format !== 'string' && value != null ? JSON.parse(value) : value, format }),
     ) as Array<{ key: string; defaultValue: unknown; format: string; description?: string; value: unknown }>;
 
     // 添加数据库中所有设置的详细日志

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { ConsoleLogger, Injectable } from '@nestjs/common';
 
 import { context, trace } from '@opentelemetry/api';
@@ -23,7 +24,13 @@ export class LoggerInjector implements Injector {
 
   private static getMessage(message: string) {
     const currentSpan = trace.getSpan(context.active());
-    if (!currentSpan) return message;
+    if (!currentSpan) {
+      // 临时调试：显示没有找到span的情况
+      if (message.includes('#login') || message.includes('#getUserPhotos')) {
+        console.log('[LoggerInjector] No active span found for message:', message.substring(0, 50));
+      }
+      return message;
+    }
 
     const spanContext = currentSpan.spanContext();
 
