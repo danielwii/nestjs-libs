@@ -26,8 +26,8 @@ export const ApiRes = {
     meta,
   }),
 
-  failure: ({ code, message, errors }: { code?: string; message: string; errors?: unknown }): ApiRes => ({
-    success: false,
+  failure: ({ code, message, errors }: { code?: string; message: string; errors?: unknown }): ApiRes<never> => ({
+    success: false as const,
     message,
     code,
     errors,

@@ -11,7 +11,7 @@ import * as R from 'remeda';
 import os from 'node:os';
 import JSON from 'json5';
 
-import type { PrismaClient } from '@/generated/prisma';
+import type { PrismaClient } from '@/generated/prisma/client';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
