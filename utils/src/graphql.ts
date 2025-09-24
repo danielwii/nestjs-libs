@@ -14,11 +14,6 @@ import { Allow } from 'class-validator';
 //   // getTrace: () => SpanContext;
 // };
 
-export interface CursoredRequest {
-  first: number;
-  after?: string | number;
-}
-
 /**
  * 游标分页请求输入
  *
@@ -26,7 +21,12 @@ export interface CursoredRequest {
  * 业务场景：适用于所有需要分页的列表查询
  * 默认行为：每页 20 条记录
  */
-@InputType()
+export interface CursoredRequest {
+  first: number;
+  after?: string | number;
+}
+
+@InputType({ description: '标准游标分页输入：first 控制每页数量，after 指定起始游标。可直接复用或在业务输入上继承扩展。' })
 export class CursoredRequestInput implements CursoredRequest {
   @Field(() => Int, { description: 'page size', nullable: true, defaultValue: 20 })
   @Allow()
@@ -40,36 +40,74 @@ export class CursoredRequestInput implements CursoredRequest {
 }
 
 /**
- * 增强的游标信息，支持总页数和双向分页
+ * 游标/页码分页公共信息
  *
- * 设计意图：
- * - 提供完整的分页元信息
- * - 支持前端计算分页器
- * - 兼容 Relay 规范
+ * 设计意图：抽象分页模式的公共字段，避免滥用可选属性
  */
-@ObjectType()
-export class CursorInfo {
-  @Field(() => ID, { nullable: true, description: '当前页最后一条记录的游标' })
-  endCursor?: string | number;
-
-  @Field(() => ID, { nullable: true, description: '当前页第一条记录的游标' })
-  startCursor?: string | number;
-
+@InterfaceType({
+  resolveType(value: PaginationInfo): string | undefined {
+    if (value && typeof value === 'object' && 'currentPage' in value) {
+      return 'PagePaginationInfo';
+    }
+    return 'CursorPaginationInfo';
+  },
+})
+export abstract class PaginationInfo {
   @Field(() => Boolean, { description: '是否有下一页' })
   hasNextPage!: boolean;
 
   @Field(() => Boolean, { description: '是否有上一页' })
   hasPreviousPage!: boolean;
+}
 
+/**
+ * 游标分页信息
+ *
+ * 设计意图：提供前端计算下一页所需的游标数据
+ */
+@ObjectType({ implements: () => [PaginationInfo] })
+export class CursorPaginationInfo extends PaginationInfo {
+  @Field(() => ID, { nullable: true, description: '当前页最后一条记录的游标' })
+  endCursor: string | number | null = null;
+
+  @Field(() => ID, { nullable: true, description: '当前页第一条记录的游标' })
+  startCursor: string | number | null = null;
+
+  public static fromState(state: CursorPaginationState): CursorPaginationInfo {
+    return plainToInstance(CursorPaginationInfo, state);
+  }
+}
+
+/**
+ * 页码式分页信息
+ *
+ * 设计意图：配合 page/pageSize 进行传统分页展示
+ */
+@ObjectType({ implements: () => [PaginationInfo] })
+export class PagePaginationInfo extends PaginationInfo {
   @Field(() => Int, { nullable: true, description: '总页数（基于当前 pageSize 计算）' })
   totalPages?: number;
 
-  @Field(() => Int, { nullable: true, description: '当前页码（从 1 开始）' })
-  currentPage?: number;
+  @Field(() => Int, { description: '当前页码（从 1 开始）' })
+  currentPage!: number;
 
-  public static of(o?: CursorInfo): CursorInfo {
-    return plainToInstance(CursorInfo, o);
+  public static fromState(state: PagePaginationState): PagePaginationInfo {
+    return plainToInstance(PagePaginationInfo, state);
   }
+}
+
+export interface CursorPaginationState {
+  endCursor: string | number | null;
+  startCursor: string | number | null;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface PagePaginationState {
+  currentPage: number;
+  totalPages?: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
 }
 
 /**
@@ -82,7 +120,7 @@ export class CursorInfo {
 @InterfaceType()
 export class CursoredPageable<T> {
   @Field(() => Int) total!: number;
-  @Field(() => CursorInfo) cursorInfo!: CursorInfo;
+  @Field(() => PaginationInfo) cursorInfo!: PaginationInfo;
 
   items: T[] = [];
 }
