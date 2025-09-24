@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { graphqlUploadExpress } from 'graphql-upload-ts';
 import { RedisStore } from 'connect-redis';
 import { stripIndent } from 'common-tags';
 import responseTime from 'response-time';
@@ -18,6 +19,7 @@ import session from 'express-session';
 import compression from 'compression';
 import { DateTime } from 'luxon';
 import Redis from 'ioredis';
+import morgan from 'morgan';
 import helmet from 'helmet';
 
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
@@ -31,7 +33,6 @@ import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
 import { json } from 'express';
-import morgan from 'morgan';
 import os from 'node:os';
 
 type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
@@ -64,11 +65,11 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
   app.set('query parser', 'extended');
 
   app.useGlobalPipes(new ValidationPipe({ enableDebugMessages: true, transform: true, whitelist: true }));
-  
+
   // 先使用无翻译功能的过滤器，稍后通过应用引用注入
   app.useGlobalFilters(new AnyExceptionFilter(app));
   Logger.log('[Config] AnyExceptionFilter initialized with app reference for lazy i18n support', 'Bootstrap');
-  
+
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new VisitorInterceptor());
   app.useGlobalInterceptors(new LoggerInterceptor());
@@ -173,6 +174,12 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
   );
   app.use(responseTime());
   app.use(json({ limit: '1mb' }));
+  app.use(
+    graphqlUploadExpress({
+      maxFileSize: 10 * 1024 * 1024,
+      maxFiles: 10,
+    }),
+  );
 
   const port = SysEnv.PORT;
 

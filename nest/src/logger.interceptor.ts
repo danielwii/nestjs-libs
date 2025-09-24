@@ -1,8 +1,8 @@
 import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
-import { catchError, finalize, Observable } from 'rxjs';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import _ from 'lodash';
 
+import { catchError, finalize, Observable } from 'rxjs';
 import { context, trace } from '@opentelemetry/api';
 import { f, METADATA_KEYS } from '@app/utils';
 
@@ -32,7 +32,10 @@ export class LoggerInterceptor implements NestInterceptor {
       body,
       query: req.query,
       params: req.params,
-      headers: req.headers,
+      headers: {
+        ...req.headers,
+        cookie: req.headers['cookie'] ? `${req.headers['cookie'].slice(0, 100)}...` : req.headers['cookie'],
+      },
       /*
             raw: req.raw,
             id: req.id,
