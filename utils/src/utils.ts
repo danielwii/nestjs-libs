@@ -86,3 +86,47 @@ export function maskSecret(
   if (secret.length <= prefix + suffix) return '*'.repeat(secret.length);
   return secret.slice(0, prefix) + '*'.repeat(maskLength) + secret.slice(secret.length - suffix);
 }
+
+const YMD_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+export function formatDateToYmd(date: Date | null | undefined): string | null {
+  if (!date) return null;
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  const mm = month.toString().padStart(2, '0');
+  const dd = day.toString().padStart(2, '0');
+  return `${year}-${mm}-${dd}`;
+}
+
+export function parseYmdToUtcDate(value: string): Date {
+  const match = YMD_REGEX.exec(value);
+  if (!match) {
+    throw new Error('Invalid YMD format');
+  }
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    throw new Error('Invalid YMD calendar date');
+  }
+
+  return date;
+}
+
+export function isValidYmdDate(value: string): boolean {
+  try {
+    parseYmdToUtcDate(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
