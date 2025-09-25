@@ -118,9 +118,14 @@ export interface PagePaginationState {
  * 泛型支持：T 为具体的资源类型
  */
 @InterfaceType()
-export class CursoredPageable<T> {
-  @Field(() => Int) total!: number;
-  @Field(() => PaginationInfo) cursorInfo!: PaginationInfo;
+export abstract class CursorPageable<T> {
+  @Field(() => Int, { description: '满足游标分页场景的记录总数（仅在首批请求时计算）' })
+  total!: number;
+
+  @Field(() => CursorPaginationInfo, {
+    description: '游标分页信息，仅在游标模式下暴露 startCursor/endCursor 等字段',
+  })
+  cursorInfo!: CursorPaginationInfo;
 
   items: T[] = [];
 }
@@ -137,8 +142,8 @@ export class CursoredPageable<T> {
  */
 export const CursoredResponse = <Item>(ItemClass: Item) => {
   // `isAbstract` decorator option is mandatory to prevent registering in schema
-  @ObjectType({ isAbstract: true, implements: () => [CursoredPageable] })
-  abstract class CursoredResponseClass extends CursoredPageable<Item> {
+  @ObjectType({ isAbstract: true, implements: () => [CursorPageable] })
+  abstract class CursoredResponseClass extends CursorPageable<Item> {
     // here we use the runtime argument
     @Field(() => [ItemClass] as Array<Item>)
     // and here the generic type
