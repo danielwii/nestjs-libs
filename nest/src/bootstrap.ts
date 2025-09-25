@@ -174,7 +174,10 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
   );
   app.use(responseTime());
   app.use(json({ limit: '1mb' }));
+
+  // 只对 GraphQL 端点启用文件上传中间件，避免影响 REST API 的 multipart 处理
   app.use(
+    '/graphql',
     graphqlUploadExpress({
       maxFileSize: 10 * 1024 * 1024,
       maxFiles: 10,
