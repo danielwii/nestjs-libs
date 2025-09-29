@@ -10,6 +10,7 @@ import {
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { ThrottlerException } from '@nestjs/throttler';
 import { HttpStatus } from '@nestjs/common/enums';
+import { GraphQLError } from 'graphql';
 import { ZodError } from 'zod';
 import _ from 'lodash';
 
@@ -19,9 +20,9 @@ import { errorStack, f } from '@app/utils';
 import { ApiRes } from '@app/nest';
 import { IBusinessException } from './business-exception.interface';
 import { II18nService } from './i18n.interface';
-import { AppEnvs } from '@/env';
+import { GqlExecutionContext } from '@nestjs/graphql';
 
-import type { ArgumentsHost, ExceptionFilter, INestApplication } from '@nestjs/common';
+import type { ArgumentsHost, ExceptionFilter, INestApplication, ExecutionContext } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { FetchError } from 'node-fetch';
 
@@ -68,13 +69,24 @@ export class AnyExceptionFilter implements ExceptionFilter {
     private readonly app?: INestApplication // 应用实例，用于延迟获取服务
   ) {}
 
-  catch(exception: any, host: ArgumentsHost) {
+  async catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
-    const request: Request & { uid?: string } = ctx.getRequest();
     const response: Response = ctx.getResponse();
+    const isGraphqlRequest = typeof response?.status !== 'function';
 
-    // throw directly if it is a graphql request
-    if (!response.status) {
+    let request: (Request & { uid?: string }) | undefined = ctx.getRequest();
+
+    if (!request?.headers && host.getType<'http' | 'graphql'>() === 'graphql') {
+      const executionContext = host as unknown as ExecutionContext;
+      const gqlCtx = GqlExecutionContext.create(executionContext).getContext<Record<string, any>>();
+      request = (gqlCtx?.req || gqlCtx?.request || gqlCtx?.expressReq || {}) as Request & { uid?: string };
+    }
+
+    if (isGraphqlRequest) {
+      if (this.isBusinessException(exception)) {
+        return this.handleGraphqlBusinessException(exception, request);
+      }
+
       this.logger.error(f`(${request?.uid})[${request?.ip}] ${exception.name} ${exception}`, exception.stack);
       throw exception;
     }
@@ -263,9 +275,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 处理 BusinessException，支持国际化翻译
    */
   private async handleBusinessException(
-    exception: IBusinessException, 
-    request: Request & { uid?: string }, 
-    response: Response
+    exception: IBusinessException,
+    request: (Request & { uid?: string }) | undefined,
+    response: Response,
   ) {
     this.logger.warn(
       f`(${request?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`
@@ -280,6 +292,32 @@ export class AnyExceptionFilter implements ExceptionFilter {
         message: translatedMessage,
       }),
     );
+  }
+
+  private async handleGraphqlBusinessException(
+    exception: IBusinessException,
+    request?: Request & { uid?: string },
+  ): Promise<never> {
+    this.logger.warn(
+      f`(${request?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`
+    );
+
+    const translatedMessage = await this.getTranslatedMessage(exception, request);
+
+    const extensions: Record<string, unknown> = {
+      code: exception.getCombinedCode(),
+      httpStatus: exception.httpStatus,
+      userMessage: translatedMessage,
+    };
+
+    if ('errorCode' in exception) {
+      extensions.errorCode = (exception as any).errorCode;
+    }
+    if ('businessCode' in exception) {
+      extensions.businessCode = (exception as any).businessCode;
+    }
+
+    throw new GraphQLError(translatedMessage, { extensions });
   }
 
   /**
@@ -313,13 +351,16 @@ export class AnyExceptionFilter implements ExceptionFilter {
    */
   private async getTranslatedMessage(
     exception: IBusinessException,
-    request: Request
+    request?: Request
   ): Promise<string> {
+    let locale = this.getDefaultLocale();
+    let errorKey = '';
+
     try {
-      const locale = this.getLocaleFromRequest(request);
+      locale = this.getLocaleFromRequest(request);
       
       // 如果是默认语言，直接返回原消息
-      if (locale === AppEnvs.APP_I18N_DEFAULT_LOCALE) {
+      if (locale === this.getDefaultLocale()) {
         return exception.userMessage;
       }
 
@@ -329,7 +370,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         return exception.userMessage;
       }
 
-      const errorKey = `errors.${exception.getCombinedCode()}`;
+      errorKey = `errors.${exception.getCombinedCode()}`;
       
       // 1. 尝试从缓存获取翻译
       const messages = await i18nService.getMessagesByLocale(locale);
@@ -347,7 +388,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
       return exception.userMessage;
       
     } catch (error) {
-      this.logger.warn(f`Translation check failed: ${error}`);
+      const reason =
+        error instanceof Error ? `${error.message} ${error.stack ?? ''}` : JSON.stringify(error);
+      this.logger.warn(f`Translation check failed key=${errorKey || 'n/a'} locale=${locale || 'n/a'} reason=${reason}`);
       return exception.userMessage;
     }
   }
@@ -366,7 +409,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         const i18nService = this.getI18nService();
         if (!i18nService) return;
         
-        this.logger.debug(f`开始后台翻译: ${errorKey} -> ${locale}`);
+        this.logger.debug(f`开始后台翻译: key=${errorKey} locale=${locale} original="${originalMessage}"`);
         
         const translated = await i18nService.translateMessage({
           key: errorKey,
@@ -378,7 +421,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         // 翻译完成后缓存
         await this.cacheTranslation(errorKey, originalMessage, translated, locale);
         
-        this.logger.debug(f`后台翻译完成并缓存: ${errorKey}`);
+        this.logger.debug(f`后台翻译完成: key=${errorKey} locale=${locale} translated="${translated}"`);
         
       } catch (error) {
         this.logger.warn(f`后台翻译失败: ${errorKey} - ${error}`);
@@ -431,10 +474,18 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
   }
 
+  private getDefaultLocale(): string {
+    const value = process.env.APP_I18N_DEFAULT_LOCALE;
+    return value && value.trim().length > 0 ? value.trim() : 'zh-Hans';
+  }
+
   /**
    * 从请求中获取用户语言偏好
    */
-  private getLocaleFromRequest(request: Request): string {
+  private getLocaleFromRequest(request?: Request): string {
+    if (!request || typeof request.headers !== 'object') {
+      return this.getDefaultLocale();
+    }
     // 1. 优先从自定义头获取
     const customLocale = request.headers['x-locale'] as string;
     if (customLocale) {
@@ -452,6 +503,6 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
 
     // 3. 默认语言
-    return AppEnvs.APP_I18N_DEFAULT_LOCALE;
+    return this.getDefaultLocale();
   }
 }
