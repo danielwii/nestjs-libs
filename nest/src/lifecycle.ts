@@ -12,6 +12,17 @@ export const runApp = <App extends INestApplication>(app: App) => {
   process.on('uncaughtException', (err) => {
     if (_.eq(err, 'request closed')) return;
 
+    // 忽略 graphql-upload-ts 库的已知 bug：文件清理时的 callback 错误
+    // 这个错误不影响业务逻辑，只是清理临时文件时的内部错误
+    if (
+      err instanceof TypeError &&
+      err.message === 'callback is not a function' &&
+      err.stack?.includes('graphql-upload-ts/src/fs-capacitor.ts')
+    ) {
+      logger.warn(f`(${os.hostname}) Ignored known graphql-upload-ts cleanup error: ${err.message}`);
+      return;
+    }
+
     logger.error(f`(${os.hostname}) uncaughtException: ${err.message ?? err}`, err.stack);
     if (SysEnv.EXIT_ON_ERROR) {
       // Sentry.captureException(err);
