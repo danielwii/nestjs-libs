@@ -1,15 +1,15 @@
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { config } from '@dotenvx/dotenvx';
 import { Logger } from '@nestjs/common';
+import * as R from 'remeda';
+import JSON from 'json5';
 import path from 'path';
 import _ from 'lodash';
 
-import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { f, errorStack } from '@app/utils/utils';
 import { NODE_ENV } from './env';
-import * as R from 'remeda';
 import os from 'node:os';
-import JSON from 'json5';
 
 import type { PrismaClient } from '@/generated/prisma/client';
 
@@ -350,7 +350,12 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     );
 
     // 添加所有待同步字段的详细日志
-    Logger.debug(f`#syncFromDB fields to sync: ${fields}`, 'AppConfigure');
+    _.forEach(fields, ({ field, value, ...extra }) => {
+      Logger.debug(
+        f`#syncFromDB field to sync: ${field} ${{ value }} extra:${JSON.stringify(extra)}`,
+        'AppConfigure',
+      );
+    });
 
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
     const appSettings = R.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
@@ -359,7 +364,12 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     ) as Array<{ key: string; defaultValue: unknown; format: string; description?: string; value: unknown }>;
 
     // 添加数据库中所有设置的详细日志
-    Logger.debug(f`#syncFromDB appSettings from DB: ${appSettings}`, 'AppConfigure');
+    _.forEach(appSettings, ({ key, value, defaultValue, ...extra }) => {
+      Logger.debug(
+        f`#syncFromDB appSetting from DB: ${key} ${{ value, defaultValue }} extra:${JSON.stringify(_.omit(extra, ['createdAt', 'updatedAt']))}`,
+        'AppConfigure',
+      );
+    });
 
     const fieldNamesInDB = R.map(appSettings, (s) => s.key);
     // 如何 appSettings 中不存在，则用当前的值更新
