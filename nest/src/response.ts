@@ -26,6 +26,22 @@ export const ApiRes = {
     meta,
   }),
 
+  /**
+   * @deprecated 不要使用此方法！应该直接抛出异常（throw Oops.xxx()）让 AnyExceptionFilter 处理。
+   *
+   * 问题：此方法返回 HTTP 200/201 状态码，但 success=false，违反 RESTful 规范。
+   *
+   * 正确做法：
+   * ```typescript
+   * // ❌ 错误
+   * return ApiRes.failure({ code: '0x0103', message: '认证失败' });
+   *
+   * // ✅ 正确
+   * throw Oops.UserNotFound(userId);
+   * // 或
+   * throw new BusinessException({ httpStatus: 422, errorCode: '0x0103', ... });
+   * ```
+   */
   failure: ({ code, message, errors }: { code?: string; message: string; errors?: unknown }): ApiRes<never> => ({
     success: false as const,
     message,
