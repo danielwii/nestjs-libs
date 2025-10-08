@@ -331,53 +331,24 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, envs, field);
         const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, envs, field);
 
-        // 添加详细日志，特别关注 DEFAULT_LLM_MODEL
-        if (field === 'DEFAULT_LLM_MODEL') {
-          Logger.log(
-            f`#syncFromDB metadata for DEFAULT_LLM_MODEL: ${{
-              isDatabaseField,
-              format,
-              description,
-              value: envs[field],
-            }}`,
-            'AppConfigure',
-          );
-        }
-
         return { field, isDatabaseField, format, description, value: envs[field] };
       }),
       R.filter(({ isDatabaseField }) => !!isDatabaseField),
     );
 
-    // 添加所有待同步字段的详细日志
-    _.forEach(fields, ({ field, value, ...extra }) => {
-      Logger.debug(
-        f`#syncFromDB field to sync: ${field} ${{ value }} extra:${JSON.stringify(extra)}`,
-        'AppConfigure',
-      );
-    });
-
+    // 仅在有变更时才打印详细日志，避免每次同步都输出大量重复信息
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
     const appSettings = R.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' && value != null ? JSON.parse(value) : value, format }),
     ) as Array<{ key: string; defaultValue: unknown; format: string; description?: string; value: unknown }>;
 
-    // 添加数据库中所有设置的详细日志
-    _.forEach(appSettings, ({ key, value, defaultValue, ...extra }) => {
-      Logger.debug(
-        f`#syncFromDB appSetting from DB: ${key} ${{ value, defaultValue }} extra:${JSON.stringify(_.omit(extra, ['createdAt', 'updatedAt']))}`,
-        'AppConfigure',
-      );
-    });
-
     const fieldNamesInDB = R.map(appSettings, (s) => s.key);
     // 如何 appSettings 中不存在，则用当前的值更新
     const nonExistsFields = R.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
-    Logger.debug(f`#syncFromDB nonExistsFields: ${nonExistsFields}`, 'AppConfigure');
 
-    if (nonExistsFields.length) {
-      Logger.debug(f`#syncFromDB creating ${nonExistsFields.length} new fields...`, 'AppConfigure');
+    if (nonExistsFields.length > 0) {
+      Logger.log(f`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`, 'AppConfigure');
       await prisma.sysAppSetting.createMany({
         data: nonExistsFields.map(({ field, format, description }) => {
           const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
@@ -387,7 +358,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             format,
             description,
           };
-          Logger.verbose(f`#syncFromDB create... ${newVar}`, 'AppConfigure');
+          Logger.log(f`#syncFromDB 创建配置: ${field} = ${envs[field]}`, 'AppConfigure');
           return newVar;
         }),
         skipDuplicates: true,
@@ -396,7 +367,6 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
     // 如何 appSettings 中存在，则用当前的值更新 envs
     const existsFields = R.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
-    Logger.debug(f`#syncFromDB existsFields count: ${existsFields.length}`, 'AppConfigure');
 
     for (const { field, value, description, format } of existsFields) {
       const appSetting = R.find(appSettings, (setting) => setting.key === field);
@@ -405,28 +375,12 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         continue;
       }
 
-      // 添加详细信息日志，特别是对 DEFAULT_LLM_MODEL
-      if (field === 'DEFAULT_LLM_MODEL') {
-        Logger.log(
-          f`#syncFromDB DEFAULT_LLM_MODEL details: ${{
-            field,
-            value,
-            description,
-            format,
-            appSetting_value: appSetting.value,
-            appSetting_defaultValue: appSetting.defaultValue,
-            appSetting_description: appSetting.description,
-          }}`,
-          'AppConfigure',
-        );
-      }
-
       const dbValue = appSetting.value;
       const equal = R.isDeepEqual(value, dbValue);
 
       // 更新环境变量值
       if (!R.isNullish(appSetting.value) && !equal) {
-        Logger.verbose(f`#syncFromDB update env value... ${field}: "${value}" -> "${dbValue}"`, 'AppConfigure');
+        Logger.log(f`#syncFromDB 配置变更: ${field} = "${value}" -> "${dbValue}"`, 'AppConfigure');
         envs[field] = dbValue;
       }
 
@@ -437,24 +391,16 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 如果默认值不一样，需要更新
       if (appSetting.defaultValue !== valueToStore && valueToStore !== null) {
         updates.defaultValue = valueToStore;
-        Logger.debug(
-          f`#syncFromDB will update defaultValue for ${field}: "${appSetting.defaultValue}" -> "${valueToStore}"`,
-          'AppConfigure',
-        );
       }
 
       // 如果描述存在并且与数据库中的不同，需要更新
       if (description && description !== appSetting.description) {
         updates.description = description;
-        Logger.debug(
-          f`#syncFromDB will update description for ${field}: "${appSetting.description}" -> "${description}"`,
-          'AppConfigure',
-        );
       }
 
       // 执行更新
       if (!R.isEmpty(updates)) {
-        Logger.verbose(f`#syncFromDB update metadata... ${field}: ${updates}`, 'AppConfigure');
+        Logger.log(f`#syncFromDB 更新元数据: ${field} ${JSON.stringify(updates)}`, 'AppConfigure');
         try {
           // 首先检查记录是否存在
           const existingRecord = await prisma.sysAppSetting.findUnique({

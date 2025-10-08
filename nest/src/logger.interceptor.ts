@@ -55,6 +55,9 @@ export class LoggerInterceptor implements NestInterceptor {
     const uid = _.get(req, 'user.uid') as any as string;
     const TAG = `(${uid || 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
 
+    // 健康检查路径，跳过日志记录
+    const isHealthCheck = ['/', '/health'].includes(req.path);
+
     if (res && res.getHeader && res.setHeader) {
       const isSse = res.getHeader('Content-Type') === 'text/event-stream';
       if (!isSse) {
@@ -63,16 +66,20 @@ export class LoggerInterceptor implements NestInterceptor {
       }
     }
 
-    this.logger.debug(
-      f`-> ${TAG} call... (${req.ip}, ${req.ips}, ${req.hostname}) ${req.method} ${req.url} ${
-        req.headers['user-agent']
-      } ${['/', '/health'].includes(req.path) ? '' : info}`,
-    );
+    if (!isHealthCheck) {
+      this.logger.debug(
+        f`-> ${TAG} call... (${req.ip}, ${req.ips}, ${req.hostname}) ${req.method} ${req.url} ${
+          req.headers['user-agent']
+        } ${info}`,
+      );
+    }
 
     const now = Date.now();
     return next.handle().pipe(
       finalize(() => {
-        this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
+        if (!isHealthCheck) {
+          this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
+        }
       }),
       catchError((e) => {
         const skipNotFound = _.get(e, 'status') !== 404;
