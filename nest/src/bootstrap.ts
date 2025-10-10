@@ -1,5 +1,4 @@
 import {
-  ClassSerializerInterceptor,
   DynamicModule,
   ForwardReference,
   INestApplication,
@@ -23,9 +22,9 @@ import morgan from 'morgan';
 import helmet from 'helmet';
 
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
-import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
+import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
 import { doMigration } from './migration';
@@ -34,6 +33,7 @@ import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
 import { json } from 'express';
 import os from 'node:os';
+import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
 
 type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 
@@ -70,7 +70,7 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
   app.useGlobalFilters(new AnyExceptionFilter(app));
   Logger.log('[Config] AnyExceptionFilter initialized with app reference for lazy i18n support', 'Bootstrap');
 
-  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
+  app.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new VisitorInterceptor());
   app.useGlobalInterceptors(new LoggerInterceptor());
   app.enableShutdownHooks();

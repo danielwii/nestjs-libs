@@ -82,6 +82,20 @@ export class AnyExceptionFilter implements ExceptionFilter {
       request = (gqlCtx?.req || gqlCtx?.request || gqlCtx?.expressReq || {}) as Request & { uid?: string };
     }
 
+    if (host.getType<'http' | 'graphql' | 'ws'>() === 'ws') {
+      const ws = host.switchToWs();
+      const client: any = ws.getClient?.();
+      const params = client?.connectionParams ?? {};
+
+      this.logger.error(
+        {
+          transport: 'ws',
+          connectionParams: maskConnectionParams(params),
+        },
+        exception,
+      );
+    }
+
     if (isGraphqlRequest) {
       if (this.isBusinessException(exception)) {
         return this.handleGraphqlBusinessException(exception, request);
@@ -539,4 +553,15 @@ export class AnyExceptionFilter implements ExceptionFilter {
     this.logger.debug(f`#getLocaleFromRequest falling back to default=${defaultLocale}`);
     return defaultLocale;
   }
+}
+
+function maskConnectionParams(params: Record<string, any>) {
+  const clone: Record<string, any> = { ...params };
+  for (const key of Object.keys(clone)) {
+    if (/authorization/i.test(key) && typeof clone[key] === 'string') {
+      const value = String(clone[key]);
+      clone[key] = value.length > 20 ? `${value.slice(0, 20)}…` : value;
+    }
+  }
+  return clone;
 }
