@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import { ConsoleLogger, Injectable } from '@nestjs/common';
-
 import { context, trace } from '@opentelemetry/api';
 import { Injector } from './injector';
 

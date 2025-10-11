@@ -1,3 +1,9 @@
+import { SentryExceptionCaptured } from '@sentry/nestjs';
+import { ThrottlerException } from '@nestjs/throttler';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { ZodError } from 'zod';
+import _ from 'lodash';
+
 import {
   BadRequestException,
   ConflictException,
@@ -7,20 +13,14 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { SentryExceptionCaptured } from '@sentry/nestjs';
-import { ThrottlerException } from '@nestjs/throttler';
-import { HttpStatus } from '@nestjs/common/enums';
-import { GraphQLError } from 'graphql';
-import { ZodError } from 'zod';
-import _ from 'lodash';
-
+import { IBusinessException } from './business-exception.interface';
 import { Prisma } from '@/generated/prisma/client';
 import { ErrorCodes } from '@app/nest/error-codes';
-import { errorStack, f } from '@app/utils';
-import { ApiRes } from '@app/nest';
-import { IBusinessException } from './business-exception.interface';
+import { HttpStatus } from '@nestjs/common/enums';
 import { II18nService } from './i18n.interface';
-import { GqlExecutionContext } from '@nestjs/graphql';
+import { errorStack, f } from '@app/utils';
+import { GraphQLError } from 'graphql';
+import { ApiRes } from '@app/nest';
 
 import type { ArgumentsHost, ExceptionFilter, INestApplication, ExecutionContext } from '@nestjs/common';
 import type { Request, Response } from 'express';
@@ -28,30 +28,30 @@ import type { FetchError } from 'node-fetch';
 
 /**
  * ⚠️  ErrorCodes 迁移说明（针对其他项目）
- * 
+ *
  * 本文件已更新使用新的维度分类 ErrorCodes。如果你的项目还在使用旧的错误码，
  * 请参考以下迁移对照表：
- * 
+ *
  * === 迁移对照表 ===
  * 旧错误码 → 新错误码 (责任方)
- * 
+ *
  * BadRequest → CLIENT_INPUT_ERROR (前端开发者)
- * ZodError → CLIENT_VALIDATION_FAILED (前端开发者) 
+ * ZodError → CLIENT_VALIDATION_FAILED (前端开发者)
  * NotFound → CLIENT_AUTH_REQUIRED (前端开发者)
  * Unauthorized → CLIENT_AUTH_REQUIRED (前端开发者)
  * TooManyRequests → CLIENT_RATE_LIMITED (前端开发者)
- * 
+ *
  * BusinessError → BUSINESS_RULE_VIOLATION (产品/业务人员)
  * Conflict → BUSINESS_DATA_CONFLICT (产品/业务人员)
- * 
+ *
  * FetchError → EXTERNAL_SERVICE_ERROR (运维/DevOps)
- * 
+ *
  * PrismaClientKnownRequestError → SYSTEM_DATABASE_ERROR (后端开发者)
  * Unexpected → SYSTEM_INTERNAL_ERROR (后端开发者)
- * 
+ *
  * Outdated → DATA_VERSION_MISMATCH (数据管理员)
  * Undefined → 使用具体的错误码替代
- * 
+ *
  * === 迁移步骤 ===
  * 1. 更新你项目中的 ErrorCodes 引用
  * 2. 根据错误场景选择合适的新错误码
@@ -66,7 +66,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
   private i18nServiceRetrieved = false;
 
   constructor(
-    private readonly app?: INestApplication // 应用实例，用于延迟获取服务
+    private readonly app?: INestApplication, // 应用实例，用于延迟获取服务
   ) {}
 
   async catch(exception: any, host: ArgumentsHost) {
@@ -229,10 +229,10 @@ export class AnyExceptionFilter implements ExceptionFilter {
       const status =
         typeof exception.getStatus === 'function'
           ? exception.getStatus()
-          : (exception as any)?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
-      const responseBody =
-        typeof exception.getResponse === 'function' ? exception.getResponse() : exception.message;
-      const message = typeof responseBody === 'string' ? responseBody : _.get(responseBody, 'message', exception.message);
+          : ((exception as any)?.status ?? HttpStatus.INTERNAL_SERVER_ERROR);
+      const responseBody = typeof exception.getResponse === 'function' ? exception.getResponse() : exception.message;
+      const message =
+        typeof responseBody === 'string' ? responseBody : _.get(responseBody, 'message', exception.message);
 
       if (status < HttpStatus.INTERNAL_SERVER_ERROR) {
         this.logger.warn(
@@ -269,10 +269,12 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 判断是否为 BusinessException
    */
   private isBusinessException(exception: any): exception is IBusinessException {
-    return exception &&
-           typeof exception.httpStatus === 'number' &&
-           typeof exception.userMessage === 'string' &&
-           typeof exception.getCombinedCode === 'function';
+    return (
+      exception &&
+      typeof exception.httpStatus === 'number' &&
+      typeof exception.userMessage === 'string' &&
+      typeof exception.getCombinedCode === 'function'
+    );
   }
 
   /**
@@ -294,7 +296,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     response: Response,
   ) {
     this.logger.warn(
-      f`(${request?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`
+      f`(${request?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`,
     );
 
     // 获取翻译后的错误消息
@@ -313,7 +315,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     request?: Request & { uid?: string },
   ): Promise<never> {
     this.logger.warn(
-      f`(${request?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`
+      f`(${request?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`,
     );
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);
@@ -343,7 +345,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
 
     this.i18nServiceRetrieved = true;
-    
+
     if (!this.app) {
       return null;
     }
@@ -355,7 +357,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger.debug('I18nService successfully retrieved for error translation');
       return this.i18nService;
     } catch (error) {
-      this.logger.warn(`Failed to retrieve I18nService: ${error instanceof Error ? error.message : String(error)} - error translation disabled`);
+      this.logger.warn(
+        `Failed to retrieve I18nService: ${error instanceof Error ? error.message : String(error)} - error translation disabled`,
+      );
       return null;
     }
   }
@@ -363,10 +367,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
   /**
    * 获取翻译后的错误消息（智能翻译机制）
    */
-  private async getTranslatedMessage(
-    exception: IBusinessException,
-    request?: Request
-  ): Promise<string> {
+  private async getTranslatedMessage(exception: IBusinessException, request?: Request): Promise<string> {
     let locale = this.getDefaultLocale();
     let errorKey = '';
 
@@ -409,11 +410,11 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
       // 3. 立即返回原始消息，不阻塞错误响应
       return exception.userMessage;
-
     } catch (error) {
-      const reason =
-        error instanceof Error ? `${error.message} ${error.stack ?? ''}` : JSON.stringify(error);
-      this.logger.warn(f`#getTranslatedMessage Translation check failed key=${errorKey || 'n/a'} locale=${locale || 'n/a'} reason=${reason}`);
+      const reason = error instanceof Error ? `${error.message} ${error.stack ?? ''}` : JSON.stringify(error);
+      this.logger.warn(
+        f`#getTranslatedMessage Translation check failed key=${errorKey || 'n/a'} locale=${locale || 'n/a'} reason=${reason}`,
+      );
       return exception.userMessage;
     }
   }
@@ -421,12 +422,10 @@ export class AnyExceptionFilter implements ExceptionFilter {
   /**
    * 后台异步翻译和缓存
    */
-  private translateInBackground(
-    errorKey: string,
-    originalMessage: string,
-    locale: string
-  ): void {
-    this.logger.debug(f`#translateInBackground called with key=${errorKey} locale=${locale} original="${originalMessage}"`);
+  private translateInBackground(errorKey: string, originalMessage: string, locale: string): void {
+    this.logger.debug(
+      f`#translateInBackground called with key=${errorKey} locale=${locale} original="${originalMessage}"`,
+    );
 
     // 后台异步翻译，不影响当前请求
     setImmediate(async () => {
@@ -437,7 +436,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
           return;
         }
 
-        this.logger.debug(f`#translateInBackground 开始后台翻译: key=${errorKey} locale=${locale} original="${originalMessage}"`);
+        this.logger.debug(
+          f`#translateInBackground 开始后台翻译: key=${errorKey} locale=${locale} original="${originalMessage}"`,
+        );
 
         const translated = await i18nService.translateMessage({
           key: errorKey,
@@ -449,8 +450,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
         // 翻译完成后缓存
         await this.cacheTranslation(errorKey, originalMessage, translated, locale);
 
-        this.logger.debug(f`#translateInBackground 后台翻译完成: key=${errorKey} locale=${locale} translated="${translated}"`);
-
+        this.logger.debug(
+          f`#translateInBackground 后台翻译完成: key=${errorKey} locale=${locale} translated="${translated}"`,
+        );
       } catch (error) {
         this.logger.warn(f`#translateInBackground 后台翻译失败: ${errorKey} locale=${locale} - ${error}`);
       }
@@ -464,9 +466,11 @@ export class AnyExceptionFilter implements ExceptionFilter {
     errorKey: string,
     originalMessage: string,
     translatedMessage: string,
-    locale: string
+    locale: string,
   ): Promise<void> {
-    this.logger.debug(f`#cacheTranslation called with key=${errorKey} locale=${locale} translated="${translatedMessage}"`);
+    this.logger.debug(
+      f`#cacheTranslation called with key=${errorKey} locale=${locale} translated="${translatedMessage}"`,
+    );
 
     try {
       const i18nService = this.getI18nService();
@@ -482,9 +486,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
         where: { key: errorKey },
         create: {
           key: errorKey,
-          description: f`自动生成: ${originalMessage}`
+          description: f`自动生成: ${originalMessage}`,
         },
-        update: {}
+        update: {},
       });
 
       this.logger.debug(f`#cacheTranslation upserting message: key=${errorKey} languageCode=${locale}`);
@@ -501,11 +505,10 @@ export class AnyExceptionFilter implements ExceptionFilter {
         update: {
           content: translatedMessage,
           isAIGenerated: true,
-        }
+        },
       });
 
       this.logger.debug(f`#cacheTranslation 缓存错误翻译成功: ${errorKey} -> ${locale}`);
-
     } catch (error) {
       this.logger.warn(f`#cacheTranslation 缓存翻译失败: key=${errorKey} locale=${locale} error=${error}`);
     }

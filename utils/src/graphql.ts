@@ -26,7 +26,9 @@ export interface CursoredRequest {
   after?: string | number;
 }
 
-@InputType({ description: '标准游标分页输入：first 控制每页数量，after 指定起始游标。可直接复用或在业务输入上继承扩展。' })
+@InputType({
+  description: '标准游标分页输入：first 控制每页数量，after 指定起始游标。可直接复用或在业务输入上继承扩展。',
+})
 export class CursoredRequestInput implements CursoredRequest {
   @Field(() => Int, { description: 'page size', nullable: true, defaultValue: 20 })
   @Allow()
@@ -173,9 +175,7 @@ export class CursorUtils {
    */
   static encodeCursor(resourceType: string, timestamp: Date | string, id: string): string {
     // 转换时间戳为毫秒值，支持字符串和 Date 对象输入
-    const timestampMs = typeof timestamp === 'string'
-      ? new Date(timestamp).getTime()
-      : timestamp.getTime();
+    const timestampMs = typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp.getTime();
 
     // 组合游标字符串：类型:时间戳:ID
     const cursorString = `${resourceType}:${timestampMs}:${id}`;
@@ -229,10 +229,7 @@ export class CursorUtils {
    * @param direction - 分页方向（'forward' 或 'backward'）
    * @returns Prisma WHERE 条件对象
    */
-  static buildCursorCondition(
-    cursor: { timestamp: Date; id: string },
-    direction: 'forward' | 'backward' = 'forward'
-  ) {
+  static buildCursorCondition(cursor: { timestamp: Date; id: string }, direction: 'forward' | 'backward' = 'forward') {
     const { timestamp, id } = cursor;
 
     if (direction === 'forward') {
@@ -242,9 +239,9 @@ export class CursorUtils {
           { createdAt: { lt: timestamp } },
           {
             createdAt: timestamp,
-            id: { lt: id }
-          }
-        ]
+            id: { lt: id },
+          },
+        ],
       };
     } else {
       // 向前翻页：获取游标之前的记录
@@ -253,9 +250,9 @@ export class CursorUtils {
           { createdAt: { gt: timestamp } },
           {
             createdAt: timestamp,
-            id: { gt: id }
-          }
-        ]
+            id: { gt: id },
+          },
+        ],
       };
     }
   }
@@ -287,7 +284,7 @@ export class CursorUtils {
     totalCount: number,
     pageSize: number,
     currentItems: number,
-    hasMore: boolean
+    hasMore: boolean,
   ): { totalPages: number; currentPage?: number } {
     const totalPages = Math.ceil(totalCount / pageSize);
 

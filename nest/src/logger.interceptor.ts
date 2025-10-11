@@ -20,11 +20,11 @@ export class LoggerInterceptor implements NestInterceptor {
     const isGraphql = ctx.getType<'http' | 'graphql'>() === 'graphql';
     const gqlExecutionContext = isGraphql ? GqlExecutionContext.create(ctx) : null;
     const gqlOperation = gqlExecutionContext?.getInfo()?.operation?.operation ?? null;
-    this.logger.log(
-      f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation}`,
-    );
 
     if (!req && gqlExecutionContext) {
+      this.logger.log(
+        f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation}`,
+      );
       const gqlContext = gqlExecutionContext.getContext<Record<string, any>>();
       req = gqlContext?.req;
       res = gqlContext?.res;
@@ -38,9 +38,7 @@ export class LoggerInterceptor implements NestInterceptor {
       };
 
       this.logger.debug(
-        f`-> (subscription) #${ctx.getClass().name}.${handlerName} headers=${JSON.stringify(
-          maskWsHeaders(wsReq.headers),
-        )}`,
+        f`-> (subscription) #${ctx.getClass().name}.${handlerName} headers=${maskWsHeaders(wsReq.headers)}`,
       );
       const result = next.handle();
       this.logger.debug(

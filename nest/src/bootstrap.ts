@@ -1,13 +1,3 @@
-import {
-  DynamicModule,
-  ForwardReference,
-  INestApplication,
-  Logger,
-  LogLevel,
-  Type,
-  ValidationPipe,
-} from '@nestjs/common';
-import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { graphqlUploadExpress } from 'graphql-upload-ts';
 import { RedisStore } from 'connect-redis';
@@ -17,23 +7,33 @@ import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import compression from 'compression';
 import { DateTime } from 'luxon';
+import { json } from 'express';
 import Redis from 'ioredis';
 import morgan from 'morgan';
 import helmet from 'helmet';
 
+import {
+  DynamicModule,
+  ForwardReference,
+  INestApplication,
+  Logger,
+  LogLevel,
+  Type,
+  ValidationPipe,
+} from '@nestjs/common';
+import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
+import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
+import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
-import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
 import { doMigration } from './migration';
 import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
-import { json } from 'express';
 import os from 'node:os';
-import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
 
 type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 

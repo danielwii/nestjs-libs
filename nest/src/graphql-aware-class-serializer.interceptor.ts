@@ -19,7 +19,6 @@ import type { Observable, Subscription } from 'rxjs';
  */
 export class GraphqlAwareClassSerializerInterceptor extends ClassSerializerInterceptor {
   override intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-
     if (context.getType<'http' | 'graphql'>() === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
       const operation = gqlContext.getInfo()?.operation?.operation;
