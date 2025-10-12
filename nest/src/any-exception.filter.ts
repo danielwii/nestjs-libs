@@ -368,30 +368,30 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 获取翻译后的错误消息（智能翻译机制）
    */
   private async getTranslatedMessage(exception: IBusinessException, request?: Request): Promise<string> {
-    let locale = this.getDefaultLocale();
+    const combinedCode = exception.getCombinedCode();
+    const defaultLocale = this.getDefaultLocale();
+    let locale = defaultLocale;
     let errorKey = '';
 
     try {
-      this.logger.debug(f`#getTranslatedMessage called for code=${exception.getCombinedCode()}`);
-
       locale = this.getLocaleFromRequest(request);
-      this.logger.debug(f`#getTranslatedMessage resolved locale=${locale}`);
 
       // 如果是默认语言，直接返回原消息
-      if (locale === this.getDefaultLocale()) {
-        this.logger.debug(f`#getTranslatedMessage locale is default, returning original message`);
+      if (locale === defaultLocale) {
+        this.logger.debug(f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=default-locale`);
         return exception.userMessage;
       }
 
       // 延迟获取 i18n 服务
       const i18nService = this.getI18nService();
       if (!i18nService) {
-        this.logger.debug(f`#getTranslatedMessage i18nService not available, returning original message`);
+        this.logger.debug(
+          f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=i18n-missing returning=original`,
+        );
         return exception.userMessage;
       }
 
       errorKey = `errors.${exception.getCombinedCode()}`;
-      this.logger.debug(f`#getTranslatedMessage errorKey=${errorKey}`);
 
       // 1. 尝试从缓存获取翻译
       const messages = await i18nService.getMessagesByLocale(locale);
@@ -399,11 +399,15 @@ export class AnyExceptionFilter implements ExceptionFilter {
       const cachedTranslation = _.get(messages, errorKey);
 
       if (cachedTranslation) {
-        this.logger.debug(f`#getTranslatedMessage found cached translation for ${errorKey}`);
+        this.logger.debug(
+          f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=cached key=${errorKey}`,
+        );
         return cachedTranslation;
       }
 
-      this.logger.debug(f`#getTranslatedMessage no cached translation, starting background translation`);
+      this.logger.debug(
+        f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=background-translate key=${errorKey}`,
+      );
 
       // 2. 没有缓存，启动后台翻译任务（不等待）
       this.translateInBackground(errorKey, exception.userMessage, locale);
@@ -523,38 +527,42 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 从请求中获取用户语言偏好
    */
   private getLocaleFromRequest(request?: Request): string {
+    const defaultLocale = this.getDefaultLocale();
+    let resolved = defaultLocale;
+    let source = 'default';
+
     if (!request || typeof request.headers !== 'object') {
-      const defaultLocale = this.getDefaultLocale();
-      this.logger.debug(f`#getLocaleFromRequest no request/headers, returning default=${defaultLocale}`);
-      return defaultLocale;
+      this.logger.debug(f`#getLocaleFromRequest resolved=${resolved} source=${source} reason=no-request`);
+      return resolved;
     }
 
-    // 1. 优先从自定义头获取
-    const customLocale = request.headers['x-locale'] as string;
-    this.logger.debug(f`#getLocaleFromRequest customLocale=${customLocale}`);
+    const customLocale = (request.headers['x-locale'] as string) || '';
     if (customLocale && customLocale !== '*') {
-      this.logger.debug(f`#getLocaleFromRequest using customLocale=${customLocale}`);
-      return customLocale;
+      resolved = customLocale;
+      source = 'x-locale';
+      this.logger.debug(
+        f`#getLocaleFromRequest resolved=${resolved} source=${source} acceptLanguage=${request.headers['accept-language'] ?? 'n/a'}`,
+      );
+      return resolved;
     }
 
-    // 2. 从 Accept-Language 头解析
-    const acceptLanguage = request.headers['accept-language'];
-    this.logger.debug(f`#getLocaleFromRequest acceptLanguage=${acceptLanguage}`);
-    if (acceptLanguage && acceptLanguage !== '*') {
-      // 解析 Accept-Language: "en-US,en;q=0.9,zh-CN;q=0.8" -> "en"
-      const primaryLanguage = acceptLanguage.split(',')[0]?.split('-')[0]?.trim();
-      this.logger.debug(f`#getLocaleFromRequest primaryLanguage=${primaryLanguage}`);
+    const acceptLanguageRaw = request.headers['accept-language'];
+    if (acceptLanguageRaw && acceptLanguageRaw !== '*') {
+      const primaryLanguage = acceptLanguageRaw.split(',')[0]?.split('-')[0]?.trim();
       if (primaryLanguage && primaryLanguage !== '*') {
-        const resolvedLocale = primaryLanguage === 'zh' ? 'zh-Hans' : primaryLanguage;
-        this.logger.debug(f`#getLocaleFromRequest using primaryLanguage, resolved=${resolvedLocale}`);
-        return resolvedLocale;
+        resolved = primaryLanguage === 'zh' ? 'zh-Hans' : primaryLanguage;
+        source = 'accept-language';
+        this.logger.debug(
+          f`#getLocaleFromRequest resolved=${resolved} source=${source} acceptLanguage=${acceptLanguageRaw}`,
+        );
+        return resolved;
       }
     }
 
-    // 3. 默认语言
-    const defaultLocale = this.getDefaultLocale();
-    this.logger.debug(f`#getLocaleFromRequest falling back to default=${defaultLocale}`);
-    return defaultLocale;
+    this.logger.debug(
+      f`#getLocaleFromRequest resolved=${resolved} source=${source} acceptLanguage=${acceptLanguageRaw ?? 'n/a'}`,
+    );
+    return resolved;
   }
 }
 
