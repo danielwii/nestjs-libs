@@ -430,8 +430,11 @@ export class PromptSpec<T extends z.ZodSchema = z.ZodSchema> {
    * ```
    */
   build(): string {
-    const datetime = this.timezone ? DateTime.now().setZone(this.timezone).toJSDate() : new Date();
-    const timestamp = format(datetime, this.sensitivity);
+    // Robust timezone handling: if provided tz is invalid, fall back to system local time
+    const now = DateTime.now();
+    const dt = this.timezone ? now.setZone(this.timezone) : now;
+    const jsDate = dt.isValid ? dt.toJSDate() : new Date();
+    const timestamp = format(jsDate, this.sensitivity);
 
     // 创建数据副本，根据配置决定是否包含output
     const promptData = { ...this.data };
