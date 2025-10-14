@@ -1,7 +1,7 @@
 import { execSync } from 'child_process';
+import { Logger } from '@nestjs/common';
 import _ from 'lodash';
 
-import { Logger } from '@nestjs/common';
 import { SysEnv } from '@app/env';
 import { f } from '@app/utils';
 

@@ -1,17 +1,3 @@
-import { NestExpressApplication } from '@nestjs/platform-express';
-import { graphqlUploadExpress } from 'graphql-upload-ts';
-import { RedisStore } from 'connect-redis';
-import { stripIndent } from 'common-tags';
-import responseTime from 'response-time';
-import cookieParser from 'cookie-parser';
-import session from 'express-session';
-import compression from 'compression';
-import { DateTime } from 'luxon';
-import { json } from 'express';
-import Redis from 'ioredis';
-import morgan from 'morgan';
-import helmet from 'helmet';
-
 import {
   DynamicModule,
   ForwardReference,
@@ -21,8 +7,21 @@ import {
   Type,
   ValidationPipe,
 } from '@nestjs/common';
-import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { graphqlUploadExpress } from 'graphql-upload-ts';
+import { RedisStore } from 'connect-redis';
+import { stripIndent } from 'common-tags';
+import responseTime from 'response-time';
+import cookieParser from 'cookie-parser';
+import session from 'express-session';
+import compression from 'compression';
+import { DateTime } from 'luxon';
+import Redis from 'ioredis';
+import morgan from 'morgan';
+import helmet from 'helmet';
+
+import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
 import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
@@ -33,6 +32,7 @@ import { doMigration } from './migration';
 import { maskSecret } from '@app/utils';
 import { SysEnv } from '@app/env';
 import { AppEnvs } from '@/env';
+import { json } from 'express';
 import os from 'node:os';
 
 type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;

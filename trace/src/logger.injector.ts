@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import { ConsoleLogger, Injectable } from '@nestjs/common';
+
 import { context, trace } from '@opentelemetry/api';
 import { Injector } from './injector';
 
@@ -13,11 +14,13 @@ export class LoggerInjector implements Injector {
     ConsoleLogger.prototype.warn = this.wrapPrototype(ConsoleLogger.prototype.warn);
   }
 
-  private wrapPrototype(prototype: any) {
+  private wrapPrototype<T extends (...args: unknown[]) => unknown>(prototype: T) {
     const originalMethod = prototype;
-    return function (this: any, ...args: any[]) {
-      args[0] = LoggerInjector.getMessage(args[0]);
-      return originalMethod.apply(this, args);
+    return function (this: unknown, ...args: unknown[]) {
+      if (typeof args[0] === 'string') {
+        args[0] = LoggerInjector.getMessage(args[0]);
+      }
+      return Reflect.apply(originalMethod, this, args);
     };
   }
 
@@ -36,7 +39,7 @@ export class LoggerInjector implements Injector {
     // 检查 span 是否已经结束，如果已结束则不再添加事件
     try {
       // 使用 span 的内部状态检查是否已结束
-      const spanImpl = currentSpan as any;
+      const spanImpl = currentSpan as { isRecording?: () => boolean };
       if (spanImpl && typeof spanImpl.isRecording === 'function' && !spanImpl.isRecording()) {
         // Span 已结束，只记录 traceId，不添加事件
         return `[${spanContext.traceId}] ${message}`;

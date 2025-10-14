@@ -1,6 +1,6 @@
+import { Logger, OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { DateTime } from 'luxon';
 
-import { Logger, OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Trace } from '@app/trace';
 import { f } from '@app/utils';
 

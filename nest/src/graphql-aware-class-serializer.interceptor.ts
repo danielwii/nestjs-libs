@@ -1,9 +1,9 @@
-import { GqlExecutionContext } from '@nestjs/graphql';
-
 import { ClassSerializerInterceptor } from '@nestjs/common';
+import { GqlExecutionContext } from '@nestjs/graphql';
 
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import type { Observable, Subscription } from 'rxjs';
+import { isObservable } from 'rxjs';
 
 /**
  * GraphQL-aware ClassSerializerInterceptor
@@ -24,15 +24,16 @@ export class GraphqlAwareClassSerializerInterceptor extends ClassSerializerInter
       const operation = gqlContext.getInfo()?.operation?.operation;
       if (operation === 'subscription') {
         const result = next.handle();
-        const candidate = result as any;
-        if (
-          candidate &&
-          typeof candidate.subscribe === 'function' &&
-          typeof candidate[Symbol.asyncIterator] !== 'function'
-        ) {
-          return observableToAsyncIterator(candidate as Observable<unknown>) as unknown as Observable<any>;
+        if (isObservable(result)) {
+          const observable = result;
+          const asyncIterator = (observable as unknown as { [Symbol.asyncIterator]?: () => AsyncIterator<unknown> })[
+            Symbol.asyncIterator
+          ];
+          if (typeof asyncIterator !== 'function') {
+            return observableToAsyncIterator(observable) as unknown as Observable<any>;
+          }
         }
-        return result as any;
+        return result;
       }
     }
 
@@ -69,11 +70,11 @@ function observableToAsyncIterator<T>(observable: Observable<T>): AsyncIterableI
     complete() {
       completed = true;
       if (pendingResolve) {
-        pendingResolve({ value: undefined as any, done: true });
+        pendingResolve({ value: undefined as T, done: true });
         pendingResolve = null;
         pendingReject = null;
       } else {
-        queue.push({ value: undefined as any, done: true });
+        queue.push({ value: undefined as T, done: true });
       }
     },
   });
@@ -91,7 +92,7 @@ function observableToAsyncIterator<T>(observable: Observable<T>): AsyncIterableI
       }
 
       if (completed) {
-        return Promise.resolve({ value: undefined as any, done: true });
+        return Promise.resolve({ value: undefined as T, done: true });
       }
 
       return new Promise<IteratorResult<T>>((resolve, reject) => {
@@ -103,7 +104,7 @@ function observableToAsyncIterator<T>(observable: Observable<T>): AsyncIterableI
       subscription.unsubscribe();
       completed = true;
       queue.length = 0;
-      return Promise.resolve({ value: undefined as any, done: true });
+      return Promise.resolve({ value: undefined as T, done: true });
     },
     throw(err?: any): Promise<IteratorResult<T>> {
       subscription.unsubscribe();

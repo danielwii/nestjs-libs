@@ -1,5 +1,6 @@
-import { onelineStack } from '@app/utils/utils';
 import { ConsoleLogger } from '@nestjs/common';
+
+import { onelineStack } from '@app/utils/utils';
 
 export function initStackTraceFormatter() {
   ConsoleLogger.prototype.warn = wrapPrototype(ConsoleLogger.prototype.warn);

@@ -1,6 +1,6 @@
+import { INestApplication, Logger } from '@nestjs/common';
 import _ from 'lodash';
 
-import { INestApplication, Logger } from '@nestjs/common';
 import { SysEnv } from '@app/env';
 import { f } from '@app/utils';
 import os from 'node:os';

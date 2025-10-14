@@ -1,13 +1,13 @@
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { config } from '@dotenvx/dotenvx';
+import { Logger } from '@nestjs/common';
 import * as R from 'remeda';
 import JSON from 'json5';
 import path from 'path';
 import _ from 'lodash';
 
 import { f, errorStack } from '@app/utils/utils';
-import { Logger } from '@nestjs/common';
 import { NODE_ENV } from './env';
 import os from 'node:os';
 
@@ -167,18 +167,18 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   //     const index = this.hostIndex;
   //     if (_.isNullish(index)) {
   //       this.logger.warn(f`#getByHost (${this.hostname}) ${{ field, index }}`);
-  //       return _.isBoolean(fallback) ? _.pathOr(this as any, [field, 0]) : fallback;
+  //       return _.isBoolean(fallback) ? _.pathOr(this, [field, 0]) : fallback;
   //     }
   //     this.logger.verbose(f`#getByHost (${this.hostname}) ${{ field, index }}`);
   //     return _.isBoolean(fallback)
-  //       ? (_.prop(this[field], index) ?? _.pathOr(this as any, [field, 0]))
+  //       ? (_.prop(this[field], index) ?? _.pathOr(this, [field, 0]))
   //       : (_.prop(this[field], index) ?? fallback);
   //   } catch (e: unknown) {
   //     this.logger.error(
   //       f`#getByHost (${this.hostname}) ${field} ${e instanceof Error ? e.message : String(e)}`,
   //       onelineStackFromError(e),
   //     );
-  //     return _.isBoolean(fallback) ? _.pathOr(this as any, [field, 0]) : fallback;
+  //     return _.isBoolean(fallback) ? _.pathOr(this, [field, 0]) : fallback;
   //   }
   // }
 

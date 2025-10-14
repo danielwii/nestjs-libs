@@ -1,6 +1,6 @@
+import { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-import { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { context, trace } from '@opentelemetry/api';
 import { VisitorRequest } from './interface';
 import { Observable } from 'rxjs';

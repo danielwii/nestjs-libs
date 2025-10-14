@@ -1,9 +1,3 @@
-import { SentryExceptionCaptured } from '@sentry/nestjs';
-import { ThrottlerException } from '@nestjs/throttler';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { ZodError } from 'zod';
-import _ from 'lodash';
-
 import {
   BadRequestException,
   ConflictException,
@@ -13,13 +7,19 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { SentryExceptionCaptured } from '@sentry/nestjs';
+import { ThrottlerException } from '@nestjs/throttler';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { HttpStatus } from '@nestjs/common/enums';
+import { GraphQLError } from 'graphql';
+import { ZodError } from 'zod';
+import _ from 'lodash';
+
 import { IBusinessException } from './business-exception.interface';
 import { Prisma } from '@/generated/prisma/client';
 import { ErrorCodes } from '@app/nest/error-codes';
-import { HttpStatus } from '@nestjs/common/enums';
 import { II18nService } from './i18n.interface';
 import { errorStack, f } from '@app/utils';
-import { GraphQLError } from 'graphql';
 import { ApiRes } from '@app/nest';
 
 import type { ArgumentsHost, ExceptionFilter, INestApplication, ExecutionContext } from '@nestjs/common';
@@ -151,7 +151,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         ApiRes.failure({
           code: ErrorCodes.CLIENT_RATE_LIMITED,
           message: exception.message,
-          // statusCode: HttpStatus.TOO_MANY_REQUESTS as any,
+          // statusCode: HttpStatus.TOO_MANY_REQUESTS,
           errors: _.get(exception.getResponse(), 'message'),
         }),
       );
@@ -226,10 +226,13 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
 
     if (exception instanceof HttpException) {
+      const fallbackStatus = Reflect.get(exception, 'status');
       const status =
         typeof exception.getStatus === 'function'
           ? exception.getStatus()
-          : ((exception as any)?.status ?? HttpStatus.INTERNAL_SERVER_ERROR);
+          : typeof fallbackStatus === 'number'
+            ? fallbackStatus
+            : HttpStatus.INTERNAL_SERVER_ERROR;
       const responseBody = typeof exception.getResponse === 'function' ? exception.getResponse() : exception.message;
       const message =
         typeof responseBody === 'string' ? responseBody : _.get(responseBody, 'message', exception.message);
@@ -327,10 +330,10 @@ export class AnyExceptionFilter implements ExceptionFilter {
     };
 
     if ('errorCode' in exception) {
-      extensions.errorCode = (exception as any).errorCode;
+      extensions.errorCode = Reflect.get(exception, 'errorCode');
     }
     if ('businessCode' in exception) {
-      extensions.businessCode = (exception as any).businessCode;
+      extensions.businessCode = Reflect.get(exception, 'businessCode');
     }
 
     throw new GraphQLError(translatedMessage, { extensions });
@@ -399,9 +402,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       const cachedTranslation = _.get(messages, errorKey);
 
       if (cachedTranslation) {
-        this.logger.debug(
-          f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=cached key=${errorKey}`,
-        );
+        this.logger.debug(f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=cached key=${errorKey}`);
         return cachedTranslation;
       }
 

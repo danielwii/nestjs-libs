@@ -1,7 +1,7 @@
+import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import _ from 'lodash';
 
-import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
 import { catchError, finalize, Observable } from 'rxjs';
 import { context, trace } from '@opentelemetry/api';
 import { f, METADATA_KEYS } from '@app/utils';
@@ -41,12 +41,22 @@ export class LoggerInterceptor implements NestInterceptor {
         f`-> (subscription) #${ctx.getClass().name}.${handlerName} headers=${maskWsHeaders(wsReq.headers)}`,
       );
       const result = next.handle();
+      const rawResult: unknown = result;
+      let constructorName = typeof rawResult;
+      let hasAsyncIterator = false;
+      let hasSubscribe = false;
+
+      if (typeof rawResult === 'object' && rawResult !== null) {
+        const ctor = Reflect.get(rawResult, 'constructor');
+        if (ctor && typeof ctor === 'function' && typeof ctor.name === 'string') {
+          constructorName = ctor.name;
+        }
+        hasAsyncIterator = typeof Reflect.get(rawResult, Symbol.asyncIterator) === 'function';
+        hasSubscribe = typeof Reflect.get(rawResult, 'subscribe') === 'function';
+      }
+
       this.logger.debug(
-        f`<- (subscription) #${ctx.getClass().name}.${handlerName} resultType=${typeof result} constructor=${
-          (result as any)?.constructor?.name
-        } hasAsyncIterator=${result != null && typeof (result as any)[Symbol.asyncIterator] === 'function'} hasSubscribe=${
-          result != null && typeof (result as any).subscribe === 'function'
-        }`,
+        f`<- (subscription) #${ctx.getClass().name}.${handlerName} resultType=${typeof result} constructor=${constructorName} hasAsyncIterator=${hasAsyncIterator} hasSubscribe=${hasSubscribe}`,
       );
       return result;
     }
@@ -84,7 +94,9 @@ export class LoggerInterceptor implements NestInterceptor {
 
     // !!TIPS!! @metinseylan/nestjs-opentelemetry make handler name null
     const named = Reflect.getMetadata(METADATA_KEYS.NAMED, ctx.getHandler());
-    const uid = _.get(req, 'user.uid') as any as string;
+    const uid = typeof req.user === 'object' && req.user !== null && 'uid' in req.user
+      ? (Reflect.get(req.user, 'uid') as string | undefined)
+      : undefined;
     const TAG = `(${uid || 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
 
     // 健康检查路径，跳过日志记录
