@@ -202,6 +202,7 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
       const startTime = DateTime.utc();
       Logger.log(
         stripIndent`🦋 [Server] API Server started successfully
+          ENV: ${SysEnv.environment.env} [IsProd: ${SysEnv.environment.isProd}, NODE: ${process.env.NODE_ENV}|${SysEnv.NODE_ENV}, DOPPLER: ${SysEnv.DOPPLER_ENVIRONMENT}]
           Host: ${os.hostname()}
           Node Name: ${SysEnv.NODE_NAME}
           Bind: ${bindAddress}
