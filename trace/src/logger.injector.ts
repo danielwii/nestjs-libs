@@ -3,9 +3,11 @@ import { ConsoleLogger, Injectable } from '@nestjs/common';
 
 import { context, trace } from '@opentelemetry/api';
 import { Injector } from './injector';
+import { RequestContext } from './request-context';
 
 @Injectable()
 export class LoggerInjector implements Injector {
+
   public inject() {
     ConsoleLogger.prototype.log = this.wrapPrototype(ConsoleLogger.prototype.log);
     ConsoleLogger.prototype.debug = this.wrapPrototype(ConsoleLogger.prototype.debug);
@@ -26,15 +28,22 @@ export class LoggerInjector implements Injector {
 
   private static getMessage(message: string) {
     const currentSpan = trace.getSpan(context.active());
+    const storeTraceId = RequestContext.get<string>('traceId');
+    const storeUserId = RequestContext.get<string>('userId');
+
     if (!currentSpan) {
-      // 临时调试：显示没有找到span的情况
-      if (message.includes('#login') || message.includes('#getUserPhotos')) {
-        console.log('[LoggerInjector] No active span found for message:', message.substring(0, 50));
+      if (storeTraceId) {
+        return LoggerInjector.formatMessage(storeTraceId, storeUserId, message);
       }
       return message;
     }
 
     const spanContext = currentSpan.spanContext();
+    const spanAttributes = (currentSpan as unknown as { attributes?: Record<string, unknown> }).attributes;
+    const userIdFromSpan = spanAttributes?.['user.id'];
+    const userId = (typeof userIdFromSpan === 'string' && userIdFromSpan.trim().length > 0)
+      ? userIdFromSpan
+      : storeUserId;
 
     // 检查 span 是否已经结束，如果已结束则不再添加事件
     try {
@@ -42,7 +51,11 @@ export class LoggerInjector implements Injector {
       const spanImpl = currentSpan as { isRecording?: () => boolean };
       if (spanImpl && typeof spanImpl.isRecording === 'function' && !spanImpl.isRecording()) {
         // Span 已结束，只记录 traceId，不添加事件
-        return `[${spanContext.traceId}] ${message}`;
+        const fallbackTraceId = spanContext.traceId || storeTraceId;
+        if (!fallbackTraceId) {
+          return message;
+        }
+        return LoggerInjector.formatMessage(fallbackTraceId, userId, message);
       }
 
       currentSpan.addEvent(message);
@@ -51,6 +64,17 @@ export class LoggerInjector implements Injector {
       console.warn(`Cannot add event to ended span: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    return `[${spanContext.traceId}] ${message}`;
+    const traceId = spanContext.traceId || storeTraceId;
+    if (!traceId) {
+      return message;
+    }
+    return LoggerInjector.formatMessage(traceId, userId, message);
+  }
+
+  private static formatMessage(traceId: string, userId: unknown, message: string): string {
+    if (typeof userId === 'string' && userId.trim().length > 0) {
+      return `[${traceId}|${userId}] ${message}`;
+    }
+    return `[${traceId}] ${message}`;
   }
 }

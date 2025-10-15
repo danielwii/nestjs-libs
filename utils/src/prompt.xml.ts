@@ -130,6 +130,269 @@ const XmlPromptSchema = z.object({
 export type PromptSpecSchema = z.infer<typeof XmlPromptSchema>;
 export type PromptSpecContextItem = NonNullable<z.infer<typeof XmlPromptSchema>['context']>[number];
 
+export interface PromptBlueprint<T extends z.ZodSchema = z.ZodSchema> {
+  id: string;
+  version: string;
+  role: string;
+  objective: string;
+  style?: string;
+  tone?: string;
+  audience?: string;
+  instructions: string[];
+  rules: string[];
+  examples: Array<{ title?: string; content: string }>;
+  sections: PromptSpecContextItem[];
+  output?: PromptSpecSchema['output'];
+  language?: string;
+  schema?: T;
+  llmOptions?: LLMOptions;
+  includeOutputInPrompt: boolean;
+  sensitivity: TimeSensitivity;
+  timezone?: string | null;
+}
+
+export class PromptSpecBuilder<T extends z.ZodSchema = z.ZodSchema> {
+  private blueprint: PromptBlueprint<T>;
+
+  constructor(id: string, version: string) {
+    this.blueprint = {
+      id,
+      version,
+      role: '',
+      objective: '',
+      instructions: [],
+      rules: [],
+      examples: [],
+      sections: [],
+      includeOutputInPrompt: true,
+      sensitivity: TimeSensitivity.Minute,
+      timezone: null,
+    };
+  }
+
+  setRole(role: string): this {
+    this.blueprint.role = role;
+    return this;
+  }
+
+  setObjective(objective: string): this {
+    this.blueprint.objective = objective;
+    return this;
+  }
+
+  setStyle(style?: string): this {
+    this.blueprint.style = style;
+    return this;
+  }
+
+  setTone(tone?: string): this {
+    this.blueprint.tone = tone;
+    return this;
+  }
+
+  setAudience(audience?: string): this {
+    this.blueprint.audience = audience;
+    return this;
+  }
+
+  addInstruction(instruction: string): this {
+    if (instruction) {
+      this.blueprint.instructions.push(instruction);
+    }
+    return this;
+  }
+
+  addInstructions(instructions: string[] | undefined | null): this {
+    instructions?.forEach((instruction) => this.addInstruction(instruction));
+    return this;
+  }
+
+  addRule(rule: string): this {
+    if (rule) {
+      this.blueprint.rules.push(rule);
+    }
+    return this;
+  }
+
+  addRules(rules: string[] | undefined | null): this {
+    rules?.forEach((rule) => this.addRule(rule));
+    return this;
+  }
+
+  addExample(example: { title?: string; content: string }): this {
+    if (example?.content) {
+      this.blueprint.examples.push({ ...example });
+    }
+    return this;
+  }
+
+  addExamples(examples: PromptBlueprint['examples'] | undefined | null): this {
+    examples?.forEach((example) => this.addExample(example));
+    return this;
+  }
+
+  addSection(section: PromptSpecContextItem): this {
+    if (section) {
+      this.blueprint.sections.push({ ...section });
+    }
+    return this;
+  }
+
+  addSections(sections: PromptSpecContextItem[] | undefined | null): this {
+    sections?.forEach((section) => this.addSection(section));
+    return this;
+  }
+
+  applySchema(schema: (PromptSpecSchema & { schema?: T }) | undefined | null): this {
+    if (!schema) return this;
+
+    // 允许一次性注入现有 schema，再按需补充/覆盖，方便业务层迁移旧逻辑。
+    this.setRole(schema.role);
+    this.setObjective(schema.objective);
+    this.setStyle(schema.style);
+    this.setTone(schema.tone);
+    this.setAudience(schema.audience);
+
+    this.blueprint.instructions = [];
+    this.addInstructions(schema.instructions);
+
+    this.blueprint.rules = [];
+    this.addRules(schema.rules);
+
+    this.blueprint.examples = [];
+    this.addExamples(schema.examples);
+
+    this.blueprint.sections = [];
+    this.addSections(schema.context);
+
+    this.setOutput(schema.output);
+    this.setLanguage(schema.language);
+    this.setSchema(schema.schema);
+
+    return this;
+  }
+
+  setOutput(output?: PromptSpecSchema['output']): this {
+    this.blueprint.output = output;
+    return this;
+  }
+
+  setLanguage(language?: string): this {
+    this.blueprint.language = language;
+    return this;
+  }
+
+  setSchema(schema?: T): this {
+    this.blueprint.schema = schema;
+    return this;
+  }
+
+  setLLMOptions(options?: LLMOptions): this {
+    this.blueprint.llmOptions = options;
+    return this;
+  }
+
+  setIncludeOutputInPrompt(include: boolean): this {
+    this.blueprint.includeOutputInPrompt = include;
+    return this;
+  }
+
+  setSensitivity(sensitivity: TimeSensitivity): this {
+    this.blueprint.sensitivity = sensitivity;
+    return this;
+  }
+
+  setTimezone(timezone: string | null | undefined): this {
+    this.blueprint.timezone = timezone ?? null;
+    return this;
+  }
+
+  build(): PromptBlueprint<T> {
+    if (!this.blueprint.role) {
+      throw new Error('PromptSpecBuilder: role is required');
+    }
+    if (!this.blueprint.objective) {
+      throw new Error('PromptSpecBuilder: objective is required');
+    }
+
+    return {
+      ...this.blueprint,
+      instructions: [...this.blueprint.instructions],
+      rules: [...this.blueprint.rules],
+      examples: this.blueprint.examples.map((example) => ({ ...example })),
+      sections: this.blueprint.sections.map((section) => _.cloneDeep(section)),
+    };
+  }
+
+  buildPromptSpec(additionalOptions?: Partial<PromptSpecOptions>): PromptSpec<T> {
+    const blueprint = this.build();
+    const data: PromptSpecSchema & { schema?: T } = {
+      role: blueprint.role,
+      objective: blueprint.objective,
+      ...(blueprint.style ? { style: blueprint.style } : {}),
+      ...(blueprint.tone ? { tone: blueprint.tone } : {}),
+      ...(blueprint.audience ? { audience: blueprint.audience } : {}),
+      instructions: blueprint.instructions.length ? [...blueprint.instructions] : undefined,
+      rules: blueprint.rules.length ? [...blueprint.rules] : undefined,
+      examples: blueprint.examples.length ? blueprint.examples.map((example) => ({ ...example })) : undefined,
+      context: blueprint.sections.length ? blueprint.sections.map((section) => _.cloneDeep(section)) : undefined,
+      output: blueprint.output,
+      language: blueprint.language,
+      schema: blueprint.schema,
+    };
+
+    const options: PromptSpecOptions = {
+      version: blueprint.version,
+      tz: blueprint.timezone ?? undefined,
+      sensitivity: blueprint.sensitivity,
+      llmOptions: blueprint.llmOptions,
+      ...additionalOptions,
+    } as PromptSpecOptions;
+
+    return new PromptSpec<T>(blueprint.id, data, options);
+  }
+}
+
+export class PromptSerializer {
+  static toXml<T extends z.ZodSchema = z.ZodSchema>(
+    blueprint: PromptBlueprint<T>,
+    options: { timezone?: string | null; sensitivity: TimeSensitivity; includeOutputInPrompt: boolean },
+  ): string {
+    const promptData: PromptSpecSchema & { schema?: T } = {
+      role: blueprint.role,
+      objective: blueprint.objective,
+      ...(blueprint.style ? { style: blueprint.style } : {}),
+      ...(blueprint.tone ? { tone: blueprint.tone } : {}),
+      ...(blueprint.audience ? { audience: blueprint.audience } : {}),
+      instructions: blueprint.instructions.length ? blueprint.instructions : undefined,
+      rules: blueprint.rules.length ? blueprint.rules : undefined,
+      examples: blueprint.examples.length ? blueprint.examples : undefined,
+      context: blueprint.sections.length ? blueprint.sections : undefined,
+      output: blueprint.output,
+      language: blueprint.language,
+      schema: blueprint.schema,
+    };
+
+    if (!options.includeOutputInPrompt) {
+      delete promptData.output;
+    }
+
+    const now = DateTime.now();
+    const dt = options.timezone ? now.setZone(options.timezone) : now;
+    const jsDate = dt.isValid ? dt.toJSDate() : new Date();
+    const timestamp = format(jsDate, options.sensitivity);
+
+    const xmlContent = generateXmlPromptContent(promptData);
+
+    return `[${blueprint.id}:${blueprint.version}]
+------
+${xmlContent}
+------
+When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
+Now:${timestamp}`;
+  }
+}
+
 /**
  * 默认的Chain-of-Thought & Scratchpad Schema
  *
@@ -382,6 +645,7 @@ export class PromptSpec<T extends z.ZodSchema = z.ZodSchema> {
   readonly data: PromptSpecSchema & { schema?: T };
   readonly includeOutputInPrompt: boolean = true;
   readonly llmOptions?: LLMOptions;
+  private readonly blueprint: PromptBlueprint<T>;
 
   /**
    * 创建PromptSpec实例
@@ -407,6 +671,26 @@ export class PromptSpec<T extends z.ZodSchema = z.ZodSchema> {
     this.sensitivity = options.sensitivity ?? TimeSensitivity.Minute;
     this.data = data;
     this.llmOptions = options.llmOptions;
+
+    const builder = new PromptSpecBuilder<T>(id, this.version)
+      .setRole(data.role)
+      .setObjective(data.objective)
+      .setStyle(data.style)
+      .setTone(data.tone)
+      .setAudience(data.audience)
+      .addInstructions(data.instructions)
+      .addRules(data.rules)
+      .addExamples(data.examples)
+      .addSections(data.context)
+      .setOutput(data.output)
+      .setLanguage(data.language)
+      .setSchema(data.schema)
+      .setLLMOptions(options.llmOptions)
+      .setIncludeOutputInPrompt(this.includeOutputInPrompt)
+      .setSensitivity(this.sensitivity)
+      .setTimezone(this.timezone ?? null);
+
+    this.blueprint = builder.build();
   }
 
   /**
@@ -430,28 +714,11 @@ export class PromptSpec<T extends z.ZodSchema = z.ZodSchema> {
    * ```
    */
   build(): string {
-    // Robust timezone handling: if provided tz is invalid, fall back to system local time
-    const now = DateTime.now();
-    const dt = this.timezone ? now.setZone(this.timezone) : now;
-    const jsDate = dt.isValid ? dt.toJSDate() : new Date();
-    const timestamp = format(jsDate, this.sensitivity);
-
-    // 创建数据副本，根据配置决定是否包含output
-    const promptData = { ...this.data };
-    if (!this.includeOutputInPrompt) {
-      delete promptData.output;
-    }
-
-    // 生成XML内容
-    const xmlContent = generateXmlPromptContent(promptData);
-
-    // 使用包含版本的ID格式
-    return `[${this.id}:${this.version}]
-------
-${xmlContent}
-------
-When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
-Now:${timestamp}`;
+    return PromptSerializer.toXml(this.blueprint, {
+      timezone: this.timezone ?? null,
+      sensitivity: this.sensitivity,
+      includeOutputInPrompt: this.includeOutputInPrompt,
+    });
   }
 
   /**
@@ -475,16 +742,17 @@ Now:${timestamp}`;
    * ```
    */
   getOutputSchema(): string | null {
-    if (!this.data.output || this.data.output === 'string') {
+    const output = this.blueprint.output;
+    if (!output || output === 'string') {
       return null;
     }
 
-    if (this.data.output.type === 'schema') {
+    if (output.type === 'schema') {
       try {
         const schema =
-          this.data.output.useCoT === true
-            ? defaultCoTSchema(this.data.schema ?? z.string(), this.data.output.debug ?? false)
-            : JSON.stringify(zodToJsonSchema(this.data.schema ?? z.string()));
+          output.useCoT === true
+            ? defaultCoTSchema(this.blueprint.schema ?? z.string(), output.debug ?? false)
+            : JSON.stringify(zodToJsonSchema(this.blueprint.schema ?? z.string()));
 
         // // 移除JSON字符串中的注释
         // const cleanSchema = schema
@@ -516,9 +784,10 @@ Now:${timestamp}`;
    * ```
    */
   getOutputType(): 'string' | 'schema' | null {
-    if (!this.data.output) return null;
-    if (this.data.output === 'string') return 'string';
-    if (this.data.output.type === 'schema') return 'schema';
+    const output = this.blueprint.output;
+    if (!output) return null;
+    if (output === 'string') return 'string';
+    if (output.type === 'schema') return 'schema';
     return null;
   }
 
@@ -535,9 +804,10 @@ Now:${timestamp}`;
    * ```
    */
   isUsingCoT(): boolean {
-    if (!this.data.output || this.data.output === 'string') return false;
-    if (this.data.output.type === 'schema') {
-      return this.data.output.useCoT ?? true;
+    const output = this.blueprint.output;
+    if (!output || output === 'string') return false;
+    if (output.type === 'schema') {
+      return output.useCoT ?? true;
     }
     return false;
   }
@@ -555,6 +825,10 @@ Now:${timestamp}`;
    */
   getData(): PromptSpecSchema {
     return { ...this.data };
+  }
+
+  toBlueprint(): PromptBlueprint<T> {
+    return _.cloneDeep(this.blueprint);
   }
 
   /**

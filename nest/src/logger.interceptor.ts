@@ -5,6 +5,7 @@ import _ from 'lodash';
 import { catchError, finalize, Observable } from 'rxjs';
 import { context, trace } from '@opentelemetry/api';
 import { f, METADATA_KEYS } from '@app/utils';
+import { RequestContext } from '@app/trace';
 
 import type { Request, Response } from 'express';
 
@@ -102,37 +103,46 @@ export class LoggerInterceptor implements NestInterceptor {
     // 健康检查路径，跳过日志记录
     const isHealthCheck = ['/', '/health'].includes(req.path);
 
-    if (res && res.getHeader && res.setHeader) {
-      const isSse = res.getHeader('Content-Type') === 'text/event-stream';
-      if (!isSse) {
-        const currentSpan = trace.getSpan(context.active());
-        if (currentSpan) res.setHeader('X-Trace-Id', currentSpan.spanContext().traceId);
+    const currentSpan = trace.getSpan(context.active());
+    const spanTraceId = currentSpan?.spanContext()?.traceId;
+    const headerTraceId = typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'].trim() : undefined;
+    const traceId = spanTraceId || headerTraceId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const userIdFromRequest = typeof req.user === 'object' && req.user !== null && 'userId' in req.user
+      ? (Reflect.get(req.user, 'userId') as string | undefined)
+      : undefined;
+
+    return RequestContext.run({ traceId, userId: userIdFromRequest ?? null }, () => {
+      if (res && res.getHeader && res.setHeader && traceId) {
+        const isSse = res.getHeader('Content-Type') === 'text/event-stream';
+        if (!isSse) {
+          res.setHeader('X-Trace-Id', traceId);
+        }
       }
-    }
 
-    if (!isHealthCheck) {
-      this.logger.debug(
-        f`-> ${TAG} call... (${req.ip}, ${req.ips}, ${req.hostname}) ${req.method} ${req.url} ${
-          req.headers['user-agent']
-        } ${info}`,
+      if (!isHealthCheck) {
+        this.logger.debug(
+          f`-> ${TAG} call... (${req.ip}, ${req.ips}, ${req.hostname}) ${req.method} ${req.url} ${
+            req.headers['user-agent']
+          } ${info}`,
+        );
+      }
+
+      const now = Date.now();
+      return next.handle().pipe(
+        finalize(() => {
+          if (!isHealthCheck) {
+            this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
+          }
+        }),
+        catchError((e) => {
+          const skipNotFound = _.get(e, 'status') !== 404;
+          if (skipNotFound) {
+            this.logger.warn(f`${TAG} ${info}: ${e}`);
+          }
+          throw e;
+        }),
       );
-    }
-
-    const now = Date.now();
-    return next.handle().pipe(
-      finalize(() => {
-        if (!isHealthCheck) {
-          this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
-        }
-      }),
-      catchError((e) => {
-        const skipNotFound = _.get(e, 'status') !== 404;
-        if (skipNotFound) {
-          this.logger.warn(f`${TAG} ${info}: ${e}`);
-        }
-        throw e;
-      }),
-    );
+    });
   }
 }
 
