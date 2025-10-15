@@ -39,6 +39,13 @@ type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<I
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
 
+export interface BootstrapOptions {
+  packageJson?: {
+    name: string;
+    version: string;
+  };
+}
+
 export async function simpleBootstrap(AppModule: IEntryNestModule, onInit?: (app: INestApplication) => Promise<void>) {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   if (onInit) await onInit(app);
@@ -46,7 +53,11 @@ export async function simpleBootstrap(AppModule: IEntryNestModule, onInit?: (app
   return app;
 }
 
-export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INestApplication) => Promise<void>) {
+export async function bootstrap(
+  AppModule: IEntryNestModule,
+  onInit?: (app: INestApplication) => Promise<void>,
+  options?: BootstrapOptions,
+) {
   await doMigration();
 
   const now = Date.now();
@@ -203,6 +214,7 @@ export async function bootstrap(AppModule: IEntryNestModule, onInit?: (app: INes
       Logger.log(
         stripIndent`🦋 [Server] API Server started successfully
           ENV: ${SysEnv.environment.env} [IsProd: ${SysEnv.environment.isProd}, NODE: ${process.env.NODE_ENV}|${SysEnv.NODE_ENV}, DOPPLER: ${SysEnv.DOPPLER_ENVIRONMENT}]
+          App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}
           Host: ${os.hostname()}
           Node Name: ${SysEnv.NODE_NAME}
           Bind: ${bindAddress}
