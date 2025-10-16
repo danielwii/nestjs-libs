@@ -175,8 +175,15 @@ export async function bootstrap(
   app.use(
     compression({
       filter: (req, res) => {
-        // 不压缩 event-stream 响应，因为 event-stream 响应是流式响应，压缩后会导致响应流式响应中断，目前主要是遇到了 AI-SDK 直接返回了最终结果，没有流式响应
-        if (res.getHeader('Content-Type') === 'text/event-stream') {
+        // 设计意图：SSE 需要逐块推送，任何压缩都会导致代理/IOT 端缓存整包再吐出
+        // 原先只判断精确的 text/event-stream，忽略了我们追加 charset 后的情况，导致被压缩
+        const contentTypeHeader = res.getHeader('Content-Type');
+        const contentType = Array.isArray(contentTypeHeader)
+          ? contentTypeHeader.join(';')
+          : typeof contentTypeHeader === 'string'
+            ? contentTypeHeader
+            : '';
+        if (contentType.toLowerCase().includes('text/event-stream')) {
           return false;
         }
         return compression.filter(req, res);
