@@ -32,7 +32,6 @@
  * @version 2.0.0
  * @since 2024-01-01
  */
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { stripIndent } from 'common-tags';
 import { format } from 'date-fns';
 import { DateTime } from 'luxon';
@@ -420,7 +419,7 @@ const defaultCoTSchema = (userSchema: z.ZodSchema, debug: boolean = false) =>
   {
     "reasoning": "string", // 推理过程和思维链
     "scratchpad": "string", // 草稿和计算过程
-    "result": ${JSON.stringify(zodToJsonSchema(userSchema))}, // 用户期望的实际结果
+    "result": ${JSON.stringify(z.toJSONSchema(userSchema))}, // 用户期望的实际结果
     `,
     debug &&
       stripIndent`
@@ -559,17 +558,45 @@ function generateXmlPromptContent(data: PromptSpecSchema & { schema?: z.ZodSchem
     : undefined;
 
   // Output (可选)
-  const outputPart = data.output
-    ? data.output === 'string'
-      ? `<output>Please reply in natural language, no specific format required.</output>`
-      : data.output.type === 'string'
-        ? `<output>\n  <format>Strictly output in JSON Schema format, do not include any other content.</format>\n  <schema>\n${
-            data.output.useCoT === true
-              ? defaultCoTSchema(data.schema ?? z.string(), data.output.debug ?? false)
-              : JSON.stringify(zodToJsonSchema(data.schema ?? z.string()))
-          }\n  </schema>\n</output>`
-        : undefined
-    : undefined;
+  const outputPart = (() => {
+    if (!data.output) {
+      return undefined;
+    }
+
+    // 简单字符串输出
+    if (data.output === 'string') {
+      return `<output>Please reply in natural language, no specific format required.</output>`;
+    }
+
+    // 结构化配置 —— type:string
+    if (data.output.type === 'string') {
+      const schema = JSON.stringify(z.toJSONSchema(data.schema ?? z.string()));
+
+      if (data.output.useCoT === true) {
+        const cotSchema = defaultCoTSchema(data.schema ?? z.string(), data.output.debug ?? false);
+        return `<output>\n  <format>Strictly output a single JSON object that includes reasoning fields and a final string result as described by the schema below. Do not include any additional commentary.</format>\n  <schema>\n${cotSchema}\n  </schema>\n</output>`;
+      }
+
+      return `<output>\n  <format>Strictly output a JSON string that conforms to the schema below (no additional characters or commentary).</format>\n  <schema>\n${schema}\n  </schema>\n</output>`;
+    }
+
+    // 结构化配置 —— type:schema
+    if (data.output.type === 'schema') {
+      const schemaBody =
+        data.output.useCoT === true
+          ? defaultCoTSchema(data.schema ?? z.string(), data.output.debug ?? false)
+          : JSON.stringify(z.toJSONSchema(data.schema ?? z.string()));
+
+      const formatHint =
+        data.output.useCoT === true
+          ? 'Strictly output a single JSON object with reasoning fields that conforms to the schema below. Do not include any additional commentary.'
+          : 'Strictly output a single JSON object that conforms to the schema below. Do not include any additional commentary.';
+
+      return `<output>\n  <format>${formatHint}</format>\n  <schema>\n${schemaBody}\n  </schema>\n</output>`;
+    }
+
+    return undefined;
+  })();
 
   // 组合所有元数据标签
   const metadataParts = _.compact([rolePart, objectivePart, stylePart, tonePart, audiencePart]);
@@ -752,7 +779,7 @@ export class PromptSpec<T extends z.ZodSchema = z.ZodSchema> {
         const schema =
           output.useCoT === true
             ? defaultCoTSchema(this.blueprint.schema ?? z.string(), output.debug ?? false)
-            : JSON.stringify(zodToJsonSchema(this.blueprint.schema ?? z.string()));
+            : JSON.stringify(z.toJSONSchema(this.blueprint.schema ?? z.string()));
 
         // // 移除JSON字符串中的注释
         // const cleanSchema = schema

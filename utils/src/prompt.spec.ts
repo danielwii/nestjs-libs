@@ -1,7 +1,7 @@
 import { stripIndent } from 'common-tags';
 import z from 'zod';
 
-import { PromptSpec, PromptSpecSchema } from './prompt.xml';
+import { PromptSpec, PromptSpecSchema, PromptSpecBuilder } from './prompt.xml';
 import { TimeSensitivity } from './prompt';
 
 describe('PromptSpec', () => {
@@ -94,8 +94,8 @@ describe('PromptSpec', () => {
     expect(promptWithOutput).toBe(stripIndent`
       [emotion-analysis:1.0]
       ------
-      <role>你是AI助手，负责分析用户情感</role>
-      <objective>基于用户的对话内容进行情感分析</objective>
+      <role priority="critical">你是AI助手，负责分析用户情感</role>
+      <objective priority="critical">基于用户的对话内容进行情感分析</objective>
       <style>参照 Dyson 等成功公司的宣传风格，它们在推广类似产品时的文案风格。</style>
       <tone>口语化</tone>
       <audience>其他虚拟AI角色</audience>
@@ -128,8 +128,136 @@ describe('PromptSpec', () => {
         <section name="conversation_history" purpose="用于参考">对话历史</section>
         <section name="empty_context"><empty /></section>
       </context>
+      
+      <language priority="critical">Use "中文" as the main response language.</language>
       ------
+      When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning
     `);
+  });
+
+  it('Schema 输出模式应生成完整 JSON 指引', () => {
+    const schemaData: PromptSpecSchema & { schema: z.ZodTypeAny } = {
+      role: '智能助手',
+      objective: '生成结构化输出',
+      instructions: ['保持温柔'],
+      rules: ['只输出 JSON'],
+      context: [{ title: 'section', content: '内容', priority: 'critical' }],
+      output: { type: 'schema', useCoT: false },
+      schema: z.object({ cnt: z.string(), nmr: z.boolean() }),
+      language: 'zh-Hans',
+    };
+
+    const prompt = new PromptSpec('structured-response', schemaData, {
+      version: '2',
+      tz: 'UTC',
+      sensitivity: TimeSensitivity.Minute,
+    }).build();
+
+    expect(prompt).toBe(
+`[structured-response:2]
+------
+<role priority="critical">智能助手</role>
+<objective priority="critical">生成结构化输出</objective>
+
+<instructions priority="high">
+  保持温柔
+</instructions>
+
+<rules priority="critical">
+只输出 JSON
+</rules>
+
+<context>
+  <section name="section" priority="critical">内容</section>
+</context>
+
+<output>
+  <format>Strictly output a single JSON object that conforms to the schema below. Do not include any additional commentary.</format>
+  <schema>
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"cnt":{"type":"string"},"nmr":{"type":"boolean"}},"required":["cnt","nmr"],"additionalProperties":false}
+  </schema>
+</output>
+
+<language priority="critical">Use "zh-Hans" as the main response language.</language>
+------
+When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
+Now:2024-01-15 Monday 10:30 in the morning`);
+  });
+});
+
+describe('PromptSpecBuilder', () => {
+  const mockDate = new Date('2024-01-15T10:30:00Z');
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(mockDate);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('构造完整 blueprint 并生成 prompt', () => {
+    const builder = new PromptSpecBuilder('builder-test', '1.2')
+      .setRole('测试角色')
+      .setObjective('测试目标')
+      .setStyle('KOL')
+      .setTone('温柔')
+      .setAudience('儿童')
+      .addInstruction('遵循规则')
+      .addRule('禁止输出附件')
+      .addExample({ title: '示例A', content: '展示风格A' })
+      .addSection({ title: 'section', content: '内容', priority: 'critical' })
+      .setOutput({ type: 'schema', useCoT: false })
+      .setLanguage('zh-Hans')
+      .setSchema(z.object({ answer: z.string() }));
+
+    const prompt = builder.buildPromptSpec({
+      tz: 'UTC',
+      sensitivity: TimeSensitivity.Minute,
+    }).build();
+
+    const expected = [
+      '[builder-test:1.2]',
+      '------',
+      '<role priority="critical">测试角色</role>',
+      '<objective priority="critical">测试目标</objective>',
+      '<style>KOL</style>',
+      '<tone>温柔</tone>',
+      '<audience>儿童</audience>',
+      '',
+      '<instructions priority="high">',
+      '  遵循规则',
+      '</instructions>',
+      '',
+      '<rules priority="critical">',
+      '禁止输出附件',
+      '</rules>',
+      '',
+      '<examples strict="For inspiration only, not to be used as output or reference">',
+      '  <example title="示例A">',
+      '    <content>展示风格A</content>',
+      '  </example>',
+      '</examples>',
+      '',
+      '<context>',
+      '  <section name="section" priority="critical">内容</section>',
+      '</context>',
+      '',
+      '<output>',
+      '  <format>Strictly output a single JSON object that conforms to the schema below. Do not include any additional commentary.</format>',
+      '  <schema>',
+      '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}',
+      '  </schema>',
+      '</output>',
+      '',
+      '<language priority="critical">Use "zh-Hans" as the main response language.</language>',
+      '------',
+      'When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.',
+      'Now:2024-01-15 Monday 10:30 in the morning',
+    ].join('\n');
+
+    expect(prompt).toBe(expected);
   });
 });
