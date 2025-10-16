@@ -38,6 +38,20 @@ export const runApp = <App extends INestApplication>(app: App) => {
     }
   });
   process.on('unhandledRejection', (err: unknown) => {
+    const maybeError = err instanceof Error ? err : undefined;
+    const isAiNoOutputError =
+      maybeError?.name === 'AI_NoOutputGeneratedError' ||
+      (maybeError?.message && /no output generated/i.test(maybeError.message));
+
+    if (isAiNoOutputError) {
+      // 设计意图：AI SDK 在流尚未产生任何 token 即被中断时会抛出 AI_NoOutputGeneratedError；
+      // 这是预期场景（例如对话被接管或用户取消），不应触发全局退出流程。
+      logger.warn(
+        f`(${os.hostname}) ignore AI_NoOutputGeneratedError during streaming takeover: ${maybeError?.message ?? 'unknown'}`,
+      );
+      return;
+    }
+
     logger.error(
       f`(${os.hostname}) unhandledRejection: ${err instanceof Error ? err.message : err} - ${_.get(err, 'cause', 'unknown cause')} -`,
       err instanceof Error ? err.stack : undefined,
