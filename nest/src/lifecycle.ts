@@ -46,6 +46,8 @@ export const runApp = <App extends INestApplication>(app: App) => {
     if (isAiNoOutputError) {
       // 设计意图：AI SDK 在流尚未产生任何 token 即被中断时会抛出 AI_NoOutputGeneratedError；
       // 这是预期场景（例如对话被接管或用户取消），不应触发全局退出流程。
+      // TODO(arch): LLM 适配层已将该错误归一化为 LLMStreamAbortedError 并在领域层消化；
+      // 待验证无残留后，删除这里的兜底以恢复更严格的全局异常策略。
       logger.warn(
         f`(${os.hostname}) ignore AI_NoOutputGeneratedError during streaming takeover: ${maybeError?.message ?? 'unknown'}`,
       );
