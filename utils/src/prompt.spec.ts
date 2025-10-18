@@ -5,15 +5,18 @@ import { PromptSpec, PromptSpecSchema, PromptSpecBuilder } from './prompt.xml';
 import { TimeSensitivity } from './prompt';
 
 describe('PromptSpec', () => {
+  const ORIGINAL_TZ = process.env.TZ;
   const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(mockDate);
+    process.env.TZ = 'UTC'; // ensure stable timezone for date-fns formatting
   });
 
   afterEach(() => {
     jest.useRealTimers();
+    process.env.TZ = ORIGINAL_TZ;
   });
 
   it('应该完整支持所有功能', () => {
@@ -187,15 +190,18 @@ Now:2024-01-15 Monday 10:30 in the morning`);
 });
 
 describe('PromptSpecBuilder', () => {
+  const ORIGINAL_TZ = process.env.TZ;
   const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(mockDate);
+    process.env.TZ = 'UTC';
   });
 
   afterEach(() => {
     jest.useRealTimers();
+    process.env.TZ = ORIGINAL_TZ;
   });
 
   it('构造完整 blueprint 并生成 prompt', () => {

@@ -34,6 +34,7 @@
  */
 import { stripIndent } from 'common-tags';
 import { format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import z from 'zod';
@@ -376,10 +377,12 @@ export class PromptSerializer {
       delete promptData.output;
     }
 
-    const now = DateTime.now();
-    const dt = options.timezone ? now.setZone(options.timezone) : now;
-    const jsDate = dt.isValid ? dt.toJSDate() : new Date();
-    const timestamp = format(jsDate, options.sensitivity);
+    // Use Jest/Vitest fake timers if present by relying on new Date().
+    const base = new Date();
+    // Respect requested timezone using date-fns-tz to avoid host TZ leakage.
+    const timestamp = options.timezone
+      ? formatInTimeZone(base, options.timezone, options.sensitivity)
+      : format(base, options.sensitivity);
 
     const xmlContent = generateXmlPromptContent(promptData);
 
