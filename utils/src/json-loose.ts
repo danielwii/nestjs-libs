@@ -89,18 +89,29 @@ export function normalizeTypeScriptLikeJson(text: string): string {
 
 export function parseJsonLoose<T = unknown>(raw: string): T {
   const candidate = escapeBareNewlinesInStrings(extractFirstJsonObject(raw) ?? stripFences(raw));
-  try {
-    return JSON.parse(candidate) as T;
-  } catch {}
-  try {
-    return JSON5.parse(candidate) as T;
-  } catch {}
+  const attempts: Array<{ label: string; parse: () => T }> = [
+    { label: 'JSON.parse', parse: () => JSON.parse(candidate) as T },
+    { label: 'JSON5.parse', parse: () => JSON5.parse(candidate) as T },
+  ];
+
   const tsFixed = normalizeTypeScriptLikeJson(candidate);
-  try {
-    return JSON.parse(tsFixed) as T;
-  } catch {}
-  try {
-    return JSON5.parse(tsFixed) as T;
-  } catch {}
-  throw new Error('Failed to parse valid JSON from model output');
+  if (tsFixed !== candidate) {
+    attempts.push(
+      { label: 'JSON.parse(tsFixed)', parse: () => JSON.parse(tsFixed) as T },
+      { label: 'JSON5.parse(tsFixed)', parse: () => JSON5.parse(tsFixed) as T },
+    );
+  }
+
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    try {
+      return attempt.parse();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      errors.push(`${attempt.label}: ${reason}`);
+    }
+  }
+
+  const detail = errors.length ? ` attempts=${errors.join(' | ').slice(0, 256)}` : '';
+  throw new Error(`Failed to parse valid JSON from model output.${detail}`);
 }
