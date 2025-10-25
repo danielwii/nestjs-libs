@@ -44,12 +44,11 @@ export const runApp = <App extends INestApplication>(app: App) => {
       (maybeError?.message && /no output generated/i.test(maybeError.message));
 
     if (isAiNoOutputError) {
-      // 设计意图：AI SDK 在流尚未产生任何 token 即被中断时会抛出 AI_NoOutputGeneratedError；
-      // 这是预期场景（例如对话被接管或用户取消），不应触发全局退出流程。
-      // TODO(arch): LLM 适配层已将该错误归一化为 LLMStreamAbortedError 并在领域层消化；
-      // 待验证无残留后，删除这里的兜底以恢复更严格的全局异常策略。
+      // 设计意图：LLMService 已统一处理 NoOutputError 并检查 signal.aborted
+      // 如果走到这里，说明是 unhandledRejection（floating promise 未正确处理）
+      // 记录警告但不退出，因为可能是预期的 abort
       logger.warn(
-        f`(${os.hostname}) ignore AI_NoOutputGeneratedError during streaming takeover: ${maybeError?.message ?? 'unknown'}`,
+        f`(${os.hostname}) unhandledRejection: AI_NoOutputGeneratedError (likely abort, but promise not properly awaited): ${maybeError?.message ?? 'unknown'}`,
       );
       return;
     }

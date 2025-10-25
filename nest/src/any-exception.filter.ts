@@ -21,6 +21,7 @@ import { ErrorCodes } from '@app/nest/error-codes';
 import { II18nService } from './i18n.interface';
 import { errorStack, f } from '@app/utils';
 import { ApiRes } from '@app/nest';
+import { normalizeLanguageCode } from '@/common/language/language.helper';
 
 import type { ArgumentsHost, ExceptionFilter, INestApplication, ExecutionContext } from '@nestjs/common';
 import type { Request, Response } from 'express';
@@ -372,48 +373,48 @@ export class AnyExceptionFilter implements ExceptionFilter {
    */
   private async getTranslatedMessage(exception: IBusinessException, request?: Request): Promise<string> {
     const combinedCode = exception.getCombinedCode();
-    const defaultLocale = this.getDefaultLocale();
+    const defaultLocaleRaw = this.getDefaultLocale();
+    const defaultLocale = normalizeLanguageCode(defaultLocaleRaw) ?? 'en';
     let locale = defaultLocale;
     let errorKey = '';
 
     try {
       locale = this.getLocaleFromRequest(request);
+      const normalizedLocale = normalizeLanguageCode(locale) ?? defaultLocale;
+      const isDefaultLocale = normalizedLocale === defaultLocale;
 
-      // 如果是默认语言，直接返回原消息
-      if (locale === defaultLocale) {
-        this.logger.debug(f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=default-locale`);
-        return exception.userMessage;
-      }
-
-      // 延迟获取 i18n 服务
       const i18nService = this.getI18nService();
       if (!i18nService) {
         this.logger.debug(
-          f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=i18n-missing returning=original`,
+          f`#getTranslatedMessage code=${combinedCode} locale=${normalizedLocale} status=i18n-missing returning=original`,
         );
         return exception.userMessage;
       }
 
-      errorKey = `errors.${exception.getCombinedCode()}`;
-
-      // 1. 尝试从缓存获取翻译
-      const messages = await i18nService.getMessagesByLocale(locale);
-      // 使用 lodash get 方法来处理嵌套对象访问
+      errorKey = `errors.${combinedCode}`;
+      const messages = await i18nService.getMessagesByLocale(normalizedLocale);
       const cachedTranslation = _.get(messages, errorKey);
 
       if (cachedTranslation) {
-        this.logger.debug(f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=cached key=${errorKey}`);
+        this.logger.debug(
+          f`#getTranslatedMessage code=${combinedCode} locale=${normalizedLocale} status=cached key=${errorKey}`,
+        );
         return cachedTranslation;
       }
 
+      // 对于默认语言，若无缓存也要触发翻译（同步返回），保证英文能即时生效
+      if (isDefaultLocale) {
+        this.logger.debug(
+          f`#getTranslatedMessage code=${combinedCode} locale=${normalizedLocale} status=sync-translate key=${errorKey}`,
+        );
+        const translated = await this.translateSynchronously(errorKey, exception.userMessage, normalizedLocale);
+        return translated ?? exception.userMessage;
+      }
+
       this.logger.debug(
-        f`#getTranslatedMessage code=${combinedCode} locale=${locale} status=background-translate key=${errorKey}`,
+        f`#getTranslatedMessage code=${combinedCode} locale=${normalizedLocale} status=background-translate key=${errorKey}`,
       );
-
-      // 2. 没有缓存，启动后台翻译任务（不等待）
-      this.translateInBackground(errorKey, exception.userMessage, locale);
-
-      // 3. 立即返回原始消息，不阻塞错误响应
+      this.translateInBackground(errorKey, exception.userMessage, normalizedLocale);
       return exception.userMessage;
     } catch (error) {
       const reason = error instanceof Error ? `${error.message} ${error.stack ?? ''}` : JSON.stringify(error);
@@ -421,6 +422,41 @@ export class AnyExceptionFilter implements ExceptionFilter {
         f`#getTranslatedMessage Translation check failed key=${errorKey || 'n/a'} locale=${locale || 'n/a'} reason=${reason}`,
       );
       return exception.userMessage;
+    }
+  }
+
+  private async translateSynchronously(key: string, originalMessage: string, locale: string): Promise<string | null> {
+    try {
+      const i18nService = this.getI18nService();
+      if (!i18nService) {
+        this.logger.debug(
+          f`#translateSynchronously i18nService missing key=${key} locale=${locale} returning null`,
+        );
+        return null;
+      }
+
+      const translated = await i18nService.translateMessage({
+        key,
+        sourceMessage: originalMessage,
+        targetLanguage: locale,
+      });
+
+      const normalizedResult = translated?.trim();
+      if (normalizedResult) {
+        this.logger.debug(
+          f`#translateSynchronously key=${key} locale=${locale} translated="${normalizedResult}"`,
+        );
+        await this.cacheTranslation(key, originalMessage, normalizedResult, locale);
+        return normalizedResult;
+      }
+
+      this.logger.warn(f`#translateSynchronously empty_result key=${key} locale=${locale}`);
+      return null;
+    } catch (error) {
+      this.logger.warn(
+        f`#translateSynchronously failed key=${key} locale=${locale} error=${error instanceof Error ? error.message : error}`,
+      );
+      return null;
     }
   }
 
@@ -473,8 +509,19 @@ export class AnyExceptionFilter implements ExceptionFilter {
     translatedMessage: string,
     locale: string,
   ): Promise<void> {
+    const normalizedLocale = normalizeLanguageCode(locale);
+    const fallbackLocaleRaw = this.getDefaultLocale();
+    const fallbackLocale = normalizeLanguageCode(fallbackLocaleRaw) ?? 'en';
+    const effectiveLocale = normalizedLocale ?? fallbackLocale;
+
+    if (!normalizedLocale) {
+      this.logger.warn(
+        f`#cacheTranslation locale_not_supported raw=${locale} fallback=${effectiveLocale} fallbackRaw=${fallbackLocaleRaw}`,
+      );
+    }
+
     this.logger.debug(
-      f`#cacheTranslation called with key=${errorKey} locale=${locale} translated="${translatedMessage}"`,
+      f`#cacheTranslation called with key=${errorKey} locale=${locale} normalized=${effectiveLocale} translated="${translatedMessage}"`,
     );
 
     try {
@@ -496,14 +543,14 @@ export class AnyExceptionFilter implements ExceptionFilter {
         update: {},
       });
 
-      this.logger.debug(f`#cacheTranslation upserting message: key=${errorKey} languageCode=${locale}`);
+      this.logger.debug(f`#cacheTranslation upserting message: key=${errorKey} languageCode=${effectiveLocale}`);
 
       // 保存翻译
       await i18nService.prisma.i18nMessage.upsert({
-        where: { key_languageCode: { key: errorKey, languageCode: locale } },
+        where: { key_languageCode: { key: errorKey, languageCode: effectiveLocale } },
         create: {
           key: errorKey,
-          languageCode: locale,
+          languageCode: effectiveLocale,
           content: translatedMessage,
           isAIGenerated: true,
         },
@@ -513,55 +560,98 @@ export class AnyExceptionFilter implements ExceptionFilter {
         },
       });
 
-      this.logger.debug(f`#cacheTranslation 缓存错误翻译成功: ${errorKey} -> ${locale}`);
+      this.logger.debug(f`#cacheTranslation 缓存错误翻译成功: ${errorKey} -> ${effectiveLocale}`);
     } catch (error) {
-      this.logger.warn(f`#cacheTranslation 缓存翻译失败: key=${errorKey} locale=${locale} error=${error}`);
+      this.logger.warn(f`#cacheTranslation 缓存翻译失败: key=${errorKey} locale=${effectiveLocale} rawLocale=${locale} error=${error}`);
     }
   }
 
   private getDefaultLocale(): string {
-    const value = process.env.APP_I18N_DEFAULT_LOCALE;
-    return value && value.trim().length > 0 ? value.trim() : 'zh-Hans';
+    const envValue = process.env.APP_I18N_DEFAULT_LOCALE;
+    const trimmed = envValue?.trim() ?? '';
+    const hasEnvOverride = trimmed.length > 0;
+    const fallback = 'en';
+    const resolved = hasEnvOverride ? trimmed : fallback;
+
+    this.logger.debug(
+      f`#getDefaultLocale resolved=${resolved} source=${hasEnvOverride ? 'env' : 'fallback'} envRaw=${envValue ?? 'n/a'} fallback=${fallback}`,
+    );
+
+    return resolved;
   }
 
   /**
    * 从请求中获取用户语言偏好
    */
   private getLocaleFromRequest(request?: Request): string {
-    const defaultLocale = this.getDefaultLocale();
-    let resolved = defaultLocale;
+    const defaultLocaleRaw = this.getDefaultLocale();
+    const normalizedDefault = normalizeLanguageCode(defaultLocaleRaw) ?? 'en';
+    let resolved = normalizedDefault;
     let source = 'default';
 
     if (!request || typeof request.headers !== 'object') {
-      this.logger.debug(f`#getLocaleFromRequest resolved=${resolved} source=${source} reason=no-request`);
-      return resolved;
-    }
-
-    const customLocale = (request.headers['x-locale'] as string) || '';
-    if (customLocale && customLocale !== '*') {
-      resolved = customLocale;
-      source = 'x-locale';
       this.logger.debug(
-        f`#getLocaleFromRequest resolved=${resolved} source=${source} acceptLanguage=${request.headers['accept-language'] ?? 'n/a'}`,
+        f`#getLocaleFromRequest resolved=${resolved} source=${source} reason=no-request default=${normalizedDefault} rawDefault=${defaultLocaleRaw}`,
       );
       return resolved;
     }
 
-    const acceptLanguageRaw = request.headers['accept-language'];
-    if (acceptLanguageRaw && acceptLanguageRaw !== '*') {
-      const primaryLanguage = acceptLanguageRaw.split(',')[0]?.split('-')[0]?.trim();
-      if (primaryLanguage && primaryLanguage !== '*') {
-        resolved = primaryLanguage === 'zh' ? 'zh-Hans' : primaryLanguage;
-        source = 'accept-language';
+    const rawCustomLocale = request.headers['x-locale'];
+    const customLocale = typeof rawCustomLocale === 'string' ? rawCustomLocale.trim() : '';
+    if (customLocale) {
+      if (customLocale === '*') {
         this.logger.debug(
-          f`#getLocaleFromRequest resolved=${resolved} source=${source} acceptLanguage=${acceptLanguageRaw}`,
+          f`#getLocaleFromRequest ignore x-locale='*' fallback=${normalizedDefault} acceptLanguage=${request.headers['accept-language'] ?? 'n/a'}`,
         );
-        return resolved;
+      } else {
+        const normalizedCustom = normalizeLanguageCode(customLocale);
+        if (normalizedCustom) {
+          resolved = normalizedCustom;
+          source = 'x-locale';
+          this.logger.debug(
+            f`#getLocaleFromRequest resolved=${resolved} source=${source} raw=${customLocale} acceptLanguage=${request.headers['accept-language'] ?? 'n/a'} default=${normalizedDefault}`,
+          );
+          return resolved;
+        }
+
+        this.logger.debug(
+          f`#getLocaleFromRequest invalid x-locale raw=${customLocale} fallback=${normalizedDefault}`,
+        );
+      }
+    }
+
+    const acceptLanguageRaw = request.headers['accept-language'];
+    if (acceptLanguageRaw) {
+      if (acceptLanguageRaw === '*') {
+        this.logger.debug(
+          f`#getLocaleFromRequest ignore accept-language='*' fallback=${normalizedDefault} source=${source}`,
+        );
+      } else {
+        const primaryLanguage = acceptLanguageRaw.split(',')[0]?.split('-')[0]?.trim();
+        if (primaryLanguage && primaryLanguage !== '*') {
+          const normalizedPrimary = normalizeLanguageCode(primaryLanguage);
+          if (normalizedPrimary) {
+            resolved = normalizedPrimary;
+            source = 'accept-language';
+            this.logger.debug(
+              f`#getLocaleFromRequest resolved=${resolved} source=${source} raw=${primaryLanguage} acceptLanguage=${acceptLanguageRaw} default=${normalizedDefault}`,
+            );
+            return resolved;
+          }
+
+          this.logger.debug(
+            f`#getLocaleFromRequest accept-language-unusable value=${acceptLanguageRaw} primary=${primaryLanguage} fallback=${normalizedDefault}`,
+          );
+        } else {
+          this.logger.debug(
+            f`#getLocaleFromRequest accept-language-empty value=${acceptLanguageRaw} fallback=${normalizedDefault}`,
+          );
+        }
       }
     }
 
     this.logger.debug(
-      f`#getLocaleFromRequest resolved=${resolved} source=${source} acceptLanguage=${acceptLanguageRaw ?? 'n/a'}`,
+      f`#getLocaleFromRequest resolved=${resolved} source=${source} acceptLanguage=${acceptLanguageRaw ?? 'n/a'} default=${normalizedDefault}`,
     );
     return resolved;
   }
