@@ -632,6 +632,13 @@ export interface LLMOptions {
   temperature: number;
   /** 最大输出token数 */
   maxOutputTokens: number;
+  /** 推理选项配置（用于启用 reasoning 功能） */
+  reasoning?: {
+    effort?: 'low' | 'medium' | 'high';
+    maxTokens?: number;
+    exclude?: boolean;
+    enabled?: boolean;
+  };
 }
 
 /**
