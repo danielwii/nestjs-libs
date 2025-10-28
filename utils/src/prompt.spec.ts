@@ -266,4 +266,45 @@ describe('PromptSpecBuilder', () => {
 
     expect(prompt).toBe(expected);
   });
+
+  it('应该正确处理旧格式时区 "+8"', () => {
+    const builder = new PromptSpecBuilder('tz-test', '1.0')
+      .setRole('测试')
+      .setObjective('验证时区');
+
+    const prompt = builder.buildPromptSpec({
+      tz: '+8', // 旧格式，应该自动转换为 Asia/Shanghai
+      sensitivity: TimeSensitivity.Minute,
+    }).build();
+
+    // 应该包含正确的时间戳（18:30 对应 UTC+8）
+    expect(prompt).toContain('Now:2024-01-15 Monday 18:30 in the evening');
+  });
+
+  it('应该正确处理新格式时区 "+08:00"', () => {
+    const builder = new PromptSpecBuilder('tz-test', '1.0')
+      .setRole('测试')
+      .setObjective('验证时区');
+
+    const prompt = builder.buildPromptSpec({
+      tz: '+08:00', // 新格式，应该自动转换为 Asia/Shanghai
+      sensitivity: TimeSensitivity.Minute,
+    }).build();
+
+    expect(prompt).toContain('Now:2024-01-15 Monday 18:30 in the evening');
+  });
+
+  it('应该正确处理 IANA 格式时区 "Asia/Tokyo"', () => {
+    const builder = new PromptSpecBuilder('tz-test', '1.0')
+      .setRole('测试')
+      .setObjective('验证时区');
+
+    const prompt = builder.buildPromptSpec({
+      tz: 'Asia/Tokyo', // IANA 格式，直接使用
+      sensitivity: TimeSensitivity.Minute,
+    }).build();
+
+    // UTC+9，所以是 19:30
+    expect(prompt).toContain('Now:2024-01-15 Monday 19:30 in the evening');
+  });
 });

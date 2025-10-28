@@ -40,6 +40,7 @@ import _ from 'lodash';
 import z from 'zod';
 
 import { TimeSensitivity } from './prompt';
+import { normalizeTimezone } from './timezone.helper';
 
 /**
  * 简化的XML版本的Prompt Schema
@@ -380,8 +381,10 @@ export class PromptSerializer {
     // Use Jest/Vitest fake timers if present by relying on new Date().
     const base = new Date();
     // Respect requested timezone using date-fns-tz to avoid host TZ leakage.
-    const timestamp = options.timezone
-      ? formatInTimeZone(base, options.timezone, options.sensitivity)
+    // 设计意图：使用 normalizeTimezone 统一处理三种时区格式（+8, +08:00, Asia/Shanghai）
+    const normalizedTimezone = normalizeTimezone(options.timezone);
+    const timestamp = normalizedTimezone
+      ? formatInTimeZone(base, normalizedTimezone, options.sensitivity)
       : format(base, options.sensitivity);
 
     const xmlContent = generateXmlPromptContent(promptData);
