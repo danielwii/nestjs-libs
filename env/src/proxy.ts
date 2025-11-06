@@ -1,7 +1,7 @@
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { Logger } from '@nestjs/common';
 import { ProxyAgent } from 'undici';
 
+import { Logger } from '@nestjs/common';
 import { f } from '@app/utils/utils';
 import { SysEnv } from './configure';
 import https from 'node:https';

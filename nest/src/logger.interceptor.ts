@@ -1,7 +1,7 @@
-import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import _ from 'lodash';
 
+import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
 import { catchError, finalize, Observable } from 'rxjs';
 import { context, trace } from '@opentelemetry/api';
 import { f, METADATA_KEYS } from '@app/utils';
@@ -95,9 +95,10 @@ export class LoggerInterceptor implements NestInterceptor {
 
     // !!TIPS!! @metinseylan/nestjs-opentelemetry make handler name null
     const named = Reflect.getMetadata(METADATA_KEYS.NAMED, ctx.getHandler());
-    const uid = typeof req.user === 'object' && req.user !== null && 'uid' in req.user
-      ? (Reflect.get(req.user, 'uid') as string | undefined)
-      : undefined;
+    const uid =
+      typeof req.user === 'object' && req.user !== null && 'uid' in req.user
+        ? (Reflect.get(req.user, 'uid') as string | undefined)
+        : undefined;
     const TAG = `(${uid || 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
 
     // 健康检查路径，跳过日志记录
@@ -107,9 +108,10 @@ export class LoggerInterceptor implements NestInterceptor {
     const spanTraceId = currentSpan?.spanContext()?.traceId;
     const headerTraceId = typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'].trim() : undefined;
     const traceId = spanTraceId || headerTraceId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const userIdFromRequest = typeof req.user === 'object' && req.user !== null && 'userId' in req.user
-      ? (Reflect.get(req.user, 'userId') as string | undefined)
-      : undefined;
+    const userIdFromRequest =
+      typeof req.user === 'object' && req.user !== null && 'userId' in req.user
+        ? (Reflect.get(req.user, 'userId') as string | undefined)
+        : undefined;
 
     return RequestContext.run({ traceId, userId: userIdFromRequest ?? null }, () => {
       if (res && res.getHeader && res.setHeader && traceId) {

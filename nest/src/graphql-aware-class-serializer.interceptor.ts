@@ -1,9 +1,10 @@
-import { ClassSerializerInterceptor } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
+
+import { ClassSerializerInterceptor } from '@nestjs/common';
+import { isObservable } from 'rxjs';
 
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import type { Observable, Subscription } from 'rxjs';
-import { isObservable } from 'rxjs';
 
 /**
  * GraphQL-aware ClassSerializerInterceptor

@@ -13,11 +13,17 @@ export type ApiRes<Data = unknown> =
     };
 
 export const ApiRes = {
-  success: <Data>(data?: Data, message?: string, meta?: Record<string, unknown>): ApiRes<Data> => ({
+  success: <Data>(
+    data?: Data,
+    message?: string,
+    meta?: Record<string, unknown>,
+    extra?: Record<string, unknown>,
+  ): ApiRes<Data> => ({
     success: true as const,
     message,
     data,
     meta,
+    ...extra,
   }),
 
   ok: (message: string, meta?: Record<string, unknown>): ApiRes => ({

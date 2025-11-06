@@ -1,3 +1,9 @@
+import { SentryExceptionCaptured } from '@sentry/nestjs';
+import { ThrottlerException } from '@nestjs/throttler';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { ZodError } from 'zod';
+import _ from 'lodash';
+
 import {
   BadRequestException,
   ConflictException,
@@ -7,19 +13,13 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { SentryExceptionCaptured } from '@sentry/nestjs';
-import { ThrottlerException } from '@nestjs/throttler';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { HttpStatus } from '@nestjs/common/enums';
-import { GraphQLError } from 'graphql';
-import { ZodError } from 'zod';
-import _ from 'lodash';
-
 import { IBusinessException } from './business-exception.interface';
 import { Prisma } from '@/generated/prisma/client';
 import { ErrorCodes } from '@app/nest/error-codes';
+import { HttpStatus } from '@nestjs/common/enums';
 import { II18nService } from './i18n.interface';
 import { errorStack, f } from '@app/utils';
+import { GraphQLError } from 'graphql';
 import { ApiRes } from '@app/nest';
 
 import type { ArgumentsHost, ExceptionFilter, INestApplication, ExecutionContext } from '@nestjs/common';
@@ -369,7 +369,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
   /**
    * 获取翻译后的错误消息
-   * 
+   *
    * 【设计意图】
    * - 框架层只负责提取 x-locale 和调用 i18nService
    * - 不做任何语言判断、规范化、fallback
@@ -401,7 +401,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
   /**
    * 从请求中提取用户语言偏好
-   * 
+   *
    * 【设计意图】
    * - 只提取 x-locale 请求头的原始值
    * - 不做任何规范化、验证、fallback

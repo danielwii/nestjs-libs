@@ -1,13 +1,11 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import { ConsoleLogger, Injectable } from '@nestjs/common';
-
 import { context, trace } from '@opentelemetry/api';
-import { Injector } from './injector';
 import { RequestContext } from './request-context';
+import { Injector } from './injector';
 
 @Injectable()
 export class LoggerInjector implements Injector {
-
   public inject() {
     ConsoleLogger.prototype.log = this.wrapPrototype(ConsoleLogger.prototype.log);
     ConsoleLogger.prototype.debug = this.wrapPrototype(ConsoleLogger.prototype.debug);
@@ -41,9 +39,8 @@ export class LoggerInjector implements Injector {
     const spanContext = currentSpan.spanContext();
     const spanAttributes = (currentSpan as unknown as { attributes?: Record<string, unknown> }).attributes;
     const userIdFromSpan = spanAttributes?.['user.id'];
-    const userId = (typeof userIdFromSpan === 'string' && userIdFromSpan.trim().length > 0)
-      ? userIdFromSpan
-      : storeUserId;
+    const userId =
+      typeof userIdFromSpan === 'string' && userIdFromSpan.trim().length > 0 ? userIdFromSpan : storeUserId;
 
     // 检查 span 是否已经结束，如果已结束则不再添加事件
     try {

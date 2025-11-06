@@ -1,5 +1,4 @@
 import { DynamicModule, Module } from '@nestjs/common';
-
 import { LoggerInjector } from './logger.injector';
 import { Injector } from './injector';
 

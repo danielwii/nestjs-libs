@@ -185,4 +185,3 @@ export function parseTimezoneOffset(timezone: string | null | undefined): number
 
   return sign * (hours + minutes / 60);
 }
-

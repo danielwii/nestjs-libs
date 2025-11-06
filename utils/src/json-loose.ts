@@ -2,7 +2,10 @@ import JSON5 from 'json5';
 
 // Strip common markdown code fences and whitespace
 function stripFences(input: string): string {
-  return input.replace(/```(?:json|typescript)?\s*/gi, '').replace(/```/g, '').trim();
+  return input
+    .replace(/```(?:json|typescript)?\s*/gi, '')
+    .replace(/```/g, '')
+    .trim();
 }
 
 // Gemini 有时会在字符串内部输出未转义的原始换行，这在 JSON 标准中是不允许的。

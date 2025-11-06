@@ -8,19 +8,13 @@ import _ from 'lodash';
 
 export function generateJsonFormat(schema: z.ZodSchema, indent = 0): string {
   const definition = Reflect.get(schema, '_def');
-  const serialized = JSON.stringify(
-    definition,
-    (key, value) => (typeof value === 'function' ? undefined : value),
-    2,
-  );
+  const serialized = JSON.stringify(definition, (key, value) => (typeof value === 'function' ? undefined : value), 2);
   const indentPrefix = ' '.repeat(indent);
   return serialized
     .split('\n')
     .map((line) => `${indentPrefix}${line}`)
     .join('\n');
 }
-
-
 
 export enum TimeSensitivity {
   Day = 'yyyy-MM-dd EEEE BBBB',

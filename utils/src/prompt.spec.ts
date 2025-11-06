@@ -158,7 +158,7 @@ describe('PromptSpec', () => {
     }).build();
 
     expect(prompt).toBe(
-`[structured-response:2]
+      `[structured-response:2]
 ------
 <role priority="critical">智能助手</role>
 <objective priority="critical">生成结构化输出</objective>
@@ -185,7 +185,8 @@ describe('PromptSpec', () => {
 <language priority="critical">Use "zh-Hans" as the main response language.</language>
 ------
 When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
-Now:2024-01-15 Monday 10:30 in the morning`);
+Now:2024-01-15 Monday 10:30 in the morning`,
+    );
   });
 });
 
@@ -219,10 +220,12 @@ describe('PromptSpecBuilder', () => {
       .setLanguage('zh-Hans')
       .setSchema(z.object({ answer: z.string() }));
 
-    const prompt = builder.buildPromptSpec({
-      tz: 'UTC',
-      sensitivity: TimeSensitivity.Minute,
-    }).build();
+    const prompt = builder
+      .buildPromptSpec({
+        tz: 'UTC',
+        sensitivity: TimeSensitivity.Minute,
+      })
+      .build();
 
     const expected = [
       '[builder-test:1.2]',
@@ -268,41 +271,41 @@ describe('PromptSpecBuilder', () => {
   });
 
   it('应该正确处理旧格式时区 "+8"', () => {
-    const builder = new PromptSpecBuilder('tz-test', '1.0')
-      .setRole('测试')
-      .setObjective('验证时区');
+    const builder = new PromptSpecBuilder('tz-test', '1.0').setRole('测试').setObjective('验证时区');
 
-    const prompt = builder.buildPromptSpec({
-      tz: '+8', // 旧格式，应该自动转换为 Asia/Shanghai
-      sensitivity: TimeSensitivity.Minute,
-    }).build();
+    const prompt = builder
+      .buildPromptSpec({
+        tz: '+8', // 旧格式，应该自动转换为 Asia/Shanghai
+        sensitivity: TimeSensitivity.Minute,
+      })
+      .build();
 
     // 应该包含正确的时间戳（18:30 对应 UTC+8）
     expect(prompt).toContain('Now:2024-01-15 Monday 18:30 in the evening');
   });
 
   it('应该正确处理新格式时区 "+08:00"', () => {
-    const builder = new PromptSpecBuilder('tz-test', '1.0')
-      .setRole('测试')
-      .setObjective('验证时区');
+    const builder = new PromptSpecBuilder('tz-test', '1.0').setRole('测试').setObjective('验证时区');
 
-    const prompt = builder.buildPromptSpec({
-      tz: '+08:00', // 新格式，应该自动转换为 Asia/Shanghai
-      sensitivity: TimeSensitivity.Minute,
-    }).build();
+    const prompt = builder
+      .buildPromptSpec({
+        tz: '+08:00', // 新格式，应该自动转换为 Asia/Shanghai
+        sensitivity: TimeSensitivity.Minute,
+      })
+      .build();
 
     expect(prompt).toContain('Now:2024-01-15 Monday 18:30 in the evening');
   });
 
   it('应该正确处理 IANA 格式时区 "Asia/Tokyo"', () => {
-    const builder = new PromptSpecBuilder('tz-test', '1.0')
-      .setRole('测试')
-      .setObjective('验证时区');
+    const builder = new PromptSpecBuilder('tz-test', '1.0').setRole('测试').setObjective('验证时区');
 
-    const prompt = builder.buildPromptSpec({
-      tz: 'Asia/Tokyo', // IANA 格式，直接使用
-      sensitivity: TimeSensitivity.Minute,
-    }).build();
+    const prompt = builder
+      .buildPromptSpec({
+        tz: 'Asia/Tokyo', // IANA 格式，直接使用
+        sensitivity: TimeSensitivity.Minute,
+      })
+      .build();
 
     // UTC+9，所以是 19:30
     expect(prompt).toContain('Now:2024-01-15 Monday 19:30 in the evening');

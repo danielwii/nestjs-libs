@@ -11,22 +11,22 @@ export interface II18nService {
   /**
    * 翻译消息
    */
-  translateMessage(params: {
-    key: string;
-    description?: string;
-    sourceMessage: string;
-    targetLanguage: string;
-  }): Promise<string>;
+  // translateMessage(params: {
+  //   key: string;
+  //   description?: string;
+  //   sourceMessage: string;
+  //   targetLanguage: string;
+  // }): Promise<string>;
 
   /**
    * 翻译错误消息（简化接口）
-   * 
+   *
    * 【设计意图】
    * - 框架层专用的错误消息翻译接口
    * - 接收任意格式的 targetLanguage（包括 null/undefined）
    * - 内部统一处理语言解析、缓存、翻译、fallback
    * - 源语言是中文，目标语言由 targetLanguage 指定（null 表示使用默认语言）
-   * 
+   *
    * @param key - 错误键（如 'errors.USER_NOT_FOUND'）
    * @param sourceMessage - 源消息（中文）
    * @param targetLanguage - 目标语言（'zh-Hans', 'zh-hans', 'en', 'zh', null 等任意格式）
