@@ -1,5 +1,17 @@
+import {
+  DynamicModule,
+  ForwardReference,
+  INestApplication,
+  Logger,
+  LogLevel,
+  Type,
+  ValidationPipe,
+} from '@nestjs/common';
+import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { graphqlUploadExpress } from 'graphql-upload-ts';
+import { NestFactory, Reflector } from '@nestjs/core';
+import { PrismaClient } from '@unee/schema/prisma';
 import { RedisStore } from 'connect-redis';
 import { stripIndent } from 'common-tags';
 import responseTime from 'response-time';
@@ -12,22 +24,11 @@ import Redis from 'ioredis';
 import morgan from 'morgan';
 import helmet from 'helmet';
 
-import {
-  DynamicModule,
-  ForwardReference,
-  INestApplication,
-  Logger,
-  LogLevel,
-  Type,
-  ValidationPipe,
-} from '@nestjs/common';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
-import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
 import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
-import { NestFactory, Reflector } from '@nestjs/core';
 import { runApp } from '@app/nest/lifecycle';
 import { doMigration } from './migration';
 import { maskSecret } from '@app/utils';
@@ -60,7 +61,7 @@ export async function bootstrap(
 ) {
   if (!process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
 
-  await doMigration();
+  await doMigration(PrismaClient);
 
   const now = Date.now();
   const logLevel: LogLevel = SysEnv.LOG_LEVEL || 'debug';

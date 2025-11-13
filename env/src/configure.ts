@@ -1,17 +1,15 @@
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
 import { config } from '@dotenvx/dotenvx';
+import { Logger } from '@nestjs/common';
 import * as R from 'remeda';
 import JSON from 'json5';
 import path from 'path';
 import _ from 'lodash';
 
 import { f, errorStack } from '@app/utils/utils';
-import { Logger } from '@nestjs/common';
 import { NODE_ENV } from './env';
 import os from 'node:os';
-
-import type { PrismaClient } from '@/generated/prisma/client';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
@@ -94,6 +92,10 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsNumber()
   @IsOptional()
   PORT: number = 3100;
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  GRPC_PORT: number = 50051;
   @IsString() TZ = 'UTC';
 
   // 因为 有些服务器的 hostname 是 localhost，所以需要添加一个随机数来区分
@@ -328,7 +330,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     return validatedConfig;
   }
 
-  static async syncFromDB(prisma: PrismaClient, envs: Record<string, any>) {
+  static async syncFromDB(prisma: any, envs: Record<string, any>) {
     const fields = R.pipe(
       Object.getOwnPropertyNames(envs),
       R.map((field) => {

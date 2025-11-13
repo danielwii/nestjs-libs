@@ -1,19 +1,17 @@
 import { execSync } from 'child_process';
+import { Logger } from '@nestjs/common';
 import _ from 'lodash';
 
-import { Logger } from '@nestjs/common';
 import { SysEnv } from '@app/env';
-import { f } from '@app/utils';
 
 const logger = new Logger('Migration');
-export async function doMigration() {
+export async function doMigration(PrismaClient: any) {
   if (SysEnv.PRISMA_MIGRATION) {
     logger.log('🚉 ------- MIGRATION MODE -------');
     try {
       execSync('bun prisma migrate status', { stdio: 'inherit' });
       // eslint-disable-next-line no-empty, @typescript-eslint/no-unused-vars
     } catch (e: unknown) {}
-    const { PrismaClient } = await import('@/generated/prisma/client');
     const prisma = new PrismaClient();
     await prisma.$connect();
     let applied: number | null = null;

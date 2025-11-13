@@ -33,7 +33,7 @@ export const ApiRes = {
   }),
 
   /**
-   * @deprecated 不要使用此方法！应该直接抛出异常（throw Oops.xxx()）让 AnyExceptionFilter 处理。
+   * 业务中尽量不要使用此方法！应该直接抛出异常（throw Oops.xxx()）让 AnyExceptionFilter 处理。
    *
    * 问题：此方法返回 HTTP 200/201 状态码，但 success=false，违反 RESTful 规范。
    *

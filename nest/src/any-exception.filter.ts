@@ -14,7 +14,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { IBusinessException } from './business-exception.interface';
-import { Prisma } from '@/generated/prisma/client';
 import { ErrorCodes } from '@app/nest/error-codes';
 import { HttpStatus } from '@nestjs/common/enums';
 import { II18nService } from './i18n.interface';
@@ -135,16 +134,17 @@ export class AnyExceptionFilter implements ExceptionFilter {
         }),
       );
     }
-    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      this.logger.warn(f`(${request?.uid})[${request?.ip}] PrismaClientKnownRequestError ${exception.message}`);
-      return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-        ApiRes.failure({
-          code: ErrorCodes.SYSTEM_DATABASE_ERROR,
-          message: 'cannot process your request',
-          // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-        }),
-      );
-    }
+    // FIXME 不依赖 Prisma 的类库判断
+    // if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+    //   this.logger.warn(f`(${request?.uid})[${request?.ip}] PrismaClientKnownRequestError ${exception.message}`);
+    //   return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
+    //     ApiRes.failure({
+    //       code: ErrorCodes.SYSTEM_DATABASE_ERROR,
+    //       message: 'cannot process your request',
+    //       // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+    //     }),
+    //   );
+    // }
     if (exception instanceof ThrottlerException) {
       this.logger.warn(f`(${request?.uid})[${request?.ip}] ThrottlerException ${exception.message}`);
       return response.status(HttpStatus.TOO_MANY_REQUESTS).json(

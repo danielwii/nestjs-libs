@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { stripIndent } from 'common-tags';
 import z from 'zod';
 
