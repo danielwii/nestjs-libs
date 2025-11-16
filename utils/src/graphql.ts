@@ -141,14 +141,17 @@ export abstract class CursorPageable<T> {
  * @example
  * @ObjectType()
  * class UserPagedResponse extends CursoredResponse(UserType) {}
+ *
+ * Business reason: 泛型参数 Item 表示实例类型，ItemClass 是构造函数类型
+ * 这样确保 items 数组包含的是类实例而不是类构造函数
  */
-export const CursoredResponse = <Item>(ItemClass: Item) => {
+export const CursoredResponse = <Item>(ItemClass: new () => Item) => {
   // `isAbstract` decorator option is mandatory to prevent registering in schema
   @ObjectType({ isAbstract: true, implements: () => [CursorPageable] })
   abstract class CursoredResponseClass extends CursorPageable<Item> {
-    // here we use the runtime argument
-    @Field(() => [ItemClass] as Array<Item>)
-    // and here the generic type
+    // here we use the runtime argument (ItemClass 是构造函数)
+    @Field(() => [ItemClass] as unknown as Array<Item>)
+    // and here the generic type (Item 是实例类型)
     declare items: Item[];
   }
   return CursoredResponseClass;
