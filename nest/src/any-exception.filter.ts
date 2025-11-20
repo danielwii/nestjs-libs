@@ -24,6 +24,7 @@ import { ApiRes } from '@app/nest';
 import type { ArgumentsHost, ExceptionFilter, INestApplication, ExecutionContext } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { FetchError } from 'node-fetch';
+import { SysEnvs } from '@app/env';
 
 /**
  * ⚠️  ErrorCodes 迁移说明（针对其他项目）
@@ -341,6 +342,13 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
   /**
    * 延迟获取 I18nService
+   *
+   * 【设计意图】
+   * - NestJS 的 ExceptionsZone 会拦截异常传播，导致 try-catch 失效
+   * - app.get() 在服务不存在时会抛出 UnknownElementException，且无法被 try-catch 捕获
+   * - 在 GraphQL 上下文中，该异常会绕过异常处理器直接导致应用崩溃
+   * - 通过环境变量开关控制，默认禁用以避免崩溃风险
+   * - 异常翻译是辅助功能，失败时降级到原始消息
    */
   private getI18nService(): II18nService | null {
     if (this.i18nServiceRetrieved) {
@@ -348,6 +356,11 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
 
     this.i18nServiceRetrieved = true;
+
+    // 检查环境变量开关
+    if (!SysEnvs.I18N_EXCEPTION_ENABLED) {
+      return null;
+    }
 
     if (!this.app) {
       return null;
@@ -357,12 +370,11 @@ export class AnyExceptionFilter implements ExceptionFilter {
       // 使用字符串 token 获取服务，因为我们不想直接导入具体类
       const I18nServiceToken = 'I18nService';
       this.i18nService = this.app.get(I18nServiceToken, { strict: false });
-      this.logger.debug('I18nService successfully retrieved for error translation');
+      this.logger.debug(f`#getI18nService I18nService已启用`);
       return this.i18nService;
     } catch (error) {
-      this.logger.warn(
-        `Failed to retrieve I18nService: ${error instanceof Error ? error.message : String(error)} - error translation disabled`,
-      );
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(f`#getI18nService 获取失败: ${errorMsg}`);
       return null;
     }
   }
@@ -379,7 +391,6 @@ export class AnyExceptionFilter implements ExceptionFilter {
     try {
       const i18nService = this.getI18nService();
       if (!i18nService) {
-        this.logger.debug(f`#getTranslatedMessage i18nService not available, returning original message`);
         return exception.userMessage;
       }
 
@@ -393,8 +404,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
         targetLanguage: locale, // null / 'zh-Hans' / 'en' / 任意格式
       });
     } catch (error) {
-      const reason = error instanceof Error ? `${error.message} ${error.stack ?? ''}` : JSON.stringify(error);
-      this.logger.warn(f`#getTranslatedMessage translation failed: ${reason}`);
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(f`#getTranslatedMessage 翻译失败: ${reason}`);
       return exception.userMessage;
     }
   }
