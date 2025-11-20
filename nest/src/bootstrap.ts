@@ -8,33 +8,34 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
-import { NestExpressApplication } from '@nestjs/platform-express';
-import { graphqlUploadExpress } from 'graphql-upload-ts';
 import { NestFactory, Reflector } from '@nestjs/core';
-import { PrismaClient } from '@unee/schema/prisma';
-import { RedisStore } from 'connect-redis';
-import { stripIndent } from 'common-tags';
-import responseTime from 'response-time';
-import cookieParser from 'cookie-parser';
-import session from 'express-session';
-import compression from 'compression';
-import { DateTime } from 'luxon';
-import { json } from 'express';
-import Redis from 'ioredis';
-import morgan from 'morgan';
-import helmet from 'helmet';
+import { NestExpressApplication } from '@nestjs/platform-express';
 
-import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
+import { SysEnv } from '@app/env';
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
-import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
+import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
+import { runApp } from '@app/nest/lifecycle';
 import { LoggerInterceptor } from '@app/nest/logger.interceptor';
 import { initStackTraceFormatter } from '@app/nest/logger.utils';
-import { runApp } from '@app/nest/lifecycle';
-import { doMigration } from './migration';
+import { VisitorInterceptor } from '@app/nest/visitor.interceptor';
 import { maskSecret } from '@app/utils';
-import { SysEnv } from '@app/env';
+
 import { AppEnvs } from '@/env';
+
 import os from 'node:os';
+
+import { stripIndent } from 'common-tags';
+import compression from 'compression';
+import { RedisStore } from 'connect-redis';
+import cookieParser from 'cookie-parser';
+import { json } from 'express';
+import session from 'express-session';
+import { graphqlUploadExpress } from 'graphql-upload-ts';
+import helmet from 'helmet';
+import Redis from 'ioredis';
+import { DateTime } from 'luxon';
+import morgan from 'morgan';
+import responseTime from 'response-time';
 
 type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 
@@ -60,8 +61,6 @@ export async function bootstrap(
   options?: BootstrapOptions,
 ) {
   if (!process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
-
-  await doMigration(PrismaClient);
 
   const now = Date.now();
   const logLevel: LogLevel = SysEnv.LOG_LEVEL || 'debug';
