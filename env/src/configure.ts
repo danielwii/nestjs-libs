@@ -1,15 +1,18 @@
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
-import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
-import { config } from '@dotenvx/dotenvx';
 import { Logger } from '@nestjs/common';
-import * as R from 'remeda';
-import JSON from 'json5';
-import path from 'path';
-import _ from 'lodash';
 
-import { f, errorStack } from '@app/utils/utils';
+import { errorStack, f } from '@app/utils/utils';
+
 import { NODE_ENV } from './env';
+
 import os from 'node:os';
+import path from 'path';
+
+import { config } from '@dotenvx/dotenvx';
+import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import JSON from 'json5';
+import _ from 'lodash';
+import * as R from 'remeda';
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
@@ -88,14 +91,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // 2. TypeScript 的类型信息在编译后会丢失
   // 3. 需要显式告诉 class-transformer 如何转换类型
   // 4. 这样可以确保在所有环境下（如 bun mastra dev）都能正确转换
-  @Type(() => Number)
-  @IsNumber()
-  @IsOptional()
-  PORT: number = 3100;
-  @Type(() => Number)
-  @IsNumber()
-  @IsOptional()
-  GRPC_PORT: number = 50051;
+  @Type(() => Number) @IsNumber() @IsOptional() PORT: number = 3100;
+  @Type(() => Number) @IsNumber() @IsOptional() GRPC_PORT: number = 50051;
   @IsString() TZ = 'UTC';
 
   // 因为 有些服务器的 hostname 是 localhost，所以需要添加一个随机数来区分
@@ -121,25 +118,35 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   @IsString() @IsOptional() SESSION_SECRET?: string;
 
-  @IsBoolean()
-  @IsOptional()
-  @Transform(booleanTransformFn)
-  TRACING_ENABLED?: boolean = true;
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) TRACING_ENABLED?: boolean = true;
   @IsString() @IsOptional() SERVICE_NAME?: string;
   @IsString() @IsOptional() TRACING_EXPORTER_URL?: string;
 
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_PROXY_ENABLED?: boolean;
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
-  @Type(() => Number)
-  @IsNumber()
-  @IsOptional()
-  APP_PROXY_PORT?: number;
+  @Type(() => Number) @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
 
   @IsString() DATABASE_URL!: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
   @DatabaseField('number', 'Prisma 事务超时时间（毫秒）') @IsNumber() PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
+
+  /**
+   * 是否启用异常处理器的 I18n 翻译功能
+   * 【设计意图】
+   * - GraphQL 上下文中获取 I18nService 会触发 NestJS ExceptionsZone 异常传播导致应用崩溃
+   * - 该功能非核心，失败时应降级到原始消息而非崩溃
+   * - 默认禁用，等 I18nService 在所有上下文中可用后再启用
+   */
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value.toLowerCase() === 'true';
+    return false;
+  })
+  I18N_EXCEPTION_ENABLED?: boolean = false;
 
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
   @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;

@@ -1,9 +1,3 @@
-import { SentryExceptionCaptured } from '@sentry/nestjs';
-import { ThrottlerException } from '@nestjs/throttler';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { ZodError } from 'zod';
-import _ from 'lodash';
-
 import {
   BadRequestException,
   ConflictException,
@@ -13,18 +7,26 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { IBusinessException } from './business-exception.interface';
-import { ErrorCodes } from '@app/nest/error-codes';
 import { HttpStatus } from '@nestjs/common/enums';
-import { II18nService } from './i18n.interface';
-import { errorStack, f } from '@app/utils';
-import { GraphQLError } from 'graphql';
-import { ApiRes } from '@app/nest';
+import { GqlExecutionContext } from '@nestjs/graphql';
+import { ThrottlerException } from '@nestjs/throttler';
 
-import type { ArgumentsHost, ExceptionFilter, INestApplication, ExecutionContext } from '@nestjs/common';
+import { SysEnv } from '@app/env';
+import { ApiRes } from '@app/nest';
+import { ErrorCodes } from '@app/nest/error-codes';
+import { errorStack, f } from '@app/utils';
+
+import { IBusinessException } from './business-exception.interface';
+import { II18nService } from './i18n.interface';
+
+import { SentryExceptionCaptured } from '@sentry/nestjs';
+import { GraphQLError } from 'graphql';
+import _ from 'lodash';
+import { ZodError } from 'zod';
+
+import type { ArgumentsHost, ExceptionFilter, ExecutionContext, INestApplication } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { FetchError } from 'node-fetch';
-import { SysEnvs } from '@app/env';
 
 /**
  * ⚠️  ErrorCodes 迁移说明（针对其他项目）
@@ -358,7 +360,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     this.i18nServiceRetrieved = true;
 
     // 检查环境变量开关
-    if (!SysEnvs.I18N_EXCEPTION_ENABLED) {
+    if (!SysEnv.I18N_EXCEPTION_ENABLED) {
       return null;
     }
 
