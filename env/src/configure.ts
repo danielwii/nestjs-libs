@@ -146,6 +146,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
     if (typeof value === 'string') return value.toLowerCase() === 'true';
     return false;
   })
+  @DatabaseField('boolean', '是否启用异常处理器的 I18n 翻译功能')
   I18N_EXCEPTION_ENABLED?: boolean = false;
 
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
