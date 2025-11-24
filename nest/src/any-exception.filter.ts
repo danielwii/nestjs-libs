@@ -103,7 +103,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
         return this.handleGraphqlBusinessException(exception, request);
       }
 
-      this.logger.error(f`(${request?.uid})[${request?.ip}] ${exception.name} ${exception}`, exception.stack);
+      this.logger.error(f`<GraphqlRequest> (${request?.uid})[${request?.ip}] ${exception.name} ${exception}`, errorStack(exception));
       throw exception;
     }
 

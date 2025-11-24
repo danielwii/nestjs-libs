@@ -14,10 +14,10 @@ export const runApp = <App extends INestApplication>(app: App) => {
 
     // 忽略 graphql-upload-ts 库的已知 bug：文件清理时的 callback 错误
     // 这个错误不影响业务逻辑，只是清理临时文件时的内部错误
+    // 注意：不检查堆栈路径，因为 webpack 打包后路径会改变（本地 src/，生产 webpack://）
     if (
       err instanceof TypeError &&
-      err.message === 'callback is not a function' &&
-      err.stack?.includes('graphql-upload-ts/src/fs-capacitor.ts')
+      err.message === 'callback is not a function'
     ) {
       logger.warn(f`(${os.hostname}) Ignored known graphql-upload-ts cleanup error: ${err.message}`);
       return;
