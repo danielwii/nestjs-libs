@@ -220,21 +220,61 @@ export async function bootstrap(
         : 'unknown';
 
       const startTime = DateTime.utc();
+
+      // 环境配置安全检查：生产模式下必须明确指定业务环境
+      // 设计意图：防止在生产模式(NODE_ENV=production)下误用默认的 dev 环境，导致数据混乱或安全问题
+      if (process.env.NODE_ENV === 'production') {
+        if (!SysEnv.ENV && !SysEnv.DOPPLER_ENVIRONMENT) {
+          Logger.warn(
+            '⚠️  [Security] NODE_ENV=production 但未设置 ENV 或 DOPPLER_ENVIRONMENT，将使用默认值 "dev"',
+            'Bootstrap',
+          );
+          Logger.warn(
+            '   建议：在 .env.production 中明确设置 ENV=prd (生产) 或 ENV=stg (预发布)',
+            'Bootstrap',
+          );
+          Logger.warn(
+            '   风险：当前配置可能导致生产模式代码连接到测试环境数据，或测试代码连接到生产数据',
+            'Bootstrap',
+          );
+        }
+      }
+
+      // 环境信息说明：
+      // - NODE_ENV: Node.js 运行模式（技术层面）- 控制代码优化、日志详细度、热重载等
+      // - ENV: 业务环境标识（业务层面）- 控制连接哪个数据库、是否真实支付、发送真实通知等
+      const runtimeModeDesc = process.env.NODE_ENV === 'production'
+        ? '生产模式(代码优化)'
+        : process.env.NODE_ENV === 'development'
+        ? '开发模式(热重载)'
+        : '测试模式';
+
+      const businessEnvDesc = SysEnv.environment.isProd
+        ? '生产环境(真实数据)'
+        : SysEnv.environment.env === 'stg'
+        ? '预发布环境(测试数据)'
+        : '开发环境(测试数据)';
+
       Logger.log(
         stripIndent`🦋 [Server] API Server started successfully
-          ENV: ${SysEnv.environment.env} [IsProd: ${SysEnv.environment.isProd}, NODE: ${process.env.NODE_ENV}|${SysEnv.NODE_ENV}, DOPPLER: ${SysEnv.DOPPLER_ENVIRONMENT}]
-          App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}
-          Host: ${os.hostname()}
-          Node Name: ${SysEnv.NODE_NAME}
-          Bind: ${bindAddress}
-          Port: ${port}
-          PID: ${process.pid}
-          Platform: ${process.platform}
-          Node Version: ${process.version}
-          SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})
-          Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
-          UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
-          Startup Time: ${Date.now() - now}ms
+          ┌─ 环境配置 ─────────────────────────────────────────────
+          │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV} - ${runtimeModeDesc}
+          │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}
+          │ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}
+          ├─ 应用信息 ─────────────────────────────────────────────
+          │ App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}
+          │ Host: ${os.hostname()}
+          │ Node Name: ${SysEnv.NODE_NAME}
+          │ Bind: ${bindAddress}
+          │ Port: ${port}
+          │ PID: ${process.pid}
+          ├─ 运行时信息 ───────────────────────────────────────────
+          │ Platform: ${process.platform}
+          │ Node Version: ${process.version}
+          │ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})
+          │ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
+          │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
+          └─ Startup Time: ${Date.now() - now}ms
         `,
         'Bootstrap',
       );
