@@ -9,16 +9,24 @@ export class ApiFetcher {
   private static readonly logger = new Logger(this.constructor.name);
   private static readonly DEFAULT_TIMEOUT = 30e3;
 
-  static async undiciFetch(
+  /**
+   * 基于 undici 的 fetch 实现，支持代理
+   *
+   * 类型断言说明：
+   * - @types/bun 扩展了全局 fetch 类型，添加了 preconnect 静态方法
+   * - 使用 as typeof fetch 确保与 AI SDK 等库的 fetch 参数类型兼容
+   * - 实际运行时不需要 preconnect，只需要函数调用签名
+   */
+  static undiciFetch = (async (
     url: string | URL | Request,
     options?: RequestInit & { duplex?: Undici.RequestDuplex },
-  ): Promise<Response> {
+  ): Promise<Response> => {
     const response = await Undici.fetch(
       url as string,
       { ...options, dispatcher: SysProxy.dispatcher } as unknown as Undici.RequestInit,
     );
     return response as unknown as Response;
-  }
+  }) as typeof fetch;
 
   static async nodeFetch(url: string | URL | Request, options?: RequestInit & { timeout?: number }): Promise<Response> {
     return NodeFetch.default(
