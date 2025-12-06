@@ -356,9 +356,44 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const appSettings = R.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' && value != null ? JSON.parse(value) : value, format }),
-    ) as Array<{ key: string; defaultValue: unknown; format: string; description?: string; value: unknown }>;
+    ) as Array<{
+      key: string;
+      defaultValue: unknown;
+      format: string;
+      description?: string;
+      value: unknown;
+      deprecatedAt?: Date | null;
+    }>;
 
+    const fieldNamesInCode = R.map(fields, (f) => f.field);
     const fieldNamesInDB = R.map(appSettings, (s) => s.key);
+
+    // =====================================================
+    // 软删除：标记数据库中存在但代码中已删除的配置为 deprecated
+    // 设计意图：
+    // - 不物理删除，保留历史数据和配置值
+    // - 便于审计和回滚（如果配置被误删除）
+    // - 定期清理可由 DBA 或定时任务执行
+    // =====================================================
+    const orphanSettings = R.filter(appSettings, (s) => !fieldNamesInCode.includes(s.key) && !s.deprecatedAt);
+    if (orphanSettings.length > 0) {
+      Logger.log(f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${R.map(orphanSettings, (s) => s.key).join(', ')}`, 'AppConfigure');
+      await prisma.sysAppSetting.updateMany({
+        where: { key: { in: R.map(orphanSettings, (s) => s.key) } },
+        data: { deprecatedAt: new Date() },
+      });
+    }
+
+    // 恢复：如果配置被重新添加到代码中，清除 deprecatedAt 标记
+    const restoredSettings = R.filter(appSettings, (s) => fieldNamesInCode.includes(s.key) && Boolean(s.deprecatedAt));
+    if (restoredSettings.length > 0) {
+      Logger.log(f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${R.map(restoredSettings, (s) => s.key).join(', ')}`, 'AppConfigure');
+      await prisma.sysAppSetting.updateMany({
+        where: { key: { in: R.map(restoredSettings, (s) => s.key) } },
+        data: { deprecatedAt: null },
+      });
+    }
+
     // 如何 appSettings 中不存在，则用当前的值更新
     const nonExistsFields = R.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
 
