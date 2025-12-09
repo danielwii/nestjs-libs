@@ -47,6 +47,21 @@ export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
 
 interface HostSetVariables {}
 
+/**
+ * Configure 模块调试日志开关
+ *
+ * 设计意图：
+ * - 默认关闭，减少启动时的日志噪音（DatabaseField found、env 文件路径、配置项值等）
+ * - 开发调试配置问题时可通过 CONFIGURE_DEBUG=true 开启
+ * - 错误和警告日志不受此开关影响，始终输出
+ *
+ * 使用场景：
+ * - 排查环境变量加载顺序问题
+ * - 确认 DatabaseField 字段是否正确注册
+ * - 调试配置验证失败的原因
+ */
+const isConfigureDebugEnabled = () => process.env.CONFIGURE_DEBUG === 'true';
+
 const DatabaseFieldSymbol = Symbol('DatabaseField');
 const DatabaseFieldFormatSymbol = Symbol('DatabaseFieldFormat');
 const DatabaseFieldDescriptionSymbol = Symbol('DatabaseFieldDescription');
@@ -59,7 +74,9 @@ const DatabaseFieldDescriptionSymbol = Symbol('DatabaseFieldDescription');
 export const DatabaseField =
   (format: 'string' | 'number' | 'boolean' | 'json' = 'string', description?: string) =>
   (target: any, propertyKey: string) => {
-    Logger.verbose(f`found ${propertyKey}:${format}${description ? ` (${description})` : ''}`, 'DatabaseField');
+    if (isConfigureDebugEnabled()) {
+      Logger.verbose(f`found ${propertyKey}:${format}${description ? ` (${description})` : ''}`, 'DatabaseField');
+    }
     Reflect.defineMetadata(DatabaseFieldSymbol, true, target, propertyKey);
     Reflect.defineMetadata(DatabaseFieldFormatSymbol, format, target, propertyKey);
     if (description) {
@@ -264,14 +281,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
     })();
 
-    if (this.sys) this.logger.log(f`load env from paths: ${envFilePath}`);
+    if (this.sys && isConfigureDebugEnabled()) this.logger.log(f`load env from paths: ${envFilePath}`);
     R.forEach(envFilePath, (env) => {
       // 使用 process.env.PWD 而不是 process.cwd() 的原因：
       // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
       // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
       // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
       const fullPath = path.resolve(process.env.PWD || '', env);
-      if (this.sys) this.logger.log(f`envFilePath: ${fullPath}`);
+      if (this.sys && isConfigureDebugEnabled()) this.logger.log(f`envFilePath: ${fullPath}`);
       config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
     });
     this.vars = this.validate();
@@ -294,47 +311,56 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         throw new Error(errors.toString());
       }
 
-      if (this.sys) {
-        // display all envs not includes _ENABLE and not starts with APP_
+      // 配置项输出（仅在 CONFIGURE_DEBUG=true 时启用）
+      if (isConfigureDebugEnabled()) {
+        if (this.sys) {
+          // display all envs not includes _ENABLE and not starts with APP_
+          R.forEachObj(validatedConfig, (value, key) => {
+            if (
+              key.includes('_ENABLE') ||
+              key.startsWith('APP_') ||
+              !R.isIncludedIn(key as string, AbstractEnvironmentVariables.allFields) ||
+              ['logger'].includes(key)
+            )
+              return;
+            const isDatabaseField = Reflect.getMetadata(
+              DatabaseFieldSymbol,
+              AbstractEnvironmentVariables.prototype,
+              key,
+            );
+            this.logger.log(f`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`);
+          });
+        }
+
         R.forEachObj(validatedConfig, (value, key) => {
           if (
-            key.includes('_ENABLE') ||
-            key.startsWith('APP_') ||
-            !R.isIncludedIn(key as string, AbstractEnvironmentVariables.allFields) ||
-            ['logger'].includes(key)
+            !this.sys &&
+            !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
           )
-            return;
+            return; // exclude sys envs
           const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
-          this.logger.log(f`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`);
+          if (key.includes('_ENABLE'))
+            this.logger.log(
+              f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
+            );
+        });
+        R.forEachObj(validatedConfig, (value, key) => {
+          if (
+            !this.sys &&
+            !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
+          )
+            return; // exclude sys envs
+          const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
+          if (key.startsWith('APP_'))
+            this.logger.log(
+              f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
+            );
         });
       }
-
-      R.forEachObj(validatedConfig, (value, key) => {
-        if (
-          !this.sys &&
-          !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
-        )
-          return; // exclude sys envs
-        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
-        if (key.includes('_ENABLE'))
-          this.logger.log(
-            f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
-          );
-      });
-      R.forEachObj(validatedConfig, (value, key) => {
-        if (
-          !this.sys &&
-          !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
-        )
-          return; // exclude sys envs
-        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
-        if (key.startsWith('APP_'))
-          this.logger.log(
-            f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
-          );
-      });
     }
-    Logger.verbose(f`[${this.sys ? 'SYS' : 'App'}] Configure validated`, 'Configure');
+    if (isConfigureDebugEnabled()) {
+      Logger.verbose(f`[${this.sys ? 'SYS' : 'App'}] Configure validated`, 'Configure');
+    }
     return validatedConfig;
   }
 
