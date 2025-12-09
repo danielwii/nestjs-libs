@@ -255,6 +255,14 @@ export async function bootstrap(
         ? '预发布环境(测试数据)'
         : '开发环境(测试数据)';
 
+      // 获取运行时版本信息
+      const nodeVersion = process.version;
+      // Bun 运行时检测：在 Bun 环境下 globalThis.Bun 存在
+      const bunVersion = 'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
+      const runtimeVersions = bunVersion
+        ? `Node ${nodeVersion} / Bun ${bunVersion}`
+        : `Node ${nodeVersion}`;
+
       Logger.log(
         stripIndent`🦋 [Server] API Server started successfully
           ┌─ 环境配置 ─────────────────────────────────────────────
@@ -270,7 +278,7 @@ export async function bootstrap(
           │ PID: ${process.pid}
           ├─ 运行时信息 ───────────────────────────────────────────
           │ Platform: ${process.platform}
-          │ Node Version: ${process.version}
+          │ Runtime: ${runtimeVersions}
           │ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})
           │ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
           │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
