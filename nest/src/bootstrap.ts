@@ -1,15 +1,15 @@
-import {
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { NestFactory, Reflector } from '@nestjs/core';
+
+import type {
   DynamicModule,
   ForwardReference,
   INestApplication,
-  Logger,
   LogLevel,
   Type,
-  ValidationPipe,
 } from '@nestjs/common';
-import { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
-import { NestFactory, Reflector } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import type { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 import { SysEnv } from '@app/env';
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
@@ -113,7 +113,7 @@ export async function bootstrap(
   // app.set('trust proxy', true);
   app.set('trust proxy', 1);
   if (SysEnv.SESSION_SECRET) {
-    const client = new Redis(AppEnvs.REDIS_URL, { maxRetriesPerRequest: 3 });
+    const client = new Redis(AppEnvs.INFRA_REDIS_URL, { maxRetriesPerRequest: 3 });
     Logger.log(`[Config] Session enabled with secret: "${maskSecret(SysEnv.SESSION_SECRET)}"`, 'Bootstrap');
     app.use(
       session({

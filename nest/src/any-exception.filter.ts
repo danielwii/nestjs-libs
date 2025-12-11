@@ -16,8 +16,8 @@ import { ApiRes } from '@app/nest';
 import { ErrorCodes } from '@app/nest/error-codes';
 import { errorStack, f } from '@app/utils';
 
-import { IBusinessException } from './business-exception.interface';
-import { II18nService } from './i18n.interface';
+import type { IBusinessException } from './business-exception.interface';
+import type { II18nService } from './i18n.interface';
 
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { GraphQLError } from 'graphql';
@@ -101,6 +101,12 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (isGraphqlRequest) {
       if (this.isBusinessException(exception)) {
         return this.handleGraphqlBusinessException(exception, request);
+      }
+
+      // 认证失败是正常业务行为，不作为系统错误记录
+      if (exception instanceof UnauthorizedException) {
+        // WARN 日志已在 UserAuthGuard 中记录，此处静默传递
+        throw exception;
       }
 
       this.logger.error(f`<GraphqlRequest> (${request?.uid})[${request?.ip}] ${exception.name} ${exception}`, errorStack(exception));
@@ -302,7 +308,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     response: Response,
   ) {
     this.logger.warn(
-      f`(${request?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`,
+      f`(${request?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
     );
 
     // 获取翻译后的错误消息
@@ -321,7 +327,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     request?: Request & { uid?: string },
   ): Promise<never> {
     this.logger.warn(
-      f`(${request?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage}`,
+      f`(${request?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
     );
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);

@@ -17,4 +17,9 @@ export interface IBusinessException extends Error {
    * 获取组合错误码（用于生成 i18n key）
    */
   getCombinedCode(): string;
+
+  /**
+   * 获取内部调试信息（用于日志）
+   */
+  getInternalDetails(): string;
 }

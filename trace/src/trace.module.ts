@@ -1,6 +1,8 @@
-import { DynamicModule, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { LoggerInjector } from './logger.injector';
-import { Injector } from './injector';
+
+import type { DynamicModule } from '@nestjs/common';
+import type { Injector } from './injector';
 
 /**
  * 自动注入 LoggerInjector，在日志中自动添加 traceId

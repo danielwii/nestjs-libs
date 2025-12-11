@@ -1,4 +1,6 @@
-import { context, Span, SpanKind, trace } from '@opentelemetry/api';
+import { context, SpanKind, trace } from '@opentelemetry/api';
+
+import type { Span } from '@opentelemetry/api';
 
 /**
  * 放在方法上，自动创建一个 span，需要放在最下方

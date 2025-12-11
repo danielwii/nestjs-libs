@@ -8,7 +8,8 @@ import os from 'node:os';
 import path from 'path';
 
 import { config } from '@dotenvx/dotenvx';
-import { plainToInstance, Transform, TransformFnParams, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
+import type { TransformFnParams } from 'class-transformer';
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import JSON from 'json5';
 import _ from 'lodash';

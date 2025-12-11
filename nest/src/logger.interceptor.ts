@@ -1,7 +1,8 @@
 import { GqlExecutionContext } from '@nestjs/graphql';
 import _ from 'lodash';
 
-import { CallHandler, ExecutionContext, Logger, NestInterceptor } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
+import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { catchError, finalize, Observable } from 'rxjs';
 import { context, trace } from '@opentelemetry/api';
 import { f, METADATA_KEYS } from '@app/utils';
@@ -23,12 +24,13 @@ export class LoggerInterceptor implements NestInterceptor {
     const gqlOperation = gqlExecutionContext?.getInfo()?.operation?.operation ?? null;
 
     if (!req && gqlExecutionContext) {
-      this.logger.log(
-        f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation}`,
-      );
       const gqlContext = gqlExecutionContext.getContext<Record<string, any>>();
       req = gqlContext?.req;
       res = gqlContext?.res;
+      const ua = req?.headers?.['user-agent'];
+      this.logger.log(
+        f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation} ua=${ua}`,
+      );
     }
 
     if (gqlOperation === 'subscription') {
@@ -38,8 +40,9 @@ export class LoggerInterceptor implements NestInterceptor {
         headers?: Record<string, unknown>;
       };
 
+      const wsUa = wsReq.headers?.['user-agent'];
       this.logger.debug(
-        f`-> (subscription) #${ctx.getClass().name}.${handlerName} headers=${maskWsHeaders(wsReq.headers)}`,
+        f`-> (subscription) #${ctx.getClass().name}.${handlerName} ua=${wsUa} headers=${maskWsHeaders(wsReq.headers)}`,
       );
       const result = next.handle();
       const rawResult: unknown = result;
@@ -123,9 +126,7 @@ export class LoggerInterceptor implements NestInterceptor {
 
       if (!isHealthCheck) {
         this.logger.debug(
-          f`-> ${TAG} call... (${req.ip}, ${req.ips}, ${req.hostname}) ${req.method} ${req.url} ${
-            req.headers['user-agent']
-          } ${info}`,
+          f`-> ${TAG} call... ip=${ipAddress} ${req.method} ${req.url} ua=${req.headers['user-agent']}`,
         );
       }
 

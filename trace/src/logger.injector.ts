@@ -2,7 +2,8 @@
 import { ConsoleLogger, Injectable } from '@nestjs/common';
 import { context, trace } from '@opentelemetry/api';
 import { RequestContext } from './request-context';
-import { Injector } from './injector';
+
+import type { Injector } from './injector';
 
 @Injectable()
 export class LoggerInjector implements Injector {
