@@ -3,7 +3,7 @@ import { stripIndent } from 'common-tags';
 import z from 'zod';
 
 import { TimeSensitivity } from './prompt';
-import { PromptSpec, PromptSpecBuilder, PromptSpecSchema } from './prompt.xml';
+import { PromptSpec, PromptSpecBuilder, type PromptSpecSchema } from './prompt.xml';
 
 describe('PromptSpec', () => {
   const ORIGINAL_TZ = process.env.TZ;
