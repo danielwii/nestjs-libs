@@ -1,16 +1,6 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 
-import type {
-  DynamicModule,
-  ForwardReference,
-  INestApplication,
-  LogLevel,
-  Type,
-} from '@nestjs/common';
-import type { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
-import type { NestExpressApplication } from '@nestjs/platform-express';
-
 import { SysEnv } from '@app/env';
 import { AnyExceptionFilter } from '@app/nest/any-exception.filter';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/graphql-aware-class-serializer.interceptor';
@@ -36,6 +26,10 @@ import Redis from 'ioredis';
 import { DateTime } from 'luxon';
 import morgan from 'morgan';
 import responseTime from 'response-time';
+
+import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type } from '@nestjs/common';
+import type { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 type IEntryNestModule = Type<any> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 
@@ -113,7 +107,8 @@ export async function bootstrap(
   // app.set('trust proxy', true);
   app.set('trust proxy', 1);
   if (SysEnv.SESSION_SECRET) {
-    const client = new Redis(AppEnvs.INFRA_REDIS_URL, { maxRetriesPerRequest: 3 });
+    if (!SysEnv.INFRA_REDIS_URL) throw new Error('INFRA_REDIS_URL is not set and required for session storage');
+    const client = new Redis(SysEnv.INFRA_REDIS_URL, { maxRetriesPerRequest: 3 });
     Logger.log(`[Config] Session enabled with secret: "${maskSecret(SysEnv.SESSION_SECRET)}"`, 'Bootstrap');
     app.use(
       session({
@@ -229,39 +224,33 @@ export async function bootstrap(
             '⚠️  [Security] NODE_ENV=production 但未设置 ENV 或 DOPPLER_ENVIRONMENT，将使用默认值 "dev"',
             'Bootstrap',
           );
-          Logger.warn(
-            '   建议：在 .env.production 中明确设置 ENV=prd (生产) 或 ENV=stg (预发布)',
-            'Bootstrap',
-          );
-          Logger.warn(
-            '   风险：当前配置可能导致生产模式代码连接到测试环境数据，或测试代码连接到生产数据',
-            'Bootstrap',
-          );
+          Logger.warn('   建议：在 .env.production 中明确设置 ENV=prd (生产) 或 ENV=stg (预发布)', 'Bootstrap');
+          Logger.warn('   风险：当前配置可能导致生产模式代码连接到测试环境数据，或测试代码连接到生产数据', 'Bootstrap');
         }
       }
 
       // 环境信息说明：
       // - NODE_ENV: Node.js 运行模式（技术层面）- 控制代码优化、日志详细度、热重载等
       // - ENV: 业务环境标识（业务层面）- 控制连接哪个数据库、是否真实支付、发送真实通知等
-      const runtimeModeDesc = process.env.NODE_ENV === 'production'
-        ? '生产模式(代码优化)'
-        : process.env.NODE_ENV === 'development'
-        ? '开发模式(热重载)'
-        : '测试模式';
+      const runtimeModeDesc =
+        process.env.NODE_ENV === 'production'
+          ? '生产模式(代码优化)'
+          : process.env.NODE_ENV === 'development'
+            ? '开发模式(热重载)'
+            : '测试模式';
 
       const businessEnvDesc = SysEnv.environment.isProd
         ? '生产环境(真实数据)'
         : SysEnv.environment.env === 'stg'
-        ? '预发布环境(测试数据)'
-        : '开发环境(测试数据)';
+          ? '预发布环境(测试数据)'
+          : '开发环境(测试数据)';
 
       // 获取运行时版本信息
       const nodeVersion = process.version;
       // Bun 运行时检测：在 Bun 环境下 globalThis.Bun 存在
-      const bunVersion = 'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
-      const runtimeVersions = bunVersion
-        ? `Node ${nodeVersion} / Bun ${bunVersion}`
-        : `Node ${nodeVersion}`;
+      const bunVersion =
+        'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
+      const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
 
       Logger.log(
         stripIndent`🦋 [Server] API Server started successfully

@@ -144,6 +144,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
   @Type(() => Number) @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
 
+  @IsString() @IsOptional() INFRA_REDIS_URL?: string;
   @IsString() DATABASE_URL!: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;

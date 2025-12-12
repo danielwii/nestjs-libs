@@ -1,4 +1,4 @@
-import { context, Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import { context, type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 export interface SpanInputOutputOptions {
   name: string;
