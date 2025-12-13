@@ -39,8 +39,7 @@ export class ApiFetcher {
       ApiFetcher.logger.log(f`#undiciFetch [Bun] proxy=${SysProxy.proxy} url=${urlStr}`);
       const response = await fetch(url as string, {
         ...options,
-        // @ts-expect-error Bun-specific proxy option
-        proxy: SysProxy.proxy,
+        proxy: SysProxy.proxy, // Bun 1.3.4+ 原生支持
       });
       return response;
     }
