@@ -1,9 +1,9 @@
-import { instanceToPlain } from 'class-transformer';
-import { isObjectType } from 'remeda';
-import * as process from 'process';
-import JSON from 'json5';
-
 import util from 'node:util';
+import * as process from 'process';
+
+import { instanceToPlain } from 'class-transformer';
+import JSON from 'json5';
+import { isObjectType } from 'remeda';
 
 /**
  * 主要用于日志中复杂数据结构的打印
@@ -28,6 +28,17 @@ export function withObject<T, R>(o: T, fn: (o: T) => R): R {
 }
 
 export function r(o: any): string {
+  // Error 对象的属性是 non-enumerable，instanceToPlain 会返回 {}
+  // 必须优先特殊处理 Error 类型
+  if (o instanceof Error) {
+    const errorInfo = {
+      name: o.name,
+      message: o.message,
+      stack: onelineStack(o.stack),
+    };
+    return process.env.NODE_ENV === 'production' ? JSON.stringify(errorInfo) : inspect(errorInfo);
+  }
+
   if (!isObjectType(o)) return String(o);
   try {
     const value = instanceToPlain(o);

@@ -116,10 +116,17 @@ export class LoggerInterceptor implements NestInterceptor {
         ? (Reflect.get(req.user, 'userId') as string | undefined)
         : undefined;
 
+    // 获取 spanId 用于构建 traceparent
+    const spanId = currentSpan?.spanContext()?.spanId || crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+
     return RequestContext.run({ traceId, userId: userIdFromRequest ?? null }, () => {
       if (res && res.getHeader && res.setHeader && traceId) {
         const isSse = res.getHeader('Content-Type') === 'text/event-stream';
         if (!isSse) {
+          // W3C Trace Context 标准格式: 00-{traceId}-{spanId}-{flags}
+          // flags: 01 表示已采样
+          res.setHeader('traceparent', `00-${traceId}-${spanId}-01`);
+          // 保留 X-Trace-Id 向后兼容
           res.setHeader('X-Trace-Id', traceId);
         }
       }
