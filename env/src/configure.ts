@@ -6,6 +6,7 @@ import { NODE_ENV } from './env';
 
 import os from 'node:os';
 import path from 'path';
+import fs from 'node:fs';
 
 import { config } from '@dotenvx/dotenvx';
 import { plainToInstance, Transform, Type } from 'class-transformer';
@@ -275,7 +276,9 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const envFilePath = (() => {
       switch (process.env.NODE_ENV) {
         case NODE_ENV.Test:
-          return ['.env.local', '.env.test'];
+          // 测试环境应保持隔离：不要加载开发者本地的 `.env.local`（可能包含代理/证书等本机配置，甚至干扰解析）。
+          // 允许使用可选的 `.env.test.local` 覆盖测试配置。
+          return ['.env.test.local', '.env.test'];
         case NODE_ENV.Production:
           return ['.env.local', '.env'];
         default:
@@ -291,6 +294,11 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
       const fullPath = path.resolve(process.env.PWD || '', env);
       if (this.sys && isConfigureDebugEnabled()) this.logger.log(f`envFilePath: ${fullPath}`);
+      // dotenvx 对于缺失文件会输出一条 “injecting env (0)” 的噪音日志（即使配置了 ignore MISSING_ENV_FILE）。
+      // 这里主动跳过不存在的文件，保持启动/测试输出干净。
+      if (!fs.existsSync(fullPath)) {
+        return;
+      }
       config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
     });
     this.vars = this.validate();
