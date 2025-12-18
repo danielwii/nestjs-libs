@@ -18,7 +18,7 @@ import { stripIndent } from 'common-tags';
 import compression from 'compression';
 import { RedisStore } from 'connect-redis';
 import cookieParser from 'cookie-parser';
-import { json } from 'express';
+import { json, type NextFunction, type Request, type Response } from 'express';
 import session from 'express-session';
 import { graphqlUploadExpress } from 'graphql-upload-ts';
 import helmet from 'helmet';
@@ -167,6 +167,18 @@ export async function bootstrap(
   app.use(cookieParser());
 
   app.disable('x-powered-by');
+
+  // 标准化 X-Forwarded-For header
+  // Node.js 会把多个同名 header 合并成数组，但 morgan 的 forwarded 库期望字符串
+  // 按 RFC 7239，多个 header 应视为逗号分隔的列表，第一个 IP 是真实客户端
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const xff = req.headers['x-forwarded-for'];
+    if (Array.isArray(xff)) {
+      req.headers['x-forwarded-for'] = xff.join(', ');
+    }
+    next();
+  });
+
   app.use(morgan('combined'));
 
   app.use(
