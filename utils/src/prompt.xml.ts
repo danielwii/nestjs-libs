@@ -608,7 +608,7 @@ function generateXmlPromptContent(data: PromptSpecSchema & { schema?: z.ZodSchem
   const metadataSection = metadataParts.length > 0 ? metadataParts.join('\n') : undefined;
 
   const languagePart = data.language
-    ? `<language priority="critical">Use "${data.language}" as the main response language.</language>`
+    ? `<language priority="critical">Use "${data.language}" as the default response language. Switch to another language if the user explicitly requests it.</language>`
     : undefined;
 
   return _.compact([
