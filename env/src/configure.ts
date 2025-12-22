@@ -437,8 +437,8 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           isDatabaseField,
           format,
           description,
-          defaultValue: (originalEnvs as any)[field], // 用于写 DB (Env Value)
-          value: (activeEnvs as any)[field], // 用于读 DB (可能已经被污染，但这里我们只用它来做 log)
+          defaultValue: (originalEnvs as Record<string, unknown>)[field], // 用于写 DB (Env Value)
+          value: (activeEnvs as Record<string, unknown>)[field], // 用于读 DB (可能已经被污染，但这里我们只用它来做 log)
         };
       }),
       R.filter(({ isDatabaseField }) => !!isDatabaseField),
@@ -510,7 +510,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           const newVar = {
             key: field,
             value: null, // 新记录初始值为空，由 Env 决定
-            defaultValue: defaultVal as string | null,
+            defaultValue: defaultVal,
             format: format as string,
             description: description as string | null,
           };
@@ -534,10 +534,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const dbValue = appSetting.value;
       const equal = R.isDeepEqual(value, dbValue);
 
-      // 更新环境变量值 (用 DB Value 覆盖内存里的 activeEnvs)
+      // 更新环境变量值 (用 DB Value覆盖内存里的 activeEnvs)
       if (!R.isNullish(appSetting.value) && !equal) {
         Logger.log(f`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${dbValue}"`, 'AppConfigure');
-        (activeEnvs as any)[field] = dbValue;
+        (activeEnvs as Record<string, unknown>)[field] = dbValue;
       }
 
       // 检查并更新默认值和描述 (始终以 originalEnvs 为准)

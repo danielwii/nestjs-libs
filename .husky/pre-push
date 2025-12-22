@@ -1,0 +1,6 @@
+# 最后的防线：Push 之前跑全量检查
+echo "🚀 Running full checks before push..."
+
+bun run typecheck
+bun run lint
+bun test
