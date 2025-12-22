@@ -39,11 +39,9 @@ jobs:
         set -o pipefail
         
         # 运行测试，捕获输出
-        # 注意：Bun 的颜色代码可能会干扰 Markdown，但在 logs 里看很爽
-        # 我们用 > log 存文件，同时 tee 到 stdout 让 Action log 也能看到
         bun test --coverage 2>&1 | tee test-output.log
         
-        TEST_EXIT_CODE=${PIPESTATUS[0]}
+        TEST_EXIT_CODE=$?
         
         # --- 生成 GitHub Summary ---
         echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
@@ -57,15 +55,14 @@ jobs:
         
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📊 Coverage Report" >> $GITHUB_STEP_SUMMARY
-        echo "`text`" >> $GITHUB_STEP_SUMMARY
+        echo '```text' >> $GITHUB_STEP_SUMMARY
         # 尝试提取覆盖率表格（从 'File' 开始到结束）
-        # 如果找不到 File 关键字，就打印最后 30 行
         if grep -q "File" test-output.log; then
           sed -n '/File/,$p' test-output.log >> $GITHUB_STEP_SUMMARY
         else
           tail -n 30 test-output.log >> $GITHUB_STEP_SUMMARY
         fi
-        echo "```" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
         
         # 如果测试失败，抛出错误中止 Action
         exit $TEST_EXIT_CODE
