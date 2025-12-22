@@ -13,8 +13,8 @@ import { config } from '@dotenvx/dotenvx';
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import JSON5 from 'json5';
-import _ from 'lodash';
-import * as R from 'remeda';
+import lodash from 'lodash';
+import * as _ from 'radash';
 
 import type { TransformFnParams } from 'class-transformer';
 
@@ -226,7 +226,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   get hostIndex() {
     const part = this.hostname.split('-').pop();
-    return R.isString(part) ? +part : null;
+    return typeof part === 'string' ? +part : null;
   }
 
   /**
@@ -248,9 +248,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   }): boolean {
     try {
       const host = hostId ?? 0;
-      this.hostKeys[host] = R.concat(this.hostKeys[host] ?? [], [key]);
+      this.hostKeys[host] = [...(this.hostKeys[host] ?? []), key];
       const index = this.hostIndex;
-      const on = R.isNullish(index) ? !!acceptWhenNoIds : index === host;
+      const on = index == null ? !!acceptWhenNoIds : index === host;
       this.logger.debug(f`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`);
       return on;
     } catch (_e: unknown) {
@@ -332,7 +332,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     })();
 
     if (this.sys && isConfigureDebugEnabled()) this.logger.log(f`load env from paths: ${envFilePath}`);
-    R.forEach(envFilePath, (env) => {
+    envFilePath.forEach((env) => {
       // 使用 process.env.PWD 而不是 process.cwd() 的原因：
       // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
       // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
@@ -347,7 +347,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
     });
     this.vars = this.validate();
-    this.originalVars = _.cloneDeep(this.vars); // 创建副本
+    this.originalVars = lodash.cloneDeep(this.vars); // 创建副本
   }
 
   private validate() {
@@ -363,7 +363,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
       if (errors.length > 0) {
         this.logger.warn(`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`);
-        console.log(R.map(errors, (e) => `${e.property}=`).join('\n'));
+        console.log(errors.map((e) => `${e.property}=`).join('\n'));
         throw new Error(errors.map((e) => e.property).join(', '));
       }
 
@@ -371,11 +371,11 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       if (isConfigureDebugEnabled()) {
         if (this.sys) {
           // display all envs not includes _ENABLE and not starts with APP_
-          R.forEachObj(validatedConfig, (value, key) => {
+          Object.entries(validatedConfig as object).forEach(([key, value]) => {
             if (
               key.includes('_ENABLE') ||
               key.startsWith('APP_') ||
-              !R.isIncludedIn(key as string, AbstractEnvironmentVariables.allFields) ||
+              !AbstractEnvironmentVariables.allFields.includes(key) ||
               ['logger'].includes(key)
             )
               return;
@@ -388,24 +388,16 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           });
         }
 
-        R.forEachObj(validatedConfig, (value, key) => {
-          if (
-            !this.sys &&
-            !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
-          )
-            return; // exclude sys envs
+        Object.entries(validatedConfig as object).forEach(([key, value]) => {
+          if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return; // exclude sys envs
           const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
           if (key.includes('_ENABLE'))
             this.logger.log(
               f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
             );
         });
-        R.forEachObj(validatedConfig, (value, key) => {
-          if (
-            !this.sys &&
-            !R.isIncludedIn(key as string, Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype))
-          )
-            return; // exclude sys envs
+        Object.entries(validatedConfig as object).forEach(([key, value]) => {
+          if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return; // exclude sys envs
           const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
           if (key.startsWith('APP_'))
             this.logger.log(
@@ -425,9 +417,8 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
   }
 
   static async syncFromDB<T extends object>(prisma: ISysAppSettingClient, originalEnvs: T, activeEnvs: T) {
-    const fields = R.pipe(
-      Object.getOwnPropertyNames(originalEnvs),
-      R.map((field) => {
+    const fields = Object.getOwnPropertyNames(originalEnvs)
+      .map((field) => {
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, originalEnvs, field);
         const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, originalEnvs, field);
         const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, originalEnvs, field);
@@ -440,13 +431,12 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           defaultValue: (originalEnvs as Record<string, unknown>)[field], // 用于写 DB (Env Value)
           value: (activeEnvs as Record<string, unknown>)[field], // 用于读 DB (可能已经被污染，但这里我们只用它来做 log)
         };
-      }),
-      R.filter(({ isDatabaseField }) => !!isDatabaseField),
-    );
+      })
+      .filter(({ isDatabaseField }) => !!isDatabaseField);
 
     // 仅在有变更时才打印详细日志，避免每次同步都输出大量重复信息
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
-    const appSettings = R.map(await prisma.sysAppSetting.findMany(), ({ value, format, ...rest }) =>
+    const appSettings = (await prisma.sysAppSetting.findMany()).map(({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' && value != null ? JSON.parse(value) : value, format }),
     ) as Array<{
@@ -458,8 +448,8 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       deprecatedAt?: Date | null;
     }>;
 
-    const fieldNamesInCode = R.map(fields, (f) => f.field);
-    const fieldNamesInDB = R.map(appSettings, (s) => s.key);
+    const fieldNamesInCode = fields.map((f) => f.field);
+    const fieldNamesInDB = appSettings.map((s) => s.key);
 
     // =====================================================
     // 软删除：标记数据库中存在但代码中已删除的配置为 deprecated
@@ -468,33 +458,33 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // - 便于审计和回滚（如果配置被误删除）
     // - 定期清理可由 DBA 或定时任务执行
     // =====================================================
-    const orphanSettings = R.filter(appSettings, (s) => !fieldNamesInCode.includes(s.key) && !s.deprecatedAt);
+    const orphanSettings = appSettings.filter((s) => !fieldNamesInCode.includes(s.key) && !s.deprecatedAt);
     if (orphanSettings.length > 0) {
       Logger.log(
-        f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${R.map(orphanSettings, (s) => s.key).join(', ')}`,
+        f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`,
         'AppConfigure',
       );
       await prisma.sysAppSetting.updateMany({
-        where: { key: { in: R.map(orphanSettings, (s) => s.key) } },
+        where: { key: { in: orphanSettings.map((s) => s.key) } },
         data: { deprecatedAt: new Date() },
       });
     }
 
     // 恢复：如果配置被重新添加到代码中，清除 deprecatedAt 标记
-    const restoredSettings = R.filter(appSettings, (s) => fieldNamesInCode.includes(s.key) && Boolean(s.deprecatedAt));
+    const restoredSettings = appSettings.filter((s) => fieldNamesInCode.includes(s.key) && Boolean(s.deprecatedAt));
     if (restoredSettings.length > 0) {
       Logger.log(
-        f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${R.map(restoredSettings, (s) => s.key).join(', ')}`,
+        f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`,
         'AppConfigure',
       );
       await prisma.sysAppSetting.updateMany({
-        where: { key: { in: R.map(restoredSettings, (s) => s.key) } },
+        where: { key: { in: restoredSettings.map((s) => s.key) } },
         data: { deprecatedAt: null },
       });
     }
 
     // 如何 appSettings 中不存在，则用当前的值更新
-    const nonExistsFields = R.filter(fields, ({ field }) => !fieldNamesInDB.includes(field));
+    const nonExistsFields = fields.filter(({ field }) => !fieldNamesInDB.includes(field));
 
     if (nonExistsFields.length > 0) {
       Logger.log(f`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`, 'AppConfigure');
@@ -522,20 +512,20 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     }
 
     // 如何 appSettings 中存在，则用当前的值更新 envs
-    const existsFields = R.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
+    const existsFields = fields.filter(({ field }) => fieldNamesInDB.includes(field));
 
     for (const { field, value, defaultValue, description, format } of existsFields) {
-      const appSetting = R.find(appSettings, (setting) => setting.key === field);
+      const appSetting = appSettings.find((setting) => setting.key === field);
       if (!appSetting) {
         Logger.warn(f`#syncFromDB appSetting not found for ${field}`, 'AppConfigure');
         continue;
       }
 
       const dbValue = appSetting.value;
-      const equal = R.isDeepEqual(value, dbValue);
+      const equal = lodash.isEqual(value, dbValue);
 
       // 更新环境变量值 (用 DB Value覆盖内存里的 activeEnvs)
-      if (!R.isNullish(appSetting.value) && !equal) {
+      if (appSetting.value != null && !equal) {
         Logger.log(f`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${dbValue}"`, 'AppConfigure');
         (activeEnvs as Record<string, unknown>)[field] = dbValue;
       }
@@ -560,7 +550,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       // 执行更新
-      if (!R.isEmpty(updates)) {
+      if (!lodash.isEmpty(updates)) {
         Logger.log(f`#syncFromDB 更新元数据: ${field} ${JSON.stringify(updates)}`, 'AppConfigure');
         try {
           // 首先检查记录是否存在

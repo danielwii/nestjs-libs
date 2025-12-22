@@ -5,7 +5,7 @@ import util from 'node:util';
 
 import { instanceToPlain } from 'class-transformer';
 import JSON5 from 'json5';
-import { isObjectType } from 'remeda';
+import * as _ from 'radash';
 
 /**
  * 主要用于日志中复杂数据结构的打印
@@ -33,7 +33,7 @@ export function r(o: unknown): string {
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(errorInfo) : inspect(errorInfo);
   }
 
-  if (!isObjectType(o)) return String(o);
+  if (typeof o !== 'object' || o === null || Array.isArray(o)) return String(o);
   try {
     const value = instanceToPlain(o);
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(value) : inspect(value);
