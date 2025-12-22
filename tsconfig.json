@@ -4,6 +4,7 @@
     "target": "esnext",
     "moduleResolution": "bundler",
     "strict": true,
+    "noImplicitReturns": true,
     "baseUrl": ".",
     "paths": {
       "@app/utils/*": ["utils/src/*"],

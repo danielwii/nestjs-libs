@@ -1,4 +1,13 @@
-import { normalizeTimezone, parseTimezoneOffset } from './datetime';
+import {
+  formatDateToYmd,
+  isValidYmdDate,
+  normalizeTimezone,
+  normalizeTimezoneWithLog,
+  parseTimezoneOffset,
+  parseYmdToUtcDate,
+} from './datetime';
+
+import { describe, expect, it, jest } from '@jest/globals';
 
 /**
  * 时区规范化工具测试
@@ -123,6 +132,21 @@ describe('timezone.helper', () => {
         expect(normalizeTimezone(' Asia/Shanghai ')).toBe('Asia/Shanghai');
       });
     });
+
+    describe('normalizeTimezoneWithLog', () => {
+      it('应该正常转换并在差异时调用 logger', () => {
+        const logger = { debug: jest.fn() };
+        const result = normalizeTimezoneWithLog('+8', logger, 'TestCtx');
+        expect(result).toBe('Asia/Shanghai');
+        expect(logger.debug).toHaveBeenCalledWith('[TestCtx] 时区格式转换: "+8" -> "Asia/Shanghai"');
+      });
+
+      it('如果没有差异则不调用 logger', () => {
+        const logger = { debug: jest.fn() };
+        normalizeTimezoneWithLog('Asia/Shanghai', logger);
+        expect(logger.debug).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('parseTimezoneOffset', () => {
@@ -169,6 +193,47 @@ describe('timezone.helper', () => {
 
       it('应该将无效格式返回默认值 8', () => {
         expect(parseTimezoneOffset('invalid')).toBe(8);
+      });
+    });
+  });
+
+  describe('YMD Utilities', () => {
+    describe('formatDateToYmd', () => {
+      it('应该正确格式化 UTC 日期', () => {
+        const date = new Date(Date.UTC(2023, 11, 25));
+        expect(formatDateToYmd(date)).toBe('2023-12-25');
+      });
+
+      it('null 输入应返回 null', () => {
+        expect(formatDateToYmd(null)).toBeNull();
+      });
+    });
+
+    describe('parseYmdToUtcDate', () => {
+      it('应该正确解析有效的 YMD', () => {
+        const date = parseYmdToUtcDate('2023-12-25');
+        expect(date.getUTCFullYear()).toBe(2023);
+        expect(date.getUTCMonth()).toBe(11);
+        expect(date.getUTCDate()).toBe(25);
+      });
+
+      it('无效格式应抛出错误', () => {
+        expect(() => parseYmdToUtcDate('invalid')).toThrow('Invalid YMD format');
+      });
+
+      it('无效日期应抛出错误', () => {
+        expect(() => parseYmdToUtcDate('2023-02-30')).toThrow('Invalid YMD calendar date');
+      });
+    });
+
+    describe('isValidYmdDate', () => {
+      it('有效日期返回 true', () => {
+        expect(isValidYmdDate('2023-12-25')).toBe(true);
+      });
+
+      it('无效日期返回 false', () => {
+        expect(isValidYmdDate('2023-02-30')).toBe(false);
+        expect(isValidYmdDate('invalid')).toBe(false);
       });
     });
   });

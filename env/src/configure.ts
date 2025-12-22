@@ -225,7 +225,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   get hostIndex() {
     const part = this.hostname.split('-').pop();
-    return typeof part === 'string' ? +part : null;
+    const index = typeof part === 'string' ? +part : null;
+    return typeof index === 'number' && !isNaN(index) ? index : null;
   }
 
   /**

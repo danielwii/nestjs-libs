@@ -1,4 +1,10 @@
-import { TimeSensitivity } from './prompt';
+import {
+  createEnhancedPrompt,
+  createPrompt as createLegacyPrompt,
+  customJsonFormatSupportOutput,
+  generateJsonFormat,
+  TimeSensitivity,
+} from './prompt';
 import { PromptSpec, PromptSpecBuilder } from './prompt.xml';
 
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
@@ -62,12 +68,6 @@ describe('PromptSpec', () => {
         { title: 'conversation_history', content: '对话历史', purpose: '用于参考' },
         { title: 'empty_context' },
       ],
-      // output: {
-      //   type: 'string', // 默认 string
-      //   // schema: z.string(),
-      //   useCoT: true, // 嵌套 schema 为 result，没有 schema 时再在 xml 的 output 中输出 output
-      //   debug: true,
-      // },
       language: '中文',
     };
 
@@ -80,7 +80,6 @@ describe('PromptSpec', () => {
         temperature: 0.5,
         maxOutputTokens: 1000,
       },
-      // 自由传，用于扩展 PromptSpec 的功能
       extra: {
         includeSystemPrompt: true,
         systemPrompt: stripIndent`
@@ -89,9 +88,7 @@ describe('PromptSpec', () => {
       },
     });
 
-    // 测试默认行为（包含输出）
     const promptWithOutput = builder.build();
-    console.log(promptWithOutput);
     expect(builder.llmOptions).toEqual({
       model: 'gpt-4.1-mini',
       temperature: 0.5,
@@ -275,42 +272,83 @@ describe('PromptSpecBuilder', () => {
 
   it('应该正确处理旧格式时区 "+8"', () => {
     const builder = new PromptSpecBuilder('tz-test', '1.0').setRole('测试').setObjective('验证时区');
-
-    const prompt = builder
-      .buildPromptSpec({
-        tz: '+8', // 旧格式，应该自动转换为 Asia/Shanghai
-        sensitivity: TimeSensitivity.Minute,
-      })
-      .build();
-
-    // 应该包含正确的时间戳（18:30 对应 UTC+8）
+    const prompt = builder.buildPromptSpec({ tz: '+8', sensitivity: TimeSensitivity.Minute }).build();
     expect(prompt).toContain('Now:2024-01-15 Monday 18:30 in the evening');
   });
 
   it('应该正确处理新格式时区 "+08:00"', () => {
     const builder = new PromptSpecBuilder('tz-test', '1.0').setRole('测试').setObjective('验证时区');
-
-    const prompt = builder
-      .buildPromptSpec({
-        tz: '+08:00', // 新格式，应该自动转换为 Asia/Shanghai
-        sensitivity: TimeSensitivity.Minute,
-      })
-      .build();
-
+    const prompt = builder.buildPromptSpec({ tz: '+08:00', sensitivity: TimeSensitivity.Minute }).build();
     expect(prompt).toContain('Now:2024-01-15 Monday 18:30 in the evening');
   });
 
   it('应该正确处理 IANA 格式时区 "Asia/Tokyo"', () => {
     const builder = new PromptSpecBuilder('tz-test', '1.0').setRole('测试').setObjective('验证时区');
-
-    const prompt = builder
-      .buildPromptSpec({
-        tz: 'Asia/Tokyo', // IANA 格式，直接使用
-        sensitivity: TimeSensitivity.Minute,
-      })
-      .build();
-
-    // UTC+9，所以是 19:30
+    const prompt = builder.buildPromptSpec({ tz: 'Asia/Tokyo', sensitivity: TimeSensitivity.Minute }).build();
     expect(prompt).toContain('Now:2024-01-15 Monday 19:30 in the evening');
+  });
+});
+
+describe('Prompt Utilities', () => {
+  it('generateJsonFormat 应该生成正确的 JSON 字符串', () => {
+    const schema = z.object({
+      foo: z.string().describe('foo field'),
+      bar: z.number().optional(),
+    });
+    const result = generateJsonFormat(schema, 2);
+    expect(result).toContain('"foo"');
+    expect(result).toContain('"foo"');
+    expect(result).toContain('"bar"');
+  });
+
+  it('createLegacyPrompt 应该正确渲染 Handlebars 模板', () => {
+    const data = {
+      purpose: '测试目的',
+      instructions: '测试指令',
+      requirements: ['要求1', '要求2'],
+      context: [{ title: 'Context1', content: '内容1' }],
+    };
+    const prompt = createLegacyPrompt('legacy-test', 'UTC', TimeSensitivity.Day, data);
+
+    expect(prompt).toContain('[legacy-test]');
+    expect(prompt).toContain('测试目的');
+    expect(prompt).toContain('测试指令');
+    expect(prompt).toContain('- 要求1');
+    expect(prompt).toContain('- 要求2');
+    expect(prompt).toContain('<Context1>');
+    expect(prompt).toContain('内容1');
+  });
+
+  it('createEnhancedPrompt 应该生成 prompt 和 logicErrorPromptCreator', () => {
+    const { prompt, logicErrorPromptCreator } = createEnhancedPrompt({
+      id: 'enhanced',
+      version: 'v1',
+      timezone: 'UTC',
+      sensitivity: TimeSensitivity.Day,
+      data: { purpose: '基础目的' },
+      logicErrorContext: {
+        background: '逻辑背景',
+        condition: (res) => (res as Record<string, unknown>).error === true,
+      },
+    });
+
+    expect(prompt).toContain('[enhanced-v1]');
+    expect(logicErrorPromptCreator).toBeDefined();
+
+    const fixerPrompt = logicErrorPromptCreator!({ error: true });
+    expect(fixerPrompt).toContain('你是逻辑问题修复专家');
+    expect(fixerPrompt).toContain('逻辑背景');
+    expect(fixerPrompt).toContain('"error":true');
+
+    const noFixer = logicErrorPromptCreator!({ error: false });
+    expect(noFixer).toBeNull();
+  });
+
+  it('customJsonFormatSupportOutput 应该生成正确的输出指引', () => {
+    const schema = z.object({ a: z.string() });
+    const result = customJsonFormatSupportOutput(schema, { injectJsonFormat: true, output: '附加指令' });
+    expect(result).toContain('严格输出符合 Schema 定义的 JSON 格式');
+    expect(result).toContain('--- RESPONSE TypeScript Schema JSON FORMAT---');
+    expect(result).toContain('附加指令');
   });
 });

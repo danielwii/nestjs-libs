@@ -296,6 +296,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       statusCode: status,
       message,
     });
+    return;
   }
 
   /**
