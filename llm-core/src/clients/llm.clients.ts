@@ -27,6 +27,8 @@
 
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createOpenAI } from '@ai-sdk/openai';
+import { embed } from 'ai';
 import { SysEnv, SysProxy } from '@app/env';
 import { ApiFetcher } from '@app/utils';
 import type { LanguageModel } from 'ai';
@@ -37,6 +39,7 @@ import type { LanguageModel } from 'ai';
 
 let _openrouter: ReturnType<typeof createOpenRouter> | null = null;
 let _google: ReturnType<typeof createGoogleGenerativeAI> | null = null;
+let _openai: ReturnType<typeof createOpenAI> | null = null;
 
 // ============================================================================
 // OpenRouter 客户端
@@ -82,16 +85,16 @@ export const openrouter = (modelId: string): LanguageModel => getOpenRouter()(mo
  * 获取 Google AI 客户端单例
  *
  * 自动使用：
- * - SysEnv.GOOGLE_API_KEY
+ * - SysEnv.GOOGLE_GENERATIVE_AI_API_KEY
  * - ApiFetcher.undiciFetch（带代理）
  */
 function getGoogle() {
   if (!_google) {
-    if (!SysEnv.GOOGLE_API_KEY) {
-      throw new Error('GOOGLE_API_KEY is not configured in SysEnv');
+    if (!SysEnv.GOOGLE_GENERATIVE_AI_API_KEY) {
+      throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is not configured in SysEnv');
     }
     _google = createGoogleGenerativeAI({
-      apiKey: SysEnv.GOOGLE_API_KEY,
+      apiKey: SysEnv.GOOGLE_GENERATIVE_AI_API_KEY,
       fetch: ApiFetcher.undiciFetch,
     });
   }
@@ -124,7 +127,7 @@ export function getLLMClientStatus() {
       initialized: !!_openrouter,
     },
     google: {
-      configured: !!SysEnv.GOOGLE_API_KEY,
+      configured: !!SysEnv.GOOGLE_GENERATIVE_AI_API_KEY,
       initialized: !!_google,
     },
     proxy: {
@@ -140,4 +143,64 @@ export function getLLMClientStatus() {
 export function resetLLMClients() {
   _openrouter = null;
   _google = null;
+  _openai = null;
+}
+
+// ============================================================================
+// OpenAI 客户端（用于 Embedding）
+// ============================================================================
+
+/**
+ * 获取 OpenAI 客户端单例
+ *
+ * 自动使用：
+ * - SysEnv.OPENAI_API_KEY
+ * - ApiFetcher.undiciFetch（带代理）
+ */
+function getOpenAI() {
+  if (!_openai) {
+    if (!SysEnv.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured in SysEnv');
+    }
+    _openai = createOpenAI({
+      apiKey: SysEnv.OPENAI_API_KEY,
+      fetch: ApiFetcher.undiciFetch,
+    });
+  }
+  return _openai;
+}
+
+// ============================================================================
+// Embedding 函数
+// ============================================================================
+
+/** Embedding 模型类型 */
+export type EmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large';
+
+/**
+ * 生成文本的 Embedding 向量
+ *
+ * 使用 OpenAI 的 embedding 模型：
+ * - text-embedding-3-small: 1536 维，性价比高（默认）
+ * - text-embedding-3-large: 3072 维，更高精度
+ *
+ * @example
+ * ```typescript
+ * import { embedding } from '@app/llm-core';
+ *
+ * // 默认使用 text-embedding-3-small (1536 维)
+ * const vector = await embedding('some text');
+ *
+ * // 使用更高精度模型 (3072 维)
+ * const vector = await embedding('some text', 'text-embedding-3-large');
+ * ```
+ */
+export async function embedding(
+  text: string,
+  model: EmbeddingModel = 'text-embedding-3-small',
+): Promise<number[]> {
+  const openai = getOpenAI();
+  const embeddingModel = openai.textEmbeddingModel(model);
+  const result = await embed({ model: embeddingModel, value: text });
+  return result.embedding;
 }

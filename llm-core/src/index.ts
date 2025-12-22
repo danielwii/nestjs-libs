@@ -29,3 +29,7 @@ export * from './providers';
 
 // Clients (SDK helpers with proxy support)
 export * from './clients';
+
+// Re-export useful types from AI SDK
+export type { ProviderOptions } from '@ai-sdk/provider-utils';
+export type { CoreMessage, LanguageModel } from 'ai';

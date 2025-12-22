@@ -40,15 +40,20 @@ export interface LLMModelRegistry {
   'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>;
   'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>;
   'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
+  'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
   'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>;
   'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>;
   'openrouter:claude-4-sonnet': ModelConfig<'openrouter'>;
+  'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>;
   'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>;
+  'openrouter:grok-3-mini': ModelConfig<'openrouter'>;
+  'openrouter:grok-4-fast': ModelConfig<'openrouter'>;
 
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
   'google:gemini-2.5-pro': ModelConfig<'google'>;
   'google:gemini-2.5-flash-lite': ModelConfig<'google'>;
+  'google:gemini-3-flash-preview': ModelConfig<'google'>;
 }
 
 /**
@@ -69,15 +74,20 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:gemini-2.5-flash', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash' }],
   ['openrouter:gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
   ['openrouter:gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
+  ['openrouter:gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
   ['openrouter:claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
   ['openrouter:claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku-20241022' }],
   ['openrouter:claude-4-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' }],
+  ['openrouter:claude-4.1-opus', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
   ['openrouter:gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
+  ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
+  ['openrouter:grok-4-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4-fast' }],
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],
   ['google:gemini-2.5-pro', { provider: 'google', modelId: 'gemini-2.5-pro' }],
   ['google:gemini-2.5-flash-lite', { provider: 'google', modelId: 'gemini-2.5-flash-lite' }],
+  ['google:gemini-3-flash-preview', { provider: 'google', modelId: 'gemini-3-flash-preview' }],
 ]);
 
 // ==================== 注册函数 ====================
@@ -150,3 +160,4 @@ export function getModelsByProvider(provider: LLMProviderType): string[] {
     .filter(([, config]) => config.provider === provider)
     .map(([key]) => key);
 }
+

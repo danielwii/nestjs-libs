@@ -118,8 +118,23 @@ import {
   generateObject as aiGenerateObject,
   streamObject as aiStreamObject,
   type CoreMessage,
+  type TelemetrySettings,
 } from 'ai';
 import type { z } from 'zod';
+
+/**
+ * Telemetry 元数据（传递给 Langfuse）
+ */
+export interface TelemetryMeta {
+  /** 用户 ID */
+  userId?: string;
+  /** 会话 ID（对应 Langfuse sessionId） */
+  sessionId?: string;
+  /** 标签 */
+  tags?: string[];
+  /** 父观察 ID（用于嵌套 trace） */
+  parentObservationId?: string;
+}
 
 /**
  * 通用配置选项（非核心参数）
@@ -189,6 +204,8 @@ class LLMBuilder {
   private _system?: string;
   private _opts: LLMOpts = {};
   private _thinkingOptions: Record<string, unknown> = {};
+  private _signal?: AbortSignal;
+  private _telemetry?: TelemetryMeta;
 
   constructor(key: LLMModelKey) {
     this._key = key;
@@ -216,6 +233,38 @@ class LLMBuilder {
     return this;
   }
 
+  /** 设置推理 token 数量（更精细控制） */
+  thinkingTokens(tokens: number): this {
+    if (this._provider === 'openrouter') {
+      this._thinkingOptions = { openrouter: { reasoning: { max_tokens: tokens } } };
+    } else if (this._provider === 'google') {
+      this._thinkingOptions = { google: { thinkingConfig: { thinkingBudget: tokens } } };
+    }
+    return this;
+  }
+
+  /** 设置中断信号（undefined 时忽略） */
+  signal(signal: AbortSignal | undefined): this {
+    if (signal) this._signal = signal;
+    return this;
+  }
+
+  /**
+   * 设置 Telemetry 元数据（传递给 Langfuse）
+   *
+   * @example
+   * ```typescript
+   * llm('openrouter:gemini-2.5-flash')
+   *   .telemetry({ userId: 'user123', sessionId: 'thread456' })
+   *   .messages([...])
+   *   .streamText();
+   * ```
+   */
+  telemetry(meta: TelemetryMeta): this {
+    this._telemetry = meta;
+    return this;
+  }
+
   /** 设置消息 */
   messages(msgs: CoreMessage[]): this {
     this._messages = msgs;
@@ -237,6 +286,21 @@ class LLMBuilder {
     } as unknown as ProviderOptions;
   }
 
+  private _buildTelemetry(): TelemetrySettings | undefined {
+    if (!this._telemetry) return undefined;
+
+    const metadata: Record<string, string | string[]> = {};
+    if (this._telemetry.userId) metadata.userId = this._telemetry.userId;
+    if (this._telemetry.sessionId) metadata.sessionId = this._telemetry.sessionId;
+    if (this._telemetry.tags?.length) metadata.tags = this._telemetry.tags;
+    if (this._telemetry.parentObservationId) metadata.parentObservationId = this._telemetry.parentObservationId;
+
+    return {
+      isEnabled: true,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    };
+  }
+
   /** 流式文本生成 */
   streamText() {
     return aiStreamText({
@@ -246,6 +310,8 @@ class LLMBuilder {
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxTokens,
+      abortSignal: this._signal,
+      experimental_telemetry: this._buildTelemetry(),
     });
   }
 
@@ -258,6 +324,8 @@ class LLMBuilder {
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxTokens,
+      abortSignal: this._signal,
+      experimental_telemetry: this._buildTelemetry(),
     });
   }
 
@@ -272,6 +340,8 @@ class LLMBuilder {
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxTokens,
+      abortSignal: this._signal,
+      experimental_telemetry: this._buildTelemetry(),
     });
   }
 
@@ -286,6 +356,8 @@ class LLMBuilder {
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxTokens,
+      abortSignal: this._signal,
+      experimental_telemetry: this._buildTelemetry(),
     });
   }
 

@@ -147,7 +147,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   // ==================== LLM API Keys ====================
   @IsString() @IsOptional() OPENROUTER_API_KEY?: string;
-  @IsString() @IsOptional() GOOGLE_API_KEY?: string;
+  @IsString() @IsOptional() GOOGLE_GENERATIVE_AI_API_KEY?: string;
+  @IsString() @IsOptional() OPENAI_API_KEY?: string;
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
   @IsString() DATABASE_URL!: string;

@@ -628,19 +628,14 @@ function generateXmlPromptContent(data: PromptSpecSchema & { schema?: z.ZodSchem
  * 定义与Language Model相关的配置选项
  */
 export interface LLMOptions {
-  /** 模型名称，如'gpt-4', 'claude-3-sonnet' */
+  /** 模型名称，如'google:gemini-2.5-flash' */
   model: string;
   /** 温度参数，控制输出的随机性 (0-2) */
   temperature: number;
   /** 最大输出token数 */
   maxOutputTokens: number;
-  /** 推理选项配置（用于启用 reasoning 功能） */
-  reasoning?: {
-    effort?: 'low' | 'medium' | 'high';
-    maxTokens?: number;
-    exclude?: boolean;
-    enabled?: boolean;
-  };
+  /** Thinking 强度配置，'low'/'medium'/'high' 或 false 禁用 */
+  thinking?: 'low' | 'medium' | 'high' | false;
 }
 
 /**
