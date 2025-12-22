@@ -24,7 +24,8 @@
  * ```
  */
 
-import type { LanguageModelV1 } from 'ai';
+import type { LanguageModel } from 'ai';
+import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import { getModel, getProvider, type LLMModelKey, type LLMProviderType } from '../types/model.types';
 import { openrouter, google } from './llm.clients';
 
@@ -41,7 +42,7 @@ import { openrouter, google } from './llm.clients';
  * model('google:gemini-2.5-flash')      // → 使用 google 客户端
  * ```
  */
-export function model(key: LLMModelKey): LanguageModelV1 {
+export function model(key: LLMModelKey): LanguageModel {
   const config = getModel(key);
   const provider = config.provider as LLMProviderType;
 
@@ -77,32 +78,32 @@ export const autoOpts = {
   /**
    * 禁用 Thinking（自动根据 provider 选择正确格式）
    */
-  noThinking(key: LLMModelKey | string) {
+  noThinking(key: LLMModelKey | string): ProviderOptions {
     const provider = parseProvider(key);
     switch (provider) {
       case 'openrouter':
-        return { openrouter: { reasoning: { exclude: true } } };
+        return { openrouter: { reasoning: { exclude: true } } } as unknown as ProviderOptions;
       case 'google':
-        return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+        return { google: { thinkingConfig: { thinkingBudget: 0 } } } as unknown as ProviderOptions;
       default:
-        return {};
+        return {} as ProviderOptions;
     }
   },
 
   /**
    * 设置推理强度（自动根据 provider 选择正确格式）
    */
-  thinking(key: LLMModelKey | string, effort: 'low' | 'medium' | 'high') {
+  thinking(key: LLMModelKey | string, effort: 'low' | 'medium' | 'high'): ProviderOptions {
     const provider = parseProvider(key);
-    const budgetMap = { low: 1024, medium: 4096, high: 8192 };
+    const budgetMap = { low: 1024, medium: 4096, high: 8192 } as const;
 
     switch (provider) {
       case 'openrouter':
-        return { openrouter: { reasoning: { effort } } };
+        return { openrouter: { reasoning: { effort } } } as unknown as ProviderOptions;
       case 'google':
-        return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } };
+        return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } } as unknown as ProviderOptions;
       default:
-        return {};
+        return {} as ProviderOptions;
     }
   },
 };
@@ -181,7 +182,7 @@ export function llm(key: LLMModelKey) {
 }
 
 class LLMBuilder {
-  private readonly _model: LanguageModelV1;
+  private readonly _model: LanguageModel;
   private readonly _key: LLMModelKey;
   private readonly _provider: LLMProviderType;
   private _messages: CoreMessage[] = [];
@@ -229,11 +230,11 @@ class LLMBuilder {
 
   // ========== 执行方法 ==========
 
-  private _buildProviderOptions(): Record<string, unknown> {
+  private _buildProviderOptions(): ProviderOptions {
     return {
       ...this._thinkingOptions,
       ...this._opts.providerOptions,
-    };
+    } as unknown as ProviderOptions;
   }
 
   /** 流式文本生成 */
@@ -244,7 +245,7 @@ class LLMBuilder {
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxTokens,
     });
   }
 
@@ -256,7 +257,7 @@ class LLMBuilder {
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxTokens,
     });
   }
 
@@ -264,12 +265,13 @@ class LLMBuilder {
   generateObject<T>(schema: z.ZodType<T>) {
     return aiGenerateObject({
       model: this._model,
+      output: 'object',
       schema,
       messages: this._messages,
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxTokens,
     });
   }
 
@@ -277,12 +279,13 @@ class LLMBuilder {
   streamObject<T>(schema: z.ZodType<T>) {
     return aiStreamObject({
       model: this._model,
+      output: 'object',
       schema,
       messages: this._messages,
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxTokens,
     });
   }
 

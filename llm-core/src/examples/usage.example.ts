@@ -52,6 +52,7 @@ export async function autoRouteGenerateObject() {
 
   const result = await generateObject({
     model: model(modelKey),
+    output: 'object',
     schema: z.object({ type: z.string(), color: z.string() }),
     messages: [{ role: 'user', content: '分析服装' }],
     providerOptions: autoOpts.thinking(modelKey, 'low'),
@@ -93,6 +94,7 @@ const GarmentSchema = z.object({
 export async function generateObjectExample(imageBase64: string) {
   const result = await generateObject({
     model: openrouter('google/gemini-2.5-flash'),
+    output: 'object',
     schema: GarmentSchema,
     messages: [
       {

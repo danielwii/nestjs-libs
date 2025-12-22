@@ -29,6 +29,7 @@ import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { SysEnv, SysProxy } from '@app/env';
 import { ApiFetcher } from '@app/utils';
+import type { LanguageModel } from 'ai';
 
 // ============================================================================
 // 单例缓存
@@ -71,7 +72,7 @@ function getOpenRouter() {
  * openrouter('openai/gpt-4o')
  * ```
  */
-export const openrouter = (modelId: string) => getOpenRouter()(modelId);
+export const openrouter = (modelId: string): LanguageModel => getOpenRouter()(modelId);
 
 // ============================================================================
 // Google AI 客户端
@@ -107,7 +108,7 @@ function getGoogle() {
  * google('gemini-2.5-flash-thinking')
  * ```
  */
-export const google = (modelId: string) => getGoogle()(modelId);
+export const google = (modelId: string): LanguageModel => getGoogle()(modelId);
 
 // ============================================================================
 // 客户端状态检查
