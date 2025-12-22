@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 import { named } from './annotation';
 import { f } from './logging';
 
-import _ from 'lodash';
+import * as _ from 'radash';
 import { from, Observable } from 'rxjs';
 
 export class ReactiveUtils {
@@ -14,7 +14,7 @@ export class ReactiveUtils {
     { validate, onComplete }: { validate: (message: string) => boolean; onComplete?: (message: string) => void },
     funcName?: string,
   ): Observable<string> {
-    if (!_.trim(key)) return from(generator);
+    if (!key.trim()) return from(generator);
 
     return new Observable((observer) => {
       let completed = false;
@@ -37,7 +37,7 @@ export class ReactiveUtils {
           let answer = '';
           try {
             for await (const value of generator) {
-              if (_.isNil(value)) continue;
+              if (value == null) continue;
 
               answer += value;
               observer.next(value);

@@ -19,7 +19,7 @@ import { f } from '@app/utils/logging';
 
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { GraphQLError } from 'graphql';
-import _ from 'lodash';
+import * as _ from 'radash';
 import { ZodError } from 'zod';
 
 import type { IdentityRequest } from '../types/identity.interface';
@@ -144,7 +144,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
           code: ErrorCodes.CLIENT_INPUT_ERROR,
           message: (exception as { message?: string })?.message ?? '',
           // statusCode: HttpStatus.BAD_REQUEST,
-          errors: _.get((exception as { getResponse?: () => unknown })?.getResponse?.(), 'message'),
+          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
         }),
       );
     }
@@ -168,7 +168,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
           code: ErrorCodes.CLIENT_RATE_LIMITED,
           message: (exception as { message?: string })?.message ?? '',
           // statusCode: HttpStatus.TOO_MANY_REQUESTS,
-          errors: _.get((exception as { getResponse?: () => unknown })?.getResponse?.(), 'message'),
+          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
         }),
       );
     }
@@ -181,7 +181,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
           code: ErrorCodes.CLIENT_AUTH_REQUIRED,
           message: (exception as { message?: string })?.message ?? '',
           // statusCode: HttpStatus.NOT_FOUND,
-          errors: _.get((exception as { getResponse?: () => unknown })?.getResponse?.(), 'message'),
+          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
         }),
       );
     }
@@ -196,7 +196,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
     }
     if (exception instanceof UnauthorizedException) {
-      const path = _.get(request, 'path');
+      const path = (request as unknown as { path?: string })?.path;
       this.logger.warn(
         f`(${request?.user?.uid})[${request?.ip}] UnauthorizedException ${(exception as { message?: string })?.message} ${path} ${(exception as { stack?: string })?.stack}`,
       );
@@ -205,7 +205,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
           code: ErrorCodes.CLIENT_AUTH_REQUIRED,
           message: (exception as { message?: string })?.message ?? '',
           // statusCode: HttpStatus.UNAUTHORIZED,
-          errors: _.get((exception as { getResponse?: () => unknown })?.getResponse?.(), 'message'),
+          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
         }),
       );
     }
@@ -218,7 +218,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
           code: ErrorCodes.BUSINESS_DATA_CONFLICT,
           message: (exception as { message?: string })?.message ?? '',
           // statusCode: HttpStatus.CONFLICT,
-          errors: _.get((exception as { getResponse?: () => unknown })?.getResponse?.(), 'message'),
+          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
         }),
       );
     }
@@ -242,7 +242,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
           code: cause,
           message: (exception as { message?: string })?.message ?? '',
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-          errors: _.get((exception as { getResponse?: () => unknown })?.getResponse?.(), 'message'),
+          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
         }),
       );
     }
@@ -262,7 +262,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       const message =
         typeof responseBody === 'string'
           ? responseBody
-          : _.get(responseBody, 'message', (exception as { message?: string })?.message);
+          : ((responseBody as { message?: string })?.message ?? (exception as { message?: string })?.message);
 
       if (status < (HttpStatus.INTERNAL_SERVER_ERROR as number)) {
         this.logger.warn(
@@ -274,7 +274,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
           ApiRes.failure({
             code: ErrorCodes.CLIENT_INPUT_ERROR,
             message: message ?? '',
-            errors: typeof responseBody === 'object' ? _.get(responseBody, 'message') : undefined,
+            errors: typeof responseBody === 'object' ? (responseBody as { message?: unknown })?.message : undefined,
           }),
         );
       }

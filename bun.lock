@@ -35,7 +35,6 @@
         "ioredis": "^5.8.2",
         "json5": "^2.2.3",
         "kleur": "^4.1.5",
-        "lodash": "^4.17.21",
         "luxon": "^3.7.2",
         "morgan": "^1.10.1",
         "node-fetch": "^3.3.2",
@@ -60,7 +59,6 @@
         "@types/jest": "^30.0.0",
         "@types/json-schema": "^7.0.15",
         "@types/koa": "^3.0.1",
-        "@types/lodash": "^4.17.21",
         "@types/luxon": "^3.7.1",
         "@types/morgan": "^1.9.10",
         "@types/node": "^25.0.3",
@@ -431,8 +429,6 @@
     "@types/koa": ["@types/koa@3.0.1", "", { "dependencies": { "@types/accepts": "*", "@types/content-disposition": "*", "@types/cookies": "*", "@types/http-assert": "*", "@types/http-errors": "^2", "@types/keygrip": "*", "@types/koa-compose": "*", "@types/node": "*" } }, "sha512-VkB6WJUQSe0zBpR+Q7/YIUESGp5wPHcaXr0xueU5W0EOUWtlSbblsl+Kl31lyRQ63nIILh0e/7gXjQ09JXJIHw=="],
 
     "@types/koa-compose": ["@types/koa-compose@3.2.9", "", { "dependencies": { "@types/koa": "*" } }, "sha512-BroAZ9FTvPiCy0Pi8tjD1OfJ7bgU1gQf0eR6e1Vm+JJATy9eKOG3hQMFtMciMawiSOVnLMdmUOC46s7HBhSTsA=="],
-
-    "@types/lodash": ["@types/lodash@4.17.21", "", {}, "sha512-FOvQ0YPD5NOfPgMzJihoT+Za5pdkDJWcbpuj1DjaKZIr/gxodQjY/uWEFlTNqW2ugXHUiL8lRQgw63dzKHZdeQ=="],
 
     "@types/luxon": ["@types/luxon@3.7.1", "", {}, "sha512-H3iskjFIAn5SlJU7OuxUmTEpebK6TKB8rxZShDslBMZJ5u9S//KM1sbdAisiSrqwLQncVjnpi2OK2J51h+4lsg=="],
 

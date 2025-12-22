@@ -13,7 +13,6 @@ import { config } from '@dotenvx/dotenvx';
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 import JSON5 from 'json5';
-import lodash from 'lodash';
 import * as _ from 'radash';
 
 import type { TransformFnParams } from 'class-transformer';
@@ -347,7 +346,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
     });
     this.vars = this.validate();
-    this.originalVars = lodash.cloneDeep(this.vars); // 创建副本
+    this.originalVars = structuredClone(this.vars); // 创建副本
   }
 
   private validate() {
@@ -522,7 +521,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       const dbValue = appSetting.value;
-      const equal = lodash.isEqual(value, dbValue);
+      const equal = _.isEqual(value, dbValue);
 
       // 更新环境变量值 (用 DB Value覆盖内存里的 activeEnvs)
       if (appSetting.value != null && !equal) {
@@ -550,7 +549,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
 
       // 执行更新
-      if (!lodash.isEmpty(updates)) {
+      if (!_.isEmpty(updates)) {
         Logger.log(f`#syncFromDB 更新元数据: ${field} ${JSON.stringify(updates)}`, 'AppConfigure');
         try {
           // 首先检查记录是否存在

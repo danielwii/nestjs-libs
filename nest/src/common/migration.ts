@@ -4,8 +4,6 @@ import { SysEnv } from '@app/env';
 
 import { execSync } from 'node:child_process';
 
-import _ from 'lodash';
-
 const logger = new Logger('Migration');
 
 export interface IPrismaClientLike {
@@ -27,7 +25,7 @@ export async function doMigration(PrismaClient: new (...args: unknown[]) => IPri
     try {
       applied = (await prisma.$executeRaw`SELECT count(*) as cnt from "_prisma_migrations"`) as number;
     } catch (e: unknown) {
-      const notFound = e instanceof Error && _.includes(e.message, 'relation "_prisma_migrations" does not exist');
+      const notFound = e instanceof Error && e.message.includes('relation "_prisma_migrations" does not exist');
       if (notFound) applied = -1;
       logger.log(`🚉 Migration Table Exists: ${!notFound}`);
     }

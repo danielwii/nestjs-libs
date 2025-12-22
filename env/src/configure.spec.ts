@@ -6,7 +6,7 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import 'reflect-metadata';
 
-import _ from 'lodash';
+import * as _ from 'radash';
 
 describe('AppConfigure', () => {
   describe('syncFromDB', () => {

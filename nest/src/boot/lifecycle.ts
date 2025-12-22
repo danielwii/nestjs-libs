@@ -5,7 +5,7 @@ import { f } from '@app/utils/logging';
 
 import os from 'node:os';
 
-import _ from 'lodash';
+import * as _ from 'radash';
 
 import type { INestApplication } from '@nestjs/common';
 
@@ -14,7 +14,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
   logger.log(f`(${os.hostname}) runApp in (${SysEnv.environment.env}) env`);
 
   process.on('uncaughtException', (err) => {
-    if (_.eq(err, 'request closed')) return;
+    if ((err as unknown) === 'request closed') return;
 
     // 忽略 graphql-upload-ts 库的已知 bug：文件清理时的 callback 错误
     // 这个错误不影响业务逻辑，只是清理临时文件时的内部错误
@@ -55,7 +55,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
     }
 
     logger.error(
-      f`(${os.hostname}) unhandledRejection: ${err instanceof Error ? err.message : err} - ${_.get(err, 'cause', 'unknown cause')} -`,
+      f`(${os.hostname}) unhandledRejection: ${err instanceof Error ? err.message : err} - ${(err as { cause?: unknown })?.cause ?? 'unknown cause'} -`,
       err instanceof Error ? err.stack : undefined,
     );
     if (SysEnv.EXIT_ON_ERROR) {

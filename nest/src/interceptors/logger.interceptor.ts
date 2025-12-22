@@ -6,7 +6,7 @@ import { METADATA_KEYS } from '@app/utils/annotation';
 import { f } from '@app/utils/logging';
 
 import { context, trace } from '@opentelemetry/api';
-import _ from 'lodash';
+import * as _ from 'radash';
 import { catchError, finalize } from 'rxjs';
 
 import type { IdentityRequest } from '../types/identity.interface';
@@ -74,9 +74,14 @@ export class LoggerInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const body = _.mapValues(req.body, (v) => (typeof v === 'string' && v.length > 100 ? `${v.slice(0, 100)}...` : v));
+    const body = Object.fromEntries(
+      Object.entries(req.body as Record<string, unknown>).map(([k, v]) => [
+        k,
+        typeof v === 'string' && v.length > 100 ? `${v.slice(0, 100)}...` : v,
+      ]),
+    );
     const multiIpAddress = req.ip || req.ips || req.headers ? req.headers['x-forwarded-for'] : null;
-    const ipAddress = _.isArray(multiIpAddress) ? multiIpAddress[0] : multiIpAddress;
+    const ipAddress = Array.isArray(multiIpAddress) ? multiIpAddress[0] : multiIpAddress;
     const info = {
       path: req.url,
       body,
@@ -143,7 +148,7 @@ export class LoggerInterceptor implements NestInterceptor {
           }
         }),
         catchError((e) => {
-          const skipNotFound = _.get(e, 'status') !== 404;
+          const skipNotFound = (e as { status?: number }).status !== 404;
           if (skipNotFound) {
             this.logger.warn(f`${TAG} ${info}: ${e}`);
           }

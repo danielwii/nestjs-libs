@@ -2,8 +2,8 @@ import { stripIndent } from 'common-tags';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import Handlebars from 'handlebars';
-import _ from 'lodash';
 import { DateTime } from 'luxon';
+import * as _ from 'radash';
 import { z } from 'zod';
 
 export function generateJsonFormat(schema: z.ZodSchema, indent = 0): string {
@@ -213,10 +213,12 @@ export const customJsonFormatSupportOutput = (
     output?: string;
   },
 ) =>
-  _.compact([
+  [
     '严格输出符合 Schema 定义的 JSON 格式。枚举原样使用定义中的类型，不要翻译，不要输出任何其他内容，包括注释、解释、提示等。直接从 { 开始，到 } 结束, 不要输出任何其他内容。',
     injectJsonFormat
       ? `--- RESPONSE TypeScript Schema JSON FORMAT---\n${generateJsonFormat(schema)}\n--- END OF RESPONSE TYPE-SCRIPT SCHEMA JSON FORMAT ---`
       : '',
     output,
-  ]).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');

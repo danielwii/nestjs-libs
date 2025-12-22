@@ -39,7 +39,7 @@ import { TimeSensitivity } from './prompt';
 import { stripIndent } from 'common-tags';
 import { format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import _ from 'lodash';
+import * as _ from 'radash';
 import z from 'zod';
 
 /**
@@ -321,7 +321,7 @@ export class PromptSpecBuilder<T extends z.ZodSchema = z.ZodSchema> {
       instructions: [...this.blueprint.instructions],
       rules: [...this.blueprint.rules],
       examples: this.blueprint.examples.map((example) => ({ ...example })),
-      sections: this.blueprint.sections.map((section) => _.cloneDeep(section)),
+      sections: this.blueprint.sections.map((section) => structuredClone(section)),
     };
   }
 
@@ -336,7 +336,7 @@ export class PromptSpecBuilder<T extends z.ZodSchema = z.ZodSchema> {
       instructions: blueprint.instructions.length ? [...blueprint.instructions] : undefined,
       rules: blueprint.rules.length ? [...blueprint.rules] : undefined,
       examples: blueprint.examples.length ? blueprint.examples.map((example) => ({ ...example })) : undefined,
-      context: blueprint.sections.length ? blueprint.sections.map((section) => _.cloneDeep(section)) : undefined,
+      context: blueprint.sections.length ? blueprint.sections.map((section) => structuredClone(section)) : undefined,
       output: blueprint.output,
       language: blueprint.language,
       schema: blueprint.schema,
@@ -420,7 +420,7 @@ Now:${timestamp}`;
  * ```
  */
 const defaultCoTSchema = (userSchema: z.ZodSchema, debug: boolean = false) =>
-  _.compact([
+  [
     stripIndent`
   {
     "reasoning": "string", // 推理过程和思维链
@@ -494,7 +494,7 @@ const defaultCoTSchema = (userSchema: z.ZodSchema, debug: boolean = false) =>
       "clarity_issues": ["string"], // prompt 中清晰度问题，指出模糊或不够明确的部分，如"audience定义过于宽泛"
       "missing_elements": ["string"] // 为了完成 objective 指出缺失要素，指出可能需要补充的内容，如"缺少错误处理指导"
     }`,
-  ])
+  ]
     .filter(Boolean)
     .join('\n');
 
@@ -605,22 +605,16 @@ function generateXmlPromptContent(data: PromptSpecSchema & { schema?: z.ZodSchem
   })();
 
   // 组合所有元数据标签
-  const metadataParts = _.compact([rolePart, objectivePart, stylePart, tonePart, audiencePart]);
+  const metadataParts = [rolePart, objectivePart, stylePart, tonePart, audiencePart].filter(Boolean);
   const metadataSection = metadataParts.length > 0 ? metadataParts.join('\n') : undefined;
 
   const languagePart = data.language
     ? `<language priority="critical">Use "${data.language}" as the default response language. Switch to another language if the user explicitly requests it.</language>`
     : undefined;
 
-  return _.compact([
-    metadataSection,
-    instructionsPart,
-    rulesPart,
-    examplesPart,
-    contextPart,
-    outputPart,
-    languagePart,
-  ]).join('\n\n');
+  return [metadataSection, instructionsPart, rulesPart, examplesPart, contextPart, outputPart, languagePart]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**
@@ -863,7 +857,7 @@ export class PromptSpec<T extends z.ZodSchema = z.ZodSchema> {
   }
 
   toBlueprint(): PromptBlueprint<T> {
-    return _.cloneDeep(this.blueprint);
+    return structuredClone(this.blueprint);
   }
 
   /**
