@@ -32,8 +32,9 @@
  * @version 2.0.0
  * @since 2024-01-01
  */
+
+import { normalizeTimezone } from './datetime';
 import { TimeSensitivity } from './prompt';
-import { normalizeTimezone } from './timezone.helper';
 
 import { stripIndent } from 'common-tags';
 import { format } from 'date-fns';
@@ -66,7 +67,7 @@ import z from 'zod';
  * };
  * ```
  */
-const XmlPromptSchema = z.object({
+export const XmlPromptSchema = z.object({
   /** 角色定义 - 描述AI扮演的角色身份 */
   role: z.string(),
   /** 任务目标 - 明确要完成的具体任务 */
@@ -658,7 +659,7 @@ export interface PromptSpecOptions {
     includeSystemPrompt?: boolean;
     /** 自定义系统prompt */
     systemPrompt?: string;
-  } & Record<string, any>;
+  } & Record<string, unknown>;
 }
 
 /**

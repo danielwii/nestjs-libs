@@ -1,7 +1,8 @@
-export * from './any-exception.filter';
-export * from './interface';
-export * from './lifecycle';
-export * from './logger.interceptor';
-export * from './response';
-export * from './visitor.interceptor';
-export * from './zod.validation.pipe';
+// 核心组件导出
+// 注意：为了避免加载顺序和依赖副作用，建议引用者直接引用具体子目录，
+// 如 @app/nest/exceptions/any-exception.filter
+
+export * from './common/interface';
+export * from './common/response';
+export * from './exceptions/business-exception.interface';
+export * from './exceptions/error-codes';

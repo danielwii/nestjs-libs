@@ -1,23 +1,24 @@
-import _ from 'lodash';
-
 import { Logger } from '@nestjs/common';
-import { from, Observable } from 'rxjs';
+
 import { named } from './annotation';
-import { f } from './utils';
+import { f } from './logging';
+
+import _ from 'lodash';
+import { from, Observable } from 'rxjs';
 
 export class ReactiveUtils {
   @named
   static fromAsyncGenerator(
     key: string,
     generator: AsyncGenerator<string>,
-    { validate, onComplete }: { validate: (message: string) => boolean; onComplete?: (message: string) => any },
+    { validate, onComplete }: { validate: (message: string) => boolean; onComplete?: (message: string) => void },
     funcName?: string,
   ): Observable<string> {
     if (!_.trim(key)) return from(generator);
 
     return new Observable((observer) => {
       let completed = false;
-      (async () => {
+      void (async () => {
         // const cached: string = await this.cacheService.cacheManager.get(key);
         // if (cached) {
         //   if (this.invalidAnswer(cached)) {
@@ -41,9 +42,10 @@ export class ReactiveUtils {
               answer += value;
               observer.next(value);
             }
-          } catch (e: any) {
-            logger.error(f`#${funcName} generator error ${{ key, e }}`, e.stack);
-            observer.error(e);
+          } catch (e: unknown) {
+            const error = e instanceof Error ? e : new Error(String(e));
+            logger.error(f`#${funcName} generator error ${{ key, e: error }}`, error.stack);
+            observer.error(error);
           }
 
           completed = true;
@@ -60,8 +62,9 @@ export class ReactiveUtils {
 
           logger.log(f`#${funcName} complete ... ${key}`);
           observer.complete();
-        } catch (e: any) {
-          logger.error(f`#${funcName} error ${{ key, completed, error: e }}`, e.stack);
+        } catch (e: unknown) {
+          const error = e instanceof Error ? e : new Error(String(e));
+          logger.error(f`#${funcName} error ${{ key, completed, error }}`, error.stack);
           observer.error('no answer');
         }
       })();

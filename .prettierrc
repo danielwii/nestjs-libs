@@ -1,0 +1,30 @@
+{
+  "singleQuote": true,
+  "semi": true,
+  "trailingComma": "all",
+  "printWidth": 120,
+  "plugins": ["@ianvs/prettier-plugin-sort-imports"],
+  "importOrder": [
+    "^@nestjs/(.*)$",
+    "",
+    "^@unee/(.*)$",
+    "^@app/(.*)$",
+    "",
+    "^@/(.*)$",
+    "",
+    "^src/(.*)$",
+    "",
+    "^libs/(.*)$",
+    "",
+    "^[./]",
+    "",
+    "<BUILTIN_MODULES>",
+    "",
+    "<THIRD_PARTY_MODULES>",
+    "",
+    "<TYPES>"
+  ],
+  "importOrderTypeScriptVersion": "5.6.0",
+  "importOrderCaseSensitive": false,
+  "importOrderParserPlugins": ["typescript", "decorators-legacy"]
+}

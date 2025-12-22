@@ -1,4 +1,5 @@
 import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/graphql';
+
 import { plainToInstance } from 'class-transformer';
 import { Allow } from 'class-validator';
 
@@ -216,7 +217,7 @@ export class CursorUtils {
         timestamp: new Date(parseInt(timestampMs, 10)),
         id,
       };
-    } catch (error) {
+    } catch (_error) {
       // 包装错误信息，便于调试
       throw new Error(`Invalid cursor: ${cursor}`);
     }
@@ -286,8 +287,8 @@ export class CursorUtils {
   static calculatePageInfo(
     totalCount: number,
     pageSize: number,
-    currentItems: number,
-    hasMore: boolean,
+    _currentItems: number,
+    _hasMore: boolean,
   ): { totalPages: number; currentPage?: number } {
     const totalPages = Math.ceil(totalCount / pageSize);
 

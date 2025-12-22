@@ -1,10 +1,13 @@
+import { Logger } from '@nestjs/common';
+
+import { f } from '@app/utils/logging';
+
+import { SysEnv } from './configure';
+
+import https from 'node:https';
+
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { ProxyAgent } from 'undici';
-
-import { Logger } from '@nestjs/common';
-import { f } from '@app/utils/utils';
-import { SysEnv } from './configure';
-import https from 'node:https';
 
 import type { Agent } from 'node:http';
 

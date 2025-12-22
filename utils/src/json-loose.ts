@@ -94,14 +94,14 @@ export function parseJsonLoose<T = unknown>(raw: string): T {
   const candidate = escapeBareNewlinesInStrings(extractFirstJsonObject(raw) ?? stripFences(raw));
   const attempts: Array<{ label: string; parse: () => T }> = [
     { label: 'JSON.parse', parse: () => JSON.parse(candidate) as T },
-    { label: 'JSON5.parse', parse: () => JSON5.parse(candidate) as T },
+    { label: 'JSON5.parse', parse: () => JSON5.parse(candidate) },
   ];
 
   const tsFixed = normalizeTypeScriptLikeJson(candidate);
   if (tsFixed !== candidate) {
     attempts.push(
       { label: 'JSON.parse(tsFixed)', parse: () => JSON.parse(tsFixed) as T },
-      { label: 'JSON5.parse(tsFixed)', parse: () => JSON5.parse(tsFixed) as T },
+      { label: 'JSON5.parse(tsFixed)', parse: () => JSON5.parse(tsFixed) },
     );
   }
 

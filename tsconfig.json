@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@app/utils/*": ["utils/src/*"],
+      "@app/utils": ["utils/src/index.ts"],
+      "@app/nest/*": ["nest/src/*"],
+      "@app/env": ["env/src/index.ts"],
+      "@app/env/*": ["env/src/*"],
+      "@app/features/*": ["features/*"],
+      "@/*": ["./*"]
+    },
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist"]
+}

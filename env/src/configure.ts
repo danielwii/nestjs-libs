@@ -1,29 +1,31 @@
 import { Logger } from '@nestjs/common';
 
-import { errorStack, f } from '@app/utils/utils';
+import { errorStack } from '@app/utils/error';
+import { f } from '@app/utils/logging';
 
 import { NODE_ENV } from './env';
 
-import os from 'node:os';
-import path from 'path';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { config } from '@dotenvx/dotenvx';
 import { plainToInstance, Transform, Type } from 'class-transformer';
-import type { TransformFnParams } from 'class-transformer';
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
-import JSON from 'json5';
+import JSON5 from 'json5';
 import _ from 'lodash';
 import * as R from 'remeda';
 
+import type { TransformFnParams } from 'class-transformer';
+
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
-  return [true, 'true', '1'].includes(obj[key]);
+  return [true, 'true', '1'].includes(obj[key] as string | boolean);
 };
 export const objectTransformFn = ({ key, value, obj }: TransformFnParams) => {
   // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }}`);
   try {
-    return _.isObject(obj[key]) ? obj[key] : JSON.parse(obj[key] || '{}');
+    return _.isObject(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '{}');
   } catch (e: unknown) {
     Logger.error(
       f`#objectTransformFn error ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
@@ -36,7 +38,7 @@ export const objectTransformFn = ({ key, value, obj }: TransformFnParams) => {
 export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
   // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
   try {
-    return _.isArray(obj[key]) ? obj[key] : JSON.parse(obj[key] || '[]');
+    return _.isArray(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '[]');
   } catch (e: unknown) {
     Logger.error(
       f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
@@ -47,7 +49,7 @@ export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
   }
 };
 
-interface HostSetVariables {}
+type HostSetVariables = {};
 
 /**
  * Configure 模块调试日志开关
@@ -75,7 +77,7 @@ const DatabaseFieldDescriptionSymbol = Symbol('DatabaseFieldDescription');
  */
 export const DatabaseField =
   (format: 'string' | 'number' | 'boolean' | 'json' = 'string', description?: string) =>
-  (target: any, propertyKey: string) => {
+  (target: object, propertyKey: string) => {
     if (isConfigureDebugEnabled()) {
       Logger.verbose(f`found ${propertyKey}:${format}${description ? ` (${description})` : ''}`, 'DatabaseField');
     }
@@ -251,7 +253,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
       const on = R.isNullish(index) ? !!acceptWhenNoIds : index === host;
       this.logger.debug(f`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`);
       return on;
-    } catch (e: unknown) {
+    } catch (_e: unknown) {
       this.logger.warn(f`#getUniqueHost no hostIndex for ${this.hostname}`, 'AppConfigure');
     }
     return !!acceptWhenNoIds;
@@ -260,10 +262,48 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   hostKeys: Record<number, Array<string>> = {};
 }
 
+export interface ISysAppSettingRecord {
+  key: string;
+  value: string | null;
+  defaultValue: string | null;
+  format: string;
+  description?: string | null;
+  deprecatedAt?: Date | null;
+}
+
+export interface ISysAppSettingClient {
+  sysAppSetting: {
+    findMany(): Promise<ISysAppSettingRecord[]>;
+    updateMany(args: {
+      where: { key: { in: string[] } };
+      data: { deprecatedAt: Date | null };
+    }): Promise<{ count: number }>;
+    createMany(args: {
+      data: Array<{ key: string; defaultValue: string | null; format: string; description?: string | null }>;
+      skipDuplicates?: boolean;
+    }): Promise<{ count: number }>;
+    findUnique(args: { where: { key: string } }): Promise<ISysAppSettingRecord | null>;
+    create(args: {
+      data: {
+        key: string;
+        value: string | null;
+        defaultValue: string | null;
+        format: string;
+        description?: string | null;
+      };
+    }): Promise<ISysAppSettingRecord>;
+    update(args: {
+      where: { key: string };
+      data: { defaultValue?: string | null; description?: string | null; deprecatedAt?: Date | null };
+    }): Promise<ISysAppSettingRecord>;
+  };
+}
+
 export class AppConfigure<T extends AbstractEnvironmentVariables> {
   private readonly logger = new Logger(this.constructor.name);
 
   public readonly vars: T;
+  public readonly originalVars: T; // 添加原始副本
 
   /**
    * Order of precedence:
@@ -307,6 +347,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
     });
     this.vars = this.validate();
+    this.originalVars = _.cloneDeep(this.vars); // 创建副本
   }
 
   private validate() {
@@ -323,7 +364,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       if (errors.length > 0) {
         this.logger.warn(`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`);
         console.log(R.map(errors, (e) => `${e.property}=`).join('\n'));
-        throw new Error(errors.toString());
+        throw new Error(errors.map((e) => e.property).join(', '));
       }
 
       // 配置项输出（仅在 CONFIGURE_DEBUG=true 时启用）
@@ -379,15 +420,26 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     return validatedConfig;
   }
 
-  static async syncFromDB(prisma: any, envs: Record<string, any>) {
-    const fields = R.pipe(
-      Object.getOwnPropertyNames(envs),
-      R.map((field) => {
-        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, envs, field);
-        const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, envs, field);
-        const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, envs, field);
+  async sync(prisma: ISysAppSettingClient) {
+    await AppConfigure.syncFromDB(prisma, this.originalVars, this.vars);
+  }
 
-        return { field, isDatabaseField, format, description, value: envs[field] };
+  static async syncFromDB<T extends object>(prisma: ISysAppSettingClient, originalEnvs: T, activeEnvs: T) {
+    const fields = R.pipe(
+      Object.getOwnPropertyNames(originalEnvs),
+      R.map((field) => {
+        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, originalEnvs, field);
+        const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, originalEnvs, field);
+        const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, originalEnvs, field);
+
+        return {
+          field,
+          isDatabaseField,
+          format,
+          description,
+          defaultValue: (originalEnvs as any)[field], // 用于写 DB (Env Value)
+          value: (activeEnvs as any)[field], // 用于读 DB (可能已经被污染，但这里我们只用它来做 log)
+        };
       }),
       R.filter(({ isDatabaseField }) => !!isDatabaseField),
     );
@@ -418,7 +470,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // =====================================================
     const orphanSettings = R.filter(appSettings, (s) => !fieldNamesInCode.includes(s.key) && !s.deprecatedAt);
     if (orphanSettings.length > 0) {
-      Logger.log(f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${R.map(orphanSettings, (s) => s.key).join(', ')}`, 'AppConfigure');
+      Logger.log(
+        f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${R.map(orphanSettings, (s) => s.key).join(', ')}`,
+        'AppConfigure',
+      );
       await prisma.sysAppSetting.updateMany({
         where: { key: { in: R.map(orphanSettings, (s) => s.key) } },
         data: { deprecatedAt: new Date() },
@@ -428,7 +483,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // 恢复：如果配置被重新添加到代码中，清除 deprecatedAt 标记
     const restoredSettings = R.filter(appSettings, (s) => fieldNamesInCode.includes(s.key) && Boolean(s.deprecatedAt));
     if (restoredSettings.length > 0) {
-      Logger.log(f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${R.map(restoredSettings, (s) => s.key).join(', ')}`, 'AppConfigure');
+      Logger.log(
+        f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${R.map(restoredSettings, (s) => s.key).join(', ')}`,
+        'AppConfigure',
+      );
       await prisma.sysAppSetting.updateMany({
         where: { key: { in: R.map(restoredSettings, (s) => s.key) } },
         data: { deprecatedAt: null },
@@ -441,15 +499,22 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     if (nonExistsFields.length > 0) {
       Logger.log(f`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`, 'AppConfigure');
       await prisma.sysAppSetting.createMany({
-        data: nonExistsFields.map(({ field, format, description }) => {
-          const value = format === 'string' ? envs[field] : JSON.stringify(envs[field]);
+        data: nonExistsFields.map(({ field, format, description, defaultValue }) => {
+          const defaultVal =
+            defaultValue !== undefined
+              ? typeof defaultValue === 'string'
+                ? defaultValue
+                : JSON.stringify(defaultValue)
+              : null;
+
           const newVar = {
             key: field,
-            defaultValue: value,
-            format,
-            description,
+            value: null, // 新记录初始值为空，由 Env 决定
+            defaultValue: defaultVal as string | null,
+            format: format as string,
+            description: description as string | null,
           };
-          Logger.log(f`#syncFromDB 创建配置: ${field} = ${envs[field]}`, 'AppConfigure');
+          Logger.log(f`#syncFromDB 创建配置: ${field} (默认值: ${defaultVal})`, 'AppConfigure');
           return newVar;
         }),
         skipDuplicates: true,
@@ -459,7 +524,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // 如何 appSettings 中存在，则用当前的值更新 envs
     const existsFields = R.filter(fields, ({ field }) => fieldNamesInDB.includes(field));
 
-    for (const { field, value, description, format } of existsFields) {
+    for (const { field, value, defaultValue, description, format } of existsFields) {
       const appSetting = R.find(appSettings, (setting) => setting.key === field);
       if (!appSetting) {
         Logger.warn(f`#syncFromDB appSetting not found for ${field}`, 'AppConfigure');
@@ -469,15 +534,20 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const dbValue = appSetting.value;
       const equal = R.isDeepEqual(value, dbValue);
 
-      // 更新环境变量值
+      // 更新环境变量值 (用 DB Value 覆盖内存里的 activeEnvs)
       if (!R.isNullish(appSetting.value) && !equal) {
-        Logger.log(f`#syncFromDB 配置变更: ${field} = "${value}" -> "${dbValue}"`, 'AppConfigure');
-        envs[field] = dbValue;
+        Logger.log(f`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${dbValue}"`, 'AppConfigure');
+        (activeEnvs as any)[field] = dbValue;
       }
 
-      // 检查并更新默认值和描述
+      // 检查并更新默认值和描述 (始终以 originalEnvs 为准)
       const updates: { defaultValue?: string; description?: string } = {};
-      const valueToStore = value !== undefined ? (typeof value === 'string' ? value : JSON.stringify(value)) : null;
+      const valueToStore =
+        defaultValue !== undefined
+          ? typeof defaultValue === 'string'
+            ? defaultValue
+            : JSON.stringify(defaultValue)
+          : null;
 
       // 如果默认值不一样，需要更新
       if (appSetting.defaultValue !== valueToStore && valueToStore !== null) {
@@ -504,10 +574,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             await prisma.sysAppSetting.create({
               data: {
                 key: field,
-                value: format === 'string' ? value : JSON.stringify(value),
-                defaultValue: updates.defaultValue,
-                format,
-                description: updates.description,
+                value: null, // 新记录初始值为空
+                defaultValue: updates.defaultValue ?? null,
+                format: format as string,
+                description: updates.description ?? null,
               },
             });
             Logger.log(f`#syncFromDB created record for ${field} since it didn't exist`, 'AppConfigure');

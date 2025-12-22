@@ -1,14 +1,14 @@
 import { stripIndent } from 'common-tags';
+import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import Handlebars from 'handlebars';
-import { format } from 'date-fns';
+import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
-import _ from 'lodash';
 
 export function generateJsonFormat(schema: z.ZodSchema, indent = 0): string {
   const definition = Reflect.get(schema, '_def');
-  const serialized = JSON.stringify(definition, (key, value) => (typeof value === 'function' ? undefined : value), 2);
+  const serialized = JSON.stringify(definition, (_key, value) => (typeof value === 'function' ? undefined : value), 2);
   const indentPrefix = ' '.repeat(indent);
   return serialized
     .split('\n')

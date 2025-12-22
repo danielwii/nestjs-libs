@@ -1,9 +1,11 @@
+import { TimeSensitivity } from './prompt';
+import { PromptSpec, PromptSpecBuilder } from './prompt.xml';
+
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { stripIndent } from 'common-tags';
 import z from 'zod';
 
-import { TimeSensitivity } from './prompt';
-import { PromptSpec, PromptSpecBuilder, type PromptSpecSchema } from './prompt.xml';
+import type { PromptSpecSchema } from './prompt.xml';
 
 describe('PromptSpec', () => {
   const ORIGINAL_TZ = process.env.TZ;

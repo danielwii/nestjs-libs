@@ -1,9 +1,12 @@
+import { Logger } from '@nestjs/common';
+
+import { SysProxy } from '@app/env';
+
+import { errorStack } from './error';
+import { f } from './logging';
+
 import * as NodeFetch from 'node-fetch';
 import * as Undici from 'undici';
-
-import { Logger } from '@nestjs/common';
-import { f, errorStack } from './utils';
-import { SysProxy } from '@app/env';
 
 /**
  * 检测是否在 Bun 运行时中运行
@@ -64,7 +67,7 @@ export class ApiFetcher {
   static async fetch(url: RequestInfo, options?: RequestInit & { timeout?: number }) {
     const timeout = options?.timeout ?? ApiFetcher.DEFAULT_TIMEOUT;
     const now = Date.now();
-    this.logger.log(f`<ApiFetcher> #fetch ${url}`);
+    ApiFetcher.logger.log(f`<ApiFetcher> #fetch ${url}`);
 
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
@@ -74,7 +77,7 @@ export class ApiFetcher {
       { ...options, signal: controller.signal, agent: SysProxy.agent } as unknown as NodeFetch.RequestInit,
     )
       .catch((e: unknown) => {
-        this.logger.error(
+        ApiFetcher.logger.error(
           f`<ApiFetcher> #fetch ${url} error ${e instanceof Error ? e.message : 'unknown'} ${Date.now() - now}ms...`,
           errorStack(e),
         );
@@ -82,16 +85,16 @@ export class ApiFetcher {
       })
       .finally(() => clearTimeout(id));
 
-    this.logger.debug(f`<ApiFetcher> #fetch ${url} ${Date.now() - now}ms...`);
+    ApiFetcher.logger.debug(f`<ApiFetcher> #fetch ${url} ${Date.now() - now}ms...`);
     if (response instanceof Error) throw response;
     if (response.ok) return response;
 
-    this.logger.error(f`<ApiFetcher> #fetch ${url} response ${response.status} ${response.statusText}...`);
+    ApiFetcher.logger.error(f`<ApiFetcher> #fetch ${url} response ${response.status} ${response.statusText}...`);
     throw new Error(`<ApiFetcher> #fetch response ${response.status} ${response.statusText}...`);
   }
 
   static async fetchJson<T>(url: RequestInfo, options?: RequestInit) {
-    const response = await this.fetch(url, options);
+    const response = await ApiFetcher.fetch(url, options);
     return (await response.json()) as T;
   }
 }
