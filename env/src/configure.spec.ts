@@ -1,6 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { AbstractEnvironmentVariables, AppConfigure, DatabaseField } from './configure';
+
 import { describe, expect, it, mock } from 'bun:test';
-import { AppConfigure, DatabaseField } from './configure';
+
 import 'reflect-metadata';
+
 import _ from 'lodash';
 
 describe('AppConfigure', () => {
@@ -14,14 +19,14 @@ describe('AppConfigure', () => {
     it('should separate code default value from runtime env value', async () => {
       // 1. 准备数据
       const originalEnvs = new TestEnvs(); // 原始快照 (Code Default)
-      
+
       const activeEnvs = new TestEnvs();
       activeEnvs.TEST_FIELD = 'env_override_value'; // 模拟运行态 (Env Override)
 
       // Mock Prisma
       const mockPrisma = {
         sysAppSetting: {
-          findMany: mock(() => Promise.resolve([])), 
+          findMany: mock(() => Promise.resolve([])),
           createMany: mock(() => Promise.resolve({ count: 1 })),
           updateMany: mock(() => Promise.resolve({ count: 0 })),
           findUnique: mock(() => Promise.resolve(null)),
@@ -32,23 +37,18 @@ describe('AppConfigure', () => {
 
       // 2. 执行同步
       // 现在传递两个副本
-      await AppConfigure.syncFromDB(
-        mockPrisma as any, 
-        originalEnvs, 
-        activeEnvs
-      );
+      await AppConfigure.syncFromDB(mockPrisma as any, originalEnvs, activeEnvs);
 
       // 3. 验证结果
       expect(mockPrisma.sysAppSetting.createMany).toHaveBeenCalled();
-      
-      const createCall = mockPrisma.sysAppSetting.createMany.mock.calls[0];
-      const createData = (createCall[0] as any).data[0];
+
+      const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0][0].data[0];
 
       expect(createData.key).toBe('TEST_FIELD');
-      
+
       // [关键断言 1] defaultValue 应该是 originalEnvs 里的原始值
-      expect(createData.defaultValue).toBe('default_code_value'); 
-      
+      expect(createData.defaultValue).toBe('default_code_value');
+
       // [关键断言 2] 初始创建时，value 应该为 null，不覆盖环境
       expect(createData.value).toBeNull();
     });
@@ -59,14 +59,16 @@ describe('AppConfigure', () => {
 
       const mockPrisma = {
         sysAppSetting: {
-          findMany: mock(() => Promise.resolve([
-            { 
-              key: 'TEST_FIELD', 
-              value: 'db_override_value', 
-              defaultValue: 'default_code_value',
-              format: 'string' 
-            }
-          ])),
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'TEST_FIELD',
+                value: 'db_override_value',
+                defaultValue: 'default_code_value',
+                format: 'string',
+              },
+            ]),
+          ),
           updateMany: mock(() => Promise.resolve({ count: 0 })),
           createMany: mock(() => Promise.resolve({ count: 0 })),
           findUnique: mock(() => Promise.resolve({ key: 'TEST_FIELD' })),
@@ -82,7 +84,7 @@ describe('AppConfigure', () => {
   });
 
   describe('sync (instance method)', () => {
-    class TestEnvs {
+    class TestEnvs extends AbstractEnvironmentVariables {
       @DatabaseField('string')
       KEY: string = 'default';
     }
@@ -90,7 +92,7 @@ describe('AppConfigure', () => {
     it('should call static syncFromDB with correct args', async () => {
       const appConfig = new AppConfigure(TestEnvs);
       const mockPrisma = { sysAppSetting: {} };
-      
+
       // Spy on the static method
       const staticSpy = mock(async () => {});
       // biome-ignore lint/suspicious/noExplicitAny: Mocking static method
@@ -99,11 +101,12 @@ describe('AppConfigure', () => {
       await appConfig.sync(mockPrisma as any);
 
       expect(staticSpy).toHaveBeenCalledTimes(1);
-      expect(staticSpy.mock.calls[0][0]).toBe(mockPrisma);
+      const calls = staticSpy.mock.calls[0] as any[];
+      expect(calls[0]).toBe(mockPrisma);
       // originalVars should be passed
-      expect(staticSpy.mock.calls[0][1]).toEqual(appConfig.originalVars);
+      expect(calls[1]).toEqual(appConfig.originalVars);
       // vars should be passed
-      expect(staticSpy.mock.calls[0][2]).toBe(appConfig.vars);
+      expect(calls[2]).toBe(appConfig.vars);
     });
   });
 });

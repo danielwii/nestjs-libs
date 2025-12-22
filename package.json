@@ -12,14 +12,20 @@
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
-    "prepare": "echo 'Run `bun install` to install dependencies'"
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ]
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.51",
     "@ai-sdk/openai": "^2.0.88",
     "@dotenvx/dotenvx": "^1.51.2",
-    "@nestjs/common": "^11.1.9",
-    "@nestjs/core": "^11.1.9",
+    "@nestjs/common": "^11.1.10",
+    "@nestjs/core": "^11.1.10",
     "@nestjs/graphql": "^13.2.3",
     "@nestjs/platform-express": "^11.1.10",
     "@nestjs/throttler": "^6.5.0",
@@ -82,6 +88,8 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^16.5.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.7.4",
     "ts-morph": "^27.0.2",
     "typescript": "^5.9.3",
