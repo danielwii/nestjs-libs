@@ -8,6 +8,8 @@ import { f } from './logging';
 import * as NodeFetch from 'node-fetch';
 import * as Undici from 'undici';
 
+import type { RequestInfo } from 'undici';
+
 /**
  * 检测是否在 Bun 运行时中运行
  *
