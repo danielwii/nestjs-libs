@@ -199,7 +199,7 @@ export type EmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large'
  */
 export async function embedding(text: string, model: EmbeddingModel = 'text-embedding-3-small'): Promise<number[]> {
   const openai = getOpenAI();
-  const embeddingModel = openai.textEmbeddingModel(model);
+  const embeddingModel = openai.embeddingModel(model);
   const result = await embed({ model: embeddingModel, value: text });
   return result.embedding;
 }

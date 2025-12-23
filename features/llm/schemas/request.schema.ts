@@ -21,7 +21,7 @@ export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high']);
 
 export const LLMReasoningOptionsSchema = z.object({
   effort: ReasoningEffortSchema.optional(),
-  maxTokens: z.number().positive().optional(),
+  maxOutputTokens: z.number().positive().optional(),
   exclude: z.boolean().optional(),
   enabled: z.boolean().optional(),
   extra: z
@@ -42,18 +42,18 @@ export const LLMRequestSchema = z.object({
   messages: z.array(LLMMessageSchema),
   model: LLMModelKeySchema,
   temperature: z.number().min(0).max(2).optional(),
-  maxTokens: z.number().positive().optional(),
+  maxOutputTokens: z.number().positive().optional(),
   topP: z.number().min(0).max(1).optional(),
   stream: z.boolean().optional(),
   system: z.string().optional(),
-  reasoning: LLMReasoningOptionsSchema.optional(),
+  reasoningText: LLMReasoningOptionsSchema.optional(),
 });
 
 // ==================== Usage Schema ====================
 
 export const LLMUsageSchema = z.object({
-  promptTokens: z.number(),
-  completionTokens: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
   totalTokens: z.number(),
   cost: z.number().optional(),
   costDetails: z.unknown().optional(),

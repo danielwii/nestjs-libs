@@ -7,8 +7,9 @@
  * 3. Provider 特有选项类型安全
  */
 
+import { z } from 'zod';
+
 import type { LLMModelKey } from './model.types';
-import type { z } from 'zod';
 
 // ==================== 消息类型 ====================
 
@@ -114,7 +115,7 @@ export interface LLMRequest {
   messages: LLMMessage[];
   model: LLMModelKey;
   temperature?: number;
-  maxTokens?: number;
+  maxOutputTokens?: number;
   topP?: number;
   stream?: boolean;
   system?: string;

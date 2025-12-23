@@ -20,7 +20,7 @@
 
 // Re-export useful types from AI SDK
 export type { ProviderOptions } from '@ai-sdk/provider-utils';
-export type { CoreMessage, LanguageModel } from 'ai';
+export type { ModelMessage, LanguageModel } from 'ai';
 // Clients (SDK helpers with proxy support)
 export * from './clients';
 // Providers

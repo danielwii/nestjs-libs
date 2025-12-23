@@ -32,11 +32,11 @@ import {
   streamObject as aiStreamObject,
   streamText as aiStreamText,
 } from 'ai';
+import { z } from 'zod';
 
 import type { LLMModelKey, LLMProviderType } from '../types/model.types';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
-import type { CoreMessage, LanguageModel, TelemetrySettings } from 'ai';
-import type { z } from 'zod';
+import type { LanguageModel, ModelMessage, TelemetrySettings } from 'ai';
 
 // ============================================================================
 // 自动路由客户端
@@ -91,7 +91,7 @@ export const autoOpts = {
     const provider = parseProvider(key);
     switch (provider) {
       case 'openrouter':
-        return { openrouter: { reasoning: { exclude: true } } } as unknown as ProviderOptions;
+        return { openrouter: { reasoningText: { exclude: true } } } as unknown as ProviderOptions;
       case 'google':
         return { google: { thinkingConfig: { thinkingBudget: 0 } } } as unknown as ProviderOptions;
       default:
@@ -108,7 +108,7 @@ export const autoOpts = {
 
     switch (provider) {
       case 'openrouter':
-        return { openrouter: { reasoning: { effort } } } as unknown as ProviderOptions;
+        return { openrouter: { reasoningText: { effort } } } as unknown as ProviderOptions;
       case 'google':
         return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } } as unknown as ProviderOptions;
       default:
@@ -140,7 +140,7 @@ export interface TelemetryMeta {
  */
 export interface LLMOpts {
   temperature?: number;
-  maxTokens?: number;
+  maxOutputTokens?: number;
   /** 额外的 providerOptions（会与 thinking 配置合并） */
   providerOptions?: Record<string, unknown>;
 }
@@ -199,7 +199,7 @@ class LLMBuilder {
   private readonly _model: LanguageModel;
   private readonly _key: LLMModelKey;
   private readonly _provider: LLMProviderType;
-  private _messages: CoreMessage[] = [];
+  private _messages: ModelMessage[] = [];
   private _system?: string;
   private _opts: LLMOpts = {};
   private _thinkingOptions: Record<string, unknown> = {};
@@ -235,7 +235,7 @@ class LLMBuilder {
   /** 设置推理 token 数量（更精细控制） */
   thinkingTokens(tokens: number): this {
     if (this._provider === 'openrouter') {
-      this._thinkingOptions = { openrouter: { reasoning: { max_tokens: tokens } } };
+      this._thinkingOptions = { openrouter: { reasoningText: { max_tokens: tokens } } };
     } else if (this._provider === 'google') {
       this._thinkingOptions = { google: { thinkingConfig: { thinkingBudget: tokens } } };
     }
@@ -265,7 +265,7 @@ class LLMBuilder {
   }
 
   /** 设置消息 */
-  messages(msgs: CoreMessage[]): this {
+  messages(msgs: ModelMessage[]): this {
     this._messages = msgs;
     return this;
   }
@@ -308,7 +308,7 @@ class LLMBuilder {
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxOutputTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       experimental_telemetry: this._buildTelemetry(),
     });
@@ -322,7 +322,7 @@ class LLMBuilder {
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxOutputTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       experimental_telemetry: this._buildTelemetry(),
     });
@@ -338,7 +338,7 @@ class LLMBuilder {
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxOutputTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       experimental_telemetry: this._buildTelemetry(),
     });
@@ -354,7 +354,7 @@ class LLMBuilder {
       system: this._system,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
-      maxOutputTokens: this._opts.maxTokens,
+      maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       experimental_telemetry: this._buildTelemetry(),
     });

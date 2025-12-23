@@ -32,7 +32,7 @@ export interface LLMReasoningOptions {
    * - OpenRouter: 转为 reasoning.maxTokens
    * - Google: 转为 thinkingConfig.thinkingBudget
    */
-  maxTokens?: number;
+  maxOutputTokens?: number;
 
   /**
    * 是否排除推理过程（仅返回结论）
@@ -87,8 +87,8 @@ export function getReasoningTokenBudget(options?: LLMReasoningOptions): number |
     return options.extra.google.thinkingBudget;
   }
 
-  if (options.maxTokens) {
-    return options.maxTokens;
+  if (options.maxOutputTokens) {
+    return options.maxOutputTokens;
   }
 
   if (options.effort) {

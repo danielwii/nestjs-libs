@@ -6,7 +6,7 @@ import 'reflect-metadata';
 
 import * as os from 'node:os';
 
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import { IsString } from 'class-validator';
 import * as _ from 'radash';
 
 describe('AppConfigure', () => {
