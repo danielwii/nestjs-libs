@@ -68,6 +68,42 @@ const isConfigureDebugEnabled = () => process.env.CONFIGURE_DEBUG === 'true';
 const DatabaseFieldSymbol = Symbol('DatabaseField');
 const DatabaseFieldFormatSymbol = Symbol('DatabaseFieldFormat');
 const DatabaseFieldDescriptionSymbol = Symbol('DatabaseFieldDescription');
+
+// ==================== LLM Model Field ====================
+
+const llmModelFields = new Set<string>();
+
+/**
+ * 标记字段为 LLM Model 配置
+ *
+ * 被标记的字段会在启动时自动验证：
+ * - Model 是否已注册
+ * - 对应 Provider 的 API Key 是否已配置
+ *
+ * @example
+ * @LLMModelField()
+ * @IsString() @IsOptional()
+ * DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
+ *
+ * @LLMModelField()
+ * @IsString() @IsOptional()
+ * I18N_LLM_MODEL?: string;
+ */
+export function LLMModelField(): PropertyDecorator {
+  return (target, propertyKey) => {
+    llmModelFields.add(propertyKey as string);
+    if (isConfigureDebugEnabled()) {
+      Logger.verbose(`[LLMModelField] registered: ${String(propertyKey)}`, 'Configure');
+    }
+  };
+}
+
+/**
+ * 获取所有标记为 @LLMModelField 的字段名
+ */
+export function getLLMModelFields(): string[] {
+  return Array.from(llmModelFields);
+}
 /**
  * 标记字段是否需要同步到数据库, 用于配置项的动态更新, 默认为空的字段需要赋值为 undefined 才能进行同步
  * @param format 字段格式
@@ -146,10 +182,12 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
   @Type(() => Number) @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
 
-  // ==================== LLM API Keys ====================
+  // ==================== LLM ====================
   @IsString() @IsOptional() OPENROUTER_API_KEY?: string;
   @IsString() @IsOptional() GOOGLE_GENERATIVE_AI_API_KEY?: string;
   @IsString() @IsOptional() OPENAI_API_KEY?: string;
+  /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境） */
+  @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
   @IsString() DATABASE_URL!: string;

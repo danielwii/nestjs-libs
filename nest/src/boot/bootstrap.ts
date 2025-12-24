@@ -2,6 +2,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 
 import { SysEnv } from '@app/env';
+import { validateLLMConfiguration } from '@app/features/llm';
 import { runApp } from '@app/nest/boot/lifecycle';
 import { initStackTraceFormatter } from '@app/nest/common/logger.utils';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
@@ -64,6 +65,13 @@ export async function bootstrap(
   if (notShowLogLevels.length) {
     Logger.warn(`[Config] Disabled log levels: ${notShowLogLevels.join(', ')}`, 'Bootstrap');
   }
+
+  // LLM 配置验证（自动验证所有 @LLMModelField 标记的字段）
+  const llmValidation = validateLLMConfiguration();
+  if (!llmValidation.valid) {
+    throw new Error(`LLM configuration invalid: ${llmValidation.errors.join(', ')}`);
+  }
+  llmValidation.warnings.forEach((w: string) => Logger.warn(`[LLM] ${w}`, 'Bootstrap'));
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: levels,

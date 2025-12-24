@@ -7,6 +7,10 @@
  * - 同一模型可通过不同 Provider 访问（如 openrouter:gemini vs google:gemini）
  * - Provider 类型从 Model Registry 自动推导，无需单独维护
  *
+ * Fallback 机制：
+ * - 开发环境：model 不存在时直接报错（fail fast）
+ * - 生产环境：model 不存在时 warning + fallback 到 DEFAULT_LLM_MODEL
+ *
  * 扩展方式：
  * ```typescript
  * declare module '@app/llm-core' {
@@ -17,6 +21,10 @@
  * registerModel('moonshot:kimi-k2', { provider: 'moonshot', modelId: 'kimi-k2' });
  * ```
  */
+
+import { Logger } from '@nestjs/common';
+
+import { getLLMModelFields, SysEnv } from '@app/env';
 
 /**
  * Model 配置接口
@@ -104,15 +112,46 @@ export function registerModel<K extends string, P extends string>(key: K, config
 
 // ==================== 查询函数 ====================
 
+const logger = new Logger('LLMModel');
+
 /**
  * 获取 Model 配置
+ *
+ * Fallback 机制：
+ * - 开发环境：model 不存在时直接报错（fail fast）
+ * - 生产环境：model 不存在时 warning + fallback 到 DEFAULT_LLM_MODEL
  */
 export function getModel(key: LLMModelKey): ModelConfig {
   const config = modelRegistry.get(key);
-  if (!config) {
-    throw new Error(`Unknown model: ${key}`);
+  if (config) {
+    return config;
   }
-  return config;
+
+  // Model 不存在，检查环境决定处理方式
+  const fallbackKey = SysEnv.DEFAULT_LLM_MODEL;
+  const isProd = SysEnv.environment.isProd;
+
+  if (!isProd) {
+    // 开发环境：直接报错，快速发现问题
+    throw new Error(`Unknown model: "${key}". Registered models: ${getRegisteredModels().join(', ')}`);
+  }
+
+  // 生产环境：warning + fallback
+  const fallbackConfig = modelRegistry.get(fallbackKey as string);
+  if (!fallbackConfig) {
+    // fallback 模型也不存在，必须报错
+    throw new Error(
+      `Unknown model: "${key}" and fallback model "${fallbackKey}" is also not registered. ` +
+        `Check DEFAULT_LLM_MODEL configuration.`,
+    );
+  }
+
+  logger.warn(
+    `#getModel Unknown model "${key}", falling back to "${fallbackKey}". ` +
+      `This indicates a configuration issue that should be fixed.`,
+  );
+
+  return fallbackConfig;
 }
 
 /**
@@ -156,4 +195,135 @@ export function getModelsByProvider(provider: LLMProviderType): string[] {
   return Array.from(modelRegistry.entries())
     .filter(([, config]) => config.provider === provider)
     .map(([key]) => key);
+}
+
+// ==================== Provider 配置验证 ====================
+
+/**
+ * Provider 到环境变量的映射
+ */
+const providerApiKeyMap: Record<string, keyof typeof SysEnv> = {
+  openrouter: 'OPENROUTER_API_KEY',
+  google: 'GOOGLE_GENERATIVE_AI_API_KEY',
+  openai: 'OPENAI_API_KEY',
+};
+
+/**
+ * 检查 Provider 是否已配置 API Key
+ */
+export function isProviderConfigured(provider: string): boolean {
+  const keyName = providerApiKeyMap[provider];
+  if (!keyName) {
+    return false;
+  }
+  return !!SysEnv[keyName];
+}
+
+/**
+ * 获取 Provider 配置状态
+ */
+export function getProviderStatus(): Record<string, { configured: boolean; envVar: string }> {
+  return Object.entries(providerApiKeyMap).reduce(
+    (acc, [provider, envVar]) => {
+      acc[provider] = {
+        configured: !!SysEnv[envVar],
+        envVar: envVar as string,
+      };
+      return acc;
+    },
+    {} as Record<string, { configured: boolean; envVar: string }>,
+  );
+}
+
+export interface LLMConfigurationValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * 验证单个 Model Key
+ */
+export function validateModelKey(modelKey: string): { valid: boolean; error?: string } {
+  // 检查 Model 是否已注册
+  if (!isModelRegistered(modelKey)) {
+    return {
+      valid: false,
+      error: `Model "${modelKey}" is not registered. Available: ${getRegisteredModels().join(', ')}`,
+    };
+  }
+
+  // 检查 Provider 是否配置了 API Key
+  const config = modelRegistry.get(modelKey);
+  if (config) {
+    const provider = config.provider;
+    if (!isProviderConfigured(provider)) {
+      const envVar = providerApiKeyMap[provider];
+      return {
+        valid: false,
+        error: `Provider "${provider}" for model "${modelKey}" is not configured. Set ${envVar}.`,
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * 验证 LLM 配置
+ *
+ * 自动验证所有标记了 @LLMModelField() 装饰器的配置字段：
+ * 1. Model 是否已注册
+ * 2. 对应 Provider 的 API Key 是否已配置
+ *
+ * @example
+ * // 在 bootstrap 中调用
+ * const result = validateLLMConfiguration();
+ * if (!result.valid) {
+ *   throw new Error(`LLM configuration invalid: ${result.errors.join(', ')}`);
+ * }
+ * result.warnings.forEach(w => logger.warn(w));
+ */
+export function validateLLMConfiguration(): LLMConfigurationValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // 获取所有标记了 @LLMModelField() 的字段
+  const llmModelFields = getLLMModelFields();
+
+  // 如果没有任何 LLM model 字段，跳过验证
+  if (llmModelFields.length === 0) {
+    return { valid: true, errors, warnings };
+  }
+
+  // 验证每个配置的 model
+  for (const fieldName of llmModelFields) {
+    const modelKey = SysEnv[fieldName as keyof typeof SysEnv] as string | undefined;
+
+    // 跳过未配置的字段
+    if (!modelKey) {
+      continue;
+    }
+
+    const result = validateModelKey(modelKey);
+    if (!result.valid && result.error) {
+      errors.push(`[${fieldName}] ${result.error}`);
+    }
+  }
+
+  // 可选：检查其他已注册模型的 Provider 状态（作为警告）
+  const providerStatus = getProviderStatus();
+  const unconfiguredProviders = Object.entries(providerStatus)
+    .filter(([, status]) => !status.configured)
+    .map(([provider, status]) => `${provider} (${status.envVar})`);
+
+  if (unconfiguredProviders.length > 0) {
+    warnings.push(`Unconfigured providers: ${unconfiguredProviders.join(', ')}`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
 }
