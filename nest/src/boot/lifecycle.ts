@@ -107,7 +107,8 @@ export const runApp = <App extends INestApplication>(app: App) => {
     app
       .close()
       .catch((error: Error) => {
-        logger.error(f`(${os.hostname}) exit by SIGTERM error: ${error.message}`, error.stack);
+        // SIGTERM 关闭时连接已断开是预期行为，不是异常
+        logger.warn(f`(${os.hostname}) exit by SIGTERM: ${error.message}`);
       })
       .finally(() => {
         process.exit(0);
