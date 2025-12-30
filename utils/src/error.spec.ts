@@ -2,7 +2,7 @@ import { errorStack, onelineStack } from './error';
 
 import * as process from 'node:process';
 
-import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 describe('error.utils', () => {
   const ORIGINAL_ENV = process.env.NODE_ENV;
@@ -19,7 +19,7 @@ describe('error.utils', () => {
     });
 
     it('should return undefined and warn for non-Error types', () => {
-      const spy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const spy = spyOn(console, 'warn').mockImplementation(() => {});
       expect(errorStack('string error')).toBeUndefined();
       expect(spy).toHaveBeenCalledWith('unresolved error type: string');
       spy.mockRestore();

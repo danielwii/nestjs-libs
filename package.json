@@ -3,12 +3,9 @@
   "version": "0.1.0",
   "description": "Shadcn-style CLI for nestjs-libs",
   "type": "module",
-  "bin": {
-    "dw-libs": "./cli/main.ts"
-  },
   "scripts": {
-    "lint": "eslint \"{nest,utils,env,features,cli}/**/*.ts\" --fix",
-    "format": "prettier --write \"{nest,utils,env,features,cli}/**/*.ts\"",
+    "lint": "eslint \"{nest,utils,env,features}/**/*.ts\" --fix",
+    "format": "prettier --write \"{nest,utils,env,features}/**/*.ts\"",
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
@@ -23,11 +20,11 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.1",
     "@ai-sdk/openai": "^3.0.1",
-    "@dotenvx/dotenvx": "^1.51.2",
-    "@nestjs/common": "^11.1.10",
-    "@nestjs/core": "^11.1.10",
+    "@dotenvx/dotenvx": "^1.51.4",
+    "@nestjs/common": "^11.1.11",
+    "@nestjs/core": "^11.1.11",
     "@nestjs/graphql": "^13.2.3",
-    "@nestjs/platform-express": "^11.1.10",
+    "@nestjs/platform-express": "^11.1.11",
     "@nestjs/throttler": "^6.5.0",
     "@openrouter/ai-sdk-provider": "^1.5.4",
     "@opentelemetry/api": "^1.9.0",
@@ -50,11 +47,9 @@
     "https-proxy-agent": "^7.0.6",
     "ioredis": "^5.8.2",
     "json5": "^2.2.3",
-    "kleur": "^4.1.5",
     "luxon": "^3.7.2",
     "morgan": "^1.10.1",
     "node-fetch": "^3.3.2",
-    "prompts": "^2.4.2",
     "radash": "^12.1.1",
     "reflect-metadata": "^0.2.2",
     "response-time": "^2.3.4",
@@ -79,7 +74,6 @@
     "@types/morgan": "^1.9.10",
     "@types/node": "^25.0.3",
     "@types/node-fetch": "^2.6.13",
-    "@types/prompts": "^2.4.9",
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.1",
     "eslint": "^9.39.2",
@@ -91,6 +85,6 @@
     "prettier": "^3.7.4",
     "ts-morph": "^27.0.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.50.1"
+    "typescript-eslint": "^8.51.0"
   }
 }

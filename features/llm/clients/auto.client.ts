@@ -26,17 +26,19 @@
 import { getModel } from '../types/model.types';
 import { google, openrouter } from './llm.clients';
 
-import {
-  generateObject as aiGenerateObject,
-  generateText as aiGenerateText,
-  streamObject as aiStreamObject,
-  streamText as aiStreamText,
-} from 'ai';
+import { generateText as aiGenerateText, Output, streamText as aiStreamText } from 'ai';
 import { z } from 'zod';
 
 import type { LLMModelKey, LLMProviderType } from '../types/model.types';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
-import type { LanguageModel, ModelMessage, TelemetrySettings } from 'ai';
+import type {
+  LanguageModel,
+  ModelMessage,
+  TelemetrySettings,
+  StreamTextResult,
+  GenerateTextResult,
+  DeepPartial,
+} from 'ai';
 
 // ============================================================================
 // 自动路由客户端
@@ -177,7 +179,7 @@ export interface LLMOpts {
  *   style: z.enum(['casual', 'formal', 'sport']),
  * });
  *
- * const { object } = await llm('google:gemini-2.5-flash')
+ * const { output } = await llm('google:gemini-2.5-flash')
  *   .system('Analyze the garment in the image')
  *   .thinking('low')
  *   .messages([
@@ -188,7 +190,7 @@ export interface LLMOpts {
  *   ])
  *   .generateObject(GarmentSchema);
  *
- * console.log(object.type, object.color, object.style);
+ * console.log(output.type, output.color, output.style);
  * ```
  */
 export function llm(key: LLMModelKey) {
@@ -301,7 +303,7 @@ class LLMBuilder {
   }
 
   /** 流式文本生成 */
-  streamText() {
+  streamText(): StreamTextResult<never, never> {
     return aiStreamText({
       model: this._model,
       messages: this._messages,
@@ -315,7 +317,7 @@ class LLMBuilder {
   }
 
   /** 文本生成 */
-  generateText() {
+  generateText(): Promise<GenerateTextResult<never, never>> {
     return aiGenerateText({
       model: this._model,
       messages: this._messages,
@@ -329,11 +331,10 @@ class LLMBuilder {
   }
 
   /** 结构化对象生成 */
-  generateObject<T>(schema: z.ZodType<T>) {
-    return aiGenerateObject({
+  generateObject<T>(schema: z.ZodType<T>): Promise<GenerateTextResult<Record<string, never>, ReturnType<typeof Output.object<T>>>> {
+    return aiGenerateText({
       model: this._model,
-      output: 'object',
-      schema,
+      output: Output.object({ schema }),
       messages: this._messages,
       system: this._system,
       providerOptions: this._buildProviderOptions(),
@@ -345,11 +346,10 @@ class LLMBuilder {
   }
 
   /** 流式结构化对象生成 */
-  streamObject<T>(schema: z.ZodType<T>) {
-    return aiStreamObject({
+  streamObject<T>(schema: z.ZodType<T>): StreamTextResult<Record<string, never>, ReturnType<typeof Output.object<T>>> {
+    return aiStreamText({
       model: this._model,
-      output: 'object',
-      schema,
+      output: Output.object({ schema }),
       messages: this._messages,
       system: this._system,
       providerOptions: this._buildProviderOptions(),

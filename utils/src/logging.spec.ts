@@ -2,7 +2,7 @@ import { f, inspect, r } from './logging';
 
 import * as process from 'node:process';
 
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it } from 'bun:test';
 import JSON5 from 'json5';
 
 describe('logging.utils', () => {

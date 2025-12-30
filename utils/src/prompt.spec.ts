@@ -1,22 +1,18 @@
 import { TimeSensitivity } from './prompt';
 import { PromptBuilder, wrapWithCoT, wrapWithDebug } from './prompt.xml';
 
-import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { stripIndent } from 'common-tags';
 import { z } from 'zod';
 
 describe('Prompt', () => {
   const ORIGINAL_TZ = process.env.TZ;
-  const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(mockDate);
     process.env.TZ = 'UTC';
   });
 
   afterEach(() => {
-    jest.useRealTimers();
     process.env.TZ = ORIGINAL_TZ;
   });
 
@@ -182,16 +178,12 @@ describe('Prompt', () => {
 
 describe('PromptBuilder', () => {
   const ORIGINAL_TZ = process.env.TZ;
-  const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(mockDate);
     process.env.TZ = 'UTC';
   });
 
   afterEach(() => {
-    jest.useRealTimers();
     process.env.TZ = ORIGINAL_TZ;
   });
 

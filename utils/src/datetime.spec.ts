@@ -7,7 +7,7 @@ import {
   parseYmdToUtcDate,
 } from './datetime';
 
-import { describe, expect, it, jest } from '@jest/globals';
+import { describe, expect, it, mock } from 'bun:test';
 
 /**
  * 时区规范化工具测试
@@ -135,14 +135,14 @@ describe('timezone.helper', () => {
 
     describe('normalizeTimezoneWithLog', () => {
       it('应该正常转换并在差异时调用 logger', () => {
-        const logger = { debug: jest.fn() };
+        const logger = { debug: mock() };
         const result = normalizeTimezoneWithLog('+8', logger, 'TestCtx');
         expect(result).toBe('Asia/Shanghai');
         expect(logger.debug).toHaveBeenCalledWith('[TestCtx] 时区格式转换: "+8" -> "Asia/Shanghai"');
       });
 
       it('如果没有差异则不调用 logger', () => {
-        const logger = { debug: jest.fn() };
+        const logger = { debug: mock() };
         normalizeTimezoneWithLog('Asia/Shanghai', logger);
         expect(logger.debug).not.toHaveBeenCalled();
       });
