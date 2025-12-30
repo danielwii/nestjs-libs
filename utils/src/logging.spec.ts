@@ -62,7 +62,8 @@ describe('logging.utils', () => {
       process.env.NODE_ENV = 'production';
       const obj = { a: 1, b: '2' };
       const result = r(obj);
-      expect(JSON5.parse(result) as typeof obj).toEqual({ a: 1, b: '2' });
+      const parsed = JSON5.parse(result);
+      expect(parsed).toEqual({ a: 1, b: '2' });
     });
 
     it('should handle non-object/null/array values by stringifying them', () => {

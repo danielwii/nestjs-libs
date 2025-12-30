@@ -26,19 +26,12 @@
 import { getModel } from '../types/model.types';
 import { google, openrouter } from './llm.clients';
 
-import { generateText as aiGenerateText, Output, streamText as aiStreamText } from 'ai';
+import { generateText as aiGenerateText, streamText as aiStreamText, Output } from 'ai';
 import { z } from 'zod';
 
 import type { LLMModelKey, LLMProviderType } from '../types/model.types';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
-import type {
-  LanguageModel,
-  ModelMessage,
-  TelemetrySettings,
-  StreamTextResult,
-  GenerateTextResult,
-  DeepPartial,
-} from 'ai';
+import type { GenerateTextResult, LanguageModel, ModelMessage, StreamTextResult, TelemetrySettings } from 'ai';
 
 // ============================================================================
 // 自动路由客户端
@@ -331,7 +324,9 @@ class LLMBuilder {
   }
 
   /** 结构化对象生成 */
-  generateObject<T>(schema: z.ZodType<T>): Promise<GenerateTextResult<Record<string, never>, ReturnType<typeof Output.object<T>>>> {
+  generateObject<T>(
+    schema: z.ZodType<T>,
+  ): Promise<GenerateTextResult<Record<string, never>, ReturnType<typeof Output.object<T>>>> {
     return aiGenerateText({
       model: this._model,
       output: Output.object({ schema }),

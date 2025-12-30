@@ -7,13 +7,29 @@ import { z } from 'zod';
 
 describe('Prompt', () => {
   const ORIGINAL_TZ = process.env.TZ;
+  const ORIGINAL_DATE = globalThis.Date;
+  const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
     process.env.TZ = 'UTC';
+    // Mock Date constructor to return fixed time
+    globalThis.Date = class extends ORIGINAL_DATE {
+      constructor(...args: any[]) {
+        if (args.length === 0) {
+          super(mockDate.getTime());
+        } else {
+          super(...(args as [any]));
+        }
+      }
+      static now() {
+        return mockDate.getTime();
+      }
+    } as typeof Date;
   });
 
   afterEach(() => {
     process.env.TZ = ORIGINAL_TZ;
+    globalThis.Date = ORIGINAL_DATE;
   });
 
   it('基础 prompt 渲染', () => {
@@ -178,13 +194,29 @@ describe('Prompt', () => {
 
 describe('PromptBuilder', () => {
   const ORIGINAL_TZ = process.env.TZ;
+  const ORIGINAL_DATE = globalThis.Date;
+  const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
     process.env.TZ = 'UTC';
+    // Mock Date constructor to return fixed time
+    globalThis.Date = class extends ORIGINAL_DATE {
+      constructor(...args: any[]) {
+        if (args.length === 0) {
+          super(mockDate.getTime());
+        } else {
+          super(...(args as [any]));
+        }
+      }
+      static now() {
+        return mockDate.getTime();
+      }
+    } as typeof Date;
   });
 
   afterEach(() => {
     process.env.TZ = ORIGINAL_TZ;
+    globalThis.Date = ORIGINAL_DATE;
   });
 
   it('构造完整 prompt 并生成', () => {
