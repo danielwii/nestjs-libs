@@ -75,7 +75,7 @@ export class LoggerInterceptor implements NestInterceptor {
     }
 
     const body = Object.fromEntries(
-      Object.entries(req.body as Record<string, unknown>).map(([k, v]) => [
+      Object.entries((req.body ?? {}) as Record<string, unknown>).map(([k, v]) => [
         k,
         typeof v === 'string' && v.length > 100 ? `${v.slice(0, 100)}...` : v,
       ]),
