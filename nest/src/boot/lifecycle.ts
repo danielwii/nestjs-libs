@@ -104,13 +104,37 @@ export const runApp = <App extends INestApplication>(app: App) => {
   });
   process.on('SIGTERM', (signals) => {
     logger.log(f`(${os.hostname}) Received SIGTERM. ${signals} (${process.pid})`);
-    app
-      .close()
+    logger.log(f`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`);
+
+    const server = app.getHttpServer();
+    const IN_FLIGHT_TIMEOUT_MS = 30_000;
+
+    // 停止接收新连接，但保持现有连接
+    server.close(() => {
+      logger.log(f`(${os.hostname}) HTTP server closed, all connections drained`);
+    });
+
+    // 等待进行中的请求完成（最多 30s）
+    const waitForConnections = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        logger.warn(f`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`);
+        resolve();
+      }, IN_FLIGHT_TIMEOUT_MS);
+
+      server.on('close', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    waitForConnections
+      .then(() => app.close())
       .catch((error: Error) => {
         // SIGTERM 关闭时连接已断开是预期行为，不是异常
         logger.warn(f`(${os.hostname}) exit by SIGTERM: ${error.message}`);
       })
       .finally(() => {
+        logger.log(f`(${os.hostname}) Graceful shutdown complete`);
         process.exit(0);
       });
   });
