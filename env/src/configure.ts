@@ -216,6 +216,20 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
   @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;
 
+  /**
+   * 优雅关闭时等待进行中请求完成的超时时间（毫秒）
+   *
+   * 设计意图：
+   * - SIGTERM 收到后，先停止接收新连接，然后等待现有请求完成
+   * - 超过此时间后强制关闭，避免无限等待
+   * - 应小于 K8s terminationGracePeriodSeconds 减去 preStop 延迟
+   *
+   * 计算公式：IN_FLIGHT_TIMEOUT_MS < terminationGracePeriodSeconds - preStop sleep
+   * 当前配置：terminationGracePeriodSeconds=90s, preStop=10s → IN_FLIGHT_TIMEOUT_MS < 80s
+   * 默认：60s（支持最长 1 分钟的请求如 chat API）
+   */
+  @Type(() => Number) @IsNumber() @IsOptional() IN_FLIGHT_TIMEOUT_MS: number = 60_000;
+
   get environment() {
     const env = this.ENV || this.DOPPLER_ENVIRONMENT || 'dev';
     const isProd = env === 'prd';

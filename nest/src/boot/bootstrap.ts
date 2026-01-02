@@ -186,7 +186,13 @@ export async function bootstrap(
     next();
   });
 
-  app.use(morgan('combined'));
+  // combined 格式 + response-time（毫秒）
+  // 格式：:remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":response-time ms" ":referrer" ":user-agent"
+  app.use(
+    morgan(
+      ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":response-time ms" ":referrer" ":user-agent"',
+    ),
+  );
 
   app.use(
     compression({

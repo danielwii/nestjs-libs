@@ -107,7 +107,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
     logger.log(f`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`);
 
     const server = app.getHttpServer();
-    const IN_FLIGHT_TIMEOUT_MS = 30_000;
+    const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
 
     // 停止接收新连接，但保持现有连接
     server.close(() => {
