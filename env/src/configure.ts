@@ -469,11 +469,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
   }
 
   static async syncFromDB<T extends object>(prisma: ISysAppSettingClient, originalEnvs: T, activeEnvs: T) {
+    // 注意：使用 activeEnvs 来查找装饰器元数据
+    // 原因：originalEnvs 是通过 structuredClone 创建的普通对象，丢失了类原型链
+    // 而 activeEnvs 是通过 plainToInstance 创建的类实例，保留了原型链和装饰器元数据
     const fields = Object.getOwnPropertyNames(originalEnvs)
       .map((field) => {
-        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, originalEnvs, field);
-        const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, originalEnvs, field);
-        const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, originalEnvs, field);
+        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, activeEnvs, field);
+        const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, activeEnvs, field);
+        const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, activeEnvs, field);
 
         return {
           field,

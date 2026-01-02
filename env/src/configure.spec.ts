@@ -113,6 +113,164 @@ describe('AppConfigure', () => {
       expect(deprecateCall.data.deprecatedAt).toBeDefined();
     });
 
+    it('should override activeEnvs with DB value when env var not effective (bug reproduction)', async () => {
+      // 场景：代码默认值 60，环境变量应为 1440 但没生效，数据库 value=1440
+      // 期望：syncFromDB 应该把 activeEnvs 覆盖为 1440
+      class NumberEnvs {
+        @DatabaseField('number', '每日配额')
+        DAILY_MINUTES: number = 60; // 代码默认值
+      }
+
+      const originalEnvs = new NumberEnvs(); // 60
+      const activeEnvs = new NumberEnvs(); // 60（环境变量没生效的情况）
+
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'DAILY_MINUTES',
+                value: 1440, // 数据库值（已被 JSON.parse）
+                defaultValue: '60',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve({ key: 'DAILY_MINUTES' })),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // [关键断言] activeEnvs 应该被 DB 的值覆盖为 1440
+      expect(activeEnvs.DAILY_MINUTES).toBe(1440);
+    });
+
+    it('should NOT override activeEnvs when DB value equals activeEnvs', async () => {
+      // 场景：环境变量已生效（1440），数据库 value 也是 1440
+      // 期望：不触发覆盖日志，值保持 1440
+      class NumberEnvs {
+        @DatabaseField('number', '每日配额')
+        DAILY_MINUTES: number = 60;
+      }
+
+      const originalEnvs = new NumberEnvs();
+      originalEnvs.DAILY_MINUTES = 1440; // 模拟环境变量已覆盖
+
+      const activeEnvs = new NumberEnvs();
+      activeEnvs.DAILY_MINUTES = 1440; // 当前运行值
+
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'DAILY_MINUTES',
+                value: 1440,
+                defaultValue: '60',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve({ key: 'DAILY_MINUTES' })),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // 值应保持 1440
+      expect(activeEnvs.DAILY_MINUTES).toBe(1440);
+    });
+
+    it('should handle number type correctly when DB stores as string', async () => {
+      // 场景：数据库 format=number，但 value 存储可能是字符串（测试 JSON.parse 逻辑）
+      class NumberEnvs {
+        @DatabaseField('number', '每日配额')
+        DAILY_MINUTES: number = 60;
+      }
+
+      const originalEnvs = new NumberEnvs();
+      const activeEnvs = new NumberEnvs(); // 60
+
+      // 注意：syncFromDB 内部会对非 string format 执行 JSON.parse
+      // 这里模拟 findMany 返回已解析的值（1440 是数字类型）
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'DAILY_MINUTES',
+                value: 1440, // 已被 JSON.parse 解析为数字
+                defaultValue: '60',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve({ key: 'DAILY_MINUTES' })),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      expect(activeEnvs.DAILY_MINUTES).toBe(1440);
+      expect(typeof activeEnvs.DAILY_MINUTES).toBe('number');
+    });
+
+    it('should work when originalEnvs is created via structuredClone (loses prototype chain)', async () => {
+      // 场景：模拟 AppConfigure 构造函数中的行为
+      // this.vars = this.validate(); // plainToInstance 创建类实例
+      // this.originalVars = structuredClone(this.vars); // 普通对象，丢失原型链
+      //
+      // Bug 复现：structuredClone 创建的对象没有原型链，Reflect.getMetadata 找不到装饰器
+      // 修复：使用 activeEnvs（类实例）来查找装饰器元数据
+
+      class NumberEnvs {
+        @DatabaseField('number', '每日配额')
+        DAILY_MINUTES: number = 60;
+      }
+
+      const activeEnvs = new NumberEnvs(); // 类实例，有原型链
+      const originalEnvs = structuredClone(activeEnvs); // 普通对象，无原型链！
+
+      // 验证 structuredClone 确实丢失了原型链
+      expect(Object.getPrototypeOf(activeEnvs)).toBe(NumberEnvs.prototype);
+      expect(Object.getPrototypeOf(originalEnvs)).toBe(Object.prototype); // 普通对象
+
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'DAILY_MINUTES',
+                value: 1440, // DB 值
+                defaultValue: '60',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve({ key: 'DAILY_MINUTES' })),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // [关键断言] 即使 originalEnvs 是 structuredClone 创建的普通对象，
+      // syncFromDB 应该能通过 activeEnvs 找到装饰器元数据，正确覆盖值
+      expect(activeEnvs.DAILY_MINUTES).toBe(1440);
+    });
+
     it('should update metadata if defaults or description change', async () => {
       class Envs {
         @DatabaseField('string', 'New Description')
