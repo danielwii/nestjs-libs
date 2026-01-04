@@ -178,6 +178,10 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() SERVICE_NAME?: string;
   @IsString() @IsOptional() TRACING_EXPORTER_URL?: string;
 
+  // ==================== OpenTelemetry 配置 ====================
+  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_ENDPOINT?: string;
+  @IsString() @IsOptional() OTEL_LOG_LEVEL?: string;
+
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_PROXY_ENABLED?: boolean;
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
   @Type(() => Number) @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
@@ -351,6 +355,18 @@ export interface ISysAppSettingClient {
   };
 }
 
+export interface AppConfigureOptions {
+  /**
+   * 无数据库模式
+   *
+   * 设计意图：
+   * - 适用于纯 gRPC 服务、CLI 工具等无数据库连接的项目
+   * - sync() 方法将跳过数据库同步，仅保留环境变量加载和验证能力
+   * - 使用 createNoDBConfigure() 工厂函数创建
+   */
+  noDB?: boolean;
+}
+
 export class AppConfigure<T extends AbstractEnvironmentVariables> {
   private readonly logger = new Logger(this.constructor.name);
 
@@ -365,10 +381,13 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
    * .env.$(NODE_ENV)
    * .env
    * @param EnvsClass
+   * @param sys - 是否为系统级配置（SysEnv）
+   * @param options - 配置选项
    */
   constructor(
     readonly EnvsClass: new () => T,
     private readonly sys = false,
+    private readonly options: AppConfigureOptions = {},
   ) {
     const envFilePath = (() => {
       switch (process.env.NODE_ENV) {
@@ -464,7 +483,16 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     return validatedConfig;
   }
 
+  /**
+   * 同步配置到数据库
+   *
+   * 无数据库项目使用 createNoDBConfigure() 创建实例，sync() 会自动跳过
+   */
   async sync(prisma: ISysAppSettingClient) {
+    if (this.options.noDB) {
+      Logger.debug('#sync skipped (noDB mode)', 'AppConfigure');
+      return;
+    }
     await AppConfigure.syncFromDB(prisma, this.originalVars, this.vars);
   }
 
@@ -644,6 +672,28 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
     }
   }
+}
+
+/**
+ * 创建无数据库模式的 AppConfigure
+ *
+ * 适用于纯 gRPC 服务、CLI 工具等无数据库连接的项目。
+ * sync() 方法会自动跳过，仅保留环境变量加载和验证能力。
+ *
+ * @example
+ * ```typescript
+ * import { AbstractEnvironmentVariables, createNoDBConfigure } from '@app/env';
+ *
+ * class EnvironmentVariables extends AbstractEnvironmentVariables {
+ *   @IsString() @IsOptional() override DATABASE_URL?: string; // 覆盖为可选
+ *   @IsString() @IsOptional() WEATHER_API_KEY?: string;
+ * }
+ *
+ * export const AppEnvs = createNoDBConfigure(EnvironmentVariables).vars;
+ * ```
+ */
+export function createNoDBConfigure<T extends AbstractEnvironmentVariables>(EnvsClass: new () => T): AppConfigure<T> {
+  return new AppConfigure(EnvsClass, false, { noDB: true });
 }
 
 export const SysEnv = new AppConfigure(AbstractEnvironmentVariables, true).vars;
