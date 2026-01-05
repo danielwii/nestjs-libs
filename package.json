@@ -18,8 +18,8 @@
     ]
   },
   "dependencies": {
-    "@ai-sdk/google": "^3.0.1",
-    "@ai-sdk/openai": "^3.0.1",
+    "@ai-sdk/google": "^3.0.2",
+    "@ai-sdk/openai": "^3.0.2",
     "@dotenvx/dotenvx": "^1.51.4",
     "@nestjs/common": "^11.1.11",
     "@nestjs/core": "^11.1.11",
@@ -29,7 +29,7 @@
     "@openrouter/ai-sdk-provider": "^1.5.4",
     "@opentelemetry/api": "^1.9.0",
     "@sentry/nestjs": "^10.32.1",
-    "ai": "^6.0.3",
+    "ai": "^6.0.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "common-tags": "^1.8.2",
@@ -56,11 +56,12 @@
     "rxjs": "^7.8.2",
     "undici": "^7.16.0",
     "why-is-node-running": "^3.2.2",
-    "zod": "^4.2.1"
+    "zod": "^4.3.4"
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
     "@jest/globals": "^30.2.0",
+    "@nestjs/microservices": "^11.1.11",
     "@types/bun": "^1.3.5",
     "@types/common-tags": "^1.8.4",
     "@types/compression": "^1.8.1",
