@@ -157,7 +157,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   }
 
   @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
-  LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'log';
+  LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'debug';
 
   @DatabaseField(
     'string',

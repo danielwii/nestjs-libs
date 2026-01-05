@@ -69,6 +69,11 @@ export class LoggerInterceptor implements NestInterceptor {
       return result;
     }
 
+    // gRPC request handling
+    if (ctx.getType() === 'rpc') {
+      return this.handleRpcRequest(ctx, next);
+    }
+
     // ws subscription request
     if (!req) {
       return next.handle();
@@ -156,6 +161,119 @@ export class LoggerInterceptor implements NestInterceptor {
         }),
       );
     });
+  }
+
+  /**
+   * Handle gRPC/RPC requests with logging and tracing
+   *
+   * gRPC trace propagation via metadata:
+   * - Client sends `traceparent` header in gRPC metadata
+   * - Format: "00-{traceId}-{spanId}-{flags}" (W3C Trace Context)
+   * - We extract traceId from metadata or OpenTelemetry span
+   *
+   * 日志格式与 HTTP 保持一致：
+   * -> (rpc) #Class.method call... data={...}
+   * <- (rpc) #Class.method spent Xms
+   */
+  private handleRpcRequest(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const rpcCtx = ctx.switchToRpc();
+    const data = rpcCtx.getData();
+    const rpcContext = rpcCtx.getContext();
+
+    const className = ctx.getClass().name;
+    const handlerName = ctx.getHandler().name;
+    const TAG = `(rpc) #${className}.${handlerName}`;
+
+    // Extract traceId from gRPC metadata or OpenTelemetry span
+    const traceId = this.extractGrpcTraceId(rpcContext);
+
+    return RequestContext.run({ traceId, userId: null }, () => {
+      // Truncate large data for logging (similar to HTTP body truncation)
+      const truncatedData = this.truncateData(data);
+      this.logger.debug(f`-> ${TAG} call... data=${truncatedData}`);
+
+      const now = Date.now();
+      return next.handle().pipe(
+        finalize(() => {
+          this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
+        }),
+        catchError((e) => {
+          this.logger.error(f`${TAG} error: ${e}`);
+          throw e;
+        }),
+      );
+    });
+  }
+
+  /**
+   * Extract traceId from gRPC metadata or OpenTelemetry span
+   *
+   * Priority:
+   * 1. OpenTelemetry active span (if gRPC instrumentation enabled)
+   * 2. gRPC metadata `traceparent` header (W3C format: 00-{traceId}-{spanId}-{flags})
+   * 3. gRPC metadata `x-trace-id` header (custom header)
+   * 4. Generate new traceId
+   */
+  private extractGrpcTraceId(rpcContext: unknown): string {
+    // 1. Try OpenTelemetry span first (requires @opentelemetry/instrumentation-grpc)
+    const currentSpan = trace.getSpan(context.active());
+    const spanTraceId = currentSpan?.spanContext()?.traceId;
+    if (spanTraceId) {
+      return spanTraceId;
+    }
+
+    // 2. Try gRPC metadata (fallback if no OpenTelemetry instrumentation)
+    // NestJS gRPC context is a @grpc/grpc-js Metadata object
+    const metadata = rpcContext as { get?: (key: string) => string[] } | undefined;
+    if (metadata?.get) {
+      // Try W3C traceparent format: "00-{traceId}-{spanId}-{flags}"
+      const traceparent = metadata.get('traceparent')?.[0];
+      if (traceparent) {
+        const parts = traceparent.split('-');
+        if (parts.length >= 2 && parts[1]?.length === 32) {
+          return parts[1];
+        }
+      }
+
+      // Try custom x-trace-id header
+      const xTraceId = metadata.get('x-trace-id')?.[0];
+      if (xTraceId) {
+        return xTraceId.trim();
+      }
+    }
+
+    // 3. Generate new traceId
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  /**
+   * Truncate large data objects for logging
+   */
+  private truncateData(data: unknown): unknown {
+    if (data === null || data === undefined) {
+      return data;
+    }
+
+    if (typeof data === 'string') {
+      return data.length > 200 ? `${data.slice(0, 200)}...` : data;
+    }
+
+    if (typeof data !== 'object') {
+      return data;
+    }
+
+    // For objects, create a truncated copy
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      if (typeof value === 'string' && value.length > 100) {
+        result[key] = `${value.slice(0, 100)}...`;
+      } else if (Array.isArray(value) && value.length > 5) {
+        result[key] = `[Array(${value.length})]`;
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
   }
 }
 
