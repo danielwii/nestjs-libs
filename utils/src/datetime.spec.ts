@@ -13,53 +13,47 @@ import { describe, expect, it, mock } from 'bun:test';
  * 时区规范化工具测试
  *
  * 设计意图：
- * - 验证三种时区格式的正确转换
- * - 确保兜底逻辑正常工作
- * - 覆盖边界情况和无效输入
+ * - 验证有效时区格式被保留（IANA 和偏移格式）
+ * - 验证无效格式返回 null
+ * - date-fns-tz formatInTimeZone 直接支持两种格式，无需转换
  */
 describe('timezone.helper', () => {
   describe('normalizeTimezone', () => {
-    describe('旧格式："+8" / "-5"', () => {
-      it('应该正确转换 "+8" 为 "Asia/Shanghai"', () => {
-        expect(normalizeTimezone('+8')).toBe('Asia/Shanghai');
+    describe('偏移格式：标准化为 +HH:MM（formatInTimeZone 要求）', () => {
+      it('应该标准化 "+8" 为 "+08:00"', () => {
+        expect(normalizeTimezone('+8')).toBe('+08:00');
       });
 
-      it('应该正确转换 "-5" 为 "America/New_York"', () => {
-        expect(normalizeTimezone('-5')).toBe('America/New_York');
+      it('应该标准化 "-5" 为 "-05:00"', () => {
+        expect(normalizeTimezone('-5')).toBe('-05:00');
       });
 
-      it('应该正确转换 "+0" 为 "Europe/London"', () => {
-        expect(normalizeTimezone('+0')).toBe('Europe/London');
+      it('应该标准化 "+0" 为 "+00:00"', () => {
+        expect(normalizeTimezone('+0')).toBe('+00:00');
       });
 
-      it('应该正确转换 "+9" 为 "Asia/Tokyo"', () => {
-        expect(normalizeTimezone('+9')).toBe('Asia/Tokyo');
-      });
-    });
-
-    describe('新格式："+08:00" / "-05:30"', () => {
-      it('应该正确转换 "+08:00" 为 "Asia/Shanghai"', () => {
-        expect(normalizeTimezone('+08:00')).toBe('Asia/Shanghai');
+      it('应该保留 "+08:00"', () => {
+        expect(normalizeTimezone('+08:00')).toBe('+08:00');
       });
 
-      it('应该正确转换 "-05:00" 为 "America/New_York"', () => {
-        expect(normalizeTimezone('-05:00')).toBe('America/New_York');
+      it('应该保留 "-05:00"', () => {
+        expect(normalizeTimezone('-05:00')).toBe('-05:00');
       });
 
-      it('应该正确转换 "+05:30" 为 "Asia/Kolkata" (印度)', () => {
-        expect(normalizeTimezone('+05:30')).toBe('Asia/Kolkata');
+      it('应该保留 "+05:30" (印度)', () => {
+        expect(normalizeTimezone('+05:30')).toBe('+05:30');
       });
 
-      it('应该正确转换 "+00:00" 为 "Europe/London"', () => {
-        expect(normalizeTimezone('+00:00')).toBe('Europe/London');
+      it('应该保留 "-06:00" (美中)', () => {
+        expect(normalizeTimezone('-06:00')).toBe('-06:00');
       });
 
-      it('应该正确转换 "+09:00" 为 "Asia/Tokyo"', () => {
-        expect(normalizeTimezone('+09:00')).toBe('Asia/Tokyo');
+      it('应该标准化无符号格式 "8" 为 "+08:00"', () => {
+        expect(normalizeTimezone('8')).toBe('+08:00');
       });
     });
 
-    describe('IANA 格式', () => {
+    describe('IANA 格式：直接返回', () => {
       it('应该保持 "Asia/Shanghai" 不变', () => {
         expect(normalizeTimezone('Asia/Shanghai')).toBe('Asia/Shanghai');
       });
@@ -74,6 +68,10 @@ describe('timezone.helper', () => {
 
       it('应该保持 "UTC" 不变', () => {
         expect(normalizeTimezone('UTC')).toBe('UTC');
+      });
+
+      it('应该保持 "GMT" 不变', () => {
+        expect(normalizeTimezone('GMT')).toBe('GMT');
       });
     });
 
@@ -104,28 +102,14 @@ describe('timezone.helper', () => {
         expect(normalizeTimezone('invalid')).toBe(null);
       });
 
-      it('应该将无法识别的偏移量转换为 null', () => {
-        expect(normalizeTimezone('+99')).toBe(null);
-      });
-    });
-
-    describe('特殊时区', () => {
-      it('应该支持半小时偏移 "+5:30"', () => {
-        expect(normalizeTimezone('+5:30')).toBe('Asia/Kolkata');
-      });
-
-      it('应该支持负时区 "-8" (美西)', () => {
-        expect(normalizeTimezone('-8')).toBe('America/Los_Angeles');
-      });
-
-      it('应该支持负时区 "-08:00" (美西)', () => {
-        expect(normalizeTimezone('-08:00')).toBe('America/Los_Angeles');
+      it('应该将三位数偏移 "+999" 转换为 null', () => {
+        expect(normalizeTimezone('+999')).toBe(null);
       });
     });
 
     describe('去除前后空格', () => {
       it('应该正确处理带空格的 " +8 "', () => {
-        expect(normalizeTimezone(' +8 ')).toBe('Asia/Shanghai');
+        expect(normalizeTimezone(' +8 ')).toBe('+08:00');
       });
 
       it('应该正确处理带空格的 " Asia/Shanghai "', () => {
@@ -134,16 +118,23 @@ describe('timezone.helper', () => {
     });
 
     describe('normalizeTimezoneWithLog', () => {
-      it('应该正常转换并在差异时调用 logger', () => {
+      it('偏移格式标准化时触发日志', () => {
         const logger = { debug: mock() };
         const result = normalizeTimezoneWithLog('+8', logger, 'TestCtx');
-        expect(result).toBe('Asia/Shanghai');
-        expect(logger.debug).toHaveBeenCalledWith('[TestCtx] 时区格式转换: "+8" -> "Asia/Shanghai"');
+        expect(result).toBe('+08:00');
+        expect(logger.debug).toHaveBeenCalledWith('[TestCtx] 时区格式转换: "+8" -> "+08:00"');
       });
 
-      it('如果没有差异则不调用 logger', () => {
+      it('IANA 格式不触发日志（无转换）', () => {
         const logger = { debug: mock() };
         normalizeTimezoneWithLog('Asia/Shanghai', logger);
+        expect(logger.debug).not.toHaveBeenCalled();
+      });
+
+      it('已标准化偏移格式不触发日志', () => {
+        const logger = { debug: mock() };
+        const result = normalizeTimezoneWithLog('+08:00', logger);
+        expect(result).toBe('+08:00');
         expect(logger.debug).not.toHaveBeenCalled();
       });
     });
