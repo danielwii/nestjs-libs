@@ -10,6 +10,7 @@ import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 
 import os from 'node:os';
 
+import { ReflectionService } from '@grpc/reflection';
 import { stripIndent } from 'common-tags';
 import { DateTime } from 'luxon';
 
@@ -36,6 +37,8 @@ export interface GrpcBootstrapOptions {
     port?: number;
     /** 额外的 loader 选项 */
     loader?: object;
+    /** 是否启用 gRPC reflection，默认 true */
+    reflection?: boolean;
   };
   /** HTTP 健康检查端口，默认 3000 */
   httpPort?: number;
@@ -92,6 +95,8 @@ export async function grpcBootstrap(
   // 配置 gRPC 微服务
   // inheritAppConfig: true 使全局 interceptors/guards/pipes 也应用于微服务
   const grpcPort = options.grpc.port ?? SysEnv.GRPC_PORT ?? 50051;
+  const enableReflection = options.grpc.reflection !== false; // 默认启用
+
   app.connectMicroservice<MicroserviceOptions>(
     {
       transport: Transport.GRPC,
@@ -100,6 +105,12 @@ export async function grpcBootstrap(
         protoPath: options.grpc.protoPath,
         url: `0.0.0.0:${grpcPort}`,
         loader: options.grpc.loader,
+        // 启用 gRPC reflection，支持 grpcurl list 等命令
+        onLoadPackageDefinition: enableReflection
+          ? (pkg, server) => {
+              new ReflectionService(pkg).addToServer(server);
+            }
+          : undefined,
       },
     },
     { inheritAppConfig: true },
@@ -133,7 +144,7 @@ export async function grpcBootstrap(
           ├─ 应用信息 ─────────────────────────────────────────────
           │ App Version: ${options.packageJson?.name ?? 'unknown'}-v${options.packageJson?.version ?? 'unknown'}
           │ Host: ${os.hostname()}
-          │ gRPC Port: ${grpcPort}
+          │ gRPC Port: ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}
           │ HTTP Port: ${httpPort} (health check)
           │ PID: ${process.pid}
           ├─ 运行时信息 ───────────────────────────────────────────
