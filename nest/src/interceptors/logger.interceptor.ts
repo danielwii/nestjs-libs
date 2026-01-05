@@ -116,7 +116,7 @@ export class LoggerInterceptor implements NestInterceptor {
     const TAG = `(${uid || 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
 
     // 健康检查路径，跳过日志记录
-    const isHealthCheck = ['/', '/health'].includes(req.path);
+    const isHealthCheck = req.path?.startsWith('/health') || req.path === '/';
 
     const currentSpan = trace.getSpan(context.active());
     const spanTraceId = currentSpan?.spanContext()?.traceId;

@@ -20,3 +20,8 @@ coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local config
+.claude/
+.serena/
+git-town.toml
