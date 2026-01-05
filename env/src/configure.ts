@@ -194,7 +194,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
-  @IsString() DATABASE_URL!: string;
+  @IsString() @IsOptional() DATABASE_URL?: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
