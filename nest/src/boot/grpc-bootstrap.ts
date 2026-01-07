@@ -1,8 +1,9 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, Module, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { Transport } from '@nestjs/microservices';
 
 import { SysEnv } from '@app/env';
+import { BootModule } from '@app/nest/boot/boot.module';
 import { runApp } from '@app/nest/boot/lifecycle';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
@@ -14,11 +15,24 @@ import { ReflectionService } from '@grpc/reflection';
 import { stripIndent } from 'common-tags';
 import { DateTime } from 'luxon';
 
+import type { Server } from '@grpc/grpc-js';
+import type { PackageDefinition } from '@grpc/proto-loader';
 import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type } from '@nestjs/common';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 
 type IEntryNestModule = Type<unknown> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
+
+/**
+ * 包装用户的 AppModule，自动注入 BootModule
+ */
+function wrapWithBootModule(AppModule: IEntryNestModule): Type<unknown> {
+  @Module({
+    imports: [BootModule, AppModule as Type<unknown>],
+  })
+  class WrappedAppModule {}
+  return WrappedAppModule;
+}
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
 
@@ -80,8 +94,8 @@ export async function grpcBootstrap(
     Logger.warn(`[Config] Disabled log levels: ${notShowLogLevels.join(', ')}`, 'Bootstrap');
   }
 
-  // 创建 HTTP 应用（用于健康检查）
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+  // 创建 HTTP 应用（用于健康检查），自动注入 BootModule
+  const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule), {
     logger: levels,
   });
 
@@ -107,7 +121,7 @@ export async function grpcBootstrap(
         loader: options.grpc.loader,
         // 启用 gRPC reflection，支持 grpcurl list 等命令
         onLoadPackageDefinition: enableReflection
-          ? (pkg, server) => {
+          ? (pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
               new ReflectionService(pkg).addToServer(server);
             }
           : undefined,
