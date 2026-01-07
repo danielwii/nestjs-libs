@@ -154,7 +154,7 @@ function initializeSentry() {
         }
         return event;
       },
-      integrations: [Sentry.captureConsoleIntegration({ levels: ['warn', 'error'] })],
+      integrations: [Sentry.captureConsoleIntegration({ levels: ['error'] })],
     });
   } catch (error) {
     console.error(`${LOG_NAMESPACE}: [Sentry] init failed`, error);
