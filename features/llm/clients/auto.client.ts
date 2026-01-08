@@ -280,14 +280,14 @@ class LLMBuilder {
     } as unknown as ProviderOptions;
   }
 
-  private _buildTelemetry(): TelemetrySettings | undefined {
-    if (!this._telemetry) return undefined;
-
+  private _buildTelemetry(): TelemetrySettings {
+    // AI SDK v6 要求显式启用 telemetry 才能发送到 Langfuse
+    // 默认启用，确保所有 LLM 调用都有 trace
     const metadata: Record<string, string | string[]> = {};
-    if (this._telemetry.userId) metadata.userId = this._telemetry.userId;
-    if (this._telemetry.sessionId) metadata.sessionId = this._telemetry.sessionId;
-    if (this._telemetry.tags?.length) metadata.tags = this._telemetry.tags;
-    if (this._telemetry.parentObservationId) metadata.parentObservationId = this._telemetry.parentObservationId;
+    if (this._telemetry?.userId) metadata.userId = this._telemetry.userId;
+    if (this._telemetry?.sessionId) metadata.sessionId = this._telemetry.sessionId;
+    if (this._telemetry?.tags?.length) metadata.tags = this._telemetry.tags;
+    if (this._telemetry?.parentObservationId) metadata.parentObservationId = this._telemetry.parentObservationId;
 
     return {
       isEnabled: true,
