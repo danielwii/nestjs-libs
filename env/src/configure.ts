@@ -133,9 +133,17 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   private readonly hostname = os.hostname();
 
   // use doppler env instead
-  @IsEnum(['prd', 'stg', 'dev']) @IsOptional() ENV?: 'prd' | 'stg' | 'dev';
+  // @IsEnum 用数组时默认错误消息不含枚举值列表，需自定义 message 明确显示允许值
+  @IsEnum(['prd', 'stg', 'dev'], {
+    message: 'ENV must be one of: prd, stg, dev (got: $value)',
+  })
+  @IsOptional()
+  ENV?: 'prd' | 'stg' | 'dev';
 
-  @IsEnum(NODE_ENV) NODE_ENV: NODE_ENV = NODE_ENV.Development;
+  @IsEnum(NODE_ENV, {
+    message: 'NODE_ENV must be one of: development, production, test (got: $value)',
+  })
+  NODE_ENV: NODE_ENV = NODE_ENV.Development;
 
   get isNodeDevelopment() {
     return process.env.NODE_ENV === 'development';
@@ -156,7 +164,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
     return os.hostname() === 'localhost' ? `localhost-${Date.now()}:${this.PORT}` : `${os.hostname()}:${this.PORT}`;
   }
 
-  @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'])
+  @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'], {
+    message: 'LOG_LEVEL must be one of: verbose, debug, log, warn, error, fatal (got: $value)',
+  })
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'debug';
 
   @DatabaseField(
@@ -434,7 +444,12 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
       if (errors.length > 0) {
         this.logger.warn(`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`);
-        console.log(errors.map((e) => `${e.property}=`).join('\n'));
+        const errorDetails = errors.map((e) => {
+          const value = e.value === undefined ? '<undefined>' : e.value === '' ? '<empty>' : JSON.stringify(e.value);
+          const constraints = e.constraints ? Object.values(e.constraints).join('; ') : 'unknown error';
+          return `  ${e.property}=${value}\n    └─ ${constraints}`;
+        });
+        console.log(errorDetails.join('\n'));
         throw new Error(errors.map((e) => e.property).join(', '));
       }
 
