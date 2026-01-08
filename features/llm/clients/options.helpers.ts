@@ -92,9 +92,7 @@ export function mergeProviderOptions(
 
   for (const opt of options) {
     for (const [provider, config] of Object.entries(opt)) {
-      if (!result[provider]) {
-        result[provider] = {};
-      }
+      result[provider] ??= {};
       Object.assign(result[provider], config);
     }
   }

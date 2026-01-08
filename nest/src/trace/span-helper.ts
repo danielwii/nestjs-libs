@@ -1,6 +1,6 @@
 import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
-import type { Span } from '@opentelemetry/api';
+import type { Attributes, Span } from '@opentelemetry/api';
 
 export interface SpanInputOutputOptions {
   name: string;
@@ -40,7 +40,7 @@ function createSpan(options: SpanInputOutputOptions) {
   };
 
   // 设置所有属性
-  span.setAttributes(attributes as import('@opentelemetry/api').Attributes);
+  span.setAttributes(attributes as Attributes);
 
   return span;
 }

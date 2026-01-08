@@ -11,7 +11,7 @@ export function initStackTraceFormatter() {
 
 export function wrapPrototype<T extends (...args: unknown[]) => unknown>(prototype: T): T {
   const p = prototype as unknown as (...args: unknown[]) => unknown;
-  const name = (prototype as { name?: string }).name || 'anonymous';
+  const name = (prototype as { name?: string }).name ?? 'anonymous';
 
   const wrapped = function (this: unknown, ...args: unknown[]) {
     if (args.length === 3 && args[1]) {

@@ -4,9 +4,9 @@ export const METADATA_KEYS = {
 
 export const named: MethodDecorator = (_target, propertyKey, descriptor) => {
   const originalMethod = descriptor.value;
-  // @ts-expect-error
+  // @ts-expect-error -- descriptor.value type is unknown in MethodDecorator
   descriptor.value = function (...args: unknown[]) {
-    // @ts-expect-error
+    // @ts-expect-error -- originalMethod is untyped from descriptor.value
     return Reflect.apply(originalMethod, this, [...args, propertyKey]);
   };
 

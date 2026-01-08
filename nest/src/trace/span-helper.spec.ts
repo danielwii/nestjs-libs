@@ -30,12 +30,12 @@ describe('SpanHelper', () => {
       // Verify span creation
       expect(trace.getTracer).toHaveBeenCalledWith('ai');
       expect(mockTracer.startSpan).toHaveBeenCalled();
-      const startSpanArgs = (mockTracer.startSpan.mock.calls as unknown as unknown[][])[0];
+      const startSpanArgs = (mockTracer.startSpan.mock.calls as unknown as unknown[][])[0]!;
       expect(startSpanArgs[0]).toBe(`ai.toolCall ${toolName}`);
 
       // Verify initial attributes
       expect(mockSpan.setAttributes).toHaveBeenCalled();
-      expect((mockSpan.setAttributes.mock.calls as unknown as Record<string, unknown>[][])[0][0]).toEqual({
+      expect((mockSpan.setAttributes.mock.calls as unknown as Record<string, unknown>[][])[0]![0]).toEqual({
         'ai.toolCall.id': toolCallId,
       });
 
@@ -44,7 +44,7 @@ describe('SpanHelper', () => {
 
       // Verify result attributes
       expect(mockSpan.setAttributes).toHaveBeenCalledTimes(2);
-      const resultArgs = (mockSpan.setAttributes.mock.calls as unknown as Record<string, string>[][])[1][0];
+      const resultArgs = (mockSpan.setAttributes.mock.calls as unknown as Record<string, string>[][])[1]![0]!;
       expect(resultArgs['ai.toolCall.args']).toBe('{"arg":1}');
       expect(resultArgs['ai.toolCall.result']).toBe('{"res":2}');
       expect(resultArgs.extra).toBe('meta');

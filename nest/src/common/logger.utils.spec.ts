@@ -25,7 +25,7 @@ describe('LoggerUtils', () => {
       // Because wrapPrototype calls prototype.apply(this, args),
       // and mockFn.apply IS originalFn,
       // originalFn is called with (this, argsArray)
-      const callArgs = originalFn.mock.calls[0];
+      const callArgs = originalFn.mock.calls[0]!;
 
       // callArgs[1] is the arguments array passed to apply
       const actualArgs = callArgs[1] as unknown[];
@@ -56,7 +56,7 @@ describe('LoggerUtils', () => {
 
       expect(originalFn).toHaveBeenCalledTimes(1);
 
-      const callArgs = originalFn.mock.calls[0];
+      const callArgs = originalFn.mock.calls[0]!;
       const actualArgs = callArgs[1] as unknown[];
 
       expect(actualArgs[0]).toBe(message);

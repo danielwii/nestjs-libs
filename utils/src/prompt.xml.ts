@@ -142,7 +142,7 @@ export const GigoAnalysisSchema = z.object({
  * // => z.object({ reasoning, scratchpad, result: userSchema })
  * ```
  */
-export function wrapWithCoT<T extends z.ZodSchema>(userSchema: T) {
+export function wrapWithCoT<T extends z.ZodType>(userSchema: T) {
   return z.object({
     reasoning: z.string().describe('推理过程和思维链'),
     scratchpad: z.string().describe('草稿和计算过程'),
@@ -160,7 +160,7 @@ export function wrapWithCoT<T extends z.ZodSchema>(userSchema: T) {
  * // => z.object({ reasoning, scratchpad, result, confidence, gigo_analysis })
  * ```
  */
-export function wrapWithDebug<T extends z.ZodSchema>(userSchema: T) {
+export function wrapWithDebug<T extends z.ZodType>(userSchema: T) {
   return z.object({
     reasoning: z.string().describe('推理过程和思维链'),
     scratchpad: z.string().describe('草稿和计算过程'),
@@ -341,7 +341,7 @@ export class PromptBuilder {
   }
 
   example(example: Example): this {
-    if (example?.content) {
+    if (example.content) {
       this._examples.push({ ...example });
     }
     return this;
@@ -353,9 +353,7 @@ export class PromptBuilder {
   }
 
   context(section: ContextSection): this {
-    if (section) {
-      this._sections.push({ ...section });
-    }
+    this._sections.push({ ...section });
     return this;
   }
 

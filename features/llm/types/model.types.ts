@@ -223,7 +223,7 @@ export function isProviderConfigured(provider: string): boolean {
  * 获取 Provider 配置状态
  */
 export function getProviderStatus(): Record<string, { configured: boolean; envVar: string }> {
-  return Object.entries(providerApiKeyMap).reduce(
+  return Object.entries(providerApiKeyMap).reduce<Record<string, { configured: boolean; envVar: string }>>(
     (acc, [provider, envVar]) => {
       acc[provider] = {
         configured: !!SysEnv[envVar],
@@ -231,7 +231,7 @@ export function getProviderStatus(): Record<string, { configured: boolean; envVa
       };
       return acc;
     },
-    {} as Record<string, { configured: boolean; envVar: string }>,
+    {},
   );
 }
 

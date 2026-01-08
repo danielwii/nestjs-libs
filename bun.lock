@@ -17,7 +17,7 @@
         "@openrouter/ai-sdk-provider": "^1.5.4",
         "@opentelemetry/api": "^1.9.0",
         "@sentry/nestjs": "^10.32.1",
-        "ai": "^6.0.18",
+        "ai": "^6.0.21",
         "class-transformer": "^0.5.1",
         "class-validator": "^0.14.3",
         "common-tags": "^1.8.2",
@@ -47,6 +47,7 @@
         "zod": "^4.3.5",
       },
       "devDependencies": {
+        "@eslint/js": "^9.28.0",
         "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
         "@jest/globals": "^30.2.0",
         "@nestjs/microservices": "^11.1.11",
@@ -65,7 +66,7 @@
         "@types/node-fetch": "^2.6.13",
         "@types/response-time": "^2.3.9",
         "@types/ws": "^8.18.1",
-        "eslint": "^9.39.2",
+        "eslint": "^9.28.0",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-prettier": "^5.5.4",
         "globals": "^17.0.0",
@@ -74,12 +75,12 @@
         "prettier": "^3.7.4",
         "ts-morph": "^27.0.2",
         "typescript": "^5.9.3",
-        "typescript-eslint": "^8.52.0",
+        "typescript-eslint": "^8.33.0",
       },
     },
   },
   "packages": {
-    "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.9", "", { "dependencies": { "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.4", "@vercel/oidc": "3.1.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-EA5dZIukimwoJ9HIPuuREotAqaTItpdc/yImzVF0XGNg7B0YRJmYI8Uq3aCMr87vjr1YB1cWUfnrTt6OJ9eHiQ=="],
+    "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.10", "", { "dependencies": { "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.4", "@vercel/oidc": "3.1.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-sRlPMKd38+fdp2y11USW44c0o8tsIsT6T/pgyY04VXC3URjIRnkxugxd9AkU2ogfpPDMz50cBAGPnMxj+6663Q=="],
 
     "@ai-sdk/google": ["@ai-sdk/google@3.0.6", "", { "dependencies": { "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.4" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-Nr7E+ouWd/bKO9SFlgLnJJ1+fiGHC07KAeFr08faT+lvkECWlxVox3aL0dec8uCgBDUghYbq7f4S5teUrCc+QQ=="],
 
@@ -531,7 +532,7 @@
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 
-    "ai": ["ai@6.0.18", "", { "dependencies": { "@ai-sdk/gateway": "3.0.9", "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.4", "@opentelemetry/api": "1.9.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-WyscdyO+79MH46xDOPfT+CWEzzMl8MMJqVSw9y3VKjQB1hvO6pSO3YibHO3pqHZLsUjANyHGmyIhx72pDH9+qA=="],
+    "ai": ["ai@6.0.21", "", { "dependencies": { "@ai-sdk/gateway": "3.0.10", "@ai-sdk/provider": "3.0.2", "@ai-sdk/provider-utils": "4.0.4", "@opentelemetry/api": "1.9.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-OUjgowbvEY2DsXJwq3guQ95gXuTg9B84DO7QpGcXVjd6C+9f08CXxHh4UuYjBnYDtuv27rQuegjKJuWILxT0GA=="],
 
     "ajv": ["ajv@6.12.6", "", { "dependencies": { "fast-deep-equal": "^3.1.1", "fast-json-stable-stringify": "^2.0.0", "json-schema-traverse": "^0.4.1", "uri-js": "^4.2.2" } }, "sha512-j3fVLgvTo527anyYyJOGTYJbG+vnnQYvE0m5mmkc1TK+nxAppkCLMIL0aZ4dblVCNoGShhm+kzE4ZUykBoMg4g=="],
 

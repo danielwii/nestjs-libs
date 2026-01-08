@@ -43,7 +43,7 @@ describe('AppConfigure', () => {
       // 3. 验证结果
       expect(mockPrisma.sysAppSetting.createMany).toHaveBeenCalled();
 
-      const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0][0].data[0];
+      const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0]![0].data[0];
 
       expect(createData.key).toBe('TEST_FIELD');
 
@@ -108,7 +108,7 @@ describe('AppConfigure', () => {
       await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any);
 
       // Verify updateMany was called to deprecate ORPHAN
-      const deprecateCall = (mockPrisma.sysAppSetting.updateMany.mock.calls as any[][])[0][0];
+      const deprecateCall = (mockPrisma.sysAppSetting.updateMany.mock.calls as any[][])[0]![0];
       expect(deprecateCall.where.key.in).toContain('ORPHAN');
       expect(deprecateCall.data.deprecatedAt).toBeDefined();
     });
@@ -302,7 +302,7 @@ describe('AppConfigure', () => {
       await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any);
 
       expect(mockPrisma.sysAppSetting.update).toHaveBeenCalled();
-      const updateData = (mockPrisma.sysAppSetting.update.mock.calls as any[][])[0][0].data;
+      const updateData = (mockPrisma.sysAppSetting.update.mock.calls as any[][])[0]![0].data;
       expect(updateData.defaultValue).toBe('new_default');
       expect(updateData.description).toBe('New Description');
     });

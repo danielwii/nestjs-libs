@@ -85,7 +85,7 @@ export async function grpcBootstrap(
   if (!process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
 
   const now = Date.now();
-  const logLevel: LogLevel = SysEnv.LOG_LEVEL || 'debug';
+  const logLevel: LogLevel = SysEnv.LOG_LEVEL;
   const levels = allLogLevels.slice(allLogLevels.indexOf(logLevel), allLogLevels.length);
 
   const notShowLogLevels = allLogLevels.slice(0, allLogLevels.indexOf(logLevel));
@@ -108,7 +108,7 @@ export async function grpcBootstrap(
 
   // 配置 gRPC 微服务
   // inheritAppConfig: true 使全局 interceptors/guards/pipes 也应用于微服务
-  const grpcPort = options.grpc.port ?? SysEnv.GRPC_PORT ?? 50051;
+  const grpcPort = options.grpc.port ?? SysEnv.GRPC_PORT;
   const enableReflection = options.grpc.reflection !== false; // 默认启用
 
   app.connectMicroservice<MicroserviceOptions>(
@@ -137,7 +137,7 @@ export async function grpcBootstrap(
   await app.startAllMicroservices();
 
   // 启动 HTTP 服务（健康检查）
-  const httpPort = options.httpPort ?? SysEnv.PORT ?? 3000;
+  const httpPort = options.httpPort ?? SysEnv.PORT;
   await runApp(app)
     .listen(httpPort)
     .then(() => {

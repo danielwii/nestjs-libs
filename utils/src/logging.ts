@@ -16,7 +16,7 @@ export function f(strings: TemplateStringsArray, ...values: unknown[]): string {
   let result = '';
 
   for (let i = 0; i < strings.length; i++) {
-    result += strings[i];
+    result += strings[i] ?? '';
     result += values[i] !== undefined ? r(values[i]) : '';
   }
 
@@ -37,7 +37,7 @@ export function r(o: unknown): string {
   try {
     const value = instanceToPlain(o);
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(value) : inspect(value);
-  } catch (_e) {
+  } catch {
     return inspect(o);
   }
 }

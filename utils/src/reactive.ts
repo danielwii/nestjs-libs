@@ -37,6 +37,7 @@ export class ReactiveUtils {
           let answer = '';
           try {
             for await (const value of generator) {
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 运行时 generator 可能 yield null/undefined
               if (value == null) continue;
 
               answer += value;

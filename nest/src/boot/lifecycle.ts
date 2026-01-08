@@ -24,13 +24,15 @@ export const runApp = <App extends INestApplication>(app: App) => {
       return;
     }
 
-    logger.error(f`(${os.hostname}) uncaughtException: ${err.message ?? err}`, err.stack);
+    logger.error(f`(${os.hostname}) uncaughtException: ${err.message}`, err.stack);
     if (SysEnv.EXIT_ON_ERROR) {
       // Sentry.captureException(err);
       app
         .close()
-        .catch((error: Error) => {
-          logger.error(f`(${os.hostname}) exit by uncaughtException error: ${error.message}`, error.stack);
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          const stack = error instanceof Error ? error.stack : undefined;
+          logger.error(f`(${os.hostname}) exit by uncaughtException error: ${message}`, stack);
         })
         .finally(() => {
           logger.error(f`(${os.hostname}) exit by uncaughtException...`);
@@ -48,22 +50,25 @@ export const runApp = <App extends INestApplication>(app: App) => {
       // 设计意图：LLMService 已统一处理 NoOutputError 并检查 signal.aborted
       // 如果走到这里，说明是 unhandledRejection（floating promise 未正确处理）
       // 记录警告但不退出，因为可能是预期的 abort
+      // isAiNoOutputError 为 true 时，maybeError 必然存在且有 message
       logger.warn(
-        f`(${os.hostname}) unhandledRejection: AI_NoOutputGeneratedError (likely abort, but promise not properly awaited): ${maybeError?.message ?? 'unknown'}`,
+        f`(${os.hostname}) unhandledRejection: AI_NoOutputGeneratedError (likely abort, but promise not properly awaited): ${maybeError.message}`,
       );
       return;
     }
 
     logger.error(
-      f`(${os.hostname}) unhandledRejection: ${err instanceof Error ? err.message : err} - ${(err as { cause?: unknown })?.cause ?? 'unknown cause'} -`,
+      f`(${os.hostname}) unhandledRejection: ${err instanceof Error ? err.message : err} - ${(err as { cause?: unknown }).cause ?? 'unknown cause'} -`,
       err instanceof Error ? err.stack : undefined,
     );
     if (SysEnv.EXIT_ON_ERROR) {
       // Sentry.captureException(err);
       app
         .close()
-        .catch((error: Error) => {
-          logger.error(f`(${os.hostname}) exit by unhandledRejection error: ${error.message}`, error.stack);
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          const stack = error instanceof Error ? error.stack : undefined;
+          logger.error(f`(${os.hostname}) exit by unhandledRejection error: ${message}`, stack);
         })
         .finally(() => {
           logger.error(
@@ -82,7 +87,9 @@ export const runApp = <App extends INestApplication>(app: App) => {
     if (process.env.NODE_ENV !== 'production') {
       setTimeout(() => {
         void import('why-is-node-running')
-          .then((module) => module.default(logger))
+          .then((module) => {
+            module.default(logger);
+          })
           .finally(() => {
             process.exit(0);
           });
@@ -129,9 +136,10 @@ export const runApp = <App extends INestApplication>(app: App) => {
 
     waitForConnections
       .then(() => app.close())
-      .catch((error: Error) => {
+      .catch((error: unknown) => {
         // SIGTERM 关闭时连接已断开是预期行为，不是异常
-        logger.warn(f`(${os.hostname}) exit by SIGTERM: ${error.message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(f`(${os.hostname}) exit by SIGTERM: ${message}`);
       })
       .finally(() => {
         logger.log(f`(${os.hostname}) Graceful shutdown complete`);

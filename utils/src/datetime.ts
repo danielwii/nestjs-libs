@@ -20,9 +20,12 @@ function normalizeOffsetFormat(tz: string): string | null {
   const match = tz.match(offsetRegex);
   if (!match) return null;
 
-  const sign = match[1] || '+';
-  const hours = parseInt(match[2], 10);
-  const minutes = match[3] ? parseInt(match[3], 10) : 0;
+  const [, signStr, hoursStr, minutesStr] = match;
+  if (!hoursStr) return null;
+
+  const sign = signStr ?? '+';
+  const hours = parseInt(hoursStr, 10);
+  const minutes = minutesStr ? parseInt(minutesStr, 10) : 0;
 
   // 有效范围：-14:00 到 +14:00
   if (hours > 14 || minutes >= 60) return null;
@@ -61,7 +64,7 @@ export function normalizeTimezoneWithLog(
   const result = normalizeTimezone(timezone);
   if (logger && timezone && result !== timezone) {
     const ctx = context ? `[${context}] ` : '';
-    logger.debug(`${ctx}时区格式转换: "${timezone}" -> "${result || 'UTC'}"`);
+    logger.debug(`${ctx}时区格式转换: "${timezone}" -> "${result ?? 'UTC'}"`);
   }
   return result;
 }
@@ -71,9 +74,13 @@ export function parseTimezoneOffset(timezone: string | null | undefined): number
   const tz = timezone.trim();
   const match = tz.match(/^([+-])(\d{1,2})(?::(\d{2}))?$/);
   if (!match) return 8;
-  const sign = match[1] === '+' ? 1 : -1;
-  const hours = parseInt(match[2], 10);
-  const minutes = match[3] ? parseInt(match[3], 10) : 0;
+
+  const [, signStr, hoursStr, minutesStr] = match;
+  if (!signStr || !hoursStr) return 8;
+
+  const sign = signStr === '+' ? 1 : -1;
+  const hours = parseInt(hoursStr, 10);
+  const minutes = minutesStr ? parseInt(minutesStr, 10) : 0;
   return sign * (hours + minutes / 60);
 }
 
@@ -94,9 +101,13 @@ export function formatDateToYmd(date: Date | null | undefined): string | null {
 export function parseYmdToUtcDate(value: string): Date {
   const match = YMD_REGEX.exec(value);
   if (!match) throw new Error('Invalid YMD format');
-  const year = Number.parseInt(match[1], 10);
-  const month = Number.parseInt(match[2], 10);
-  const day = Number.parseInt(match[3], 10);
+
+  const [, yearStr, monthStr, dayStr] = match;
+  if (!yearStr || !monthStr || !dayStr) throw new Error('Invalid YMD format');
+
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  const day = Number.parseInt(dayStr, 10);
   const date = new Date(Date.UTC(year, month - 1, day));
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
     throw new Error('Invalid YMD calendar date');
