@@ -14,7 +14,7 @@ export const Trace =
 
     descriptor.value = async function (...args: unknown[]) {
       const tracer = trace.getTracer('default');
-      const actualSpanName = spanName || propertyKey.toString();
+      const actualSpanName = spanName ?? propertyKey.toString();
       const span: Span = tracer.startSpan(actualSpanName, {
         kind: SpanKind.INTERNAL,
       });

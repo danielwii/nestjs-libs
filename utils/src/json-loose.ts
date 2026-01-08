@@ -18,6 +18,7 @@ function escapeBareNewlinesInStrings(text: string): string {
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+    if (ch === undefined) continue;
 
     if (escaped) {
       result += ch;

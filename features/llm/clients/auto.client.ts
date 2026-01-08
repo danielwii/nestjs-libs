@@ -27,11 +27,11 @@ import { getModel } from '../types/model.types';
 import { google, openrouter } from './llm.clients';
 
 import { generateText as aiGenerateText, streamText as aiStreamText, Output } from 'ai';
-import { z } from 'zod';
 
 import type { LLMModelKey, LLMProviderType } from '../types/model.types';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import type { GenerateTextResult, LanguageModel, ModelMessage, StreamTextResult, TelemetrySettings } from 'ai';
+import type { z } from 'zod';
 
 // ============================================================================
 // 自动路由客户端
@@ -229,10 +229,13 @@ class LLMBuilder {
 
   /** 设置推理 token 数量（更精细控制） */
   thinkingTokens(tokens: number): this {
-    if (this._provider === 'openrouter') {
-      this._thinkingOptions = { openrouter: { reasoningText: { max_tokens: tokens } } };
-    } else if (this._provider === 'google') {
-      this._thinkingOptions = { google: { thinkingConfig: { thinkingBudget: tokens } } };
+    switch (this._provider) {
+      case 'openrouter':
+        this._thinkingOptions = { openrouter: { reasoningText: { max_tokens: tokens } } };
+        break;
+      case 'google':
+        this._thinkingOptions = { google: { thinkingConfig: { thinkingBudget: tokens } } };
+        break;
     }
     return this;
   }

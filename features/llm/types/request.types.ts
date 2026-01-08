@@ -7,9 +7,8 @@
  * 3. Provider 特有选项类型安全
  */
 
-import { z } from 'zod';
-
 import type { LLMModelKey } from './model.types';
+import type { z } from 'zod';
 
 // ==================== 消息类型 ====================
 
@@ -222,7 +221,7 @@ export interface LLMStructuredStreamResult<T> {
  */
 export interface LLMStructuredSchema<T = unknown> {
   /** Zod schema，用于 AI SDK 的结构化输出 */
-  zodSchema: z.ZodSchema<T>;
+  zodSchema: z.ZodType<T>;
   /** JSON 结构的字符串描述（用于 response_format json_object 模式） */
   jsonStructureDescription: string;
   /** Schema 名称 */

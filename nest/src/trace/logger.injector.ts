@@ -49,7 +49,7 @@ export class LoggerInjector implements Injector {
     try {
       // 使用 span 的内部状态检查是否已结束
       const spanImpl = currentSpan as { isRecording?: () => boolean };
-      if (spanImpl && typeof spanImpl.isRecording === 'function' && !spanImpl.isRecording()) {
+      if (typeof spanImpl.isRecording === 'function' && !spanImpl.isRecording()) {
         // Span 已结束，只记录 traceId，不添加事件
         const fallbackTraceId = spanContext.traceId || storeTraceId;
         if (!fallbackTraceId) {

@@ -245,7 +245,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @Type(() => Number) @IsNumber() @IsOptional() IN_FLIGHT_TIMEOUT_MS: number = 60_000;
 
   get environment() {
-    const env = this.ENV || this.DOPPLER_ENVIRONMENT || 'dev';
+    const env = this.ENV ?? this.DOPPLER_ENVIRONMENT ?? 'dev';
     const isProd = env === 'prd';
     return {
       env,
@@ -319,7 +319,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
       const on = index == null ? !!acceptWhenNoIds : index === host;
       this.logger.debug(f`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`);
       return on;
-    } catch (_e: unknown) {
+    } catch {
       this.logger.warn(f`#getUniqueHost no hostIndex for ${this.hostname}`, 'AppConfigure');
     }
     return !!acceptWhenNoIds;
@@ -418,7 +418,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
       // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
       // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
-      const fullPath = path.resolve(process.env.PWD || '', env);
+      const fullPath = path.resolve(process.env.PWD ?? '', env);
       if (this.sys && isConfigureDebugEnabled()) this.logger.log(f`envFilePath: ${fullPath}`);
       // dotenvx 对于缺失文件会输出一条 “injecting env (0)” 的噪音日志（即使配置了 ignore MISSING_ENV_FILE）。
       // 这里主动跳过不存在的文件，保持启动/测试输出干净。

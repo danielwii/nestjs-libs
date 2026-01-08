@@ -27,23 +27,27 @@ export class LoggerInterceptor implements NestInterceptor {
     const gqlExecutionContext = isGraphql ? GqlExecutionContext.create(ctx) : null;
     const gqlOperation = gqlExecutionContext?.getInfo()?.operation?.operation ?? null;
 
+    // NestJS GraphQL 请求时 switchToHttp().getRequest() 返回空对象，需要从 GqlContext 获取
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 运行时 req 可能为空对象
     if (!req && gqlExecutionContext) {
       const gqlContext = gqlExecutionContext.getContext<Record<string, unknown>>();
-      req = gqlContext?.req as IdentityRequest;
-      res = gqlContext?.res as Response;
-      const ua = req?.headers?.['user-agent'];
+      req = gqlContext.req as IdentityRequest;
+      res = gqlContext.res as Response;
+      // req 可能来自 GraphQL context，headers 结构可能与标准 Express 不同
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- GraphQL context 的 req.headers 运行时可能为 undefined
+      const ua = req.headers?.['user-agent'];
       this.logger.log(
         f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation} ua=${ua}`,
       );
     }
 
-    if (gqlOperation === 'subscription') {
-      const gqlInfo = gqlExecutionContext?.getInfo();
-      const handlerName = gqlInfo?.fieldName || ctx.getHandler().name || 'anonymous';
-      const wsReq = (gqlExecutionContext?.getContext<Record<string, unknown>>()?.req ?? {}) as Request & {
+    if (gqlOperation === 'subscription' && gqlExecutionContext) {
+      const gqlInfo = gqlExecutionContext.getInfo();
+      const handlerName = gqlInfo?.fieldName ?? ctx.getHandler().name ?? 'anonymous';
+      const wsReq = (gqlExecutionContext.getContext<Record<string, unknown>>().req ?? {}) as Request & {
         headers?: Record<string, unknown>;
       };
-
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- WebSocket request headers 运行时可能为 undefined
       const wsUa = wsReq.headers?.['user-agent'];
       this.logger.debug(
         f`-> (subscription) #${ctx.getClass().name}.${handlerName} ua=${wsUa} headers=${maskWsHeaders(wsReq.headers)}`,
@@ -74,8 +78,12 @@ export class LoggerInterceptor implements NestInterceptor {
       return this.handleRpcRequest(ctx, next);
     }
 
-    // ws subscription request
+    // ws subscription request - NestJS 某些场景下 req 可能为空
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 运行时 req 可能为空
     if (!req) {
+      this.logger.warn(
+        f`Request object is empty, skipping logging for ${ctx.getClass().name}.${ctx.getHandler().name}`,
+      );
       return next.handle();
     }
 
@@ -85,7 +93,9 @@ export class LoggerInterceptor implements NestInterceptor {
         typeof v === 'string' && v.length > 100 ? `${v.slice(0, 100)}...` : v,
       ]),
     );
-    const multiIpAddress = req.ip || req.ips || req.headers ? req.headers['x-forwarded-for'] : null;
+    // 获取客户端 IP：优先使用 req.ip，其次 req.ips[0]，最后 x-forwarded-for
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Express req.ips 运行时可能为 undefined
+    const multiIpAddress = req.ip ?? req.ips?.[0] ?? req.headers['x-forwarded-for'];
     const ipAddress = Array.isArray(multiIpAddress) ? multiIpAddress[0] : multiIpAddress;
     const info = {
       path: req.url,
@@ -111,24 +121,30 @@ export class LoggerInterceptor implements NestInterceptor {
     };
 
     // !!TIPS!! @metinseylan/nestjs-opentelemetry make handler name null
-    const named = Reflect.getMetadata(METADATA_KEYS.NAMED, ctx.getHandler());
+    const named = Reflect.getMetadata(METADATA_KEYS.NAMED, ctx.getHandler()) as string | undefined;
     const uid = req.user?.uid;
-    const TAG = `(${uid || 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named}`;
+    // handler.name 在 OpenTelemetry 插件下可能为空字符串或被覆盖
+
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- boolean OR：name 为空字符串时也应 fallback
+    const TAG = `(${uid ?? 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named || 'anonymous'}`;
 
     // 健康检查路径，跳过日志记录
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- GraphQL 场景 req.path 运行时可能为 undefined
     const isHealthCheck = req.path?.startsWith('/health') || req.path === '/';
 
     const currentSpan = trace.getSpan(context.active());
-    const spanTraceId = currentSpan?.spanContext()?.traceId;
+    const spanTraceId = currentSpan?.spanContext().traceId;
     const headerTraceId = typeof req.headers['x-trace-id'] === 'string' ? req.headers['x-trace-id'].trim() : undefined;
-    const traceId = spanTraceId || headerTraceId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const traceId = spanTraceId ?? headerTraceId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const userIdFromRequest = req.user?.userId;
 
     // 获取 spanId 用于构建 traceparent
-    const spanId = currentSpan?.spanContext()?.spanId || crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+    const spanId = currentSpan?.spanContext().spanId ?? crypto.randomUUID().replace(/-/g, '').substring(0, 16);
 
     return RequestContext.run({ traceId, userId: userIdFromRequest ?? null }, () => {
-      if (res?.getHeader && res.setHeader && traceId) {
+      // res 在 GraphQL 场景下可能为 undefined，traceId 总是存在
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- res 运行时可能为 undefined
+      if (res?.getHeader && res.setHeader) {
         const isSse = res.getHeader('Content-Type') === 'text/event-stream';
         if (!isSse) {
           // W3C Trace Context 标准格式: 00-{traceId}-{spanId}-{flags}
@@ -217,7 +233,7 @@ export class LoggerInterceptor implements NestInterceptor {
   private extractGrpcTraceId(rpcContext: unknown): string {
     // 1. Try OpenTelemetry span first (requires @opentelemetry/instrumentation-grpc)
     const currentSpan = trace.getSpan(context.active());
-    const spanTraceId = currentSpan?.spanContext()?.traceId;
+    const spanTraceId = currentSpan?.spanContext().traceId;
     if (spanTraceId) {
       return spanTraceId;
     }
@@ -227,7 +243,7 @@ export class LoggerInterceptor implements NestInterceptor {
     const metadata = rpcContext as { get?: (key: string) => string[] } | undefined;
     if (metadata?.get) {
       // Try W3C traceparent format: "00-{traceId}-{spanId}-{flags}"
-      const traceparent = metadata.get('traceparent')?.[0];
+      const traceparent = metadata.get('traceparent')[0];
       if (traceparent) {
         const parts = traceparent.split('-');
         if (parts.length >= 2 && parts[1]?.length === 32) {
@@ -236,7 +252,7 @@ export class LoggerInterceptor implements NestInterceptor {
       }
 
       // Try custom x-trace-id header
-      const xTraceId = metadata.get('x-trace-id')?.[0];
+      const xTraceId = metadata.get('x-trace-id')[0];
       if (xTraceId) {
         return xTraceId.trim();
       }

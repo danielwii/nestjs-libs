@@ -18,7 +18,7 @@ export async function doMigration(PrismaClient: new (...args: unknown[]) => IPri
     try {
       execSync('bun prisma migrate status', { stdio: 'inherit' });
       // eslint-disable-next-line no-empty
-    } catch (_e: unknown) {}
+    } catch {}
     const prisma = new PrismaClient();
     await prisma.$connect();
     let applied: number | null = null;
@@ -33,8 +33,7 @@ export async function doMigration(PrismaClient: new (...args: unknown[]) => IPri
     await prisma.$disconnect();
 
     logger.log('🚉 Applying Migrations...');
-    const output = execSync('bun prisma migrate deploy', { stdio: 'inherit' });
-    if (output) logger.log(`🚉 ${output.toString()}`);
+    execSync('bun prisma migrate deploy', { stdio: 'inherit' });
     logger.log(`🚉 ------- Finished Applying Migrations -------`);
   }
 }

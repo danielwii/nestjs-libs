@@ -14,7 +14,7 @@ import { ThrottlerException } from '@nestjs/throttler';
 import { SysEnv } from '@app/env';
 import { ApiRes } from '@app/nest/common/response';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
-import { errorStack } from '@app/utils/error';
+import { errorStack, getErrorMessage, getErrorName, getErrorStatus, getResponseMessage } from '@app/utils/error';
 import { f } from '@app/utils/logging';
 
 import { SentryExceptionCaptured } from '@sentry/nestjs';
@@ -76,6 +76,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
   async catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response: Response = ctx.getResponse();
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- NestJS GraphQL 场景 response 可能为空对象
     const isGraphqlRequest = typeof response?.status !== 'function';
 
     let request: IdentityRequest | undefined = ctx.getRequest();
@@ -83,12 +84,13 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (!request?.headers && host.getType<'http' | 'graphql'>() === 'graphql') {
       const executionContext = host as unknown as ExecutionContext;
       const gqlCtx = GqlExecutionContext.create(executionContext).getContext<Record<string, unknown>>();
-      request = (gqlCtx?.req || gqlCtx?.request || gqlCtx?.expressReq || {}) as IdentityRequest;
+      request = (gqlCtx.req ?? gqlCtx.request ?? gqlCtx.expressReq ?? {}) as IdentityRequest;
     }
 
     if (host.getType<'http' | 'graphql' | 'ws'>() === 'ws') {
       const ws = host.switchToWs();
       const client = ws.getClient<{ connectionParams?: Record<string, unknown> }>();
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- WS client 运行时可能为空
       const params = client?.connectionParams ?? {};
 
       this.logger.error(
@@ -112,7 +114,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       }
 
       this.logger.error(
-        f`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${(exception as { name?: string })?.name} ${exception}`,
+        f`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${exception}`,
         errorStack(exception),
       );
       throw exception;
@@ -137,14 +139,14 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
     if (exception instanceof BadRequestException) {
       this.logger.warn(
-        f`(${request?.user?.uid})[${request?.ip}] BadRequestException ${(exception as { message?: string })?.message} ${(exception as { getResponse?: () => unknown })?.getResponse?.()} ${errorStack(exception)}`,
+        f`(${request?.user?.uid})[${request?.ip}] BadRequestException ${exception.message} ${exception.getResponse()} ${errorStack(exception)}`,
       );
       return response.status(HttpStatus.BAD_REQUEST).json(
         ApiRes.failure({
           code: ErrorCodes.CLIENT_INPUT_ERROR,
-          message: (exception as { message?: string })?.message ?? '',
+          message: exception.message,
           // statusCode: HttpStatus.BAD_REQUEST,
-          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
+          errors: getResponseMessage(exception.getResponse()),
         }),
       );
     }
@@ -160,32 +162,28 @@ export class AnyExceptionFilter implements ExceptionFilter {
     //   );
     // }
     if (exception instanceof ThrottlerException) {
-      this.logger.warn(
-        f`(${request?.user?.uid})[${request?.ip}] ThrottlerException ${(exception as { message?: string })?.message}`,
-      );
+      this.logger.warn(f`(${request?.user?.uid})[${request?.ip}] ThrottlerException ${exception.message}`);
       return response.status(HttpStatus.TOO_MANY_REQUESTS).json(
         ApiRes.failure({
           code: ErrorCodes.CLIENT_RATE_LIMITED,
-          message: (exception as { message?: string })?.message ?? '',
+          message: exception.message,
           // statusCode: HttpStatus.TOO_MANY_REQUESTS,
-          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
+          errors: getResponseMessage(exception.getResponse()),
         }),
       );
     }
     if (exception instanceof NotFoundException) {
-      this.logger.warn(
-        f`(${request?.user?.uid})[${request?.ip}] NotFoundException ${(exception as { message?: string })?.message}`,
-      );
+      this.logger.warn(f`(${request?.user?.uid})[${request?.ip}] NotFoundException ${exception.message}`);
       return response.status(HttpStatus.NOT_FOUND).json(
         ApiRes.failure({
           code: ErrorCodes.CLIENT_AUTH_REQUIRED,
-          message: (exception as { message?: string })?.message ?? '',
+          message: exception.message,
           // statusCode: HttpStatus.NOT_FOUND,
-          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
+          errors: getResponseMessage(exception.getResponse()),
         }),
       );
     }
-    if ((exception as { name?: string })?.name === 'FetchError') {
+    if (getErrorName(exception) === 'FetchError') {
       this.logger.warn(f`(${request?.user?.uid})[${request?.ip}] FetchError ${exception}`);
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failure({
@@ -196,29 +194,27 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
     }
     if (exception instanceof UnauthorizedException) {
-      const path = (request as unknown as { path?: string })?.path;
+      const path = (request as unknown as { path?: string }).path;
       this.logger.warn(
-        f`(${request?.user?.uid})[${request?.ip}] UnauthorizedException ${(exception as { message?: string })?.message} ${path} ${(exception as { stack?: string })?.stack}`,
+        f`(${request?.user?.uid})[${request?.ip}] UnauthorizedException ${exception.message} ${path} ${exception.stack}`,
       );
       return response.status(HttpStatus.UNAUTHORIZED).json(
         ApiRes.failure({
           code: ErrorCodes.CLIENT_AUTH_REQUIRED,
-          message: (exception as { message?: string })?.message ?? '',
+          message: exception.message,
           // statusCode: HttpStatus.UNAUTHORIZED,
-          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
+          errors: getResponseMessage(exception.getResponse()),
         }),
       );
     }
     if (exception instanceof ConflictException) {
-      this.logger.warn(
-        f`(${request?.user?.uid})[${request?.ip}] ConflictException ${(exception as { message?: string })?.message}`,
-      );
+      this.logger.warn(f`(${request?.user?.uid})[${request?.ip}] ConflictException ${exception.message}`);
       return response.status(HttpStatus.CONFLICT).json(
         ApiRes.failure({
           code: ErrorCodes.BUSINESS_DATA_CONFLICT,
-          message: (exception as { message?: string })?.message ?? '',
+          message: exception.message,
           // statusCode: HttpStatus.CONFLICT,
-          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
+          errors: getResponseMessage(exception.getResponse()),
         }),
       );
     }
@@ -229,52 +225,47 @@ export class AnyExceptionFilter implements ExceptionFilter {
       const isWarn = warnCodes.includes(cause);
       if (isWarn)
         this.logger.warn(
-          f`(${request?.user?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${(exception as { message?: string })?.message}`,
+          f`(${request?.user?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message}`,
         );
       else
         this.logger.error(
-          f`(${request?.user?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${(exception as { message?: string })?.message}`,
-          (exception as { stack?: string })?.stack,
+          f`(${request?.user?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message}`,
+          exception.stack,
         );
 
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failure({
           code: cause,
-          message: (exception as { message?: string })?.message ?? '',
+          message: exception.message,
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-          errors: (exception as { getResponse?: () => { message?: unknown } })?.getResponse?.()?.message,
+          errors: getResponseMessage(exception.getResponse()),
         }),
       );
     }
 
     if (exception instanceof HttpException) {
-      const fallbackStatus = Reflect.get(exception, 'status');
-      const status: number =
-        typeof exception.getStatus === 'function'
-          ? exception.getStatus()
-          : typeof fallbackStatus === 'number'
-            ? fallbackStatus
-            : HttpStatus.INTERNAL_SERVER_ERROR;
-      const responseBody =
-        typeof exception.getResponse === 'function'
-          ? (exception as { getResponse?: () => unknown })?.getResponse?.()
-          : (exception as { message?: string })?.message;
-      const message =
+      // HttpException 已通过 instanceof 检查，可直接访问其属性
+      const status = exception.getStatus();
+      const responseBody = exception.getResponse();
+      const responseMessage = getResponseMessage(responseBody);
+      const message: string =
         typeof responseBody === 'string'
           ? responseBody
-          : ((responseBody as { message?: string })?.message ?? (exception as { message?: string })?.message);
+          : typeof responseMessage === 'string'
+            ? responseMessage
+            : exception.message;
 
       if (status < (HttpStatus.INTERNAL_SERVER_ERROR as number)) {
         this.logger.warn(
-          f`(${request?.user?.uid})[${request?.ip}] HttpException(${status}) ${(exception as { name?: string })?.name} ${message}`,
+          f`(${request?.user?.uid})[${request?.ip}] HttpException(${status}) ${exception.name} ${message}`,
           errorStack(exception),
         );
 
         return response.status(status).json(
           ApiRes.failure({
             code: ErrorCodes.CLIENT_INPUT_ERROR,
-            message: message ?? '',
-            errors: typeof responseBody === 'object' ? (responseBody as { message?: unknown })?.message : undefined,
+            message,
+            errors: typeof responseBody === 'object' ? responseMessage : undefined,
           }),
         );
       }
@@ -283,14 +274,15 @@ export class AnyExceptionFilter implements ExceptionFilter {
     // 只有未被识别的异常才交给 Sentry
     this.captureExceptionBySentry(exception, host);
 
+    // 使用 type guard helpers 安全提取 unknown 异常的属性
     this.logger.error(
-      f`(${request?.user?.uid})[${request?.ip}] ${(exception as { name?: string })?.name} ${exception}`,
-      (exception as { stack?: string })?.stack,
+      f`(${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${exception}`,
+      errorStack(exception),
     );
 
     // unexpected error, each error should be handled
-    const status = (exception as { status?: number })?.status || 500;
-    const message = (exception as { message?: string })?.message || 'Internal Server Error';
+    const status = getErrorStatus(exception, 500);
+    const message = getErrorMessage(exception);
 
     response.status(status).json({
       statusCode: status,
@@ -475,7 +467,7 @@ function maskConnectionParams(params: Record<string, unknown>) {
   const clone: Record<string, unknown> = { ...params };
   for (const key of Object.keys(clone)) {
     if (/authorization/i.test(key) && typeof clone[key] === 'string') {
-      const value = String(clone[key]);
+      const value = clone[key];
       clone[key] = value.length > 20 ? `${value.slice(0, 20)}…` : value;
     }
   }

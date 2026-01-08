@@ -6,7 +6,7 @@ import { DateTime } from 'luxon';
 import * as _ from 'radash';
 import { z } from 'zod';
 
-export function generateJsonFormat(schema: z.ZodSchema, indent = 0): string {
+export function generateJsonFormat(schema: z.ZodType, indent = 0): string {
   const definition = Reflect.get(schema, '_def');
   const serialized = JSON.stringify(definition, (_key, value) => (typeof value === 'function' ? undefined : value), 2);
   const indentPrefix = ' '.repeat(indent);
@@ -183,10 +183,10 @@ export function createEnhancedPrompt<Response>({
     ? (response: Response) => {
         if (logicErrorContext.condition && !logicErrorContext.condition(response)) return null;
 
-        return createPrompt(`LogicFixer-${id}`, timezone, sensitivity || TimeSensitivity.Minute, {
+        return createPrompt(`LogicFixer-${id}`, timezone, sensitivity, {
           purpose: '你是逻辑问题修复专家。请基于提供的背景信息，修复输入内容中的逻辑错误。',
           background: logicErrorContext.background,
-          context: [...(logicErrorContext.additionals || []), { title: 'Input', content: JSON.stringify(response) }],
+          context: [...(logicErrorContext.additionals ?? []), { title: 'Input', content: JSON.stringify(response) }],
           requirements: [
             stripIndent`
               - 识别并修复输入内容中的逻辑错误
@@ -204,7 +204,7 @@ export function createEnhancedPrompt<Response>({
 }
 
 export const customJsonFormatSupportOutput = (
-  schema: z.ZodSchema,
+  schema: z.ZodType,
   {
     injectJsonFormat,
     output,

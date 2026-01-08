@@ -72,7 +72,9 @@ export class ApiFetcher {
     ApiFetcher.logger.log(f`<ApiFetcher> #fetch ${url}`);
 
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
+    const id = setTimeout(() => {
+      controller.abort();
+    }, timeout);
 
     const response = await NodeFetch.default(
       url as unknown as NodeFetch.RequestInfo,
@@ -85,7 +87,9 @@ export class ApiFetcher {
         );
         throw new Error(`<ApiFetcher> #fetch error ${e instanceof Error ? e.message : 'unknown'}...`);
       })
-      .finally(() => clearTimeout(id));
+      .finally(() => {
+        clearTimeout(id);
+      });
 
     ApiFetcher.logger.debug(f`<ApiFetcher> #fetch ${url} ${Date.now() - now}ms...`);
     if (response instanceof Error) throw response;

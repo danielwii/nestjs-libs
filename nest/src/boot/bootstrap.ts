@@ -57,7 +57,7 @@ export interface BootstrapOptions {
 export async function simpleBootstrap(AppModule: IEntryNestModule, onInit?: (app: INestApplication) => Promise<void>) {
   const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule));
   if (onInit) await onInit(app);
-  await runApp(app).listen(SysEnv.PORT ?? 3100);
+  await runApp(app).listen(SysEnv.PORT);
   return app;
 }
 
@@ -69,7 +69,7 @@ export async function bootstrap(
   if (!process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
 
   const now = Date.now();
-  const logLevel: LogLevel = SysEnv.LOG_LEVEL || 'debug';
+  const logLevel: LogLevel = SysEnv.LOG_LEVEL;
   const levels = allLogLevels.slice(allLogLevels.indexOf(logLevel), allLogLevels.length);
 
   const notShowLogLevels = allLogLevels.slice(0, allLogLevels.indexOf(logLevel));
@@ -83,7 +83,9 @@ export async function bootstrap(
   if (!llmValidation.valid) {
     throw new Error(`LLM configuration invalid: ${llmValidation.errors.join(', ')}`);
   }
-  llmValidation.warnings.forEach((w: string) => Logger.warn(`[LLM] ${w}`, 'Bootstrap'));
+  llmValidation.warnings.forEach((w: string) => {
+    Logger.warn(`[LLM] ${w}`, 'Bootstrap');
+  });
 
   const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule), {
     logger: levels,
@@ -204,6 +206,7 @@ export async function bootstrap(
     morgan(
       ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":response-time ms" ":referrer" ":user-agent"',
       {
+        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- boolean OR, not nullish fallback
         skip: (req) => req.url?.startsWith('/health') || req.url === '/',
       },
     ),

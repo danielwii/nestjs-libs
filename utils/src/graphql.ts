@@ -49,6 +49,7 @@ export class CursoredRequestInput implements CursoredRequest {
  */
 @InterfaceType({
   resolveType(value: PaginationInfo): string | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- GraphQL 运行时 value 可能为 null
     if (value && typeof value === 'object' && 'currentPage' in value) {
       return 'PagePaginationInfo';
     }
@@ -217,7 +218,7 @@ export class CursorUtils {
         timestamp: new Date(parseInt(timestampMs, 10)),
         id,
       };
-    } catch (_error) {
+    } catch {
       // 包装错误信息，便于调试
       throw new Error(`Invalid cursor: ${cursor}`);
     }
