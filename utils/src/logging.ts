@@ -33,7 +33,10 @@ export function r(o: unknown): string {
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(errorInfo) : inspect(errorInfo);
   }
 
-  if (typeof o !== 'object' || o === null || Array.isArray(o)) return String(o);
+  // 原始类型直接 String 化
+  if (typeof o !== 'object' || o === null) return String(o);
+
+  // 对象和数组都需要格式化
   try {
     const value = instanceToPlain(o);
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(value) : inspect(value);

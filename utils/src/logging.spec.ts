@@ -70,7 +70,10 @@ describe('logging.utils', () => {
       expect(r(null)).toBe('null');
       expect(r(123)).toBe('123');
       expect(r('hello')).toBe('hello');
-      expect(r([1, 2, 3])).toBe('1,2,3');
+      // 数组现在走 inspect 格式化
+      expect(r([1, 2, 3])).toContain('1');
+      expect(r([1, 2, 3])).toContain('2');
+      expect(r([1, 2, 3])).toContain('3');
     });
 
     it('should fallback to inspect if instanceToPlain fails', () => {

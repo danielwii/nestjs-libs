@@ -300,6 +300,8 @@ class LLMBuilder {
 
   /** 流式文本生成 */
   streamText(): StreamTextResult<never, never> {
+    const telemetry = this._buildTelemetry();
+    console.log('[DEBUG:AI-SDK] streamText telemetry config:', JSON.stringify(telemetry));
     return aiStreamText({
       model: this._model,
       messages: this._messages,
@@ -308,7 +310,7 @@ class LLMBuilder {
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
-      experimental_telemetry: this._buildTelemetry(),
+      experimental_telemetry: telemetry,
     });
   }
 

@@ -104,7 +104,13 @@ function createLangfuseProcessor() {
   const shouldExportSpan = ({ otelSpan }) => {
     const scope =
       typeof otelSpan?.instrumentationScope?.name === 'string' ? otelSpan.instrumentationScope.name : '';
-    return scope === 'ai';
+    const spanName = otelSpan?.name || 'unknown';
+    const shouldExport = scope === 'ai';
+    // Debug: log scope='ai' spans
+    if (shouldExport) {
+      console.log(`[DEBUG:OTEL] span name=${spanName} scope=${scope} export=${shouldExport}`);
+    }
+    return shouldExport;
   };
 
   return new LangfuseSpanProcessor({ publicKey, secretKey, baseUrl, shouldExportSpan });
@@ -214,6 +220,17 @@ function bootstrapTracing() {
 
   process.on('SIGTERM', () => void shutdown());
   process.once('beforeExit', () => void shutdown());
+
+  // Expose flush function globally for CLI usage
+  // CLI 需要在 process.exit() 前调用此方法确保 spans 发送到 Langfuse
+  globalThis.__otelFlush = async () => {
+    try {
+      await sdk.shutdown();
+      console.debug(`${LOG_NAMESPACE}: [OpenTelemetry] flush complete`);
+    } catch (error) {
+      console.error(`${LOG_NAMESPACE}: [OpenTelemetry] flush failed`, error);
+    }
+  };
 
   initializeSentry();
 }
