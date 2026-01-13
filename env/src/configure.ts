@@ -196,6 +196,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
   @Type(() => Number) @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
 
+  // ==================== GraphQL ====================
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) GRAPHQL_PLAYGROUND_ENABLED?: boolean;
+
   // ==================== LLM ====================
   @IsString() @IsOptional() OPENROUTER_API_KEY?: string;
   @IsString() @IsOptional() GOOGLE_GENERATIVE_AI_API_KEY?: string;
