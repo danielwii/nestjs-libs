@@ -18,8 +18,9 @@
     ]
   },
   "dependencies": {
-    "@ai-sdk/google": "^3.0.6",
-    "@ai-sdk/openai": "^3.0.7",
+    "@ai-sdk/google": "^3.0.7",
+    "@ai-sdk/openai": "^3.0.9",
+    "@danielwii/libs-cli": ".",
     "@dotenvx/dotenvx": "^1.51.4",
     "@grpc/reflection": "^1.0.4",
     "@nestjs/common": "^11.1.11",
@@ -29,8 +30,8 @@
     "@nestjs/throttler": "^6.5.0",
     "@openrouter/ai-sdk-provider": "^1.5.4",
     "@opentelemetry/api": "^1.9.0",
-    "@sentry/nestjs": "^10.32.1",
-    "ai": "^6.0.21",
+    "@sentry/nestjs": "^10.33.0",
+    "ai": "^6.0.31",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "common-tags": "^1.8.2",
@@ -46,11 +47,12 @@
     "handlebars": "^4.7.8",
     "helmet": "^8.1.0",
     "https-proxy-agent": "^7.0.6",
-    "ioredis": "^5.9.0",
+    "ioredis": "^5.9.1",
     "json5": "^2.2.3",
     "luxon": "^3.7.2",
     "morgan": "^1.10.1",
     "node-fetch": "^3.3.2",
+    "number-to-words": "^1.2.4",
     "radash": "^12.1.1",
     "reflect-metadata": "^0.2.2",
     "response-time": "^2.3.4",
@@ -60,7 +62,7 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@eslint/js": "^9.28.0",
+    "@eslint/js": "^9.39.2",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
     "@jest/globals": "^30.2.0",
     "@nestjs/microservices": "^11.1.11",
@@ -75,11 +77,12 @@
     "@types/koa": "^3.0.1",
     "@types/luxon": "^3.7.1",
     "@types/morgan": "^1.9.10",
-    "@types/node": "^25.0.3",
+    "@types/node": "^25.0.7",
     "@types/node-fetch": "^2.6.13",
+    "@types/number-to-words": "^1.2.3",
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.1",
-    "eslint": "^9.28.0",
+    "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^17.0.0",
@@ -88,6 +91,6 @@
     "prettier": "^3.7.4",
     "ts-morph": "^27.0.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.33.0"
+    "typescript-eslint": "^8.53.0"
   }
 }
