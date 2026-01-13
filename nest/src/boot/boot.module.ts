@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ConnectionModule } from '@app/nest/connection/connection.module';
 import { HealthModule } from '@app/nest/health/health.module';
 import { TraceModule } from '@app/nest/trace/trace.module';
 
@@ -11,6 +12,7 @@ import { InitializableModule } from './initializable.module';
  * 启动必备的基础设施模块，包含：
  * - TraceModule: 自动注入 traceId 到日志
  * - HealthModule: K8s 健康检查端点 (/health, /health/ready)
+ * - ConnectionModule: 长连接管理和优雅关闭
  *
  * 使用方式：
  * ```typescript
@@ -27,6 +29,6 @@ import { InitializableModule } from './initializable.module';
  * - GET /health/ready - Readiness 探针（优雅关闭时返回 503）
  */
 @Module({
-  imports: [TraceModule, HealthModule],
+  imports: [TraceModule, HealthModule, ConnectionModule],
 })
 export class BootModule extends InitializableModule {}
