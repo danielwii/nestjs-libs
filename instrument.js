@@ -21,7 +21,7 @@
  * 环境变量：
  * - OTEL_LOG_LEVEL: OpenTelemetry 日志级别（设为 NONE 禁用）
  * - LANGFUSE_ENABLED: 启用 Langfuse（需要 @langfuse/otel）
- * - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASEURL: Langfuse 配置
+ * - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL: Langfuse 配置
  * - SENTRY_DSN: Sentry DSN（启用错误追踪）
  *
  * 注意事项：
@@ -91,7 +91,7 @@ function createLangfuseProcessor() {
 
   const publicKey = getStringFromEnv('LANGFUSE_PUBLIC_KEY');
   const secretKey = getStringFromEnv('LANGFUSE_SECRET_KEY');
-  const baseUrl = getStringFromEnv('LANGFUSE_BASEURL') || getStringFromEnv('LANGFUSE_HOST');
+  const baseUrl = getStringFromEnv('LANGFUSE_BASE_URL') || getStringFromEnv('LANGFUSE_BASEURL');
   if (!publicKey || !secretKey || !baseUrl) {
     console.warn(`${LOG_NAMESPACE}: [Langfuse] missing credentials`);
     return null;
