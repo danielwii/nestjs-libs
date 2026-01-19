@@ -24,7 +24,7 @@
  * ```
  */
 import { getModel } from '../types/model.types';
-import { google, openrouter } from './llm.clients';
+import { google, openrouter, vertex } from './llm.clients';
 
 import { generateText as aiGenerateText, streamText as aiStreamText, Output } from 'ai';
 
@@ -55,6 +55,8 @@ export function model(key: LLMModelKey): LanguageModel {
       return openrouter(config.modelId);
     case 'google':
       return google(config.modelId);
+    case 'vertex':
+      return vertex(config.modelId);
     default:
       throw new Error(`Unknown provider: ${provider as string} for model: ${key}`);
   }
@@ -88,6 +90,7 @@ export const autoOpts = {
       case 'openrouter':
         return { openrouter: { reasoningText: { exclude: true } } } as unknown as ProviderOptions;
       case 'google':
+      case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
         return { google: { thinkingConfig: { thinkingBudget: 0 } } } as unknown as ProviderOptions;
       default:
         return {} as ProviderOptions;
@@ -105,6 +108,7 @@ export const autoOpts = {
       case 'openrouter':
         return { openrouter: { reasoningText: { effort } } } as unknown as ProviderOptions;
       case 'google':
+      case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
         return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } } as unknown as ProviderOptions;
       default:
         return {} as ProviderOptions;
@@ -234,6 +238,7 @@ class LLMBuilder {
         this._thinkingOptions = { openrouter: { reasoningText: { max_tokens: tokens } } };
         break;
       case 'google':
+      case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
         this._thinkingOptions = { google: { thinkingConfig: { thinkingBudget: tokens } } };
         break;
     }
