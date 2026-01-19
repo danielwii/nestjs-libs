@@ -29,9 +29,18 @@
 // 自动路由（需要更多控制时）
 export { autoOpts, type LLMOpts, llm, model, parseProvider, type TelemetryMeta } from './auto.client';
 export { createGoogleClient, googleOptions } from './google.client';
+export { createVertex, vertexOptions } from './vertex.client';
 // 预配置单例
 // Embedding
-export { type EmbeddingModel, embedding, getLLMClientStatus, google, openrouter, resetLLMClients } from './llm.clients';
+export {
+  type EmbeddingModel,
+  embedding,
+  getLLMClientStatus,
+  google,
+  openrouter,
+  resetLLMClients,
+  vertex,
+} from './llm.clients';
 // 工厂函数（需要自定义配置时使用）
 export { createOpenRouterClient, openrouterOptions } from './openrouter.client';
 

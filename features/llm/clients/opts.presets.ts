@@ -66,6 +66,28 @@ export const opts = {
       google: { thinkingConfig: { thinkingBudget: 8192 } },
     },
   },
+
+  /**
+   * Vertex AI 预设（与 Google 相同，使用 google key）
+   */
+  vertex: {
+    /** 禁用 thinking（thinkingBudget: 0） */
+    noThinking: {
+      google: { thinkingConfig: { thinkingBudget: 0 } },
+    },
+    /** 低 thinking 预算（1024 tokens） */
+    thinkingLow: {
+      google: { thinkingConfig: { thinkingBudget: 1024 } },
+    },
+    /** 中等 thinking 预算（4096 tokens） */
+    thinkingMedium: {
+      google: { thinkingConfig: { thinkingBudget: 4096 } },
+    },
+    /** 高 thinking 预算（8192 tokens） */
+    thinkingHigh: {
+      google: { thinkingConfig: { thinkingBudget: 8192 } },
+    },
+  },
 } as const;
 
 /**
@@ -73,3 +95,4 @@ export const opts = {
  */
 export type OpenRouterPreset = keyof typeof opts.openrouter;
 export type GooglePreset = keyof typeof opts.google;
+export type VertexPreset = keyof typeof opts.vertex;

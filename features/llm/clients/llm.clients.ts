@@ -29,6 +29,7 @@ import { SysEnv, SysProxy } from '@app/env';
 import { ApiFetcher } from '@app/utils/fetch';
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { embed } from 'ai';
@@ -41,6 +42,7 @@ import type { LanguageModel } from 'ai';
 
 let _openrouter: ReturnType<typeof createOpenRouter> | null = null;
 let _google: ReturnType<typeof createGoogleGenerativeAI> | null = null;
+let _vertex: ReturnType<typeof createVertex> | null = null;
 let _openai: ReturnType<typeof createOpenAI> | null = null;
 
 // ============================================================================
@@ -116,6 +118,40 @@ function getGoogle() {
 export const google = (modelId: string): LanguageModel => getGoogle()(modelId);
 
 // ============================================================================
+// Vertex AI 客户端 (Express Mode)
+// ============================================================================
+
+/**
+ * 获取 Vertex AI 客户端单例 (Express Mode)
+ *
+ * 自动使用：
+ * - SysEnv.GOOGLE_VERTEX_API_KEY
+ * - Express Mode（无需 project/location）
+ */
+function getVertex() {
+  if (!_vertex) {
+    if (!SysEnv.GOOGLE_VERTEX_API_KEY) {
+      throw new Error('GOOGLE_VERTEX_API_KEY is not configured in SysEnv');
+    }
+    _vertex = createVertex({
+      apiKey: SysEnv.GOOGLE_VERTEX_API_KEY,
+    });
+  }
+  return _vertex;
+}
+
+/**
+ * Vertex AI 模型选择器 (Express Mode)
+ *
+ * @example
+ * ```typescript
+ * vertex('gemini-2.5-flash')
+ * vertex('gemini-2.5-pro')
+ * ```
+ */
+export const vertex = (modelId: string): LanguageModel => getVertex()(modelId);
+
+// ============================================================================
 // 客户端状态检查
 // ============================================================================
 
@@ -132,6 +168,10 @@ export function getLLMClientStatus() {
       configured: !!SysEnv.GOOGLE_GENERATIVE_AI_API_KEY,
       initialized: !!_google,
     },
+    vertex: {
+      configured: !!SysEnv.GOOGLE_VERTEX_API_KEY,
+      initialized: !!_vertex,
+    },
     proxy: {
       enabled: SysEnv.APP_PROXY_ENABLED ?? false,
       host: SysProxy.proxy || null,
@@ -145,6 +185,7 @@ export function getLLMClientStatus() {
 export function resetLLMClients() {
   _openrouter = null;
   _google = null;
+  _vertex = null;
   _openai = null;
 }
 

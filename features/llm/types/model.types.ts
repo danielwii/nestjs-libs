@@ -62,6 +62,12 @@ export interface LLMModelRegistry {
   'google:gemini-2.5-pro': ModelConfig<'google'>;
   'google:gemini-2.5-flash-lite': ModelConfig<'google'>;
   'google:gemini-3-flash-preview': ModelConfig<'google'>;
+
+  // ==================== Vertex AI (Express Mode) ====================
+  'vertex:gemini-2.5-flash': ModelConfig<'vertex'>;
+  'vertex:gemini-2.5-pro': ModelConfig<'vertex'>;
+  'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
+  'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
 }
 
 /**
@@ -96,6 +102,12 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['google:gemini-2.5-pro', { provider: 'google', modelId: 'gemini-2.5-pro' }],
   ['google:gemini-2.5-flash-lite', { provider: 'google', modelId: 'gemini-2.5-flash-lite' }],
   ['google:gemini-3-flash-preview', { provider: 'google', modelId: 'gemini-3-flash-preview' }],
+
+  // Vertex AI 模型 (Express Mode)
+  ['vertex:gemini-2.5-flash', { provider: 'vertex', modelId: 'gemini-2.5-flash' }],
+  ['vertex:gemini-2.5-pro', { provider: 'vertex', modelId: 'gemini-2.5-pro' }],
+  ['vertex:gemini-2.5-flash-lite', { provider: 'vertex', modelId: 'gemini-2.5-flash-lite' }],
+  ['vertex:gemini-3-flash-preview', { provider: 'vertex', modelId: 'gemini-3-flash-preview' }],
 ]);
 
 // ==================== 注册函数 ====================
@@ -205,6 +217,7 @@ export function getModelsByProvider(provider: LLMProviderType): string[] {
 const providerApiKeyMap: Record<string, keyof typeof SysEnv> = {
   openrouter: 'OPENROUTER_API_KEY',
   google: 'GOOGLE_GENERATIVE_AI_API_KEY',
+  vertex: 'GOOGLE_VERTEX_API_KEY',
   openai: 'OPENAI_API_KEY',
 };
 

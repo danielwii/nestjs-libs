@@ -202,6 +202,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // ==================== LLM ====================
   @IsString() @IsOptional() OPENROUTER_API_KEY?: string;
   @IsString() @IsOptional() GOOGLE_GENERATIVE_AI_API_KEY?: string;
+  /** Vertex AI Express Mode API Key (格式: AQ.xxx) */
+  @IsString() @IsOptional() GOOGLE_VERTEX_API_KEY?: string;
   @IsString() @IsOptional() OPENAI_API_KEY?: string;
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境） */
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
