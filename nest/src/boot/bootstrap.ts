@@ -54,10 +54,71 @@ export interface BootstrapOptions {
   };
 }
 
-export async function simpleBootstrap(AppModule: IEntryNestModule, onInit?: (app: INestApplication) => Promise<void>) {
+export async function simpleBootstrap(
+  AppModule: IEntryNestModule,
+  onInit?: (app: INestApplication) => Promise<void>,
+  options?: BootstrapOptions,
+) {
+  const now = Date.now();
   const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule));
   if (onInit) await onInit(app);
-  await runApp(app).listen(SysEnv.PORT);
+  await runApp(app)
+    .listen(SysEnv.PORT)
+    .then(() => {
+      const server = app.getHttpServer();
+      const address = server.address();
+      const bindAddress = address
+        ? typeof address === 'string'
+          ? address
+          : `${address.address}:${address.port}`
+        : 'unknown';
+
+      const startTime = DateTime.utc();
+      const nodeVersion = process.version;
+      const bunVersion =
+        'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
+      const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
+
+      const runtimeModeDesc =
+        process.env.NODE_ENV === 'production'
+          ? '生产模式(代码优化)'
+          : process.env.NODE_ENV === 'development'
+            ? '开发模式(热重载)'
+            : process.env.NODE_ENV === 'test'
+              ? '测试模式'
+              : '未知模式';
+
+      const businessEnvDesc = SysEnv.environment.isProd
+        ? '生产环境(真实数据)'
+        : SysEnv.environment.env === 'stg'
+          ? '预发布环境(测试数据)'
+          : '开发环境(测试数据)';
+
+      Logger.log(
+        stripIndent`🦋 [Server] API Server started successfully
+          ┌─ 环境配置 ─────────────────────────────────────────────
+          │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'} - ${runtimeModeDesc}
+          │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}
+          │ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}
+          ├─ 应用信息 ─────────────────────────────────────────────
+          │ App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}
+          │ Host: ${os.hostname()}
+          │ Node Name: ${SysEnv.NODE_NAME}
+          │ Bind: ${bindAddress}
+          │ Port: ${SysEnv.PORT}
+          │ PID: ${process.pid}
+          ├─ 运行时信息 ───────────────────────────────────────────
+          │ Platform: ${process.platform}
+          │ Runtime: ${runtimeVersions}
+          │ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})
+          │ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
+          │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
+          └─ Startup Time: ${Date.now() - now}ms
+        `,
+        'Bootstrap',
+      );
+      initStackTraceFormatter();
+    });
   return app;
 }
 
