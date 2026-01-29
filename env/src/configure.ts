@@ -184,7 +184,6 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   @IsString() @IsOptional() SESSION_SECRET?: string;
 
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) TRACING_ENABLED?: boolean = true;
   @IsString() @IsOptional() SERVICE_NAME?: string;
   @IsString() @IsOptional() TRACING_EXPORTER_URL?: string;
 
