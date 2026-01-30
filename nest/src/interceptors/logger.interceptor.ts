@@ -20,34 +20,39 @@ export class LoggerInterceptor implements NestInterceptor {
   public intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> | Promise<Observable<unknown>> {
     // 注意：Subscription 必须直接返回原始结果，任何额外的 pipe 都会把 AsyncIterator 变成 Observable，
     // 导致 graphql-transport-ws 收到 {} 而不是流式数据。
-    let req = ctx.switchToHttp().getRequest<IdentityRequest>();
-    let res = ctx.switchToHttp().getResponse<Response>();
+    // NestJS switchToHttp() 在 GraphQL 场景返回空对象，类型声明为可空
+    // res 可能是不完整的对象（无 getHeader/setHeader），使用 Partial
+    let req: IdentityRequest | undefined = ctx.switchToHttp().getRequest<IdentityRequest | undefined>();
+    let res: Partial<Response> | undefined = ctx.switchToHttp().getResponse<Partial<Response> | undefined>();
 
     const isGraphql = ctx.getType<'http' | 'graphql'>() === 'graphql';
     const gqlExecutionContext = isGraphql ? GqlExecutionContext.create(ctx) : null;
     const gqlOperation = gqlExecutionContext?.getInfo()?.operation?.operation ?? null;
 
     // NestJS GraphQL 请求时 switchToHttp().getRequest() 返回空对象，需要从 GqlContext 获取
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 运行时 req 可能为空对象
+
     if (!req && gqlExecutionContext) {
       const gqlContext = gqlExecutionContext.getContext<Record<string, unknown>>();
-      req = gqlContext.req as IdentityRequest;
-      res = gqlContext.res as Response;
-      // req 可能来自 GraphQL context，headers 结构可能与标准 Express 不同
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- GraphQL context 的 req.headers 运行时可能为 undefined
-      const ua = req.headers?.['user-agent'];
-      this.logger.log(
-        f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation} ua=${ua}`,
-      );
+      req = gqlContext.req as IdentityRequest | undefined;
+      res = gqlContext.res as Partial<Response> | undefined;
+
+      if (req) {
+        const ua = req.headers['user-agent'];
+        this.logger.log(
+          f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation} ua=${ua}`,
+        );
+      }
     }
 
     if (gqlOperation === 'subscription' && gqlExecutionContext) {
       const gqlInfo = gqlExecutionContext.getInfo();
       const handlerName = gqlInfo?.fieldName ?? ctx.getHandler().name ?? 'anonymous';
-      const wsReq = (gqlExecutionContext.getContext<Record<string, unknown>>().req ?? {}) as Request & {
+      const wsReq = (gqlExecutionContext.getContext<Record<string, unknown>>().req ?? {}) as Omit<
+        Request,
+        'headers'
+      > & {
         headers?: Record<string, unknown>;
       };
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- WebSocket request headers 运行时可能为 undefined
       const wsUa = wsReq.headers?.['user-agent'];
       this.logger.debug(
         f`-> (subscription) #${ctx.getClass().name}.${handlerName} ua=${wsUa} headers=${maskWsHeaders(wsReq.headers)}`,
@@ -79,7 +84,7 @@ export class LoggerInterceptor implements NestInterceptor {
     }
 
     // ws subscription request - NestJS 某些场景下 req 可能为空
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 运行时 req 可能为空
+
     if (!req) {
       this.logger.warn(
         f`Request object is empty, skipping logging for ${ctx.getClass().name}.${ctx.getHandler().name}`,
@@ -94,8 +99,8 @@ export class LoggerInterceptor implements NestInterceptor {
       ]),
     );
     // 获取客户端 IP：优先使用 req.ip，其次 req.ips[0]，最后 x-forwarded-for
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Express req.ips 运行时可能为 undefined
-    const multiIpAddress = req.ip ?? req.ips?.[0] ?? req.headers['x-forwarded-for'];
+
+    const multiIpAddress = req.ip ?? req.ips[0] ?? req.headers['x-forwarded-for'];
     const ipAddress = Array.isArray(multiIpAddress) ? multiIpAddress[0] : multiIpAddress;
     const info = {
       path: req.url,
@@ -129,8 +134,8 @@ export class LoggerInterceptor implements NestInterceptor {
     const TAG = `(${uid ?? 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named || 'anonymous'}`;
 
     // 健康检查路径，跳过日志记录
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- GraphQL 场景 req.path 运行时可能为 undefined
-    const isHealthCheck = req.path?.startsWith('/health') || req.path === '/';
+
+    const isHealthCheck = req.path.startsWith('/health') || req.path === '/';
 
     const currentSpan = trace.getSpan(context.active());
     const spanTraceId = currentSpan?.spanContext().traceId;
@@ -143,7 +148,7 @@ export class LoggerInterceptor implements NestInterceptor {
 
     return RequestContext.run({ traceId, userId: userIdFromRequest ?? null }, () => {
       // res 在 GraphQL 场景下可能为 undefined，traceId 总是存在
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- res 运行时可能为 undefined
+
       if (res?.getHeader && res.setHeader) {
         const isSse = res.getHeader('Content-Type') === 'text/event-stream';
         if (!isSse) {
