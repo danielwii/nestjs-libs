@@ -88,7 +88,7 @@ export const autoOpts = {
     const provider = parseProvider(key);
     switch (provider) {
       case 'openrouter':
-        return { openrouter: { reasoningText: { exclude: true } } } as unknown as ProviderOptions;
+        return { openrouter: { reasoning: { effort: 'none' } } } as unknown as ProviderOptions;
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
         return { google: { thinkingConfig: { thinkingBudget: 0 } } } as unknown as ProviderOptions;
@@ -106,7 +106,7 @@ export const autoOpts = {
 
     switch (provider) {
       case 'openrouter':
-        return { openrouter: { reasoningText: { effort } } } as unknown as ProviderOptions;
+        return { openrouter: { reasoning: { effort } } } as unknown as ProviderOptions;
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
         return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } } as unknown as ProviderOptions;
@@ -235,7 +235,7 @@ class LLMBuilder {
   thinkingTokens(tokens: number): this {
     switch (this._provider) {
       case 'openrouter':
-        this._thinkingOptions = { openrouter: { reasoningText: { max_tokens: tokens } } };
+        this._thinkingOptions = { openrouter: { reasoning: { max_tokens: tokens } } };
         break;
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
