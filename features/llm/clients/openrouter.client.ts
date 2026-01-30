@@ -81,7 +81,7 @@ export function openrouterOptions(options: {
 
   const reasoning = (() => {
     if (disableThinking) {
-      return { exclude: true };
+      return { effort: 'none' };
     }
     if (reasoningEffort) {
       return { effort: reasoningEffort };

@@ -25,19 +25,19 @@ export const opts = {
   openrouter: {
     /** 禁用 thinking/reasoning */
     noThinking: {
-      openrouter: { reasoningText: { exclude: true } },
+      openrouter: { reasoning: { effort: 'none' } },
     },
     /** 低强度推理 */
     thinkingLow: {
-      openrouter: { reasoningText: { effort: 'low' } },
+      openrouter: { reasoning: { effort: 'low' } },
     },
     /** 中等强度推理 */
     thinkingMedium: {
-      openrouter: { reasoningText: { effort: 'medium' } },
+      openrouter: { reasoning: { effort: 'medium' } },
     },
     /** 高强度推理 */
     thinkingHigh: {
-      openrouter: { reasoningText: { effort: 'high' } },
+      openrouter: { reasoning: { effort: 'high' } },
     },
     /** 使用 fallback 路由 */
     fallback: {

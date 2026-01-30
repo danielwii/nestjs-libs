@@ -43,19 +43,36 @@ export interface ModelConfig<P extends string = string> {
  *
  * Key 格式：provider:model
  */
+/**
+ * Model Registry 接口（项目层可通过 Declaration Merging 扩展）
+ *
+ * Key 格式：provider:model
+ *
+ * 定价参考（2026.01，可能变动）：
+ * | 模型 | Input | Output | Context | 备注 |
+ * |------|-------|--------|---------|------|
+ * | Gemini 2.5 Flash | $0.10/M | $0.40/M | 1M | ⚠️ 结构化输出有 bug |
+ * | GPT-4o-mini | $0.15/M | $0.60/M | 128K | |
+ * | Grok 4.1 Fast | $0.20/M | $0.50/M | 2M | Tool calling 最佳 |
+ * | Grok 3 Mini | $0.30/M | $0.50/M | 131K | thinking 模式 |
+ * | Claude 3.5 Haiku | $0.80/M | $4.00/M | 200K | |
+ *
+ * 详见：~/.claude/recipes/llm-model-pricing-2026.md
+ */
 export interface LLMModelRegistry {
   // ==================== OpenRouter ====================
-  'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>;
+  'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>; // $0.10/$0.40, 1M ctx, ⚠️ structured output bug
   'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>;
   'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
   'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
   'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>;
-  'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>;
+  'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>; // $0.80/$4.00, 200K ctx
   'openrouter:claude-4-sonnet': ModelConfig<'openrouter'>;
   'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>;
-  'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>;
-  'openrouter:grok-3-mini': ModelConfig<'openrouter'>;
-  'openrouter:grok-4-fast': ModelConfig<'openrouter'>;
+  'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>; // $0.15/$0.60, 128K ctx
+  'openrouter:grok-3-mini': ModelConfig<'openrouter'>; // $0.30/$0.50, 131K ctx, thinking
+  'openrouter:grok-4-fast': ModelConfig<'openrouter'>; // $0.20/$0.50, 2M ctx, multimodal
+  'openrouter:grok-4.1-fast': ModelConfig<'openrouter'>; // $0.20/$0.50, 2M ctx, best tool calling
 
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
@@ -96,6 +113,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
   ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
   ['openrouter:grok-4-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4-fast' }],
+  ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],
