@@ -311,7 +311,9 @@ export default defineConfig(
 
       // 基于类型判断条件必要性，外部库类型不准确时需要 eslint-disable
       // 见文件顶部注释了解处理方式
-      '@typescript-eslint/no-unnecessary-condition': 'warn',
+      // 已禁用：该规则对索引访问和外部 JSON 数据有已知的误报问题
+      // 参考：https://typescript-eslint.io/rules/no-unnecessary-condition/#limitations
+      '@typescript-eslint/no-unnecessary-condition': 'off',
 
       'prefer-const': 'warn',
 
