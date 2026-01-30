@@ -48,8 +48,8 @@ export class CursoredRequestInput implements CursoredRequest {
  * 设计意图：抽象分页模式的公共字段，避免滥用可选属性
  */
 @InterfaceType({
-  resolveType(value: PaginationInfo): string | undefined {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- GraphQL 运行时 value 可能为 null
+  // GraphQL 运行时可能传入 null/undefined
+  resolveType(value: PaginationInfo | null | undefined): string | undefined {
     if (value && typeof value === 'object' && 'currentPage' in value) {
       return 'PagePaginationInfo';
     }

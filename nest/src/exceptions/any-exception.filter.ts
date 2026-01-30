@@ -75,9 +75,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
   async catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
-    const response: Response = ctx.getResponse();
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- NestJS GraphQL 场景 response 可能为空对象
-    const isGraphqlRequest = typeof response?.status !== 'function';
+    // GraphQL 场景 getResponse() 可能返回空对象，而非完整 Express Response
+    const rawResponse = ctx.getResponse<Response | Record<string, never>>();
+    const isGraphqlRequest = !('status' in rawResponse) || typeof rawResponse.status !== 'function';
 
     let request: IdentityRequest | undefined = ctx.getRequest();
 
@@ -90,8 +90,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (host.getType<'http' | 'graphql' | 'ws'>() === 'ws') {
       const ws = host.switchToWs();
       const client = ws.getClient<{ connectionParams?: Record<string, unknown> }>();
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- WS client 运行时可能为空
-      const params = client?.connectionParams ?? {};
+
+      const params = (client as typeof client | undefined)?.connectionParams ?? {};
 
       this.logger.error(
         {
@@ -119,6 +119,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
       );
       throw exception;
     }
+
+    // GraphQL 分支已 throw/return，后续代码仅 HTTP 请求执行，response 是完整的 Express Response
+    const response = rawResponse as Response;
 
     // 处理 BusinessException（优先级最高）- 不触发 Sentry
     if (this.isBusinessException(exception)) {

@@ -88,26 +88,74 @@
  * ## @typescript-eslint/no-unnecessary-condition
  *
  * 此规则基于 TypeScript 类型系统判断条件是否"必要"。
- * 如果类型说非空，但运行时可能为空，会产生误报。
+ * 如果类型说非空，但运行时可能为空，会产生警告。
  *
- * 【常见误报场景】
- * 1. NestJS switchToHttp().getRequest() - 类型说非空，GraphQL 场景可能为空
- * 2. 外部库类型定义不准确
- * 3. 数组索引访问（启用 noUncheckedIndexedAccess 可解决）
+ * 【核心原则】
+ * **优先修正类型定义，eslint-disable 是最后手段。**
  *
- * 【处理方式】
- * | 场景                     | 处理方式                                        |
- * |--------------------------|------------------------------------------------|
- * | 确实多余的检查           | 删除多余的 ?. 或 ??                            |
- * | 类型定义不准确（本地）   | 修正类型：`param: Type | undefined`            |
- * | 外部库类型不准确         | eslint-disable + 注释说明原因                  |
- * | 数组索引访问             | 使用 .at(0) 或启用 noUncheckedIndexedAccess    |
+ * 类型应准确反映运行时行为。如果变量运行时可能为空，
+ * 应在定义时声明为可空类型，而不是用 eslint-disable 绕过。
  *
- * 【eslint-disable 注释模板】
- * ```typescript
- * // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 运行时 req 可能为空
- * if (!req) { ... }
- * ```
+ * 【处理优先级】（从高到低）
+ *
+ * 1. **修正类型定义**（首选）
+ *    ```typescript
+ *    // 错误：类型说非空，但 GraphQL 场景运行时可能为空
+ *    let req = ctx.switchToHttp().getRequest<Request>();
+ *    if (!req) { ... }  // warning: unnecessary condition
+ *
+ *    // 正确：类型准确反映运行时行为
+ *    let req: Request | undefined = ctx.switchToHttp().getRequest<Request | undefined>();
+ *    if (!req) { ... }  // OK，类型正确
+ *    ```
+ *
+ * 2. **删除多余检查**（类型确实正确时）
+ *    ```typescript
+ *    const name: string = getName();
+ *    if (name) { ... }  // 删除，string 不会是 falsy（除非允许空字符串）
+ *    ```
+ *
+ * 3. **eslint-disable**（仅当无法修正类型时）
+ *    - 外部库类型定义不准确且无法覆盖
+ *    - 接口签名限制（如 GraphQL resolveType）
+ *    - 泛型参数限制（如 AsyncGenerator<T>）
+ *
+ *    ```typescript
+ *    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- GraphQL resolveType 签名限制，运行时 value 可能为 null
+ *    if (value && typeof value === 'object') { ... }
+ *    ```
+ *
+ * 【实战模式】
+ *
+ * 1. NestJS Interceptor/Filter 中获取 req/res：
+ *    ```typescript
+ *    // GraphQL 场景 switchToHttp() 返回空对象，res 可能不完整
+ *    let req: Request | undefined = ctx.switchToHttp().getRequest<Request | undefined>();
+ *    let res: Partial<Response> | undefined = ctx.switchToHttp().getResponse<Partial<Response> | undefined>();
+ *    ```
+ *
+ * 2. 类型交集陷阱 - `&` 不会让属性变可选：
+ *    ```typescript
+ *    // 错误：Request.headers 必需，交集后仍必需，?.多余
+ *    const obj = {} as Request & { headers?: Record<string, unknown> };
+ *    obj.headers?.foo;  // warning
+ *
+ *    // 正确：用 Omit 先移除再声明为可选
+ *    const obj = {} as Omit<Request, 'headers'> & { headers?: Record<string, unknown> };
+ *    obj.headers?.foo;  // OK
+ *    ```
+ *
+ * 3. GraphQL resolveType / AsyncGenerator 等签名受限场景：
+ *    ```typescript
+ *    // 参数类型可改时，直接修正
+ *    resolveType(value: PaginationInfo | null | undefined): string | undefined { ... }
+ *    generator: AsyncGenerator<string | null | undefined>
+ *    ```
+ *
+ * 【禁止行为】
+ * - ❌ `as any` 绕过
+ * - ❌ 不分析原因直接 disable
+ * - ❌ 删除必要的防御性检查
  *
  * 参考：https://typescript-eslint.io/rules/no-unnecessary-condition
  *
@@ -304,16 +352,14 @@ export default defineConfig(
       // ========================================================================
       '@typescript-eslint/consistent-type-imports': 'error',
 
-      // 推荐 ?? 替代 ||，但 boolean OR 场景需要 eslint-disable
-      '@typescript-eslint/prefer-nullish-coalescing': 'warn',
+      // 推荐 ?? 替代 ||，但允许 boolean OR 和混合逻辑场景
+      '@typescript-eslint/prefer-nullish-coalescing': ['warn', { ignoreConditionalTests: true, ignoreMixedLogicalExpressions: true }],
 
       '@typescript-eslint/prefer-optional-chain': 'warn',
 
       // 基于类型判断条件必要性，外部库类型不准确时需要 eslint-disable
       // 见文件顶部注释了解处理方式
-      // 已禁用：该规则对索引访问和外部 JSON 数据有已知的误报问题
-      // 参考：https://typescript-eslint.io/rules/no-unnecessary-condition/#limitations
-      '@typescript-eslint/no-unnecessary-condition': 'off',
+      '@typescript-eslint/no-unnecessary-condition': 'warn',
 
       'prefer-const': 'warn',
 

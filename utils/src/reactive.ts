@@ -4,17 +4,19 @@ import { named } from './annotation';
 import { f } from './logging';
 
 import * as _ from 'radash';
-import { from, Observable } from 'rxjs';
+import { filter, from, Observable } from 'rxjs';
 
 export class ReactiveUtils {
   @named
+  // AI SDK generator 可能 yield null/undefined
   static fromAsyncGenerator(
     key: string,
-    generator: AsyncGenerator<string>,
+    generator: AsyncGenerator<string | null | undefined>,
     { validate, onComplete }: { validate: (message: string) => boolean; onComplete?: (message: string) => void },
     funcName?: string,
   ): Observable<string> {
-    if (!key.trim()) return from(generator);
+    // 无缓存 key 时直接转换，过滤 null/undefined 保持返回类型契约
+    if (!key.trim()) return from(generator).pipe(filter((v): v is string => v != null));
 
     return new Observable((observer) => {
       let completed = false;
@@ -37,7 +39,6 @@ export class ReactiveUtils {
           let answer = '';
           try {
             for await (const value of generator) {
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 运行时 generator 可能 yield null/undefined
               if (value == null) continue;
 
               answer += value;
