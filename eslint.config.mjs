@@ -315,6 +315,7 @@ export default defineConfig(
       '**/*.test.ts',
       '**/__tests__/**',
       'test/**/*',
+      'src/cli/**/*',
     ],
   },
   eslint.configs.recommended,
