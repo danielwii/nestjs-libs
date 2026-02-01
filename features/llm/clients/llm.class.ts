@@ -31,11 +31,11 @@ import { model as createModel, parseProvider } from './auto.client';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
 import { generateText, Output, streamText, tool } from 'ai';
-import type { z } from 'zod';
 
 import type { LLMModelKey } from '../types/model.types';
 import type { ProviderType } from './options.helpers';
 import type { LanguageModel, StreamTextResult, TelemetrySettings } from 'ai';
+import type { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types

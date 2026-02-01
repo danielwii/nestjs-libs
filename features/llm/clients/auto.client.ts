@@ -183,19 +183,16 @@ export const autoOpts = {
    * ```
    */
   merge(...options: ProviderOptions[]): ProviderOptions {
-    return options.reduce<Record<string, Record<string, unknown>>>(
-      (acc, opt) => {
-        for (const [provider, config] of Object.entries(opt)) {
-          if (!acc[provider]) {
-            acc[provider] = {};
-          }
-          // 深度合并
-          acc[provider] = { ...acc[provider], ...config };
+    return options.reduce<Record<string, Record<string, unknown>>>((acc, opt) => {
+      for (const [provider, config] of Object.entries(opt)) {
+        if (!acc[provider]) {
+          acc[provider] = {};
         }
-        return acc;
-      },
-      {},
-    ) as unknown as ProviderOptions;
+        // 深度合并
+        acc[provider] = { ...acc[provider], ...config };
+      }
+      return acc;
+    }, {}) as unknown as ProviderOptions;
   },
 };
 
