@@ -98,10 +98,16 @@ export class LoggerInterceptor implements NestInterceptor {
         typeof v === 'string' && v.length > 100 ? `${v.slice(0, 100)}...` : v,
       ]),
     );
-    // 获取客户端 IP：优先使用 req.ip，其次 req.ips[0]，最后 x-forwarded-for
+    // 获取客户端真实 IP：优先使用 Cloudflare cf-connecting-ip，其次 x-forwarded-for，最后 req.ip
+    const cfConnectingIp = req.headers['cf-connecting-ip'];
+    const realIp =
+      typeof cfConnectingIp === 'string'
+        ? cfConnectingIp
+        : (req.headers['x-forwarded-for'] ?? req.ip ?? req.ips[0]);
+    const ipAddress = Array.isArray(realIp) ? realIp[0] : realIp;
 
-    const multiIpAddress = req.ip ?? req.ips[0] ?? req.headers['x-forwarded-for'];
-    const ipAddress = Array.isArray(multiIpAddress) ? multiIpAddress[0] : multiIpAddress;
+    // CF-Ray 用于 Cloudflare 日志追踪
+    const cfRay = req.headers['cf-ray'];
     const info = {
       path: req.url,
       body,
@@ -162,7 +168,7 @@ export class LoggerInterceptor implements NestInterceptor {
 
       if (!isHealthCheck) {
         this.logger.debug(
-          f`-> ${TAG} call... ip=${ipAddress} ${req.method} ${req.url} ua=${req.headers['user-agent']}`,
+          f`-> ${TAG} call... ip=${ipAddress} cfRay=${cfRay} ${req.method} ${req.url} ua=${req.headers['user-agent']}`,
         );
       }
 
