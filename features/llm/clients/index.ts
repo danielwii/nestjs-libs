@@ -31,16 +31,8 @@ export { autoOpts, type LLMOpts, llm, model, parseProvider, type TelemetryMeta }
 export { createGoogleClient, googleOptions } from './google.client';
 export { createVertex, vertexOptions } from './vertex.client';
 // 预配置单例
-// Embedding
-export {
-  type EmbeddingModel,
-  embedding,
-  getLLMClientStatus,
-  google,
-  openrouter,
-  resetLLMClients,
-  vertex,
-} from './llm.clients';
+// Embedding（EmbeddingModel 类型已移至 types/embedding.types.ts）
+export { embedding, getLLMClientStatus, google, openrouter, resetLLMClients, vertex } from './llm.clients';
 // 工厂函数（需要自定义配置时使用）
 export { createOpenRouterClient, openrouterOptions } from './openrouter.client';
 
@@ -49,3 +41,6 @@ export * from './options.helpers';
 
 // 预设 Options
 export { opts } from './opts.presets';
+
+// LLM 统一入口
+export { LLM, type Message, type ThinkingEffort, type TokenUsage } from './llm.class';

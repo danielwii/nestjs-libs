@@ -6,6 +6,24 @@
  * - 懒加载，首次使用时才初始化
  * - 直接导出可用的 provider 函数
  *
+ * ## 模型选型指南（2026-01）
+ *
+ * | 场景 | 推荐模型 | 理由 |
+ * |------|---------|------|
+ * | generateObject 批量输出 | `google('gemini-2.5-flash')` | 原生支持 structured output，thinking tokens 免费 |
+ * | 多轮工具编排 | `openrouter('x-ai/grok-4.1-fast')` | 性价比高 $0.20/$0.50/M，2M ctx，tool calling 准确 |
+ * | 复杂推理 | `google('gemini-2.5-pro')` | 推理能力强，thinking tokens 免费 |
+ * | 大上下文 | `openrouter('x-ai/grok-4.1-fast')` | 2M context window |
+ *
+ * ## 价格参考（2026-01）
+ *
+ * | 模型 | Input | Output | 备注 |
+ * |------|-------|--------|------|
+ * | gemini-2.5-flash | $0.15/M | $0.60/M | thinking tokens 免费 |
+ * | gemini-2.5-pro | $1.25/M | $10/M | thinking tokens 免费 |
+ * | grok-4.1-fast | $0.20/M | $0.50/M | 2M ctx，性价比之选 |
+ * | claude-4-sonnet | $3/M | $15/M | 编码/Agent 能力强 |
+ *
  * @example
  * ```typescript
  * import { openrouter, google } from '@app/llm-core';
@@ -76,10 +94,30 @@ function getOpenRouter() {
  * ```typescript
  * openrouter('google/gemini-2.5-flash')
  * openrouter('anthropic/claude-3.5-sonnet')
- * openrouter('openai/gpt-4o')
+ * openrouter('openai/grok-4.1-fast')
  * ```
  */
 export const openrouter = (modelId: string): LanguageModel => getOpenRouter()(modelId);
+
+/**
+ * OpenRouter 默认 providerOptions（禁用 reasoning/thinking）
+ *
+ * 默认禁用 reasoning 以节省成本。如需启用，使用 autoOpts.thinking()。
+ *
+ * @example
+ * ```typescript
+ * import { openrouter, OPENROUTER_DEFAULTS } from '@app/features/llm';
+ *
+ * await generateText({
+ *   model: openrouter('x-ai/grok-4.1-fast'),
+ *   providerOptions: OPENROUTER_DEFAULTS,
+ *   // ...
+ * });
+ * ```
+ */
+export const OPENROUTER_DEFAULTS = {
+  openrouter: { reasoning: { effort: 'none' as const } },
+};
 
 // ============================================================================
 // Google AI 客户端
@@ -217,8 +255,15 @@ function getOpenAI() {
 // Embedding 函数
 // ============================================================================
 
-/** Embedding 模型类型 */
-export type EmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large';
+/**
+ * OpenAI Embedding 模型类型（仅用于本客户端）
+ *
+ * 完整的 Embedding 模型定义和阈值配置请参见：
+ * - `@app/features/llm/types/embedding.types.ts`
+ *
+ * @see {@link import('../types/embedding.types').OpenAIEmbeddingModel}
+ */
+type LocalEmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large';
 
 /**
  * 生成文本的 Embedding 向量
@@ -226,6 +271,8 @@ export type EmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large'
  * 使用 OpenAI 的 embedding 模型：
  * - text-embedding-3-small: 1536 维，性价比高（默认）
  * - text-embedding-3-large: 3072 维，更高精度
+ *
+ * **阈值提醒**：使用余弦相似度搜索时，参考上方 EmbeddingModel 的阈值说明！
  *
  * @example
  * ```typescript
@@ -238,7 +285,10 @@ export type EmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large'
  * const vector = await embedding('some text', 'text-embedding-3-large');
  * ```
  */
-export async function embedding(text: string, model: EmbeddingModel = 'text-embedding-3-small'): Promise<number[]> {
+export async function embedding(
+  text: string,
+  model: LocalEmbeddingModel = 'text-embedding-3-small',
+): Promise<number[]> {
   const openai = getOpenAI();
   const embeddingModel = openai.embeddingModel(model);
   const result = await embed({ model: embeddingModel, value: text });

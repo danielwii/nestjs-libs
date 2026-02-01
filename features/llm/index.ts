@@ -29,3 +29,5 @@ export * from './providers';
 export * from './schemas';
 // Types
 export * from './types';
+// Utils
+export * from './utils/cost-calculator';

@@ -10,7 +10,7 @@ import { openrouterOptions } from './openrouter.client';
 /**
  * Provider 类型
  */
-export type ProviderType = 'openrouter' | 'google';
+export type ProviderType = 'openrouter' | 'google' | 'vertex';
 
 /**
  * 根据 Provider 类型生成禁用 Thinking 的 options
@@ -37,6 +37,7 @@ export function disableThinkingOptions(provider: ProviderType) {
     case 'openrouter':
       return openrouterOptions({ disableThinking: true });
     case 'google':
+    case 'vertex':
       return googleOptions({ disableThinking: true });
     default:
       return {};
@@ -59,8 +60,9 @@ export function reasoningEffortOptions(provider: ProviderType, effort: 'low' | '
   switch (provider) {
     case 'openrouter':
       return openrouterOptions({ reasoningEffort: effort });
-    case 'google': {
-      // Google 没有 effort 概念，用 thinkingBudget 近似
+    case 'google':
+    case 'vertex': {
+      // Google/Vertex 没有 effort 概念，用 thinkingBudget 近似
       // low: 1024, medium: 4096, high: 8192
       const budgetMap = { low: 1024, medium: 4096, high: 8192 };
       return googleOptions({ thinkingBudget: budgetMap[effort] });

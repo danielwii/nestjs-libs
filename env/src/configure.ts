@@ -90,7 +90,7 @@ const llmModelFields = new Set<string>();
  * I18N_LLM_MODEL?: string;
  */
 export function LLMModelField(): PropertyDecorator {
-  return (target, propertyKey) => {
+  return (_target, propertyKey) => {
     llmModelFields.add(propertyKey as string);
     if (isConfigureDebugEnabled()) {
       Logger.verbose(`[LLMModelField] registered: ${String(propertyKey)}`, 'Configure');
@@ -147,6 +147,17 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   get isNodeDevelopment() {
     return process.env.NODE_ENV === 'development';
+  }
+
+  /**
+   * 是否为 CLI 模式运行
+   *
+   * 用于区分 CLI 调试和正常服务运行，CLI 模式下可以：
+   * - 输出调试文件（如 prompt JSON）
+   * - 打印更详细的日志
+   */
+  get isCliMode(): boolean {
+    return process.argv.some((arg) => arg.includes('cli.ts') || arg.includes('cli:'));
   }
 
   // 使用 @Type(() => Number) 显式指定类型转换
