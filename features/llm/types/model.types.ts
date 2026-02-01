@@ -48,31 +48,55 @@ export interface ModelConfig<P extends string = string> {
  *
  * Key 格式：provider:model
  *
- * 定价参考（2026.01，可能变动）：
+ * 定价参考（2026.02，OpenRouter 官网）：
  * | 模型 | Input | Output | Context | 备注 |
  * |------|-------|--------|---------|------|
- * | Gemini 2.5 Flash | $0.10/M | $0.40/M | 1M | ⚠️ 结构化输出有 bug |
- * | GPT-4o-mini | $0.15/M | $0.60/M | 128K | |
- * | Grok 4.1 Fast | $0.20/M | $0.50/M | 2M | Tool calling 最佳 |
- * | Grok 3 Mini | $0.30/M | $0.50/M | 131K | thinking 模式 |
- * | Claude 3.5 Haiku | $0.80/M | $4.00/M | 200K | |
+ * | Grok 4.1 Fast | $0.20/M | $0.50/M | 2M | ⚠️ reasoning 无法关闭 |
+ * | DeepSeek V3.2 | $0.25/M | $0.38/M | 164K | Roleplay #1 |
+ * | Gemini 2.5 Flash | $0.30/M | $2.50/M | 1M | |
+ * | Gemini 3 Flash Preview | $0.50/M | $3/M | 1M | Tool Calling #1 |
+ * | Kimi K2.5 | $0.50/M | $2.80/M | 262K | |
+ * | Claude Sonnet 4.5 | $3/M | $15/M | 1M | |
+ * | Claude Opus 4.5 | $5/M | $25/M | 200K | 最强 coding |
  *
- * 详见：~/.claude/recipes/llm-model-pricing-2026.md
+ * @see https://openrouter.ai/models
  */
 export interface LLMModelRegistry {
   // ==================== OpenRouter ====================
-  'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>; // $0.10/$0.40, 1M ctx, ⚠️ structured output bug
-  'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>;
-  'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
-  'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
-  'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>;
-  'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>; // $0.80/$4.00, 200K ctx
-  'openrouter:claude-4-sonnet': ModelConfig<'openrouter'>;
-  'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>;
-  'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>; // $0.15/$0.60, 128K ctx
-  'openrouter:grok-3-mini': ModelConfig<'openrouter'>; // $0.30/$0.50, 131K ctx, thinking
-  'openrouter:grok-4-fast': ModelConfig<'openrouter'>; // $0.20/$0.50, 2M ctx, multimodal
-  'openrouter:grok-4.1-fast': ModelConfig<'openrouter'>; // $0.20/$0.50, 2M ctx, best tool calling
+  'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>; // $0.30/$2.50, 1M ctx
+  'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>; // 1M ctx
+  'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>; // 1M ctx
+  'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>; // $0.50/$3, 1M ctx, Tool Calling #1
+  'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>; // 200K ctx
+  'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>; // 200K ctx
+  'openrouter:claude-4-sonnet': ModelConfig<'openrouter'>; // 200K ctx
+  'openrouter:claude-sonnet-4.5': ModelConfig<'openrouter'>; // $3/$15, 1M ctx
+  'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>; // 200K ctx
+  'openrouter:claude-opus-4.5': ModelConfig<'openrouter'>; // 最强 coding
+  'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>; // 128K ctx
+  'openrouter:grok-3-mini': ModelConfig<'openrouter'>; // 131K ctx, thinking
+  /**
+   * Grok 4.1 Fast - $0.20/$0.50, 2M ctx, best tool calling
+   *
+   * ⚠️ 注意：reasoning 无法关闭！
+   * - noThinking 参数对此模型无效
+   * - TTFT 固定 12-17 秒（模型内部始终进行 reasoning）
+   * - 不适合需要低延迟的场景（如实时对话）
+   *
+   * @see https://openrouter.ai/x-ai/grok-4.1-fast
+   * @see ~/.claude/gotchas/openrouter-grok-reasoning-cannot-disable.md
+   */
+  'openrouter:grok-4.1-fast': ModelConfig<'openrouter'>;
+  /**
+   * DeepSeek V3.2 - $0.25/$0.38, 164K ctx
+   *
+   * 特点：
+   * - Roleplay 排名 #1
+   * - 支持 reasoning 模式（可通过 reasoning_enabled 控制）
+   * - DSA 稀疏注意力，长上下文高效
+   * - GPT-5 级别推理能力
+   */
+  'openrouter:deepseek-v3.2': ModelConfig<'openrouter'>;
 
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
@@ -107,13 +131,15 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
   ['openrouter:gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
   ['openrouter:claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
-  ['openrouter:claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku-20241022' }],
+  ['openrouter:claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku' }],
   ['openrouter:claude-4-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' }],
+  ['openrouter:claude-sonnet-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.5' }],
   ['openrouter:claude-4.1-opus', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
+  ['openrouter:claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
   ['openrouter:gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
   ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
-  ['openrouter:grok-4-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4-fast' }],
   ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
+  ['openrouter:deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],

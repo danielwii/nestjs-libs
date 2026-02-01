@@ -63,12 +63,30 @@ export function model(key: LLMModelKey): LanguageModel {
 }
 
 /**
- * 从 Model Key 解析 Provider（快速版，不查 Registry）
+ * 从 Model Key 解析 Provider
+ *
+ * 支持两种格式：
+ * - Provider 名：`'openrouter'` | `'google'` | `'vertex'`
+ * - Model Key：`'openrouter:x-ai/grok-4.1-fast'`
+ *
+ * @example
+ * ```typescript
+ * parseProvider('openrouter')                    // => 'openrouter'
+ * parseProvider('openrouter:x-ai/grok-4.1-fast') // => 'openrouter'
+ * parseProvider('google:gemini-2.5-flash')       // => 'google'
+ * ```
  */
 export function parseProvider(key: string): LLMProviderType {
+  // 支持直接传 provider 名（如 'openrouter'）
+  const validProviders: LLMProviderType[] = ['openrouter', 'google', 'vertex'];
+  if (validProviders.includes(key as LLMProviderType)) {
+    return key as LLMProviderType;
+  }
+
+  // 否则解析 provider:model 格式
   const colonIndex = key.indexOf(':');
   if (colonIndex === -1) {
-    throw new Error(`Invalid model key format: ${key}, expected "provider:model"`);
+    throw new Error(`Invalid model key format: ${key}, expected "provider:model" or provider name`);
   }
   return key.slice(0, colonIndex) as LLMProviderType;
 }
@@ -78,16 +96,36 @@ export function parseProvider(key: string): LLMProviderType {
 // ============================================================================
 
 /**
- * 根据 Model Key 自动生成 providerOptions
+ * 根据 Provider/Model Key 自动生成 providerOptions
+ *
+ * 自动识别 provider 并返回对应格式的 options。
  */
 export const autoOpts = {
   /**
-   * 禁用 Thinking（自动根据 provider 选择正确格式）
+   * 禁用 Thinking/Reasoning
+   *
+   * 根据 provider 自动选择正确格式：
+   * - openrouter: `{ reasoning: { effort: 'none' } }`
+   * - google/vertex: `{ thinkingConfig: { thinkingBudget: 0 } }`
+   *
+   * @param key Provider 名或 Model Key
+   *
+   * @example
+   * ```typescript
+   * // 推荐：直接传 provider 名
+   * providerOptions: autoOpts.noThinking('openrouter'),
+   *
+   * // 也支持传完整 model key
+   * providerOptions: autoOpts.noThinking('openrouter:x-ai/grok-4.1-fast'),
+   * ```
    */
   noThinking(key: LLMModelKey | string): ProviderOptions {
     const provider = parseProvider(key);
     switch (provider) {
       case 'openrouter':
+        // ⚠️ 注意：Grok 4.1 Fast 无法关闭 reasoning（effort/enabled 参数均无效）
+        // 如需低 TTFT，请使用 Gemini 2.5 Flash
+        // @see ~/.claude/gotchas/openrouter-grok-reasoning-cannot-disable.md
         return { openrouter: { reasoning: { effort: 'none' } } } as unknown as ProviderOptions;
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
@@ -113,6 +151,51 @@ export const autoOpts = {
       default:
         return {} as ProviderOptions;
     }
+  },
+
+  /**
+   * OpenRouter Provider 排序策略（禁用负载均衡，按指定属性排序）
+   *
+   * @param sort 排序策略
+   * - 'price': 优先最低价格
+   * - 'throughput': 优先最高吞吐量（推荐用于生成速度优先）
+   * - 'latency': 优先最低延迟（推荐用于 TTFT 优先）
+   *
+   * @example
+   * ```typescript
+   * // 优先选择吞吐量最高的 provider
+   * providerOptions: autoOpts.providerSort('throughput'),
+   * ```
+   */
+  providerSort(sort: 'price' | 'throughput' | 'latency'): ProviderOptions {
+    return { openrouter: { provider: { sort } } } as unknown as ProviderOptions;
+  },
+
+  /**
+   * 合并多个 providerOptions
+   *
+   * @example
+   * ```typescript
+   * providerOptions: autoOpts.merge(
+   *   autoOpts.noThinking('openrouter'),
+   *   autoOpts.providerSort('throughput'),
+   * ),
+   * ```
+   */
+  merge(...options: ProviderOptions[]): ProviderOptions {
+    return options.reduce<Record<string, Record<string, unknown>>>(
+      (acc, opt) => {
+        for (const [provider, config] of Object.entries(opt)) {
+          if (!acc[provider]) {
+            acc[provider] = {};
+          }
+          // 深度合并
+          acc[provider] = { ...acc[provider], ...config };
+        }
+        return acc;
+      },
+      {},
+    ) as unknown as ProviderOptions;
   },
 };
 
@@ -209,6 +292,8 @@ class LLMBuilder {
     this._key = key;
     this._model = model(key);
     this._provider = parseProvider(key);
+    // 默认关闭 thinking，避免推理内容渗入结构化输出
+    this._thinkingOptions = autoOpts.noThinking(this._key);
   }
 
   // ========== 核心链式方法 ==========
@@ -282,10 +367,15 @@ class LLMBuilder {
   // ========== 执行方法 ==========
 
   private _buildProviderOptions(): ProviderOptions {
-    return {
+    const options = {
       ...this._thinkingOptions,
       ...this._opts.providerOptions,
     } as unknown as ProviderOptions;
+
+    // 日志打印 thinking 配置（调试用）
+    console.log(`[LLM:${this._key}] providerOptions:`, JSON.stringify(options));
+
+    return options;
   }
 
   private _buildTelemetry(): TelemetrySettings {

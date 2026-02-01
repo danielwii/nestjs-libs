@@ -36,12 +36,23 @@ export class ApiFetcher {
     options?: RequestInit & { duplex?: Undici.RequestDuplex },
   ): Promise<Response> => {
     const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+    const method = options?.method ?? 'GET';
+    const bodyLength = options?.body
+      ? typeof options.body === 'string'
+        ? options.body.length
+        : JSON.stringify(options.body).length
+      : 0;
+
+    // 提取关键 headers（隐藏敏感值）
+    const headers = options?.headers as Record<string, string> | undefined;
+    const contentType = headers?.['content-type'] ?? headers?.['Content-Type'] ?? '-';
+    const hasAuth = !!(headers?.['authorization'] ?? headers?.['Authorization']);
 
     const isBun = isBunRuntime();
+    const requestInfo = `method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth}`;
 
     if (isBun && SysProxy.proxy) {
       // Bun 运行时 + 有代理：使用原生 fetch + proxy 选项
-      ApiFetcher.logger.log(f`#undiciFetch [Bun] proxy=${SysProxy.proxy} url=${urlStr}`);
       const response = await fetch(url as string, {
         ...options,
         proxy: SysProxy.proxy, // Bun 1.3.4+ 原生支持
@@ -50,8 +61,10 @@ export class ApiFetcher {
     }
 
     // Node 运行时 或 Bun 无代理：使用 undici fetch + dispatcher
-    const runtime = isBun ? 'Bun-fallback' : 'Node';
-    ApiFetcher.logger.log(f`#undiciFetch [${runtime}] hasDispatcher=${!!SysProxy.dispatcher} url=${urlStr}`);
+    const runtime = isBun ? 'Bun-NoProxy' : 'Node';
+    ApiFetcher.logger.log(
+      f`#undiciFetch [${runtime}] url=${urlStr} ${requestInfo} hasDispatcher=${!!SysProxy.dispatcher}`,
+    );
     const response = await Undici.fetch(
       url as string,
       { ...options, dispatcher: SysProxy.dispatcher } as unknown as Undici.RequestInit,

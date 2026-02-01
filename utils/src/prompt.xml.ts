@@ -73,6 +73,7 @@ export interface PromptData {
   rules: string[];
   examples: Example[];
   sections: ContextSection[];
+  output?: string;
   language?: string;
 }
 
@@ -261,15 +262,44 @@ Now:${timestamp}`;
 // ==================== PromptBuilder ====================
 
 /**
- * Prompt 构建器 - 链式 API
+ * PromptBuilder 配置（用于 from() 静态方法）
+ */
+export interface PromptConfig {
+  id: string;
+  version?: string;
+  role: string;
+  objective: string;
+  style?: string;
+  tone?: string;
+  audience?: string;
+  instructions?: string | string[];
+  rules?: string | string[];
+  examples?: Example[];
+  contexts?: ContextSection[];
+  output?: string;
+  language?: string;
+}
+
+/**
+ * Prompt 构建器 - 链式 API 或 JSON 配置
  *
  * @example
  * ```typescript
+ * // 方式 1: 链式调用
  * const prompt = new PromptBuilder('analyzer', '1.0')
  *   .role('情感分析专家')
  *   .objective('分析用户情感')
  *   .instruction('识别主要情感')
  *   .build();
+ *
+ * // 方式 2: JSON 配置
+ * const prompt = PromptBuilder.from({
+ *   id: 'analyzer',
+ *   version: '1.0',
+ *   role: '情感分析专家',
+ *   objective: '分析用户情感',
+ *   instructions: '识别主要情感',
+ * });
  * ```
  */
 export class PromptBuilder {
@@ -284,11 +314,51 @@ export class PromptBuilder {
   private _rules: string[] = [];
   private _examples: Example[] = [];
   private _sections: ContextSection[] = [];
+  private _output?: string;
   private _language?: string;
 
   constructor(id: string, version: string = '1.0') {
     this._id = id;
     this._version = version;
+  }
+
+  /**
+   * 从配置对象创建 Prompt（快捷方式）
+   */
+  static from(config: PromptConfig): Prompt {
+    const builder = new PromptBuilder(config.id, config.version ?? '1.0');
+
+    builder.role(config.role);
+    builder.objective(config.objective);
+
+    if (config.style) builder.style(config.style);
+    if (config.tone) builder.tone(config.tone);
+    if (config.audience) builder.audience(config.audience);
+    if (config.language) builder.language(config.language);
+
+    // instructions: string | string[]
+    if (config.instructions) {
+      if (Array.isArray(config.instructions)) {
+        builder.instructions(config.instructions);
+      } else {
+        builder.instruction(config.instructions);
+      }
+    }
+
+    // rules: string | string[]
+    if (config.rules) {
+      if (Array.isArray(config.rules)) {
+        builder.rules(config.rules);
+      } else {
+        builder.rule(config.rules);
+      }
+    }
+
+    if (config.examples) builder.examples(config.examples);
+    if (config.contexts) builder.contexts(config.contexts);
+    if (config.output) builder.output(config.output);
+
+    return builder.build();
   }
 
   role(role: string): this {
@@ -367,6 +437,11 @@ export class PromptBuilder {
     return this;
   }
 
+  output(text: string): this {
+    this._output = text;
+    return this;
+  }
+
   /**
    * 构建 Prompt 实例
    */
@@ -388,6 +463,7 @@ export class PromptBuilder {
       rules: [...this._rules],
       examples: this._examples.map((e) => ({ ...e })),
       sections: this._sections.map((s) => ({ ...s })),
+      output: this._output,
       language: this._language,
     };
 
@@ -446,12 +522,15 @@ function generateXmlPromptContent(data: PromptData): string {
   const metadataParts = [rolePart, objectivePart, stylePart, tonePart, audiencePart].filter(Boolean);
   const metadataSection = metadataParts.length > 0 ? metadataParts.join('\n') : undefined;
 
+  // Output format
+  const outputPart = data.output ? `<output priority="high">${data.output}</output>` : undefined;
+
   // Language
   const languagePart = data.language
     ? `<language priority="critical">Use "${data.language}" as the default response language. Switch to another language if the user explicitly requests it.</language>`
     : undefined;
 
-  return [metadataSection, instructionsPart, rulesPart, examplesPart, contextPart, languagePart]
+  return [metadataSection, instructionsPart, rulesPart, examplesPart, contextPart, outputPart, languagePart]
     .filter(Boolean)
     .join('\n\n');
 }
