@@ -102,8 +102,7 @@ function createLangfuseProcessor() {
 
   // Only export AI-related spans (scope='ai')
   const shouldExportSpan = ({ otelSpan }) => {
-    const scope =
-      typeof otelSpan?.instrumentationScope?.name === 'string' ? otelSpan.instrumentationScope.name : '';
+    const scope = typeof otelSpan?.instrumentationScope?.name === 'string' ? otelSpan.instrumentationScope.name : '';
     const spanName = otelSpan?.name || 'unknown';
     const shouldExport = scope === 'ai';
     // Debug: log scope='ai' spans
@@ -150,9 +149,7 @@ function initializeSentry() {
       beforeSend(event) {
         const message = event?.message || event?.logentry?.formatted || event?.logentry?.message;
         const exceptionValues = event?.exception?.values ?? [];
-        const exceptionTexts = exceptionValues
-          .map((v) => [v.type, v.value].filter(Boolean).join(':'))
-          .filter(Boolean);
+        const exceptionTexts = exceptionValues.map((v) => [v.type, v.value].filter(Boolean).join(':')).filter(Boolean);
 
         const haystack = [message, ...exceptionTexts].filter(Boolean).join('\n');
         if (haystack && noisyPatterns.some((pattern) => pattern.test(haystack))) {

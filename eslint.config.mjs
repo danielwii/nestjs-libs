@@ -299,10 +299,10 @@
  * ============================================================================
  */
 
-import { defineConfig } from 'eslint/config';
-import tseslint from 'typescript-eslint';
 import eslint from '@eslint/js';
+import { defineConfig } from 'eslint/config';
 import globals from 'globals';
+import tseslint from 'typescript-eslint';
 
 export default defineConfig(
   {
@@ -339,14 +339,20 @@ export default defineConfig(
       // ========================================================================
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-unused-vars': ['error', {
-        argsIgnorePattern: '^_',
-        varsIgnorePattern: '^_',
-      }],
-      '@typescript-eslint/ban-ts-comment': ['error', {
-        'ts-ignore': 'allow-with-description',
-        'ts-expect-error': 'allow-with-description',
-      }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
+      '@typescript-eslint/ban-ts-comment': [
+        'error',
+        {
+          'ts-ignore': 'allow-with-description',
+          'ts-expect-error': 'allow-with-description',
+        },
+      ],
 
       // ========================================================================
       // Code Style - 代码风格（警告级别，允许 eslint-disable）
@@ -354,7 +360,10 @@ export default defineConfig(
       '@typescript-eslint/consistent-type-imports': 'error',
 
       // 推荐 ?? 替代 ||，但允许 boolean OR 和混合逻辑场景
-      '@typescript-eslint/prefer-nullish-coalescing': ['warn', { ignoreConditionalTests: true, ignoreMixedLogicalExpressions: true }],
+      '@typescript-eslint/prefer-nullish-coalescing': [
+        'warn',
+        { ignoreConditionalTests: true, ignoreMixedLogicalExpressions: true },
+      ],
 
       '@typescript-eslint/prefer-optional-chain': 'warn',
 
@@ -387,10 +396,13 @@ export default defineConfig(
       '@typescript-eslint/no-redundant-type-constituents': 'off',
 
       // 模板字符串允许 number 和 boolean
-      '@typescript-eslint/restrict-template-expressions': ['error', {
-        allowNumber: true,
-        allowBoolean: true,
-      }],
+      '@typescript-eslint/restrict-template-expressions': [
+        'error',
+        {
+          allowNumber: true,
+          allowBoolean: true,
+        },
+      ],
 
       // ========================================================================
       // Unsafe Rules - 不安全规则（逐步收紧）
