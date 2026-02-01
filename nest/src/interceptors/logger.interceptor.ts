@@ -101,9 +101,7 @@ export class LoggerInterceptor implements NestInterceptor {
     // 获取客户端真实 IP：优先使用 Cloudflare cf-connecting-ip，其次 x-forwarded-for，最后 req.ip
     const cfConnectingIp = req.headers['cf-connecting-ip'];
     const realIp =
-      typeof cfConnectingIp === 'string'
-        ? cfConnectingIp
-        : (req.headers['x-forwarded-for'] ?? req.ip ?? req.ips[0]);
+      typeof cfConnectingIp === 'string' ? cfConnectingIp : (req.headers['x-forwarded-for'] ?? req.ip ?? req.ips[0]);
     const ipAddress = Array.isArray(realIp) ? realIp[0] : realIp;
 
     // CF-Ray 用于 Cloudflare 日志追踪

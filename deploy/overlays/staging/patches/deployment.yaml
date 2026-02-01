@@ -11,8 +11,8 @@ spec:
         - name: unee-marsgate
           resources:
             requests:
-              cpu: "50m"
-              memory: "128Mi"
+              cpu: '50m'
+              memory: '128Mi'
             limits:
-              cpu: "200m"
-              memory: "256Mi"
+              cpu: '200m'
+              memory: '256Mi'

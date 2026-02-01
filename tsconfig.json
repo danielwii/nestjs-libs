@@ -1,8 +1,6 @@
 {
   "compilerOptions": {
-    "lib": [
-      "ES2022"
-    ],
+    "lib": ["ES2022"],
     "target": "ES2022",
     "module": "ESNext",
     "moduleDetection": "force",
@@ -19,41 +17,21 @@
     "experimentalDecorators": true,
     "baseUrl": ".",
     "paths": {
-      "@app/utils/*": [
-        "utils/src/*"
-      ],
-      "@app/utils": [
-        "utils/src/index.ts"
-      ],
-      "@app/nest/*": [
-        "nest/src/*"
-      ],
-      "@app/env": [
-        "env/src/index.ts"
-      ],
-      "@app/env/*": [
-        "env/src/*"
-      ],
-      "@app/features/*": [
-        "features/*"
-      ],
-      "@/*": [
-        "./*"
-      ]
+      "@app/utils/*": ["utils/src/*"],
+      "@app/utils": ["utils/src/index.ts"],
+      "@app/nest/*": ["nest/src/*"],
+      "@app/env": ["env/src/index.ts"],
+      "@app/env/*": ["env/src/*"],
+      "@app/features/*": ["features/*"],
+      "@/*": ["./*"]
     },
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ],
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist"],
   "$schema": "https://json.schemastore.org/tsconfig",
   "_comment": "Base TypeScript config - merge with project-specific settings"
 }

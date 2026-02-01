@@ -2,17 +2,17 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: unee-staging
 labels:
-- includeSelectors: true
-  pairs:
-    app.kubernetes.io/environment: staging
-    app.kubernetes.io/part-of: unee-marsgate
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/environment: staging
+      app.kubernetes.io/part-of: unee-marsgate
 resources:
-- namespace.yaml
-- ../../base
+  - namespace.yaml
+  - ../../base
 patches:
-- path: patches/deployment.yaml
-- path: patches/env.yaml
+  - path: patches/deployment.yaml
+  - path: patches/env.yaml
 images:
-- name: 542585190283.dkr.ecr.us-east-1.amazonaws.com/unee-marsgate
-  newName: 542585190283.dkr.ecr.us-east-1.amazonaws.com/unee-marsgate
-  newTag: sha-9b13b36
+  - name: 542585190283.dkr.ecr.us-east-1.amazonaws.com/unee-marsgate
+    newName: 542585190283.dkr.ecr.us-east-1.amazonaws.com/unee-marsgate
+    newTag: sha-9b13b36
