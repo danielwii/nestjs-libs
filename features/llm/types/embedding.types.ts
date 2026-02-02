@@ -206,16 +206,3 @@ export const EMBEDDING_MODELS: Record<EmbeddingModel, EmbeddingModelMetadata> = 
     thresholds: EMBEDDING_MODEL_THRESHOLDS['voyage-3-large'],
   },
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 向后兼容别名（从 merge.types.ts 迁移）
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** @deprecated 使用 EmbeddingThresholdConfig */
-export type ThresholdConfig = EmbeddingThresholdConfig;
-
-/** @deprecated 使用 EMBEDDING_MODEL_THRESHOLDS */
-export const MODEL_THRESHOLDS = EMBEDDING_MODEL_THRESHOLDS;
-
-/** @deprecated 使用 getEmbeddingThresholds */
-export const getThresholdsForModel = getEmbeddingThresholds;
