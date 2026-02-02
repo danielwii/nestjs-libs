@@ -153,17 +153,19 @@ export class AnyExceptionFilter implements ExceptionFilter {
         }),
       );
     }
-    // FIXME 不依赖 Prisma 的类库判断
-    // if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-    //   this.logger.warn(f`(${request?.user?.uid})[${request?.ip}] PrismaClientKnownRequestError ${ (exception as { message?: string })?.message}`);
-    //   return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-    //     ApiRes.failure({
-    //       code: ErrorCodes.SYSTEM_DATABASE_ERROR,
-    //       message: 'cannot process your request',
-    //       // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-    //     }),
-    //   );
-    // }
+    // Prisma 错误识别（鸭子类型，不依赖 Prisma 导入）
+    // PrismaClientKnownRequestError 结构：{ code: 'P2002', meta: {...}, clientVersion: '5.x.x' }
+    if (isPrismaKnownRequestError(exception)) {
+      this.logger.warn(
+        f`(${request?.user?.uid})[${request?.ip}] PrismaClientKnownRequestError(${exception.code}) ${exception.message}`,
+      );
+      return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
+        ApiRes.failure({
+          code: ErrorCodes.SYSTEM_DATABASE_ERROR,
+          message: 'Database operation failed',
+        }),
+      );
+    }
     if (exception instanceof ThrottlerException) {
       this.logger.warn(f`(${request?.user?.uid})[${request?.ip}] ThrottlerException ${exception.message}`);
       return response.status(HttpStatus.TOO_MANY_REQUESTS).json(
@@ -521,4 +523,36 @@ function maskConnectionParams(params: Record<string, unknown>) {
 
 function isValidErrorCode(code: unknown): code is ErrorCodeValue {
   return Object.values(ErrorCodes).includes(code as ErrorCodes);
+}
+
+/**
+ * 判断是否为 Prisma 已知请求错误（鸭子类型，不依赖 Prisma 导入）
+ *
+ * PrismaClientKnownRequestError 结构特征：
+ * - code: 'P2002' 等以 'P' 开头的错误码
+ * - clientVersion: Prisma 版本字符串
+ * - name: 'PrismaClientKnownRequestError'
+ */
+interface PrismaKnownRequestError {
+  code: string;
+  message: string;
+  clientVersion?: string;
+  meta?: unknown;
+}
+
+function isPrismaKnownRequestError(e: unknown): e is PrismaKnownRequestError {
+  if (typeof e !== 'object' || e === null) return false;
+
+  const err = e as Record<string, unknown>;
+
+  // 检查错误码是否以 'P' 开头（Prisma 约定）
+  if (typeof err.code !== 'string' || !err.code.startsWith('P')) return false;
+
+  // 检查是否有 clientVersion（Prisma 特有）
+  if ('clientVersion' in err && typeof err.clientVersion === 'string') return true;
+
+  // 检查构造函数名称（备用方案）
+  if (err.constructor?.name === 'PrismaClientKnownRequestError') return true;
+
+  return false;
 }
