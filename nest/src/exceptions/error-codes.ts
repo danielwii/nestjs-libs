@@ -1,3 +1,16 @@
+/**
+ * 错误码维度枚举
+ *
+ * 格式：0xMMCC（2位模块 + 2位子类）
+ * 用于按责任方和问题维度分类错误
+ *
+ * @example
+ * // 客户端输入错误
+ * ErrorCodes.CLIENT_INPUT_ERROR // '0x0101'
+ *
+ * // 外部服务错误
+ * ErrorCodes.EXTERNAL_SERVICE_ERROR // '0x0305'
+ */
 export enum ErrorCodes {
   // ==================== 0x01xx - 客户端可处理 ====================
   // 前端开发者关注：用户输入、界面交互、客户端验证问题
@@ -41,3 +54,10 @@ export enum ErrorCodes {
 }
 
 export type ErrorCodeValue = `${ErrorCodes}`;
+
+/**
+ * 检查是否为有效的错误码
+ */
+export function isValidErrorCode(code: unknown): code is ErrorCodeValue {
+  return Object.values(ErrorCodes).includes(code as ErrorCodes);
+}

@@ -104,7 +104,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
     if (isGraphqlRequest) {
       if (this.isBusinessException(exception)) {
-        return this.handleGraphqlBusinessException(exception, request);
+        return this.handleGraphqlBusinessException(exception, request, host);
       }
 
       // 认证失败是正常业务行为，不作为系统错误记录
@@ -123,9 +123,9 @@ export class AnyExceptionFilter implements ExceptionFilter {
     // GraphQL 分支已 throw/return，后续代码仅 HTTP 请求执行，response 是完整的 Express Response
     const response = rawResponse as Response;
 
-    // 处理 BusinessException（优先级最高）- 不触发 Sentry
+    // 处理 OopsException（BusinessException / FatalException）
     if (this.isBusinessException(exception)) {
-      return this.handleBusinessException(exception, request, response);
+      return this.handleBusinessException(exception, request, response, host);
     }
 
     if (exception instanceof ZodError) {
@@ -271,6 +271,21 @@ export class AnyExceptionFilter implements ExceptionFilter {
             errors: typeof responseBody === 'object' ? responseMessage : undefined,
           }),
         );
+      } else {
+        // 500+ 错误：触发 Sentry + ApiRes 格式
+        this.captureExceptionBySentry(exception, host);
+        this.logger.error(
+          f`(${request?.user?.uid})[${request?.ip}] FatalException(${status}) ${exception.name} ${message}`,
+          errorStack(exception),
+        );
+
+        const body = typeof responseBody === 'object' ? (responseBody as Record<string, unknown>) : {};
+        return response.status(status).json(
+          ApiRes.failure({
+            code: (body.code as string) ?? ErrorCodes.SYSTEM_INTERNAL_ERROR,
+            message: (body.message as string) ?? '系统错误，请稍后重试',
+          }),
+        );
       }
     }
 
@@ -319,16 +334,31 @@ export class AnyExceptionFilter implements ExceptionFilter {
   }
 
   /**
-   * 处理 BusinessException，支持国际化翻译
+   * 处理 BusinessException / FatalException，支持国际化翻译
+   *
+   * - httpStatus < 500: BusinessException，warn 日志，不触发 Sentry
+   * - httpStatus >= 500: FatalException，error 日志，触发 Sentry
    */
   private async handleBusinessException(
     exception: IBusinessException,
     request: IdentityRequest | undefined,
     response: Response,
+    host: ArgumentsHost,
   ) {
-    this.logger.warn(
-      f`(${request?.user?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
-    );
+    const isFatal = exception.httpStatus >= 500;
+
+    if (isFatal) {
+      // FatalException: error 日志 + Sentry
+      this.captureExceptionBySentry(exception, host);
+      this.logger.error(
+        f`(${request?.user?.uid})[${request?.ip}] FatalException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
+      );
+    } else {
+      // BusinessException: warn 日志，不触发 Sentry
+      this.logger.warn(
+        f`(${request?.user?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
+      );
+    }
 
     // 获取翻译后的错误消息
     const translatedMessage = await this.getTranslatedMessage(exception, request);
@@ -343,11 +373,23 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
   private async handleGraphqlBusinessException(
     exception: IBusinessException,
-    request?: IdentityRequest,
+    request: IdentityRequest | undefined,
+    host: ArgumentsHost,
   ): Promise<never> {
-    this.logger.warn(
-      f`(${request?.user?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
-    );
+    const isFatal = exception.httpStatus >= 500;
+
+    if (isFatal) {
+      // FatalException: error 日志 + Sentry
+      this.captureExceptionBySentry(exception, host);
+      this.logger.error(
+        f`(${request?.user?.uid})[${request?.ip}] GraphQL FatalException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
+      );
+    } else {
+      // BusinessException: warn 日志，不触发 Sentry
+      this.logger.warn(
+        f`(${request?.user?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`,
+      );
+    }
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);
 
