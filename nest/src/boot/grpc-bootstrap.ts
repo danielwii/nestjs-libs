@@ -5,7 +5,7 @@ import { Transport } from '@nestjs/microservices';
 import { SysEnv } from '@app/env';
 import { BootModule } from '@app/nest/boot/boot.module';
 import { runApp } from '@app/nest/boot/lifecycle';
-import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
+import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 
@@ -56,6 +56,8 @@ export interface GrpcBootstrapOptions {
   };
   /** HTTP 健康检查端口，默认 3000 */
   httpPort?: number;
+  /** 服务提供者标识（用于异常追踪），默认从 grpc.package 提取 */
+  provider?: string;
 }
 
 /**
@@ -99,9 +101,17 @@ export async function grpcBootstrap(
     logger: levels,
   });
 
+  // 提取 provider 名称（用于异常追踪）
+  const provider =
+    options.provider ??
+    (Array.isArray(options.grpc.package)
+      ? (options.grpc.package[0]?.split('.').pop() ?? 'unknown')
+      : (options.grpc.package.split('.').pop() ?? 'unknown'));
+
   // 基础配置
   app.useGlobalPipes(new ValidationPipe({ enableDebugMessages: true, transform: true, whitelist: true }));
-  app.useGlobalFilters(new AnyExceptionFilter(app));
+  // gRPC 服务只需要 GrpcExceptionFilter（不需要 AnyExceptionFilter，那是 HTTP/GraphQL 用的）
+  app.useGlobalFilters(new GrpcExceptionFilter(provider));
   app.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new LoggerInterceptor());
   app.enableShutdownHooks();
