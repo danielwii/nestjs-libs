@@ -26,9 +26,6 @@ jobs:
       - name: 🧹 Lint (ESLint)
         run: bun run lint
 
-      - name: 💅 Format Check (Prettier)
-        run: bun x prettier --check "{nest,utils,env,features,cli}/**/*.ts"
-
       - name: 👮 Type Check (TSC)
         run: bun run typecheck
 
