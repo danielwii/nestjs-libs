@@ -129,17 +129,28 @@ function calculateCostFromKey(
  * @returns 成本（美元），如果无法计算返回 null
  */
 export function getCostFromUsage(usage: unknown, modelKey?: LLMModelKey | string): number | null {
+  if (!usage || typeof usage !== 'object') return null;
   const usageObj = usage as Record<string, unknown>;
 
   // 优先使用 API 返回的 cost
-  if (typeof usageObj?.cost === 'number') {
+  if (typeof usageObj.cost === 'number') {
     return usageObj.cost;
   }
 
   // Fallback: 手动计算
   if (modelKey) {
-    const inputTokens = (usageObj?.inputTokens as number) ?? (usageObj?.promptTokens as number) ?? 0;
-    const outputTokens = (usageObj?.outputTokens as number) ?? (usageObj?.completionTokens as number) ?? 0;
+    const inputTokens =
+      typeof usageObj.inputTokens === 'number'
+        ? usageObj.inputTokens
+        : typeof usageObj.promptTokens === 'number'
+          ? usageObj.promptTokens
+          : 0;
+    const outputTokens =
+      typeof usageObj.outputTokens === 'number'
+        ? usageObj.outputTokens
+        : typeof usageObj.completionTokens === 'number'
+          ? usageObj.completionTokens
+          : 0;
     return calculateCostFromKey(modelKey, inputTokens, outputTokens);
   }
 

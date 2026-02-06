@@ -28,7 +28,6 @@ import type { II18nService } from '@app/nest/common/i18n.interface';
 import type { ErrorCodeValue } from '@app/nest/exceptions/error-codes';
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext, INestApplication } from '@nestjs/common';
 import type { Response } from 'express';
-import type { FetchError } from 'node-fetch';
 
 /**
  * ⚠️  ErrorCodes 迁移说明（针对其他项目）
@@ -134,7 +133,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       return response.status(HttpStatus.BAD_REQUEST).json(
         ApiRes.failure({
           code: ErrorCodes.CLIENT_VALIDATION_FAILED,
-          message: 'invalid parameters',
+          message: 'Invalid parameters',
           // statusCode: HttpStatus.BAD_REQUEST,
           errors,
         }),
@@ -162,7 +161,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failure({
           code: ErrorCodes.SYSTEM_DATABASE_ERROR,
-          message: 'Database operation failed',
+          message: 'Operation failed, please try again later',
         }),
       );
     }
@@ -193,7 +192,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
         ApiRes.failure({
           code: ErrorCodes.EXTERNAL_SERVICE_ERROR,
-          message: `FetchError ${(exception as FetchError).type}`,
+          message: 'Service temporarily unavailable',
           // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         }),
       );
@@ -284,8 +283,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
         const body = typeof responseBody === 'object' ? (responseBody as Record<string, unknown>) : {};
         return response.status(status).json(
           ApiRes.failure({
-            code: (body.code as string) ?? ErrorCodes.SYSTEM_INTERNAL_ERROR,
-            message: (body.message as string) ?? '系统错误，请稍后重试',
+            code: typeof body.code === 'string' ? body.code : ErrorCodes.SYSTEM_INTERNAL_ERROR,
+            message: typeof body.message === 'string' ? body.message : 'Internal server error, please try again later',
           }),
         );
       }
@@ -552,6 +551,7 @@ function isPrismaKnownRequestError(e: unknown): e is PrismaKnownRequestError {
   if ('clientVersion' in err && typeof err.clientVersion === 'string') return true;
 
   // 检查构造函数名称（备用方案）
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- constructor 来自原型链，Object.create(null) 时不存在
   if (err.constructor?.name === 'PrismaClientKnownRequestError') return true;
 
   return false;

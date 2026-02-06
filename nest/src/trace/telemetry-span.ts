@@ -116,6 +116,7 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
       let observation: SpanResult<T>['observation'] | undefined;
       let extraAttrs: SpanResult<T>['attributes'] | undefined;
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- 泛型 T 运行时可能是 null/非对象，TS 推断过于乐观
       if (raw !== null && typeof raw === 'object' && 'result' in raw) {
         const spanResult = raw;
         result = spanResult.result;
