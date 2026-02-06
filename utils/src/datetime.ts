@@ -20,7 +20,7 @@ function normalizeOffsetFormat(tz: string): string | null {
   const match = tz.match(offsetRegex);
   if (!match) return null;
 
-  const [, signStr, hoursStr, minutesStr] = match;
+  const [, signStr, hoursStr, minutesStr] = match as (string | undefined)[];
   if (!hoursStr) return null;
 
   const sign = signStr ?? '+';

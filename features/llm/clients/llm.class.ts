@@ -499,7 +499,7 @@ export class LLM {
     LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
 
     // 从 toolCalls 中提取结果
-    const toolCall = result.toolCalls[0];
+    const toolCall = result.toolCalls.at(0);
     if (!toolCall || !('input' in toolCall)) {
       throw new Error('No tool call returned from LLM');
     }

@@ -258,7 +258,7 @@ export function getModelsByProvider(provider: LLMProviderType): string[] {
 /**
  * Provider 到环境变量的映射
  */
-const providerApiKeyMap: Record<string, keyof typeof SysEnv> = {
+const providerApiKeyMap: Partial<Record<string, keyof typeof SysEnv>> = {
   openrouter: 'OPENROUTER_API_KEY',
   google: 'GOOGLE_GENERATIVE_AI_API_KEY',
   vertex: 'GOOGLE_VERTEX_API_KEY',
@@ -282,9 +282,10 @@ export function isProviderConfigured(provider: string): boolean {
 export function getProviderStatus(): Record<string, { configured: boolean; envVar: string }> {
   return Object.entries(providerApiKeyMap).reduce<Record<string, { configured: boolean; envVar: string }>>(
     (acc, [provider, envVar]) => {
+      if (!envVar) return acc;
       acc[provider] = {
         configured: !!SysEnv[envVar],
-        envVar: envVar as string,
+        envVar,
       };
       return acc;
     },
