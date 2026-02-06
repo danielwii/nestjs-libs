@@ -328,6 +328,8 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
+    let ttftLogged = false;
+
     const result = streamText({
       model: languageModel,
       output: Output.object({ schema }),
@@ -338,17 +340,16 @@ export class LLM {
       maxOutputTokens,
       abortSignal,
       experimental_telemetry: telemetry,
+      onChunk() {
+        if (!ttftLogged) {
+          LLM.logTTFT(id, startTime);
+          ttftLogged = true;
+        }
+      },
+      onFinish(event) {
+        LLM.logEnd(id, 'streamObject', modelKey, startTime, event.usage);
+      },
     });
-
-    // TTFT: when response headers arrive (approximate)
-    void Promise.resolve(result.response)
-      .then(() => { LLM.logTTFT(id, startTime); })
-      .catch(() => {});
-
-    // End: when stream completes
-    void Promise.resolve(result.usage)
-      .then((usage) => { LLM.logEnd(id, 'streamObject', modelKey, startTime, usage); })
-      .catch(() => {});
 
     return result;
   }
@@ -389,6 +390,8 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
+    let ttftLogged = false;
+
     const result = streamText({
       model: languageModel,
       system,
@@ -398,17 +401,16 @@ export class LLM {
       maxOutputTokens,
       abortSignal,
       experimental_telemetry: telemetry,
+      onChunk() {
+        if (!ttftLogged) {
+          LLM.logTTFT(id, startTime);
+          ttftLogged = true;
+        }
+      },
+      onFinish(event) {
+        LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage);
+      },
     });
-
-    // TTFT: when response headers arrive (approximate)
-    void Promise.resolve(result.response)
-      .then(() => { LLM.logTTFT(id, startTime); })
-      .catch(() => {});
-
-    // End: when stream completes
-    void Promise.resolve(result.usage)
-      .then((usage) => { LLM.logEnd(id, 'streamText', modelKey, startTime, usage); })
-      .catch(() => {});
 
     return result;
   }
