@@ -166,7 +166,10 @@ export const DEFAULT_EMBEDDING_THRESHOLDS: EmbeddingThresholdConfig =
  */
 export function getEmbeddingThresholds(model?: EmbeddingModel | string): EmbeddingThresholdConfig {
   if (!model) return DEFAULT_EMBEDDING_THRESHOLDS;
-  return EMBEDDING_MODEL_THRESHOLDS[model as EmbeddingModel] ?? DEFAULT_EMBEDDING_THRESHOLDS;
+  if (model in EMBEDDING_MODEL_THRESHOLDS) {
+    return EMBEDDING_MODEL_THRESHOLDS[model as EmbeddingModel];
+  }
+  return DEFAULT_EMBEDDING_THRESHOLDS;
 }
 
 /**
