@@ -65,6 +65,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@jest/globals": "^30.2.0",
     "@nestjs/microservices": "^11.1.13",
