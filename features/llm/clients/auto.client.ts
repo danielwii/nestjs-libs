@@ -269,6 +269,10 @@ export interface LLMOpts {
  *
  * console.log(output.type, output.color, output.style);
  * ```
+ *
+ * @deprecated Use static `LLM` class instead for unified logging and tracing.
+ * Example: `LLM.generateObject({ id: 'my-task', model: key, ... })`
+ * @see LLM
  */
 export function llm(key: LLMModelKey) {
   return new LLMBuilder(key);
