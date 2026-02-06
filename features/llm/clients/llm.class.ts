@@ -27,14 +27,19 @@
  * ```
  */
 
+import { Logger } from '@nestjs/common';
+
+import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
+import { getOpenAI } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
-import { generateText, Output, streamText, tool } from 'ai';
+import { embed, generateText, Output, streamText, tool } from 'ai';
 
+import type { EmbeddingModelKey, EmbeddingProvider } from '../types/embedding.types';
 import type { LLMModelKey } from '../types/model.types';
 import type { ProviderType } from './options.helpers';
-import type { LanguageModel, StreamTextResult, TelemetrySettings } from 'ai';
+import type { LanguageModel, TelemetrySettings } from 'ai';
 import type { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -68,6 +73,8 @@ export type ProviderSort = 'price' | 'throughput' | 'latency';
 
 /** 基础参数 */
 interface BaseParams {
+  /** 业务标识，用于日志中区分调用方（如 'subconscious', 'signal-extractor'） */
+  id: string;
   /** LLM Model Key，如 'openrouter:grok-4.1-fast' */
   model: LLMModelKey;
   /** System prompt */
@@ -146,6 +153,38 @@ function buildProviderOptions(provider: ProviderType, thinking: ThinkingEffort, 
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class LLM {
+  private static readonly logger = new Logger('LLM');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Logging Helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private static logStart(id: string, method: string, modelKey: string, thinking?: ThinkingEffort): void {
+    const thinkingPart = thinking && thinking !== 'none' ? `, thinking=${thinking}` : '';
+    LLM.logger.log(`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}`);
+  }
+
+  private static logEnd(id: string, method: string, modelKey: string, startTime: number, usage: TokenUsage): void {
+    const duration = Date.now() - startTime;
+    const inputTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
+    const outputTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
+    const totalTokens = inputTokens + outputTokens;
+    const cost = getCostFromUsage(usage, modelKey);
+    const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}` : '';
+    LLM.logger.log(
+      `[LLM:end] id=${id}, method=${method}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}`,
+    );
+  }
+
+  private static logTTFT(id: string, startTime: number): void {
+    const ttft = Date.now() - startTime;
+    LLM.logger.debug(`[LLM:ttft] id=${id}, ttft=${ttft}ms`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Generation Methods
+  // ─────────────────────────────────────────────────────────────────────────
+
   /**
    * 结构化对象生成
    *
@@ -159,8 +198,10 @@ export class LLM {
    * ```
    */
   static async generateObject<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
+    const startTime = Date.now();
     const {
       model: modelKey,
+      id,
       schema,
       system,
       messages,
@@ -171,6 +212,8 @@ export class LLM {
       abortSignal,
       telemetry,
     } = params;
+
+    LLM.logStart(id, 'generateObject', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
@@ -187,6 +230,8 @@ export class LLM {
       abortSignal,
       experimental_telemetry: telemetry,
     });
+
+    LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage);
 
     return {
       object: result.output,
@@ -206,8 +251,10 @@ export class LLM {
    * ```
    */
   static async generateText(params: GenerateTextParams): Promise<GenerateTextResult> {
+    const startTime = Date.now();
     const {
       model: modelKey,
+      id,
       system,
       messages,
       thinking = 'none',
@@ -217,6 +264,8 @@ export class LLM {
       abortSignal,
       telemetry,
     } = params;
+
+    LLM.logStart(id, 'generateText', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
@@ -232,6 +281,8 @@ export class LLM {
       abortSignal,
       experimental_telemetry: telemetry,
     });
+
+    LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
 
     return {
       text: result.text,
@@ -255,11 +306,11 @@ export class LLM {
    * }
    * ```
    */
-  static streamObject<T>(
-    params: GenerateObjectParams<T>,
-  ): StreamTextResult<Record<string, never>, ReturnType<typeof Output.object<T>>> {
+  static streamObject<T>(params: GenerateObjectParams<T>) {
+    const startTime = Date.now();
     const {
       model: modelKey,
+      id,
       schema,
       system,
       messages,
@@ -271,11 +322,13 @@ export class LLM {
       telemetry,
     } = params;
 
+    LLM.logStart(id, 'streamObject', modelKey, thinking);
+
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
-    return streamText({
+    const result = streamText({
       model: languageModel,
       output: Output.object({ schema }),
       system,
@@ -286,6 +339,18 @@ export class LLM {
       abortSignal,
       experimental_telemetry: telemetry,
     });
+
+    // TTFT: when response headers arrive (approximate)
+    void Promise.resolve(result.response)
+      .then(() => { LLM.logTTFT(id, startTime); })
+      .catch(() => {});
+
+    // End: when stream completes
+    void Promise.resolve(result.usage)
+      .then((usage) => { LLM.logEnd(id, 'streamObject', modelKey, startTime, usage); })
+      .catch(() => {});
+
+    return result;
   }
 
   /**
@@ -303,9 +368,11 @@ export class LLM {
    * }
    * ```
    */
-  static streamText(params: GenerateTextParams): StreamTextResult<Record<string, never>, never> {
+  static streamText(params: GenerateTextParams) {
+    const startTime = Date.now();
     const {
       model: modelKey,
+      id,
       system,
       messages,
       thinking = 'none',
@@ -316,11 +383,13 @@ export class LLM {
       telemetry,
     } = params;
 
+    LLM.logStart(id, 'streamText', modelKey, thinking);
+
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
-    return streamText({
+    const result = streamText({
       model: languageModel,
       system,
       messages,
@@ -330,6 +399,18 @@ export class LLM {
       abortSignal,
       experimental_telemetry: telemetry,
     });
+
+    // TTFT: when response headers arrive (approximate)
+    void Promise.resolve(result.response)
+      .then(() => { LLM.logTTFT(id, startTime); })
+      .catch(() => {});
+
+    // End: when stream completes
+    void Promise.resolve(result.usage)
+      .then((usage) => { LLM.logEnd(id, 'streamText', modelKey, startTime, usage); })
+      .catch(() => {});
+
+    return result;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -366,8 +447,10 @@ export class LLM {
       toolDescription?: string;
     },
   ): Promise<GenerateObjectResult<T>> {
+    const startTime = Date.now();
     const {
       model: modelKey,
+      id,
       schema,
       system,
       messages,
@@ -380,6 +463,8 @@ export class LLM {
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
     } = params;
+
+    LLM.logStart(id, 'generateObjectViaTool', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
@@ -408,6 +493,8 @@ export class LLM {
       abortSignal,
       experimental_telemetry: telemetry,
     });
+
+    LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
 
     // 从 toolCalls 中提取结果
     const toolCall = result.toolCalls?.[0];
@@ -459,8 +546,10 @@ export class LLM {
       toolDescription?: string;
     },
   ): AsyncGenerator<ToolStreamEvent<T>> {
+    const startTime = Date.now();
     const {
       model: modelKey,
+      id,
       schema,
       system,
       messages,
@@ -473,6 +562,8 @@ export class LLM {
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
     } = params;
+
+    LLM.logStart(id, 'streamObjectViaTool', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
@@ -502,12 +593,19 @@ export class LLM {
       experimental_telemetry: telemetry,
     });
 
+    let ttftLogged = false;
+
     // 用于累积 JSON 字符串
     let jsonBuffer = '';
     let lastPartial: Partial<T> | null = null;
 
     // 遍历 fullStream 获取 tool-input 相关事件
     for await (const event of result.fullStream) {
+      if (!ttftLogged) {
+        LLM.logTTFT(id, startTime);
+        ttftLogged = true;
+      }
+
       if (event.type === 'tool-input-start') {
         // Tool input 开始
         jsonBuffer = '';
@@ -530,7 +628,56 @@ export class LLM {
 
     // 获取 usage
     const usage = await result.usage;
+    LLM.logEnd(id, 'streamObjectViaTool', modelKey, startTime, usage);
     yield { type: 'usage', usage };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Embedding
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 文本向量化
+   *
+   * 统一入口，支持 provider:model 格式自动路由。
+   *
+   * @example
+   * ```typescript
+   * const vector = await LLM.embedding({
+   *   id: 'sculptor-dedup',
+   *   model: 'openai:text-embedding-3-small',
+   *   text: 'some text',
+   * });
+   * ```
+   */
+  static async embedding(params: {
+    id: string;
+    model: EmbeddingModelKey;
+    text: string;
+  }): Promise<{ embedding: number[]; usage: TokenUsage }> {
+    const startTime = Date.now();
+    const { id, model: modelKey, text } = params;
+
+    LLM.logStart(id, 'embedding', modelKey);
+
+    const [provider, modelId] = modelKey.split(':') as [EmbeddingProvider, string];
+
+    let embeddingModel;
+    switch (provider) {
+      case 'openai':
+        embeddingModel = getOpenAI().embeddingModel(modelId);
+        break;
+      case 'jina':
+      case 'voyage':
+        throw new Error(`Embedding provider "${provider}" is not implemented yet`);
+    }
+
+    const result = await embed({ model: embeddingModel, value: text });
+
+    const usage: TokenUsage = { inputTokens: result.usage.tokens, outputTokens: 0 };
+    LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+
+    return { embedding: result.embedding, usage };
   }
 
   // ─────────────────────────────────────────────────────────────────────────

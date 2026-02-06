@@ -50,7 +50,6 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { embed } from 'ai';
 
 import type { LanguageModel } from 'ai';
 
@@ -238,7 +237,7 @@ export function resetLLMClients() {
  * - SysEnv.OPENAI_API_KEY
  * - ApiFetcher.undiciFetch（带代理）
  */
-function getOpenAI() {
+export function getOpenAI() {
   if (!_openai) {
     if (!SysEnv.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is not configured in SysEnv');
@@ -249,48 +248,4 @@ function getOpenAI() {
     });
   }
   return _openai;
-}
-
-// ============================================================================
-// Embedding 函数
-// ============================================================================
-
-/**
- * OpenAI Embedding 模型类型（仅用于本客户端）
- *
- * 完整的 Embedding 模型定义和阈值配置请参见：
- * - `@app/features/llm/types/embedding.types.ts`
- *
- * @see {@link import('../types/embedding.types').OpenAIEmbeddingModel}
- */
-type LocalEmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large';
-
-/**
- * 生成文本的 Embedding 向量
- *
- * 使用 OpenAI 的 embedding 模型：
- * - text-embedding-3-small: 1536 维，性价比高（默认）
- * - text-embedding-3-large: 3072 维，更高精度
- *
- * **阈值提醒**：使用余弦相似度搜索时，参考上方 EmbeddingModel 的阈值说明！
- *
- * @example
- * ```typescript
- * import { embedding } from '@app/llm-core';
- *
- * // 默认使用 text-embedding-3-small (1536 维)
- * const vector = await embedding('some text');
- *
- * // 使用更高精度模型 (3072 维)
- * const vector = await embedding('some text', 'text-embedding-3-large');
- * ```
- */
-export async function embedding(
-  text: string,
-  model: LocalEmbeddingModel = 'text-embedding-3-small',
-): Promise<number[]> {
-  const openai = getOpenAI();
-  const embeddingModel = openai.embeddingModel(model);
-  const result = await embed({ model: embeddingModel, value: text });
-  return result.embedding;
 }
