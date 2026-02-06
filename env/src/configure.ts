@@ -464,7 +464,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           const constraints = e.constraints ? Object.values(e.constraints).join('; ') : 'unknown error';
           return `  ${e.property}=${value}\n    └─ ${constraints}`;
         });
-        console.log(errorDetails.join('\n'));
+        console.error(errorDetails.join('\n'));
         throw new Error(errors.map((e) => e.property).join(', '));
       }
 

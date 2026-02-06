@@ -369,9 +369,6 @@ class LLMBuilder {
       ...this._opts.providerOptions,
     } as unknown as ProviderOptions;
 
-    // 日志打印 thinking 配置（调试用）
-    console.log(`[LLM:${this._key}] providerOptions:`, JSON.stringify(options));
-
     return options;
   }
 
@@ -393,7 +390,6 @@ class LLMBuilder {
   /** 流式文本生成 */
   streamText(): StreamTextResult<never, never> {
     const telemetry = this._buildTelemetry();
-    console.log('[DEBUG:AI-SDK] streamText telemetry config:', JSON.stringify(telemetry));
     return aiStreamText({
       model: this._model,
       messages: this._messages,
