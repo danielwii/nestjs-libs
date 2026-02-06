@@ -76,6 +76,19 @@ export type VoyageEmbeddingModel = 'voyage-3.5-lite' | 'voyage-3-large';
 /** 所有支持的 Embedding 模型 */
 export type EmbeddingModel = OpenAIEmbeddingModel | JinaEmbeddingModel | VoyageEmbeddingModel;
 
+/**
+ * Embedding Model Key（provider:model 格式，与 LLMModelKey 统一设计）
+ *
+ * @example
+ * 'openai:text-embedding-3-small'
+ * 'jina:jina-embeddings-v3'
+ * 'voyage:voyage-3-large'
+ */
+export type EmbeddingModelKey =
+  | `openai:${OpenAIEmbeddingModel}`
+  | `jina:${JinaEmbeddingModel}`
+  | `voyage:${VoyageEmbeddingModel}`;
+
 /** Embedding 模型元数据 */
 export interface EmbeddingModelMetadata {
   /** 模型 ID */
