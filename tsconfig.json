@@ -25,6 +25,8 @@
       "@app/features/*": ["features/*"],
       "@/*": ["./*"]
     },
+    // 数组/Record 索引访问返回 T | undefined，强制处理越界
+    // 规避方式：.at(0) / charAt(i) / Partial<Record> / 显式标注，禁止用 ! 断言绕过
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,

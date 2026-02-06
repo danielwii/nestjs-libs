@@ -116,7 +116,7 @@ export class GrpcExceptionFilter implements ExceptionFilter {
   }
 
   private handleZodError(exception: ZodError): Observable<never> {
-    const firstIssue = exception.issues[0];
+    const firstIssue = exception.issues.at(0);
     const grpcError: GrpcError = {
       httpStatus: 400,
       errorCode: '0x0101', // CLIENT_INPUT_ERROR

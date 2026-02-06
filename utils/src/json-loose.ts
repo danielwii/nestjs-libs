@@ -17,8 +17,7 @@ function escapeBareNewlinesInStrings(text: string): string {
   let escaped = false;
 
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === undefined) continue;
+    const ch = text.charAt(i);
 
     if (escaped) {
       result += ch;
@@ -43,7 +42,7 @@ function escapeBareNewlinesInStrings(text: string): string {
       // 处理 CR、LF 以及 Unicode 段落/行分隔符
       if (ch === '\n' || ch === '\r' || ch === '\u2028' || ch === '\u2029') {
         result += '\\n';
-        if (ch === '\r' && text[i + 1] === '\n') {
+        if (ch === '\r' && text.charAt(i + 1) === '\n') {
           // 吞掉 CRLF 中的 LF，避免重复写入
           i += 1;
         }
@@ -74,7 +73,7 @@ export function extractFirstJsonObject(input: string): string | null {
   if (start < 0) return null;
   let depth = 0;
   for (let i = start; i < text.length; i++) {
-    const ch = text[i];
+    const ch = text.charAt(i);
     if (ch === '{') depth++;
     if (ch === '}') {
       depth--;

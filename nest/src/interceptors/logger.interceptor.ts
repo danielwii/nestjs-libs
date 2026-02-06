@@ -102,7 +102,7 @@ export class LoggerInterceptor implements NestInterceptor {
     const cfConnectingIp = req.headers['cf-connecting-ip'];
     const realIp =
       typeof cfConnectingIp === 'string' ? cfConnectingIp : (req.headers['x-forwarded-for'] ?? req.ip ?? req.ips[0]);
-    const ipAddress = Array.isArray(realIp) ? realIp[0] : realIp;
+    const ipAddress = Array.isArray(realIp) ? realIp.at(0) : realIp;
 
     // CF-Ray 用于 Cloudflare 日志追踪
     const cfRay = req.headers['cf-ray'];
