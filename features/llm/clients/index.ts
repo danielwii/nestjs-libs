@@ -25,8 +25,9 @@
  * ```
  */
 
-// Builder 模式（推荐）
+// Builder 模式（已废弃，使用 LLM 静态类代替）
 // 自动路由（需要更多控制时）
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- re-export for backward compatibility
 export { autoOpts, type LLMOpts, llm, model, parseProvider, type TelemetryMeta } from './auto.client';
 export { createGoogleClient, googleOptions } from './google.client';
 export { createVertex, vertexOptions } from './vertex.client';
