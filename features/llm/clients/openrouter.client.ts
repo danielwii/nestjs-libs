@@ -11,7 +11,7 @@ let cachedFetch: typeof fetch | undefined;
 async function getProxyFetch(): Promise<typeof fetch> {
   if (!cachedFetch) {
     const { ApiFetcher } = await import('@app/utils/fetch');
-    cachedFetch = ApiFetcher.undiciFetch;
+    cachedFetch = ApiFetcher.fetch;
   }
   return cachedFetch;
 }

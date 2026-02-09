@@ -71,7 +71,7 @@ let _openai: ReturnType<typeof createOpenAI> | null = null;
  *
  * 自动使用：
  * - SysEnv.OPENROUTER_API_KEY
- * - ApiFetcher.undiciFetch（带代理）
+ * - ApiFetcher.fetch（带代理）
  */
 function getOpenRouter() {
   if (!_openrouter) {
@@ -80,7 +80,7 @@ function getOpenRouter() {
     }
     _openrouter = createOpenRouter({
       apiKey: SysEnv.OPENROUTER_API_KEY,
-      fetch: ApiFetcher.undiciFetch,
+      fetch: ApiFetcher.fetch,
     });
   }
   return _openrouter;
@@ -127,7 +127,7 @@ export const OPENROUTER_DEFAULTS = {
  *
  * 自动使用：
  * - SysEnv.GOOGLE_GENERATIVE_AI_API_KEY
- * - ApiFetcher.undiciFetch（带代理）
+ * - ApiFetcher.fetch（带代理）
  */
 function getGoogle() {
   if (!_google) {
@@ -136,7 +136,7 @@ function getGoogle() {
     }
     _google = createGoogleGenerativeAI({
       apiKey: SysEnv.GOOGLE_GENERATIVE_AI_API_KEY,
-      fetch: ApiFetcher.undiciFetch,
+      fetch: ApiFetcher.fetch,
     });
   }
   return _google;
@@ -235,7 +235,7 @@ export function resetLLMClients() {
  *
  * 自动使用：
  * - SysEnv.OPENAI_API_KEY
- * - ApiFetcher.undiciFetch（带代理）
+ * - ApiFetcher.fetch（带代理）
  */
 export function getOpenAI() {
   if (!_openai) {
@@ -244,7 +244,7 @@ export function getOpenAI() {
     }
     _openai = createOpenAI({
       apiKey: SysEnv.OPENAI_API_KEY,
-      fetch: ApiFetcher.undiciFetch,
+      fetch: ApiFetcher.fetch,
     });
   }
   return _openai;
