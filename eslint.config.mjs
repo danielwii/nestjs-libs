@@ -386,6 +386,9 @@ export default defineConfig(
       // NestJS DTO 和接口常用空对象类型
       '@typescript-eslint/no-empty-object-type': 'off',
 
+      // 禁止非空断言 (!)，用 .at() / charAt() / Partial<Record> 等类型诚实方式替代
+      '@typescript-eslint/no-non-null-assertion': 'error',
+
       // NestJS Module/Controller/Service 类可能没有实例成员
       '@typescript-eslint/no-extraneous-class': 'off',
 
