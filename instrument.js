@@ -104,10 +104,10 @@ function createLangfuseProcessor() {
   const shouldExportSpan = ({ otelSpan }) => {
     const scope = typeof otelSpan?.instrumentationScope?.name === 'string' ? otelSpan.instrumentationScope.name : '';
     const spanName = otelSpan?.name || 'unknown';
+    const traceId = otelSpan?.spanContext?.()?.traceId ?? otelSpan?._spanContext?.traceId ?? '';
     const shouldExport = scope === 'ai';
-    // Debug: log scope='ai' spans
     if (shouldExport) {
-      console.log(`[DEBUG:OTEL] span name=${spanName} scope=${scope} export=${shouldExport}`);
+      console.log(`[DEBUG:OTEL] [${traceId}] span name=${spanName} scope=${scope} export=true`);
     }
     return shouldExport;
   };
