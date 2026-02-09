@@ -1,8 +1,8 @@
-import { errorStack, onelineStack } from './error';
+import { errorStack, getErrorMessage, onelineStack } from './error';
 
 import * as process from 'node:process';
 
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 describe('error.utils', () => {
   const ORIGINAL_ENV = process.env.NODE_ENV;
@@ -18,11 +18,46 @@ describe('error.utils', () => {
       expect(errorStack(error)).toBe('StackTrace: line1\nline2\nline3');
     });
 
-    it('should return undefined and warn for non-Error types', () => {
-      const spy = spyOn(console, 'warn').mockImplementation(() => {});
-      expect(errorStack('string error')).toBeUndefined();
-      expect(spy).toHaveBeenCalledWith('unresolved error type: string');
-      spy.mockRestore();
+    it('should return JSON serialization for plain objects', () => {
+      const obj = { code: 502, message: 'JSON error injected into SSE stream' };
+      const result = errorStack(obj);
+      expect(result).toStartWith('NonErrorObject: ');
+      expect(result).toContain('502');
+      expect(result).toContain('JSON error injected into SSE stream');
+    });
+
+    it('should return type info for non-serializable values', () => {
+      expect(errorStack('string error')).toBe('NonErrorObject: "string error"');
+      expect(errorStack(42)).toBe('NonErrorObject: 42');
+      expect(errorStack(null)).toBe('NonErrorObject: null');
+    });
+
+    it('should handle circular references gracefully', () => {
+      const circular: Record<string, unknown> = { a: 1 };
+      circular.self = circular;
+      const result = errorStack(circular);
+      expect(result).toBe('NonErrorObject: object');
+    });
+  });
+
+  describe('getErrorMessage', () => {
+    it('should extract message from Error instances', () => {
+      expect(getErrorMessage(new Error('boom'))).toBe('boom');
+    });
+
+    it('should extract message from plain objects with message property', () => {
+      const obj = { code: 502, message: 'upstream error' };
+      expect(getErrorMessage(obj)).toBe('upstream error');
+    });
+
+    it('should JSON.stringify objects without message property', () => {
+      const obj = { code: 502, detail: 'no message field' };
+      expect(getErrorMessage(obj)).toBe(JSON.stringify(obj));
+    });
+
+    it('should convert primitives to string', () => {
+      expect(getErrorMessage('string error')).toBe('"string error"');
+      expect(getErrorMessage(42)).toBe('42');
     });
   });
 
