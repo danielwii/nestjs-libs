@@ -125,8 +125,12 @@ export function errorStack(e: unknown): string | undefined {
   if (e instanceof Error) {
     return onelineStack(e.stack);
   }
-  console.warn(`unresolved error type: ${typeof e}`);
-  return undefined;
+  // 非 Error 实例（如上游 API 抛出的纯对象）没有 stack，返回 JSON 序列化作为辅助信息
+  try {
+    return `NonErrorObject: ${JSON.stringify(e)}`;
+  } catch {
+    return `NonErrorObject: ${typeof e}`;
+  }
 }
 
 export function onelineStack(stack: string | undefined | null): string | undefined {

@@ -113,7 +113,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       }
 
       this.logger.error(
-        f`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${exception}`,
+        f`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${getErrorMessage(exception)}`,
         errorStack(exception),
       );
       throw exception;
@@ -295,7 +295,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
     // 使用 type guard helpers 安全提取 unknown 异常的属性
     this.logger.error(
-      f`(${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${exception}`,
+      f`(${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${getErrorMessage(exception)}`,
       errorStack(exception),
     );
 
