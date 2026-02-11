@@ -43,6 +43,13 @@ import type { LanguageModel, TelemetrySettings } from 'ai';
 import type { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 默认开启 telemetry，OTel exporter 未配置时无副作用 */
+const DEFAULT_TELEMETRY: TelemetrySettings = { isEnabled: true };
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -210,7 +217,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      telemetry,
+      telemetry = DEFAULT_TELEMETRY,
     } = params;
 
     LLM.logStart(id, 'generateObject', modelKey, thinking);
@@ -262,7 +269,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      telemetry,
+      telemetry = DEFAULT_TELEMETRY,
     } = params;
 
     LLM.logStart(id, 'generateText', modelKey, thinking);
@@ -319,7 +326,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      telemetry,
+      telemetry = DEFAULT_TELEMETRY,
     } = params;
 
     LLM.logStart(id, 'streamObject', modelKey, thinking);
@@ -381,7 +388,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      telemetry,
+      telemetry = DEFAULT_TELEMETRY,
     } = params;
 
     LLM.logStart(id, 'streamText', modelKey, thinking);
@@ -461,7 +468,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      telemetry,
+      telemetry = DEFAULT_TELEMETRY,
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
     } = params;
@@ -560,7 +567,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      telemetry,
+      telemetry = DEFAULT_TELEMETRY,
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
     } = params;
