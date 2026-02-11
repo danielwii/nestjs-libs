@@ -157,7 +157,13 @@ function initializeSentry() {
         }
         return event;
       },
-      integrations: [Sentry.captureConsoleIntegration({ levels: ['error'] })],
+      // Bun 未实现 util.getSystemErrorMap()，导致 @sentry/node-core 的 SystemError integration 崩溃
+      // see: https://github.com/oven-sh/bun/issues/22872
+      // 该 integration 仅为系统错误附加 errno/path 上下文，禁用不影响错误捕获
+      integrations: (defaults) => [
+        ...defaults.filter((i) => i.name !== 'NodeSystemError'),
+        Sentry.captureConsoleIntegration({ levels: ['error'] }),
+      ],
     });
   } catch (error) {
     console.error(`${LOG_NAMESPACE}: [Sentry] init failed`, error);
