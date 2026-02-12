@@ -44,9 +44,9 @@
 import { normalizeTimezone } from './datetime';
 import { TimeSensitivity } from './prompt';
 
-import { stripIndent } from 'common-tags';
 import { format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
+import dedent from 'dedent';
 import { z } from 'zod';
 
 // ==================== Types ====================
@@ -84,7 +84,7 @@ export interface RenderOptions {
 
 // ==================== Enhancement Instructions ====================
 
-const COT_INSTRUCTION = stripIndent`
+const COT_INSTRUCTION = dedent`
   <output-structure priority="high">
     Before providing your final answer, follow this structure:
     1. "reasoning": Think through the problem step by step
@@ -93,7 +93,7 @@ const COT_INSTRUCTION = stripIndent`
   </output-structure>
 `;
 
-const DEBUG_INSTRUCTION = stripIndent`
+const DEBUG_INSTRUCTION = dedent`
   <self-evaluation priority="medium">
     Additionally, evaluate your response quality:
     - "overall_confidence": Your confidence in this answer (0-1)

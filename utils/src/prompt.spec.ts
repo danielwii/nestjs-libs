@@ -2,7 +2,7 @@ import { TimeSensitivity } from './prompt';
 import { PromptBuilder, wrapWithCoT, wrapWithDebug } from './prompt.xml';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { stripIndent } from 'common-tags';
+import dedent from 'dedent';
 import { z } from 'zod';
 
 describe('Prompt', () => {
@@ -40,7 +40,7 @@ describe('Prompt', () => {
       .tone('口语化')
       .audience('其他虚拟AI角色')
       .instruction(
-        stripIndent`
+        dedent`
         ## 分析用户情感
         - 仔细分析用户的语言表达
         - 识别情感状态的细微变化
@@ -48,13 +48,13 @@ describe('Prompt', () => {
       `,
       )
       .rule(
-        stripIndent`
+        dedent`
         ## 规则1
         - 不要提供有害或不当的内容
       `,
       )
       .rule(
-        stripIndent`
+        dedent`
         ## 规则2
         - 不要提供有害或不当的内容
       `,
@@ -69,7 +69,7 @@ describe('Prompt', () => {
 
     const result = prompt.render({ timezone: 'UTC', sensitivity: TimeSensitivity.Minute });
 
-    expect(result).toBe(stripIndent`
+    expect(result).toBe(dedent`
       [emotion-analysis:1.0]
       ------
       <role priority="critical">你是AI助手，负责分析用户情感</role>
@@ -119,7 +119,7 @@ describe('Prompt', () => {
 
     const result = prompt.render({ timezone: 'UTC', sensitivity: TimeSensitivity.Minute });
 
-    expect(result).toBe(stripIndent`
+    expect(result).toBe(dedent`
       [analyzer:1.0]
       ------
       <role priority="critical">分析师</role>
@@ -145,7 +145,7 @@ describe('Prompt', () => {
 
     const result = prompt.render({ timezone: 'UTC', sensitivity: TimeSensitivity.Minute });
 
-    expect(result).toBe(stripIndent`
+    expect(result).toBe(dedent`
       [debugger:2.0]
       ------
       <role priority="critical">调试专家</role>
@@ -235,7 +235,7 @@ describe('PromptBuilder', () => {
 
     const result = prompt.render({ timezone: 'UTC', sensitivity: TimeSensitivity.Minute });
 
-    expect(result).toBe(stripIndent`
+    expect(result).toBe(dedent`
       [builder-test:1.2]
       ------
       <role priority="critical">测试角色</role>

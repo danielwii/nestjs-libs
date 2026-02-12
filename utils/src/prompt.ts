@@ -1,6 +1,6 @@
-import { stripIndent } from 'common-tags';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import dedent from 'dedent';
 import Handlebars from 'handlebars';
 import { DateTime } from 'luxon';
 import * as _ from 'radash';
@@ -66,7 +66,7 @@ export function createBasePrompt(
 ) {
   const datetime = timezone ? DateTime.now().setZone(timezone).toJSDate() : new Date();
   const now = format(datetime, sensitivity, { locale: zhCN });
-  return Handlebars.compile(stripIndent`
+  return Handlebars.compile(dedent`
     [{{id}}]
     ------
     {{{content}}}
@@ -89,7 +89,7 @@ export function createPrompt(
     id,
     timezone,
     sensitivity,
-    Handlebars.compile(stripIndent`
+    Handlebars.compile(dedent`
       ## Objective / Purpose
       {{{purpose}}}
 
@@ -188,7 +188,7 @@ export function createEnhancedPrompt<Response>({
           background: logicErrorContext.background,
           context: [...(logicErrorContext.additionals ?? []), { title: 'Input', content: JSON.stringify(response) }],
           requirements: [
-            stripIndent`
+            dedent`
               - 识别并修复输入内容中的逻辑错误
               - 确保修复后的输入内容逻辑正确且高效
               - 提供详细的修复说明，解释修复的原因和方法
