@@ -14,10 +14,10 @@ import { maskSecret } from '@app/utils/security';
 
 import os from 'node:os';
 
-import { stripIndent } from 'common-tags';
 import compression from 'compression';
 import { RedisStore } from 'connect-redis';
 import cookieParser from 'cookie-parser';
+import dedent from 'dedent';
 import { json } from 'express';
 import session from 'express-session';
 import { graphqlUploadExpress } from 'graphql-upload-ts';
@@ -95,7 +95,7 @@ export async function simpleBootstrap(
           : '开发环境(测试数据)';
 
       Logger.log(
-        stripIndent`🦋 [Server] API Server started successfully
+        dedent`🦋 [Server] API Server started successfully
           ┌─ 环境配置 ─────────────────────────────────────────────
           │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'} - ${runtimeModeDesc}
           │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}
@@ -357,7 +357,7 @@ export async function bootstrap(
       const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
 
       Logger.log(
-        stripIndent`🦋 [Server] API Server started successfully
+        dedent`🦋 [Server] API Server started successfully
           ┌─ 环境配置 ─────────────────────────────────────────────
           │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV} - ${runtimeModeDesc}
           │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}

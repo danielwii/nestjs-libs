@@ -12,7 +12,7 @@ import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import os from 'node:os';
 
 import { ReflectionService } from '@grpc/reflection';
-import { stripIndent } from 'common-tags';
+import dedent from 'dedent';
 import { DateTime } from 'luxon';
 
 import type { Server } from '@grpc/grpc-js';
@@ -160,7 +160,7 @@ export async function grpcBootstrap(
       const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
 
       Logger.log(
-        stripIndent`🦋 [Server] gRPC Server started successfully
+        dedent`🦋 [Server] gRPC Server started successfully
           ┌─ 环境配置 ─────────────────────────────────────────────
           │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV}
           │ Business Env (ENV): ${SysEnv.environment.env} → isProd=${SysEnv.environment.isProd}
