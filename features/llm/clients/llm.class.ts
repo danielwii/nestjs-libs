@@ -39,7 +39,7 @@ import { embed, generateText, Output, streamText, tool } from 'ai';
 import type { EmbeddingModelKey, EmbeddingProvider } from '../types/embedding.types';
 import type { LLMModelKey } from '../types/model.types';
 import type { ProviderType } from './options.helpers';
-import type { LanguageModel, TelemetrySettings } from 'ai';
+import type { LanguageModel, ModelMessage, TelemetrySettings } from 'ai';
 import type { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -63,8 +63,8 @@ const DEFAULT_TELEMETRY: TelemetrySettings = { isEnabled: true };
  */
 export type ThinkingEffort = 'none' | 'low' | 'medium' | 'high';
 
-/** 消息格式 */
-export type Message = { role: 'user' | 'assistant' | 'system'; content: string };
+/** 消息格式：支持纯文本和多模态内容（音频、图片等） */
+export type Message = ModelMessage;
 
 /** Token 使用量 */
 export interface TokenUsage {

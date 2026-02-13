@@ -33,9 +33,11 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'google/gemini-2.5-flash': { input: 0.3, output: 2.5 }, // OpenRouter 价格
   'google/gemini-2.5-flash-lite': { input: 0.075, output: 0.3 },
   'google/gemini-2.5-pro': { input: 1.25, output: 10.0 },
+  'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'gemini-2.5-flash': { input: 0.15, output: 0.6 }, // Google 直连价格（更便宜）
   'gemini-2.5-flash-lite': { input: 0.0375, output: 0.15 },
   'gemini-2.5-pro': { input: 1.25, output: 10.0 },
+  'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
 
   // Anthropic Claude 系列
   'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 },
