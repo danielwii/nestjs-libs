@@ -11,7 +11,16 @@ export {
   type CompileOptions,
   type CompiledBlock,
   type ContextSlot,
+  type LayoutConfig,
 } from './context-slot.types';
 
 export { ContextBag } from './context-bag';
 export { SlotCatalog } from './slot-catalog';
+export {
+  compileRecipe,
+  uShapedLayout,
+  validateRecipe,
+  type ContextRecipe,
+  type RecipeCatalogDescription,
+  type RecipeValidation,
+} from './context-recipe';

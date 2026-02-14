@@ -81,6 +81,21 @@ export interface BagInspection {
   readonly categoryCounts: Readonly<Record<string, number>>;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// LayoutConfig — 后编译排列配置
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * U 型布局配置。
+ *
+ * head 区的 slot 固定在最前，tail 区的 slot 固定在最后，
+ * 其余进入 middle 区按 priority 降序排列。
+ */
+export interface LayoutConfig {
+  readonly head: readonly string[];
+  readonly tail: readonly string[];
+}
+
 export interface CatalogDescription {
   readonly totalSlots: number;
   readonly categories: Readonly<Record<string, readonly string[]>>;
