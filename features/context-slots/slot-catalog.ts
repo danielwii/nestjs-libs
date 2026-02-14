@@ -6,10 +6,12 @@
 
 import { ContextBag } from './context-bag';
 
+import type { ContextRecipe, RecipeCatalogDescription } from './context-recipe';
 import type { CatalogDescription, ContextSlot } from './context-slot.types';
 
 export class SlotCatalog {
   private readonly slots = new Map<string, ContextSlot>();
+  private readonly recipes: ContextRecipe[] = [];
 
   register<T>(slot: ContextSlot<T>): void {
     if (this.slots.has(slot.id)) {
@@ -57,6 +59,46 @@ export class SlotCatalog {
       totalSlots: this.slots.size,
       categories,
       slots,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Recipe 管理
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * 注册 recipe。
+   *
+   * 验证 recipe 中引用的 slot 是否都已注册到 catalog（开发时保护）。
+   */
+  registerRecipe(recipe: ContextRecipe): void {
+    if (this.recipes.some((r) => r.id === recipe.id)) {
+      throw new Error(`SlotCatalog: duplicate recipe id "${recipe.id}"`);
+    }
+    for (const slot of [...recipe.slots.required, ...recipe.slots.optional]) {
+      if (!this.get(slot.id)) {
+        throw new Error(`Recipe "${recipe.id}" references unregistered slot "${slot.id}"`);
+      }
+    }
+    this.recipes.push(recipe);
+  }
+
+  listRecipes(): ContextRecipe[] {
+    return [...this.recipes];
+  }
+
+  /** 输出所有 recipe 的结构化描述 */
+  describeRecipes(): RecipeCatalogDescription {
+    return {
+      totalRecipes: this.recipes.length,
+      recipes: this.recipes.map((r) => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        requiredSlots: r.slots.required.map((s) => s.id),
+        optionalSlots: r.slots.optional.map((s) => s.id),
+        preset: r.preset,
+      })),
     };
   }
 
