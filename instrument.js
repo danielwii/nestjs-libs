@@ -7,10 +7,14 @@
  *   bun --preload ./libs/instrument.js src/main.ts
  *
  * 功能：
- * - HTTP 请求自动 tracing
  * - gRPC 请求自动 tracing + traceparent 传播
  * - 可选：Langfuse span 导出（AI 相关 span）
  * - 可选：Sentry 错误追踪
+ *
+ * HTTP tracing 说明：
+ * - 不使用 HttpInstrumentation（会 patch EventEmitter，在 Bun/JSC 下导致内存泄漏）
+ * - HTTP 请求的 traceId 由 bootstrap.ts 中的轻量 middleware 手动创建
+ * - 该 middleware 只创建 span + context.with()，不调用 context.bind(req/res)
  *
  * gRPC Trace 传播机制：
  * - 客户端通过 gRPC metadata 传递 traceparent header
@@ -43,7 +47,7 @@ process.emit = function (event, ...args) {
 
 const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
 const { GrpcInstrumentation } = require('@opentelemetry/instrumentation-grpc');
-const { BatchSpanProcessor, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-node');
+const { SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-node');
 const { getStringFromEnv } = require('@opentelemetry/core');
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { diag } = require('@opentelemetry/api');
@@ -184,18 +188,23 @@ function bootstrapTracing() {
     spanProcessors.push(new SimpleSpanProcessor(new MinimalSpanExporter()));
   }
 
-  // HTTP + gRPC instrumentation
-  // - HttpInstrumentation: HTTP 请求自动 tracing
-  // - GrpcInstrumentation: gRPC 请求自动 tracing + traceparent 传播
-  const instrumentations = [
-    new HttpInstrumentation({
-      ignoreIncomingRequestHook: (req) => {
-        const url = req.url || '';
-        return url === '/' || url === '/health' || url.startsWith('/health');
-      },
-    }),
-    new GrpcInstrumentation(),
-  ];
+  // OTEL_HTTP_INSTRUMENTATION=false 可禁用 HttpInstrumentation
+  // HttpInstrumentation 的 context.bind(req/res) 会 patch EventEmitter 方法，
+  // 疑似在 Bun/JSC 下导致闭包链无法 GC，造成内存泄漏。
+  // see: https://github.com/open-telemetry/opentelemetry-js/issues/5514
+  // 禁用后，HTTP traceId 由 bootstrap.ts 中的 otelTraceMiddleware 手动创建。
+  const httpEnabled = (process.env.OTEL_HTTP_INSTRUMENTATION ?? 'true') !== 'false';
+  const instrumentations = [new GrpcInstrumentation()];
+  if (httpEnabled) {
+    instrumentations.push(
+      new HttpInstrumentation({
+        ignoreIncomingRequestHook: (req) => {
+          const url = req.url || '';
+          return url === '/' || url === '/health' || url.startsWith('/health');
+        },
+      }),
+    );
+  }
 
   const sdk = new NodeSDK({
     spanProcessors,
@@ -206,7 +215,7 @@ function bootstrapTracing() {
 
   try {
     sdk.start();
-    console.info(`${LOG_NAMESPACE}: [OpenTelemetry] started (HTTP + gRPC instrumentation)`);
+    console.info(`${LOG_NAMESPACE}: [OpenTelemetry] started (gRPC${httpEnabled ? ' + HTTP' : ''} instrumentation)`);
   } catch (error) {
     console.error(`${LOG_NAMESPACE}: [OpenTelemetry] failed`, error);
     return;
