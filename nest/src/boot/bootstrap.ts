@@ -10,6 +10,7 @@ import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { VisitorInterceptor } from '@app/nest/interceptors/visitor.interceptor';
+import { otelTraceMiddleware } from '@app/nest/middleware/otel-trace.middleware';
 import { maskSecret } from '@app/utils/security';
 
 import os from 'node:os';
@@ -188,6 +189,14 @@ export async function bootstrap(
   // 设置以后，req.ips 是 ip 数组；如果未经过代理，则为 []. 若不设置，则 req.ips 恒为 []
   // app.set('trust proxy', true);
   app.set('trust proxy', 1);
+
+  // OTel tracing middleware — 仅在 HttpInstrumentation 禁用时使用
+  // 替代 HttpInstrumentation，只创建 span + context.with()，不 patch EventEmitter
+  if (process.env.OTEL_HTTP_INSTRUMENTATION === 'false') {
+    Logger.log('[Config] OTel HTTP instrumentation disabled, using lightweight otelTraceMiddleware', 'Bootstrap');
+    app.use(otelTraceMiddleware);
+  }
+
   if (SysEnv.SESSION_SECRET) {
     if (!SysEnv.INFRA_REDIS_URL) throw new Error('INFRA_REDIS_URL is not set and required for session storage');
     const client = new Redis(SysEnv.INFRA_REDIS_URL, { maxRetriesPerRequest: 3 });
