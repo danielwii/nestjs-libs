@@ -39,7 +39,7 @@ import { embed, generateText, Output, streamText, tool } from 'ai';
 import type { EmbeddingModelKey, EmbeddingProvider } from '../types/embedding.types';
 import type { LLMModelKey } from '../types/model.types';
 import type { ProviderType } from './options.helpers';
-import type { LanguageModel, ModelMessage, TelemetrySettings } from 'ai';
+import type { LanguageModel, ModelMessage, TelemetrySettings, ToolSet } from 'ai';
 import type { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -319,7 +319,12 @@ export class LLM {
    * }
    * ```
    */
-  static streamObject<T>(params: GenerateObjectParams<T>) {
+  static streamObject<T>(
+    params: GenerateObjectParams<T> & {
+      /** 可选的工具集，模型可在生成结构化输出的同时调用这些工具 */
+      tools?: ToolSet;
+    },
+  ) {
     const startTime = Date.now();
     const {
       model: modelKey,
@@ -333,6 +338,7 @@ export class LLM {
       maxOutputTokens,
       abortSignal,
       telemetry = DEFAULT_TELEMETRY,
+      tools,
     } = params;
 
     LLM.logStart(id, 'streamObject', modelKey, thinking);
@@ -348,6 +354,7 @@ export class LLM {
       output: Output.object({ schema }),
       system,
       messages,
+      tools,
       providerOptions,
       temperature,
       maxOutputTokens,
