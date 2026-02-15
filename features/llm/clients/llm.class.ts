@@ -465,7 +465,7 @@ export class LLM {
    * }
    * ```
    */
-  static streamText(params: GenerateTextParams) {
+  static streamText(params: BaseParams) {
     const startTime = Date.now();
     const {
       model: modelKey,
@@ -814,21 +814,33 @@ export type ToolStreamEvent<T> =
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * AI SDK Source 的最小子集（`Source` 类型未从 `ai` 包导出）。
+ *
+ * @see LanguageModelV3Source（@ai-sdk/provider 内部类型）
+ */
+interface AiSdkSource {
+  type: 'source';
+  sourceType: string;
+  id: string;
+  url?: string;
+  title?: string;
+}
+
+/**
  * 从 AI SDK Source[] 中提取 URL 类型的 WebSource
  *
  * AI SDK 的 Source 有 url 和 document 两种变体，
  * Web Search 场景只关心 url 类型。
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractWebSources(sources: any[] | undefined): WebSource[] {
+function extractWebSources(sources: AiSdkSource[] | undefined): WebSource[] {
   if (!sources?.length) return [];
 
   return sources
-    .filter((s) => s.sourceType === 'url' && s.url)
+    .filter((s): s is AiSdkSource & { sourceType: 'url'; url: string } => s.sourceType === 'url' && !!s.url)
     .map((s) => ({
-      id: s.id as string,
-      url: s.url as string,
-      title: s.title as string | undefined,
+      id: s.id,
+      url: s.url,
+      title: s.title,
     }));
 }
 
