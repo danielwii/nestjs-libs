@@ -78,6 +78,18 @@ export interface TokenUsage {
 /** OpenRouter Provider 排序策略 */
 export type ProviderSort = 'price' | 'throughput' | 'latency';
 
+/**
+ * Web 搜索来源引用
+ *
+ * 统一了 AI SDK `Source` 类型中 URL 和文档两种变体。
+ * 由 provider-defined tools（如 googleSearch、OpenRouter :online）自动返回。
+ */
+export type WebSource = {
+  id: string;
+  url: string;
+  title?: string;
+};
+
 /** 基础参数 */
 interface BaseParams {
   /** 业务标识，用于日志中区分调用方（如 'subconscious', 'signal-extractor'） */
@@ -115,7 +127,37 @@ interface GenerateObjectParams<T> extends BaseParams {
 
 /** generateText 参数 */
 interface GenerateTextParams extends BaseParams {
-  // 无额外参数
+  /**
+   * 可选工具集（如 provider-defined tools）
+   *
+   * 用于 Web Search 等场景，模型可在生成文本的同时调用 provider 工具。
+   * 工具返回的引用会通过 `sources` 字段传递。
+   *
+   * @example
+   * ```typescript
+   * import { getGoogleProvider } from '@app/features/llm/clients';
+   * const google = getGoogleProvider();
+   *
+   * const { text, sources } = await LLM.generateText({
+   *   id: 'web-search',
+   *   model: 'google:gemini-2.5-flash',
+   *   messages,
+   *   tools: { googleSearch: google.tools.googleSearch({}) },
+   * });
+   * ```
+   */
+  tools?: ToolSet;
+
+  /**
+   * Model ID 后缀
+   *
+   * 拼接到 LLMModelRegistry 中的 modelId 后面，用于 provider 特定功能。
+   * 例如 OpenRouter 的 `:online` 搜索插件：
+   *
+   * model='openrouter:grok-4.1-fast' + modelIdSuffix=':online'
+   * → provider 收到 'x-ai/grok-4.1-fast:online'
+   */
+  modelIdSuffix?: string;
 }
 
 /** generateObject 返回值 */
@@ -128,6 +170,15 @@ interface GenerateObjectResult<T> {
 interface GenerateTextResult {
   text: string;
   usage: TokenUsage;
+  /**
+   * Web 搜索来源引用
+   *
+   * 当使用 provider-defined web search tools 时（如 OpenRouter :online、@ai-sdk/google googleSearch），
+   * AI SDK 自动从 provider 响应中提取 URL 引用。
+   *
+   * 无 web search 时为空数组。
+   */
+  sources: WebSource[];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -276,11 +327,13 @@ export class LLM {
       maxOutputTokens,
       abortSignal,
       telemetry = DEFAULT_TELEMETRY,
+      tools,
+      modelIdSuffix,
     } = params;
 
     LLM.logStart(id, 'generateText', modelKey, thinking);
 
-    const languageModel = createModel(modelKey);
+    const languageModel = createModel(modelKey, modelIdSuffix);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
@@ -288,6 +341,7 @@ export class LLM {
       model: languageModel,
       system,
       messages,
+      tools,
       providerOptions,
       temperature,
       maxOutputTokens,
@@ -295,11 +349,17 @@ export class LLM {
       experimental_telemetry: telemetry,
     });
 
+    const sourcesCount = result.sources?.length ?? 0;
+    if (sourcesCount > 0) {
+      LLM.logger.debug(`[LLM:sources] id=${id}, sources=${sourcesCount}`);
+    }
+
     LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
 
     return {
       text: result.text,
       usage: result.usage,
+      sources: extractWebSources(result.sources),
     };
   }
 
@@ -752,6 +812,25 @@ export type ToolStreamEvent<T> =
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * 从 AI SDK Source[] 中提取 URL 类型的 WebSource
+ *
+ * AI SDK 的 Source 有 url 和 document 两种变体，
+ * Web Search 场景只关心 url 类型。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractWebSources(sources: any[] | undefined): WebSource[] {
+  if (!sources?.length) return [];
+
+  return sources
+    .filter((s) => s.sourceType === 'url' && s.url)
+    .map((s) => ({
+      id: s.id as string,
+      url: s.url as string,
+      title: s.title as string | undefined,
+    }));
+}
 
 /**
  * 尝试解析部分 JSON 字符串

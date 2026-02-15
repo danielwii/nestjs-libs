@@ -46,17 +46,18 @@ import type { z } from 'zod';
  * model('google:gemini-2.5-flash')      // → 使用 google 客户端
  * ```
  */
-export function model(key: LLMModelKey): LanguageModel {
+export function model(key: LLMModelKey, modelIdSuffix?: string): LanguageModel {
   const config = getModel(key);
+  const modelId = modelIdSuffix ? `${config.modelId}${modelIdSuffix}` : config.modelId;
   const provider = config.provider as LLMProviderType;
 
   switch (provider) {
     case 'openrouter':
-      return openrouter(config.modelId);
+      return openrouter(modelId);
     case 'google':
-      return google(config.modelId);
+      return google(modelId);
     case 'vertex':
-      return vertex(config.modelId);
+      return vertex(modelId);
     default:
       throw new Error(`Unknown provider: ${provider as string} for model: ${key}`);
   }

@@ -154,6 +154,23 @@ function getGoogle() {
  */
 export const google = (modelId: string): LanguageModel => getGoogle()(modelId);
 
+/**
+ * 获取 Google AI Provider 实例（含 tools）
+ *
+ * 用于需要 provider-defined tools 的场景，如 Google Search Grounding：
+ *
+ * @example
+ * ```typescript
+ * import { getGoogleProvider } from '@app/features/llm/clients';
+ *
+ * const google = getGoogleProvider();
+ * const tools = { googleSearch: google.tools.googleSearch({}) };
+ * ```
+ */
+export function getGoogleProvider() {
+  return getGoogle();
+}
+
 // ============================================================================
 // Vertex AI 客户端 (Express Mode)
 // ============================================================================
