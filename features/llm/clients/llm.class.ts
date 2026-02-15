@@ -39,7 +39,7 @@ import { embed, generateText, Output, streamText, tool } from 'ai';
 import type { EmbeddingModelKey, EmbeddingProvider } from '../types/embedding.types';
 import type { LLMModelKey } from '../types/model.types';
 import type { ProviderType } from './options.helpers';
-import type { LanguageModel, ModelMessage, TelemetrySettings, ToolSet } from 'ai';
+import type { LanguageModel, ModelMessage, StopCondition, TelemetrySettings, ToolSet } from 'ai';
 import type { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -323,6 +323,17 @@ export class LLM {
     params: GenerateObjectParams<T> & {
       /** 可选的工具集，模型可在生成结构化输出的同时调用这些工具 */
       tools?: ToolSet;
+      /**
+       * 多步工具调用的停止条件
+       *
+       * 当传入 tools 时，模型可能先调用工具再生成最终输出，需要多步。
+       * 默认 stepCountIs(1)（只运行 1 步，工具结果不会回传给模型）。
+       *
+       * 推荐：有 tools 时设为 stepCountIs(3) 或更高。
+       *
+       * @default stepCountIs(1)
+       */
+      stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
     },
   ) {
     const startTime = Date.now();
@@ -339,6 +350,7 @@ export class LLM {
       abortSignal,
       telemetry = DEFAULT_TELEMETRY,
       tools,
+      stopWhen,
     } = params;
 
     LLM.logStart(id, 'streamObject', modelKey, thinking);
@@ -355,6 +367,7 @@ export class LLM {
       system,
       messages,
       tools,
+      stopWhen,
       providerOptions,
       temperature,
       maxOutputTokens,
