@@ -22,6 +22,30 @@ export enum TimeSensitivity {
   Minute = 'yyyy-MM-dd EEEE HH:mm BBBB',
 }
 
+/**
+ * 将 ISO datetime 字符串或 Date 格式化为本地时区的可读时间。
+ *
+ * 默认使用 process.env.TZ 作为时区。
+ * 用于 prompt 中展示时间给 LLM，避免 UTC 导致的时间误判。
+ */
+export function formatLocalDateTime(
+  dateOrIso?: string | Date | null,
+  sensitivity: TimeSensitivity = TimeSensitivity.Minute,
+  timezone?: string | null,
+): string {
+  const tz = timezone ?? process.env.TZ;
+  const dt = dateOrIso
+    ? tz
+      ? DateTime.fromJSDate(new Date(typeof dateOrIso === 'string' ? dateOrIso : dateOrIso.getTime()))
+          .setZone(tz)
+          .toJSDate()
+      : new Date(typeof dateOrIso === 'string' ? dateOrIso : dateOrIso.getTime())
+    : tz
+      ? DateTime.now().setZone(tz).toJSDate()
+      : new Date();
+  return format(dt, sensitivity, { locale: zhCN });
+}
+
 // 目的 (Objective/Purpose)
 const ObjectiveSchema = z.string(); // 必须明确的任务目的
 
