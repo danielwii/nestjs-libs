@@ -188,6 +188,12 @@ export class LLM {
     LLM.logger.debug(`[LLM:ttft] id=${id}, ttft=${ttft}ms`);
   }
 
+  /** AI SDK 默认 onError 会裸 console.error(error)，被 Sentry console integration 拦截后变成 [object Object]。统一收归 NestJS logger。 */
+  private static logError(id: string, method: string, modelKey: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : JSON.stringify(error);
+    LLM.logger.error(`[LLM:error] id=${id}, method=${method}, model=${modelKey}: ${message}`);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Generation Methods
   // ─────────────────────────────────────────────────────────────────────────
@@ -347,6 +353,9 @@ export class LLM {
       maxOutputTokens,
       abortSignal,
       experimental_telemetry: telemetry,
+      onError: ({ error }) => {
+        LLM.logError(id, 'streamObject', modelKey, error);
+      },
       onChunk() {
         if (!ttftLogged) {
           LLM.logTTFT(id, startTime);
@@ -408,6 +417,9 @@ export class LLM {
       maxOutputTokens,
       abortSignal,
       experimental_telemetry: telemetry,
+      onError: ({ error }) => {
+        LLM.logError(id, 'streamText', modelKey, error);
+      },
       onChunk() {
         if (!ttftLogged) {
           LLM.logTTFT(id, startTime);
@@ -600,6 +612,9 @@ export class LLM {
       maxOutputTokens,
       abortSignal,
       experimental_telemetry: telemetry,
+      onError: ({ error }) => {
+        LLM.logError(id, 'streamObjectViaTool', modelKey, error);
+      },
     });
 
     let ttftLogged = false;
