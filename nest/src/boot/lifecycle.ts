@@ -84,17 +84,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
   });
   process.on('SIGINT', (signals) => {
     logger.log(f`(${os.hostname}) Received SIGINT. ${signals} (${process.pid})`);
-    if (process.env.NODE_ENV !== 'production') {
-      setTimeout(() => {
-        void import('why-is-node-running')
-          .then((module) => {
-            module.default(logger);
-          })
-          .finally(() => {
-            process.exit(0);
-          });
-      }, 3000);
-    }
+    setTimeout(() => process.exit(0), 3000);
   });
   process.on('SIGHUP', () => {
     logger.warn('Process SIGHUP (可能是终端关闭)，强制退出...');
