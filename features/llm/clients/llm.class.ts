@@ -34,6 +34,7 @@ import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
+import * as Sentry from '@sentry/nestjs';
 import { embed, generateText, Output, streamText, tool } from 'ai';
 
 import type { EmbeddingModelKey, EmbeddingProvider } from '../types/embedding.types';
@@ -239,10 +240,25 @@ export class LLM {
     LLM.logger.debug(`[LLM:ttft] id=${id}, ttft=${ttft}ms`);
   }
 
-  /** AI SDK 默认 onError 会裸 console.error(error)，被 Sentry console integration 拦截后变成 [object Object]。统一收归 NestJS logger。 */
+  /**
+   * 统一错误处理：NestJS logger + Sentry
+   *
+   * AI SDK 默认 onError 会裸 console.error(error)，被 Sentry console integration
+   * 拦截后变成 [object Object]。这里统一收归，确保：
+   * 1. NestJS logger → Loki 可查
+   * 2. Sentry.captureException → 结构化上报，附带 id/method/model 上下文
+   */
   private static logError(id: string, method: string, modelKey: string, error: unknown): void {
     const message = error instanceof Error ? error.message : JSON.stringify(error);
     LLM.logger.error(`[LLM:error] id=${id}, method=${method}, model=${modelKey}: ${message}`);
+
+    Sentry.withScope((scope) => {
+      scope.setTag('llm.id', id);
+      scope.setTag('llm.method', method);
+      scope.setTag('llm.model', modelKey);
+      scope.setContext('llm', { id, method, model: modelKey });
+      Sentry.captureException(error instanceof Error ? error : new Error(message));
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -283,24 +299,29 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
-    const result = await generateText({
-      model: languageModel,
-      output: Output.object({ schema }),
-      system,
-      messages,
-      providerOptions,
-      temperature,
-      maxOutputTokens,
-      abortSignal,
-      experimental_telemetry: telemetry,
-    });
+    try {
+      const result = await generateText({
+        model: languageModel,
+        output: Output.object({ schema }),
+        system,
+        messages,
+        providerOptions,
+        temperature,
+        maxOutputTokens,
+        abortSignal,
+        experimental_telemetry: telemetry,
+      });
 
-    LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage);
+      LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage);
 
-    return {
-      object: result.output,
-      usage: result.usage,
-    };
+      return {
+        object: result.output,
+        usage: result.usage,
+      };
+    } catch (error) {
+      LLM.logError(id, 'generateObject', modelKey, error);
+      throw error;
+    }
   }
 
   /**
@@ -337,30 +358,35 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
-    const result = await generateText({
-      model: languageModel,
-      system,
-      messages,
-      tools,
-      providerOptions,
-      temperature,
-      maxOutputTokens,
-      abortSignal,
-      experimental_telemetry: telemetry,
-    });
+    try {
+      const result = await generateText({
+        model: languageModel,
+        system,
+        messages,
+        tools,
+        providerOptions,
+        temperature,
+        maxOutputTokens,
+        abortSignal,
+        experimental_telemetry: telemetry,
+      });
 
-    const sourcesCount = result.sources?.length ?? 0;
-    if (sourcesCount > 0) {
-      LLM.logger.debug(`[LLM:sources] id=${id}, sources=${sourcesCount}`);
+      const sourcesCount = result.sources?.length ?? 0;
+      if (sourcesCount > 0) {
+        LLM.logger.debug(`[LLM:sources] id=${id}, sources=${sourcesCount}`);
+      }
+
+      LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
+
+      return {
+        text: result.text,
+        usage: result.usage,
+        sources: extractWebSources(result.sources),
+      };
+    } catch (error) {
+      LLM.logError(id, 'generateText', modelKey, error);
+      throw error;
     }
-
-    LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
-
-    return {
-      text: result.text,
-      usage: result.usage,
-      sources: extractWebSources(result.sources),
-    };
   }
 
   /**
@@ -582,31 +608,36 @@ export class LLM {
     // 强制使用指定的 Tool
     const toolChoice = { type: 'tool' as const, toolName };
 
-    const result = await generateText({
-      model: languageModel,
-      system,
-      messages,
-      tools,
-      toolChoice,
-      providerOptions,
-      temperature,
-      maxOutputTokens,
-      abortSignal,
-      experimental_telemetry: telemetry,
-    });
+    try {
+      const result = await generateText({
+        model: languageModel,
+        system,
+        messages,
+        tools,
+        toolChoice,
+        providerOptions,
+        temperature,
+        maxOutputTokens,
+        abortSignal,
+        experimental_telemetry: telemetry,
+      });
 
-    LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
+      LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
 
-    // 从 toolCalls 中提取结果
-    const toolCall = result.toolCalls.at(0);
-    if (!toolCall || !('input' in toolCall)) {
-      throw new Error('No tool call returned from LLM');
+      // 从 toolCalls 中提取结果
+      const toolCall = result.toolCalls.at(0);
+      if (!toolCall || !('input' in toolCall)) {
+        throw new Error('No tool call returned from LLM');
+      }
+
+      return {
+        object: toolCall.input as T,
+        usage: result.usage,
+      };
+    } catch (error) {
+      LLM.logError(id, 'generateObjectViaTool', modelKey, error);
+      throw error;
     }
-
-    return {
-      object: toolCall.input as T,
-      usage: result.usage,
-    };
   }
 
   /**
