@@ -30,7 +30,7 @@ export interface OpenRouterClientOptions {
  * @example
  * ```typescript
  * const openrouter = await createOpenRouterClient({
- *   apiKey: env.OPENROUTER_API_KEY,
+ *   apiKey: env.AI_OPENROUTER_API_KEY,
  * });
  *
  * // 使用 AI SDK
