@@ -70,16 +70,18 @@ let _openai: ReturnType<typeof createOpenAI> | null = null;
  * 获取 OpenRouter 客户端单例
  *
  * 自动使用：
- * - SysEnv.OPENROUTER_API_KEY
+ * - SysEnv.AI_OPENROUTER_API_KEY
  * - ApiFetcher.fetch（带代理）
  */
 function getOpenRouter() {
   if (!_openrouter) {
-    if (!SysEnv.OPENROUTER_API_KEY) {
-      throw new Error('OPENROUTER_API_KEY is not configured in SysEnv');
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
+    const apiKey = SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      throw new Error('AI_OPENROUTER_API_KEY is not configured in SysEnv');
     }
     _openrouter = createOpenRouter({
-      apiKey: SysEnv.OPENROUTER_API_KEY,
+      apiKey,
       fetch: ApiFetcher.fetch,
     });
   }
@@ -126,16 +128,18 @@ export const OPENROUTER_DEFAULTS = {
  * 获取 Google AI 客户端单例
  *
  * 自动使用：
- * - SysEnv.GOOGLE_GENERATIVE_AI_API_KEY
+ * - SysEnv.AI_GOOGLE_API_KEY
  * - ApiFetcher.fetch（带代理）
  */
 function getGoogle() {
   if (!_google) {
-    if (!SysEnv.GOOGLE_GENERATIVE_AI_API_KEY) {
-      throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is not configured in SysEnv');
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
+    const apiKey = SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY;
+    if (!apiKey) {
+      throw new Error('AI_GOOGLE_API_KEY is not configured in SysEnv');
     }
     _google = createGoogleGenerativeAI({
-      apiKey: SysEnv.GOOGLE_GENERATIVE_AI_API_KEY,
+      apiKey,
       fetch: ApiFetcher.fetch,
     });
   }
@@ -179,16 +183,18 @@ export function getGoogleProvider() {
  * 获取 Vertex AI 客户端单例 (Express Mode)
  *
  * 自动使用：
- * - SysEnv.GOOGLE_VERTEX_API_KEY
+ * - SysEnv.AI_GOOGLE_VERTEX_API_KEY
  * - Express Mode（无需 project/location）
  */
 function getVertex() {
   if (!_vertex) {
-    if (!SysEnv.GOOGLE_VERTEX_API_KEY) {
-      throw new Error('GOOGLE_VERTEX_API_KEY is not configured in SysEnv');
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
+    const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY;
+    if (!apiKey) {
+      throw new Error('AI_GOOGLE_VERTEX_API_KEY is not configured in SysEnv');
     }
     _vertex = createVertex({
-      apiKey: SysEnv.GOOGLE_VERTEX_API_KEY,
+      apiKey,
     });
   }
   return _vertex;
@@ -213,19 +219,21 @@ export const vertex = (modelId: string): LanguageModel => getVertex()(modelId);
  * 检查 LLM 客户端配置状态
  */
 export function getLLMClientStatus() {
+  /* eslint-disable @typescript-eslint/no-deprecated -- 旧名字兼容检查 */
   return {
     openrouter: {
-      configured: !!SysEnv.OPENROUTER_API_KEY,
+      configured: !!(SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY),
       initialized: !!_openrouter,
     },
     google: {
-      configured: !!SysEnv.GOOGLE_GENERATIVE_AI_API_KEY,
+      configured: !!(SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY),
       initialized: !!_google,
     },
     vertex: {
-      configured: !!SysEnv.GOOGLE_VERTEX_API_KEY,
+      configured: !!(SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY),
       initialized: !!_vertex,
     },
+    /* eslint-enable @typescript-eslint/no-deprecated */
     proxy: {
       enabled: SysEnv.APP_PROXY_ENABLED ?? false,
       host: SysProxy.proxy || null,
@@ -251,16 +259,18 @@ export function resetLLMClients() {
  * 获取 OpenAI 客户端单例
  *
  * 自动使用：
- * - SysEnv.OPENAI_API_KEY
+ * - SysEnv.AI_OPENAI_API_KEY
  * - ApiFetcher.fetch（带代理）
  */
 export function getOpenAI() {
   if (!_openai) {
-    if (!SysEnv.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not configured in SysEnv');
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
+    const apiKey = SysEnv.AI_OPENAI_API_KEY ?? SysEnv.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('AI_OPENAI_API_KEY is not configured in SysEnv');
     }
     _openai = createOpenAI({
-      apiKey: SysEnv.OPENAI_API_KEY,
+      apiKey,
       fetch: ApiFetcher.fetch,
     });
   }

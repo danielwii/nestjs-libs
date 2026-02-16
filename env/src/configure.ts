@@ -210,10 +210,20 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) GRAPHQL_PLAYGROUND_ENABLED?: boolean;
 
   // ==================== LLM ====================
-  @IsString() @IsOptional() OPENROUTER_API_KEY?: string;
-  @IsString() @IsOptional() GOOGLE_GENERATIVE_AI_API_KEY?: string;
+  @IsString() @IsOptional() AI_OPENROUTER_API_KEY?: string;
+  @IsString() @IsOptional() AI_GOOGLE_API_KEY?: string;
   /** Vertex AI Express Mode API Key (格式: AQ.xxx) */
+  @IsString() @IsOptional() AI_GOOGLE_VERTEX_API_KEY?: string;
+  @IsString() @IsOptional() AI_OPENAI_API_KEY?: string;
+
+  // ── 旧名字兼容（其他项目迁移前保留）──
+  /** @deprecated use AI_OPENROUTER_API_KEY */
+  @IsString() @IsOptional() OPENROUTER_API_KEY?: string;
+  /** @deprecated use AI_GOOGLE_API_KEY */
+  @IsString() @IsOptional() GOOGLE_GENERATIVE_AI_API_KEY?: string;
+  /** @deprecated use AI_GOOGLE_VERTEX_API_KEY */
   @IsString() @IsOptional() GOOGLE_VERTEX_API_KEY?: string;
+  /** @deprecated use AI_OPENAI_API_KEY */
   @IsString() @IsOptional() OPENAI_API_KEY?: string;
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境） */
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';

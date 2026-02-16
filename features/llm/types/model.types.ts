@@ -258,22 +258,21 @@ export function getModelsByProvider(provider: LLMProviderType): string[] {
 /**
  * Provider 到环境变量的映射
  */
-const providerApiKeyMap: Partial<Record<string, keyof typeof SysEnv>> = {
-  openrouter: 'OPENROUTER_API_KEY',
-  google: 'GOOGLE_GENERATIVE_AI_API_KEY',
-  vertex: 'GOOGLE_VERTEX_API_KEY',
-  openai: 'OPENAI_API_KEY',
+/** Provider → [新名字, 旧名字] 映射（兼容未迁移的项目） */
+const providerApiKeyMap: Partial<Record<string, [keyof typeof SysEnv, keyof typeof SysEnv]>> = {
+  openrouter: ['AI_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
+  google: ['AI_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
+  vertex: ['AI_GOOGLE_VERTEX_API_KEY', 'GOOGLE_VERTEX_API_KEY'],
+  openai: ['AI_OPENAI_API_KEY', 'OPENAI_API_KEY'],
 };
 
 /**
- * 检查 Provider 是否已配置 API Key
+ * 检查 Provider 是否已配置 API Key（新旧名字都检查）
  */
 export function isProviderConfigured(provider: string): boolean {
-  const keyName = providerApiKeyMap[provider];
-  if (!keyName) {
-    return false;
-  }
-  return !!SysEnv[keyName];
+  const keys = providerApiKeyMap[provider];
+  if (!keys) return false;
+  return !!SysEnv[keys[0]] || !!SysEnv[keys[1]];
 }
 
 /**
@@ -281,11 +280,12 @@ export function isProviderConfigured(provider: string): boolean {
  */
 export function getProviderStatus(): Record<string, { configured: boolean; envVar: string }> {
   return Object.entries(providerApiKeyMap).reduce<Record<string, { configured: boolean; envVar: string }>>(
-    (acc, [provider, envVar]) => {
-      if (!envVar) return acc;
+    (acc, [provider, keys]) => {
+      if (!keys) return acc;
+      const [newKey, oldKey] = keys;
       acc[provider] = {
-        configured: !!SysEnv[envVar],
-        envVar,
+        configured: !!SysEnv[newKey] || !!SysEnv[oldKey],
+        envVar: newKey,
       };
       return acc;
     },
@@ -316,10 +316,10 @@ export function validateModelKey(modelKey: string): { valid: boolean; error?: st
   if (config) {
     const provider = config.provider;
     if (!isProviderConfigured(provider)) {
-      const envVar = providerApiKeyMap[provider];
+      const keys = providerApiKeyMap[provider];
       return {
         valid: false,
-        error: `Provider "${provider}" for model "${modelKey}" is not configured. Set ${envVar}.`,
+        error: `Provider "${provider}" for model "${modelKey}" is not configured. Set ${keys?.[0] ?? provider}.`,
       };
     }
   }
