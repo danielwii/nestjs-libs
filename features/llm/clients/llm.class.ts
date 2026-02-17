@@ -572,6 +572,14 @@ export class LLM {
       toolName?: string;
       /** Tool 描述（帮助 LLM 理解何时使用） */
       toolDescription?: string;
+      /**
+       * 是否允许模型并行生成多个 tool call（默认 false）
+       *
+       * generateObjectViaTool 只定义 1 个 tool、只取第一个结果，
+       * 但 Gemini 等模型在 tool calling 模式下会生成数百个重复 tool call。
+       * 设为 false 可防止 token 浪费。仅 OpenRouter provider 支持此参数。
+       */
+      parallelToolCalls?: boolean;
     },
   ): Promise<GenerateObjectResult<T>> {
     const startTime = Date.now();
@@ -589,13 +597,26 @@ export class LLM {
       telemetry = DEFAULT_TELEMETRY,
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
+      parallelToolCalls = true,
     } = params;
 
     LLM.logStart(id, 'generateObjectViaTool', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, providerSort);
+    const baseProviderOptions = buildProviderOptions(provider, thinking, providerSort);
+
+    // OpenRouter 支持 parallelToolCalls 参数控制并行 tool call
+    const providerOptions =
+      provider === 'openrouter'
+        ? {
+            ...baseProviderOptions,
+            openrouter: {
+              ...((baseProviderOptions as Record<string, unknown>).openrouter as Record<string, unknown> | undefined),
+              parallelToolCalls,
+            },
+          }
+        : baseProviderOptions;
 
     // 创建 Tool，将 Schema 作为 inputSchema
     const tools = {
@@ -624,10 +645,16 @@ export class LLM {
 
       LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
 
-      // 从 toolCalls 中提取结果
+      // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
       const toolCall = result.toolCalls.at(0);
       if (!toolCall || !('input' in toolCall)) {
         throw new Error('No tool call returned from LLM');
+      }
+
+      if (!parallelToolCalls && result.toolCalls.length > 1) {
+        LLM.logger.warn(
+          `[LLM:warn] id=${id} generateObjectViaTool returned ${result.toolCalls.length} tool calls (expected 1), using first`,
+        );
       }
 
       return {
