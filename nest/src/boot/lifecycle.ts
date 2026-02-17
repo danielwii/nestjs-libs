@@ -82,9 +82,21 @@ export const runApp = <App extends INestApplication>(app: App) => {
   process.on('beforeExit', (reason) => {
     logger[reason ? 'error' : 'log'](f`(${os.hostname}) App will exit cause: ${reason}`);
   });
+  let sigintReceived = false;
   process.on('SIGINT', (signals) => {
+    if (sigintReceived) return;
+    sigintReceived = true;
     logger.log(f`(${os.hostname}) Received SIGINT. ${signals} (${process.pid})`);
-    setTimeout(() => process.exit(0), 3000);
+    app
+      .close()
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(f`(${os.hostname}) exit by SIGINT: ${message}`);
+      })
+      .finally(() => {
+        logger.log(f`(${os.hostname}) SIGINT shutdown complete`);
+        process.exit(0);
+      });
   });
   process.on('SIGHUP', () => {
     logger.warn('Process SIGHUP (可能是终端关闭)，强制退出...');
