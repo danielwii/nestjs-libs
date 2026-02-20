@@ -133,6 +133,61 @@ export function errorStack(e: unknown): string | undefined {
   }
 }
 
+/**
+ * 格式化 unknown 错误的完整信息（含类型、name/code、message、stack、cause）
+ * 用于 catch 块日志，便于在无调试器时诊断问题（如 DOMException 超时）
+ */
+export function formatErrorDetail(err: unknown): string {
+  const type = err === null ? 'null' : err === undefined ? 'undefined' : typeof err;
+  const constructorName =
+    err !== null && err !== undefined && typeof err === 'object' ? Object.prototype.toString.call(err) : '-';
+
+  let message: string;
+  let stack: string | undefined;
+  let cause: unknown;
+
+  if (err instanceof Error) {
+    message = err.message;
+    stack = err.stack;
+    cause = err.cause;
+  } else if (typeof err === 'string') {
+    message = err;
+  } else if (err !== null && err !== undefined && typeof err === 'object') {
+    const withMessage = err as { message?: string };
+    message = withMessage.message ?? JSON.stringify(err);
+    const withStack = err as { stack?: string };
+    stack = withStack.stack;
+    const withCause = err as { cause?: unknown };
+    cause = withCause.cause;
+  } else {
+    message = String(err);
+  }
+
+  const parts: string[] = [`[type=${type}, constructor=${constructorName}]`, `message: ${message}`];
+  if (typeof err === 'object' && err !== null && constructorName.includes('DOMException')) {
+    const dom = err as { name?: string; code?: number };
+    if (dom.name) parts.push(`name: ${dom.name}`);
+    if (typeof dom.code === 'number') parts.push(`code: ${dom.code}`);
+  }
+  if (cause !== undefined && cause !== 'unknown cause') {
+    let causeStr: string;
+    if (cause instanceof Error) {
+      causeStr = cause.message;
+    } else if (typeof cause === 'object' && cause !== null) {
+      causeStr = JSON.stringify(cause);
+    } else {
+      causeStr = String(cause as string | number | boolean | undefined | symbol | bigint);
+    }
+    parts.push(`cause: ${causeStr}`);
+  }
+  if (stack) {
+    parts.push(`stack:\n${stack}`);
+  } else {
+    parts.push('stack: (none)');
+  }
+  return parts.join('\n');
+}
+
 export function onelineStack(stack: string | undefined | null): string | undefined {
   if (!stack || typeof stack !== 'string') {
     return undefined;

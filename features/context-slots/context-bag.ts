@@ -111,7 +111,7 @@ export class ContextBag {
       if (!renderer) continue;
 
       // render + filter: null 或空字符串跳过
-      const content = renderer(data);
+      const content = renderer(data, options);
       if (content === null || content.trim() === '') continue;
 
       rendered.push({

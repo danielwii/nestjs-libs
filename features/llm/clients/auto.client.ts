@@ -23,6 +23,8 @@
  * });
  * ```
  */
+import { SysEnv } from '@app/env';
+
 import { getModel } from '../types/model.types';
 import { google, openrouter, vertex } from './llm.clients';
 
@@ -401,6 +403,7 @@ class LLMBuilder {
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
+      timeout: SysEnv.AI_LLM_TIMEOUT_MS,
       experimental_telemetry: telemetry,
     });
   }
@@ -415,6 +418,7 @@ class LLMBuilder {
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
+      timeout: SysEnv.AI_LLM_TIMEOUT_MS,
       experimental_telemetry: this._buildTelemetry(),
     });
   }
@@ -432,6 +436,7 @@ class LLMBuilder {
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
+      timeout: SysEnv.AI_LLM_TIMEOUT_MS,
       experimental_telemetry: this._buildTelemetry(),
     });
   }
@@ -447,6 +452,7 @@ class LLMBuilder {
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
+      timeout: SysEnv.AI_LLM_TIMEOUT_MS,
       experimental_telemetry: this._buildTelemetry(),
     });
   }

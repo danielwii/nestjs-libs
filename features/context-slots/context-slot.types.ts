@@ -12,8 +12,13 @@
  * 上下文槽位定义。
  *
  * T 从 renderers 函数签名自动推导，调用方无需手动传泛型。
- * renderers 的 key 是 fidelity 标识（如 'full' | 'compact'），
- * value 是渲染函数，返回 null 表示条件跳过。
+ * renderers 的 key 是 fidelity 标识（如 'full' | 'compact'）。
+ *
+ * ## 激活函数模式 (Activation Function Pattern)
+ *
+ * 渲染函数接收 (data, options)：
+ * 1. **激活自律**：函数内部可访问 options（如 currentTurn, maxTokens），返回 null 表示在当前语境下「隐藏」。
+ * 2. **动态渲染**：内容可随 options 变化（如根据剩余预算返回不同长度的文本）。
  */
 export interface ContextSlot<T = unknown> {
   readonly id: string;
@@ -21,8 +26,13 @@ export interface ContextSlot<T = unknown> {
   readonly description: string;
   readonly category: string;
   readonly priority: number;
-  /** fidelity key → 渲染函数。返回 null = 条件跳过 */
-  readonly renderers: Partial<Record<string, (data: T) => string | null>>;
+  /**
+   * fidelity key → 渲染函数。
+   * @param data 槽位持有的业务数据
+   * @param options 编译时的全局选项（用于实现动态激活逻辑）
+   * @returns 渲染出的字符串，返回 null 表示在当前语境下跳过此槽位
+   */
+  readonly renderers: Partial<Record<string, (data: T, options: CompileOptions) => string | null>>;
   /** 可选元数据：数据变化频率 */
   readonly volatility?: 'static' | 'session' | 'turn';
 }

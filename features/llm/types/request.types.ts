@@ -119,6 +119,8 @@ export interface LLMRequest {
   stream?: boolean;
   system?: string;
   signal?: AbortSignal;
+  /** 超时时间（毫秒），未传 signal 时生效，默认 60000 */
+  timeout?: number;
 
   // ========== 场景化便利 ==========
 

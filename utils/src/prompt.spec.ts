@@ -1,9 +1,8 @@
 import { TimeSensitivity } from './prompt';
-import { PromptBuilder, wrapWithCoT, wrapWithDebug } from './prompt.xml';
+import { PromptBuilder } from './prompt.xml';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import dedent from 'dedent';
-import { z } from 'zod';
 
 describe('Prompt', () => {
   const ORIGINAL_TZ = process.env.TZ;
@@ -77,21 +76,18 @@ describe('Prompt', () => {
       <style>参照 Dyson 等成功公司的宣传风格，它们在推广类似产品时的文案风格。</style>
       <tone>口语化</tone>
       <audience>其他虚拟AI角色</audience>
-
       <instructions priority="high">
         ## 分析用户情感
         - 仔细分析用户的语言表达
         - 识别情感状态的细微变化
         - 提供有建设性的建议
       </instructions>
-
       <rules priority="critical">
       ## 规则1
       - 不要提供有害或不当的内容
       ## 规则2
       - 不要提供有害或不当的内容
       </rules>
-
       <examples strict="For inspiration only, not to be used as output or reference">
         <example title="正面情感示例">
           <content>用户说："今天心情很好！"，分析结果应该是积极的。</content>
@@ -100,95 +96,16 @@ describe('Prompt', () => {
           <content>用户说："我很困惑"，应该识别为困惑情绪。</content>
         </example>
       </examples>
-
       <context>
         <section name="user_message" priority="high" purpose="主输入消息">用户的原始消息</section>
         <section name="conversation_history" purpose="用于参考">对话历史</section>
         <section name="empty_context"><empty /></section>
       </context>
-
       <language priority="critical">Use "中文" as the default response language. Switch to another language if the user explicitly requests it.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning
     `);
-  });
-
-  it('withCoT 应添加推理结构指令', () => {
-    const prompt = new PromptBuilder('analyzer', '1.0').role('分析师').objective('分析数据').build().withCoT();
-
-    const result = prompt.render({ timezone: 'UTC', sensitivity: TimeSensitivity.Minute });
-
-    expect(result).toBe(dedent`
-      [analyzer:1.0]
-      ------
-      <role priority="critical">分析师</role>
-      <objective priority="critical">分析数据</objective>
-
-      <output-structure priority="high">
-        Before providing your final answer, follow this structure:
-        1. "reasoning": Think through the problem step by step
-        2. "scratchpad": Use for calculations, notes, or intermediate steps
-        3. "result": Your final answer
-      </output-structure>
-      ------
-      When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
-      Now:2024-01-15 Monday 10:30 in the morning
-    `);
-
-    expect(prompt.hasCoT()).toBe(true);
-    expect(prompt.hasDebug()).toBe(false);
-  });
-
-  it('withDebug 应添加 CoT + 自我评估指令', () => {
-    const prompt = new PromptBuilder('debugger', '2.0').role('调试专家').objective('调试代码').build().withDebug();
-
-    const result = prompt.render({ timezone: 'UTC', sensitivity: TimeSensitivity.Minute });
-
-    expect(result).toBe(dedent`
-      [debugger:2.0]
-      ------
-      <role priority="critical">调试专家</role>
-      <objective priority="critical">调试代码</objective>
-
-      <output-structure priority="high">
-        Before providing your final answer, follow this structure:
-        1. "reasoning": Think through the problem step by step
-        2. "scratchpad": Use for calculations, notes, or intermediate steps
-        3. "result": Your final answer
-      </output-structure>
-
-      <self-evaluation priority="medium">
-        Additionally, evaluate your response quality:
-        - "overall_confidence": Your confidence in this answer (0-1)
-        - "module_confidence": How well you followed each prompt section
-        - "gigo_analysis": Assess input quality and identify potential issues
-      </self-evaluation>
-      ------
-      When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
-      Now:2024-01-15 Monday 10:30 in the morning
-    `);
-
-    expect(prompt.hasCoT()).toBe(true);
-    expect(prompt.hasDebug()).toBe(true);
-  });
-
-  it('Prompt 应该是不可变的', () => {
-    const original = new PromptBuilder('test', '1.0').role('角色').objective('目标').build();
-
-    const withCot = original.withCoT();
-    const withDebug = original.withDebug();
-
-    // 原始实例不应被修改
-    expect(original.hasCoT()).toBe(false);
-    expect(original.hasDebug()).toBe(false);
-
-    // 新实例有各自的状态
-    expect(withCot.hasCoT()).toBe(true);
-    expect(withCot.hasDebug()).toBe(false);
-
-    expect(withDebug.hasCoT()).toBe(true);
-    expect(withDebug.hasDebug()).toBe(true);
   });
 });
 
@@ -243,25 +160,20 @@ describe('PromptBuilder', () => {
       <style>KOL</style>
       <tone>温柔</tone>
       <audience>儿童</audience>
-
       <instructions priority="high">
         遵循规则
       </instructions>
-
       <rules priority="critical">
       禁止输出附件
       </rules>
-
       <examples strict="For inspiration only, not to be used as output or reference">
         <example title="示例A">
           <content>展示风格A</content>
         </example>
       </examples>
-
       <context>
         <section name="section" priority="critical">内容</section>
       </context>
-
       <language priority="critical">Use "zh-Hans" as the default response language. Switch to another language if the user explicitly requests it.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
@@ -300,67 +212,5 @@ describe('PromptBuilder', () => {
     expect(() => {
       new PromptBuilder('test', '1.0').role('角色').build();
     }).toThrow('PromptBuilder: objective is required');
-  });
-});
-
-describe('Schema Wrappers', () => {
-  it('wrapWithCoT 应包装用户 schema', () => {
-    const userSchema = z.object({ answer: z.string() });
-    const cotSchema = wrapWithCoT(userSchema);
-
-    // 验证包装后的 schema 结构
-    const shape = cotSchema.shape;
-    expect(shape.reasoning).toBeDefined();
-    expect(shape.scratchpad).toBeDefined();
-    expect(shape.result).toBeDefined();
-
-    // 验证可以正确解析
-    const validData = {
-      reasoning: '思考过程',
-      scratchpad: '草稿',
-      result: { answer: '答案' },
-    };
-    expect(() => cotSchema.parse(validData)).not.toThrow();
-  });
-
-  it('wrapWithDebug 应包装用户 schema 并添加调试字段', () => {
-    const userSchema = z.object({ score: z.number() });
-    const debugSchema = wrapWithDebug(userSchema);
-
-    // 验证包装后的 schema 结构
-    const shape = debugSchema.shape;
-    expect(shape.reasoning).toBeDefined();
-    expect(shape.scratchpad).toBeDefined();
-    expect(shape.result).toBeDefined();
-    expect(shape.overall_confidence).toBeDefined();
-    expect(shape.module_confidence).toBeDefined();
-    expect(shape.gigo_analysis).toBeDefined();
-
-    // 验证可以正确解析
-    const validData = {
-      reasoning: '推理',
-      scratchpad: '笔记',
-      result: { score: 85 },
-      overall_confidence: 0.9,
-      module_confidence: {
-        role: 0.95,
-      },
-      gigo_analysis: {
-        input_quality_assessment: {
-          role_clarity: 0.9,
-          objective_specificity: 0.85,
-          instruction_coherence: 0.88,
-          context_relevance: 0.92,
-        },
-        garbage_indicators: {
-          ambiguous_terms: [],
-          conflicting_directives: [],
-          missing_context: [],
-        },
-        garbage_score: 0.1,
-        gold_potential: 0.95,
-      },
-    };
-    expect(() => debugSchema.parse(validData)).not.toThrow();
   });
 });

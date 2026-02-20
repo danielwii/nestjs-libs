@@ -228,6 +228,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境） */
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
 
+  /** 默认 LLM 调用超时（毫秒），透传给 AI SDK 的 timeout 参数 */
+  @Type(() => Number) @IsNumber() @IsOptional() AI_LLM_TIMEOUT_MS: number = 60_000;
+
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
   @IsString() @IsOptional() DATABASE_URL?: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;

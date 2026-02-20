@@ -41,13 +41,15 @@
  * ```
  */
 
+import { Logger } from '@nestjs/common';
+
 import { normalizeTimezone } from './datetime';
+import { f } from './logging';
 import { TimeSensitivity } from './prompt';
+import { estimateTokens } from './tokenizer';
 
 import { format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import dedent from 'dedent';
-import { z } from 'zod';
 
 // ==================== Types ====================
 
@@ -80,182 +82,139 @@ export interface PromptData {
 export interface RenderOptions {
   timezone?: string | null;
   sensitivity?: TimeSensitivity;
-}
-
-// ==================== Enhancement Instructions ====================
-
-const COT_INSTRUCTION = dedent`
-  <output-structure priority="high">
-    Before providing your final answer, follow this structure:
-    1. "reasoning": Think through the problem step by step
-    2. "scratchpad": Use for calculations, notes, or intermediate steps
-    3. "result": Your final answer
-  </output-structure>
-`;
-
-const DEBUG_INSTRUCTION = dedent`
-  <self-evaluation priority="medium">
-    Additionally, evaluate your response quality:
-    - "overall_confidence": Your confidence in this answer (0-1)
-    - "module_confidence": How well you followed each prompt section
-    - "gigo_analysis": Assess input quality and identify potential issues
-  </self-evaluation>
-`;
-
-// ==================== Schema Wrappers ====================
-
-/** Module confidence schema for debug mode */
-export const ModuleConfidenceSchema = z.object({
-  role: z.number().min(0).max(1).describe('角色定义执行置信度(0-1)'),
-  objective: z.number().min(0).max(1).optional().describe('任务目标达成置信度(0-1)'),
-  style: z.number().min(0).max(1).optional().describe('写作风格匹配置信度(0-1)'),
-  tone: z.number().min(0).max(1).optional().describe('情感语调把握置信度(0-1)'),
-  audience: z.number().min(0).max(1).optional().describe('目标受众适配置信度(0-1)'),
-  instructions: z.number().min(0).max(1).optional().describe('指令遵循置信度(0-1)'),
-  rules: z.number().min(0).max(1).optional().describe('规则遵守置信度(0-1)'),
-  context: z.number().min(0).max(1).optional().describe('上下文理解置信度(0-1)'),
-});
-
-/** GIGO analysis schema for debug mode */
-export const GigoAnalysisSchema = z.object({
-  input_quality_assessment: z.object({
-    role_clarity: z.number().min(0).max(1).describe('角色定义清晰度(0-1)'),
-    objective_specificity: z.number().min(0).max(1).describe('目标明确性(0-1)'),
-    instruction_coherence: z.number().min(0).max(1).describe('指令一致性(0-1)'),
-    context_relevance: z.number().min(0).max(1).describe('上下文相关性(0-1)'),
-  }),
-  garbage_indicators: z.object({
-    ambiguous_terms: z.array(z.string()).describe('模糊术语列表'),
-    conflicting_directives: z.array(z.string()).describe('冲突指令列表'),
-    missing_context: z.array(z.string()).describe('缺失上下文列表'),
-  }),
-  garbage_score: z.number().min(0).max(1).describe('垃圾得分(0-1)'),
-  gold_potential: z.number().min(0).max(1).describe('黄金潜力(0-1)'),
-});
-
-/**
- * CoT 包装 - 添加推理结构
- *
- * @example
- * ```typescript
- * const userSchema = z.object({ emotion: z.string() });
- * const cotSchema = wrapWithCoT(userSchema);
- * // => z.object({ reasoning, scratchpad, result: userSchema })
- * ```
- */
-export function wrapWithCoT<T extends z.ZodType>(userSchema: T) {
-  return z.object({
-    reasoning: z.string().describe('推理过程和思维链'),
-    scratchpad: z.string().describe('草稿和计算过程'),
-    result: userSchema,
-  });
+  /** Whether to output token metrics in the log */
+  verbose?: boolean;
 }
 
 /**
- * Debug 包装 - 添加分析结构（包含 CoT）
- *
- * @example
- * ```typescript
- * const userSchema = z.object({ emotion: z.string() });
- * const debugSchema = wrapWithDebug(userSchema);
- * // => z.object({ reasoning, scratchpad, result, confidence, gigo_analysis })
- * ```
+ * Token Metrics for a rendered prompt
  */
-export function wrapWithDebug<T extends z.ZodType>(userSchema: T) {
-  return z.object({
-    reasoning: z.string().describe('推理过程和思维链'),
-    scratchpad: z.string().describe('草稿和计算过程'),
-    result: userSchema,
-    overall_confidence: z.number().min(0).max(1).describe('总体置信度(0-1)'),
-    module_confidence: ModuleConfidenceSchema,
-    gigo_analysis: GigoAnalysisSchema,
-  });
+export interface PromptMetrics {
+  readonly id: string;
+  readonly metaTokens: number;
+  readonly sectionTokens: Record<string, number>;
+  readonly totalContextTokens: number;
+  readonly totalTokens: number;
 }
 
 // ==================== Prompt Class ====================
 
-/**
- * 不可变的 Prompt 数据类
- *
- * 通过 PromptBuilder 构建，支持 withCoT() / withDebug() 增强
- */
 export class Prompt {
   readonly id: string;
   readonly version: string;
   readonly data: PromptData;
-  private readonly enhancements: Set<'cot' | 'debug'>;
+  private static readonly logger = new Logger('Prompt');
 
-  constructor(id: string, version: string, data: PromptData, enhancements?: ('cot' | 'debug')[]) {
+  constructor(id: string, version: string, data: PromptData) {
     this.id = id;
     this.version = version;
     this.data = structuredClone(data);
-    this.enhancements = new Set(enhancements ?? []);
-  }
-
-  /**
-   * 添加 CoT 增强，返回新实例
-   *
-   * 在 prompt 中添加推理结构指令，引导 LLM 输出思维链
-   */
-  withCoT(): Prompt {
-    const newEnhancements = new Set(this.enhancements);
-    newEnhancements.add('cot');
-    return new Prompt(this.id, this.version, this.data, [...newEnhancements]);
-  }
-
-  /**
-   * 添加 Debug 增强（包含 CoT），返回新实例
-   *
-   * 在 prompt 中添加自我评估指令，引导 LLM 输出置信度和 GIGO 分析
-   */
-  withDebug(): Prompt {
-    const newEnhancements = new Set(this.enhancements);
-    newEnhancements.add('cot');
-    newEnhancements.add('debug');
-    return new Prompt(this.id, this.version, this.data, [...newEnhancements]);
   }
 
   /**
    * 渲染为最终 prompt 字符串
    */
   render(options: RenderOptions = {}): string {
-    const { timezone, sensitivity = TimeSensitivity.Minute } = options;
+    const { timezone, sensitivity = TimeSensitivity.Minute, verbose = false } = options;
 
-    // Generate XML content
-    const xmlContent = generateXmlPromptContent(this.data);
+    const sections = this.data.sections;
+    const sectionMetrics: Record<string, number> = {};
 
-    // Add enhancement instructions
-    const enhancementParts: string[] = [];
-    if (this.enhancements.has('cot')) {
-      enhancementParts.push(COT_INSTRUCTION);
+    // 1. Render Meta (everything except sections)
+    const rolePart = this.data.role ? `<role priority="critical">${this.data.role}</role>` : '';
+    const objectivePart = this.data.objective
+      ? `<objective priority="critical">${this.data.objective}</objective>`
+      : '';
+    const stylePart = this.data.style ? `<style>${this.data.style}</style>` : '';
+    const tonePart = this.data.tone ? `<tone>${this.data.tone}</tone>` : '';
+    const audiencePart = this.data.audience ? `<audience>${this.data.audience}</audience>` : '';
+    const outputPart = this.data.output ? `<output priority="high">${this.data.output}</output>` : '';
+    const languagePart = this.data.language
+      ? `<language priority="critical">Use "${this.data.language}" as the default response language. Switch to another language if the user explicitly requests it.</language>`
+      : '';
+
+    const instructionsPart = this.data.instructions.length
+      ? `<instructions priority="high">\n${this.data.instructions
+          .map((instruction) =>
+            instruction
+              .split('\n')
+              .map((line) => `  ${line}`)
+              .join('\n'),
+          )
+          .join('\n\n')}\n</instructions>`
+      : '';
+
+    const rulesPart = this.data.rules.length
+      ? `<rules priority="critical">\n${this.data.rules.join('\n')}\n</rules>`
+      : '';
+
+    const examplesPart = this.data.examples.length
+      ? `<examples strict="For inspiration only, not to be used as output or reference">\n${this.data.examples
+          .map((example) => {
+            const title = example.title ? ` title="${example.title}"` : '';
+            return `  <example${title}>\n    <content>${example.content}</content>\n  </example>`;
+          })
+          .join('\n')}\n</examples>`
+      : '';
+
+    const metaXml = [
+      rolePart,
+      objectivePart,
+      stylePart,
+      tonePart,
+      audiencePart,
+      instructionsPart,
+      rulesPart,
+      examplesPart,
+      outputPart,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const metaTokens = estimateTokens(metaXml);
+
+    // 2. Render Context Sections
+    const renderedSections: string[] = [];
+    let totalContextTokens = 0;
+    for (const section of sections) {
+      const content = section.content ?? '<empty />';
+      const priority = section.priority ? ` priority="${section.priority}"` : '';
+      const purpose = section.purpose ? ` purpose="${section.purpose}"` : '';
+      const sectionXml = `  <section name="${section.title}"${priority}${purpose}>${content}</section>`;
+      renderedSections.push(sectionXml);
+      const tokens = estimateTokens(sectionXml);
+      sectionMetrics[section.title] = tokens;
+      totalContextTokens += tokens;
     }
-    if (this.enhancements.has('debug')) {
-      enhancementParts.push(DEBUG_INSTRUCTION);
-    }
+    const contextXml = renderedSections.length > 0 ? `<context>\n${renderedSections.join('\n')}\n</context>` : '';
 
-    const enhancementsSection = enhancementParts.length > 0 ? '\n\n' + enhancementParts.join('\n\n') : '';
-
-    // Format timestamp
+    // 3. Final Composition
     const base = new Date();
     const normalizedTimezone = normalizeTimezone(timezone);
     const timestamp = normalizedTimezone
       ? formatInTimeZone(base, normalizedTimezone, sensitivity)
       : format(base, sensitivity);
 
-    return `[${this.id}:${this.version}]
-------
-${xmlContent}${enhancementsSection}
-------
-When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
-Now:${timestamp}`;
-  }
+    const fullPrompt = [
+      `[${this.id}:${this.version}]`,
+      '------',
+      metaXml,
+      contextXml,
+      languagePart,
+      '------',
+      'When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.',
+      `Now:${timestamp}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
 
-  hasCoT(): boolean {
-    return this.enhancements.has('cot');
-  }
+    if (verbose) {
+      const totalTokens = estimateTokens(fullPrompt);
+      const report = f`#render [${this.id}:${this.version}] meta=${metaTokens} context=${totalContextTokens} total=${totalTokens} details=${sectionMetrics}`;
+      Prompt.logger.log(report);
+    }
 
-  hasDebug(): boolean {
-    return this.enhancements.has('debug');
+    return fullPrompt;
   }
 }
 
@@ -469,70 +428,6 @@ export class PromptBuilder {
 
     return new Prompt(this._id, this._version, data);
   }
-}
-
-// ==================== XML Generation ====================
-
-function generateXmlPromptContent(data: PromptData): string {
-  // Role, Objective, Writing Style, Emotional Tone, Target Audience
-  const rolePart = data.role ? `<role priority="critical">${data.role}</role>` : undefined;
-  const objectivePart = data.objective ? `<objective priority="critical">${data.objective}</objective>` : undefined;
-  const stylePart = data.style ? `<style>${data.style}</style>` : undefined;
-  const tonePart = data.tone ? `<tone>${data.tone}</tone>` : undefined;
-  const audiencePart = data.audience ? `<audience>${data.audience}</audience>` : undefined;
-
-  // Instructions
-  const instructionsPart = data.instructions.length
-    ? `<instructions priority="high">\n${data.instructions
-        .map((instruction) =>
-          instruction
-            .split('\n')
-            .map((line) => `  ${line}`)
-            .join('\n'),
-        )
-        .join('\n\n')}\n</instructions>`
-    : undefined;
-
-  // Rules
-  const rulesPart = data.rules.length ? `<rules priority="critical">\n${data.rules.join('\n')}\n</rules>` : undefined;
-
-  // Examples
-  const examplesPart = data.examples.length
-    ? `<examples strict="For inspiration only, not to be used as output or reference">\n${data.examples
-        .map((example) => {
-          const title = example.title ? ` title="${example.title}"` : '';
-          return `  <example${title}>\n    <content>${example.content}</content>\n  </example>`;
-        })
-        .join('\n')}\n</examples>`
-    : undefined;
-
-  // Context
-  const contextPart = data.sections.length
-    ? `<context>\n${data.sections
-        .map((section) => {
-          const content = section.content ?? '<empty />';
-          const priority = section.priority ? ` priority="${section.priority}"` : '';
-          const purpose = section.purpose ? ` purpose="${section.purpose}"` : '';
-          return `  <section name="${section.title}"${priority}${purpose}>${content}</section>`;
-        })
-        .join('\n')}\n</context>`
-    : undefined;
-
-  // Metadata section
-  const metadataParts = [rolePart, objectivePart, stylePart, tonePart, audiencePart].filter(Boolean);
-  const metadataSection = metadataParts.length > 0 ? metadataParts.join('\n') : undefined;
-
-  // Output format
-  const outputPart = data.output ? `<output priority="high">${data.output}</output>` : undefined;
-
-  // Language
-  const languagePart = data.language
-    ? `<language priority="critical">Use "${data.language}" as the default response language. Switch to another language if the user explicitly requests it.</language>`
-    : undefined;
-
-  return [metadataSection, instructionsPart, rulesPart, examplesPart, contextPart, outputPart, languagePart]
-    .filter(Boolean)
-    .join('\n\n');
 }
 
 // ==================== Re-exports ====================

@@ -48,35 +48,129 @@ export interface ModelConfig<P extends string = string> {
  *
  * Key 格式：provider:model
  *
- * 定价参考（2026.02，OpenRouter 官网）：
- * | 模型 | Input | Output | Context | 备注 |
- * |------|-------|--------|---------|------|
- * | Grok 4.1 Fast | $0.20/M | $0.50/M | 2M | ⚠️ reasoning 无法关闭 |
- * | DeepSeek V3.2 | $0.25/M | $0.38/M | 164K | Roleplay #1 |
- * | Gemini 2.5 Flash | $0.30/M | $2.50/M | 1M | |
- * | Gemini 3 Flash Preview | $0.50/M | $3/M | 1M | Tool Calling #1 |
- * | Kimi K2.5 | $0.50/M | $2.80/M | 262K | |
- * | Claude Sonnet 4.5 | $3/M | $15/M | 1M | |
- * | Claude Opus 4.5 | $5/M | $25/M | 200K | 最强 coding |
+ * OpenRouter Key 支持两种格式（等价，并存）：
+ * - 简称：openrouter:gemini-2.5-flash
+ * - 全称：openrouter:google/gemini-2.5-flash（与 OpenRouter modelId 一致）
+ *
+ * OpenRouter Provider 定价差异：
+ * 各 provider 定价不同，选型时可通过 providerSort（price/throughput/latency）控制路由偏好。
  *
  * @see https://openrouter.ai/models
  */
 export interface LLMModelRegistry {
   // ==================== OpenRouter ====================
-  'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>; // $0.30/$2.50, 1M ctx
-  'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>; // 1M ctx
-  'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>; // 1M ctx
-  'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>; // $0.50/$3, 1M ctx, Tool Calling #1
-  'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>; // 200K ctx
-  'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>; // 200K ctx
-  'openrouter:claude-4-sonnet': ModelConfig<'openrouter'>; // 200K ctx
-  'openrouter:claude-sonnet-4.5': ModelConfig<'openrouter'>; // $3/$15, 1M ctx
-  'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>; // 200K ctx
-  'openrouter:claude-opus-4.5': ModelConfig<'openrouter'>; // 最强 coding
-  'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>; // 128K ctx
-  'openrouter:grok-3-mini': ModelConfig<'openrouter'>; // 131K ctx, thinking
   /**
-   * Grok 4.1 Fast - $0.20/$0.50, 2M ctx, best tool calling
+   * Gemini 2.5 Flash
+   *
+   * 定价参考（2026.02）：Input $0.30/M, Output $2.50/M, Context 1M
+   *
+   * @see https://openrouter.ai/google/gemini-2.5-flash
+   */
+  'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-2.5-flash': ModelConfig<'openrouter'>;
+  /**
+   * Gemini 2.5 Pro
+   *
+   * 定价参考（2026.02）：Input $1.25/M, Output $10/M（≤200K），Context 1M
+   *
+   * @see https://openrouter.ai/google/gemini-2.5-pro
+   */
+  'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-2.5-pro': ModelConfig<'openrouter'>;
+  /**
+   * Gemini 2.5 Flash Lite
+   *
+   * 定价参考（2026.02）：Input $0.10/M, Output $0.40/M, Context 1M
+   *
+   * @see https://openrouter.ai/google/gemini-2.5-flash-lite
+   */
+  'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
+  /**
+   * Gemini 3 Flash Preview - Tool Calling #1
+   *
+   * 定价参考（2026.02）：Input $0.50/M, Output $3/M, Context 1M
+   *
+   * @see https://openrouter.ai/google/gemini-3-flash-preview
+   */
+  'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-3-flash-preview': ModelConfig<'openrouter'>;
+  /**
+   * Claude 3.5 Sonnet
+   *
+   * 定价参考（2026.02）：Input $6/M, Output $30/M, Context 200K
+   *
+   * @see https://openrouter.ai/anthropic/claude-3.5-sonnet
+   */
+  'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-3.5-sonnet': ModelConfig<'openrouter'>;
+  /**
+   * Claude 3.5 Haiku
+   *
+   * 定价参考（2026.02）：Input $0.80/M, Output $4/M, Context 200K
+   *
+   * @see https://openrouter.ai/anthropic/claude-3.5-haiku
+   */
+  'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-3.5-haiku': ModelConfig<'openrouter'>;
+  /**
+   * Claude 4 Sonnet
+   *
+   * 定价参考（2026.02）：Input $3/M, Output $15/M（≤200K），Context 1M
+   *
+   * @see https://openrouter.ai/anthropic/claude-sonnet-4
+   */
+  'openrouter:claude-4-sonnet': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-sonnet-4': ModelConfig<'openrouter'>;
+  /**
+   * Claude Sonnet 4.5
+   *
+   * 定价参考（2026.02）：Input $3/M, Output $15/M, Context 1M
+   *
+   * @see https://openrouter.ai/anthropic/claude-sonnet-4.5
+   */
+  'openrouter:claude-sonnet-4.5': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-sonnet-4.5': ModelConfig<'openrouter'>;
+  /**
+   * Claude Opus 4.1
+   *
+   * 定价参考（2026.02）：Input $15/M, Output $75/M, Context 200K
+   *
+   * @see https://openrouter.ai/anthropic/claude-opus-4.1
+   */
+  'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-opus-4.1': ModelConfig<'openrouter'>;
+  /**
+   * Claude Opus 4.5 - 最强 coding
+   *
+   * 定价参考（2026.02）：Input $5/M, Output $25/M, Context 200K
+   *
+   * @see https://openrouter.ai/anthropic/claude-opus-4.5
+   */
+  'openrouter:claude-opus-4.5': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-opus-4.5': ModelConfig<'openrouter'>;
+  /**
+   * GPT-4o Mini
+   *
+   * 定价参考（2026.02）：Input $0.15/M, Output $0.60/M, Context 128K
+   *
+   * @see https://openrouter.ai/openai/gpt-4o-mini
+   */
+  'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-4o-mini': ModelConfig<'openrouter'>;
+  /**
+   * Grok 3 Mini - thinking
+   *
+   * 定价参考（2026.02）：Input $0.30/M, Output $0.50/M, Context 131K
+   *
+   * @see https://openrouter.ai/x-ai/grok-3-mini
+   */
+  'openrouter:grok-3-mini': ModelConfig<'openrouter'>;
+  'openrouter:x-ai/grok-3-mini': ModelConfig<'openrouter'>;
+  /**
+   * Grok 4.1 Fast - best tool calling
+   *
+   * 定价参考（2026.02）：Input $0.20/M, Output $0.50/M, Context 2M
    *
    * ⚠️ 注意：reasoning 无法关闭！
    * - noThinking 参数对此模型无效
@@ -87,16 +181,73 @@ export interface LLMModelRegistry {
    * @see ~/.claude/gotchas/openrouter-grok-reasoning-cannot-disable.md
    */
   'openrouter:grok-4.1-fast': ModelConfig<'openrouter'>;
+  'openrouter:x-ai/grok-4.1-fast': ModelConfig<'openrouter'>;
   /**
-   * DeepSeek V3.2 - $0.25/$0.38, 164K ctx
+   * DeepSeek V3.2 - Roleplay #1
+   *
+   * 定价参考（2026.02）：Input $0.26/M, Output $0.38/M, Context 164K
    *
    * 特点：
    * - Roleplay 排名 #1
    * - 支持 reasoning 模式（可通过 reasoning_enabled 控制）
    * - DSA 稀疏注意力，长上下文高效
    * - GPT-5 级别推理能力
+   *
+   * Provider 定价（选型时注意）：
+   * | Provider | Input | Output |
+   * |----------|-------|--------|
+   * | DeepInfra / AtlasCloud | $0.26 | $0.38 |
+   * | NovitaAI | $0.269 | $0.40 |
+   * | SiliconFlow | $0.27 | $0.42 |
+   * | Parasail | $0.28 | $0.45 |
+   * | Google Vertex | $0.56 | $1.68 | ← 贵 2-4x，慎用
+   *
+   * 建议：providerSort: 'price' 优先低价 provider
    */
   'openrouter:deepseek-v3.2': ModelConfig<'openrouter'>;
+  'openrouter:deepseek/deepseek-v3.2': ModelConfig<'openrouter'>;
+  /**
+   * Kimi K2.5 - MoonshotAI 多模态模型
+   *
+   * 定价参考（2026.02）：Input $0.23/M, Output $3/M, Context 262K
+   *
+   * 视觉编码、Agent 工具调用能力强
+   *
+   * Provider 定价（选型时注意）：
+   * | Provider | Input | Output |
+   * |----------|-------|--------|
+   * | SiliconFlow | $0.23 | $3 | ← 最低价
+   * | DeepInfra | $0.45 | $2.25 |
+   * | Inceptron / AtlasCloud / Together | $0.50 | $2.40-2.80 |
+   * | NovitaAI / Moonshot / Fireworks / Baseten | $0.60 | $2.85-3 |
+   * | Venice | $0.75 | $3.75 | ← 贵 2-3x
+   *
+   * 建议：providerSort: 'price' 优先 SiliconFlow
+   *
+   * @see https://openrouter.ai/moonshotai/kimi-k2.5
+   */
+  'openrouter:kimi-k2.5': ModelConfig<'openrouter'>;
+  'openrouter:moonshotai/kimi-k2.5': ModelConfig<'openrouter'>;
+  /**
+   * GLM 5 - Z.ai 开源旗舰模型
+   *
+   * 定价参考（2026.02）：Input $0.30/M, Output $2.55/M, Context 205K
+   *
+   * 复杂系统设计、长时程 Agent 工作流，Programming #3、Science #6、Roleplay #7
+   *
+   * Provider 定价（选型时注意）：
+   * | Provider | Input | Output |
+   * |----------|-------|--------|
+   * | SiliconFlow | $0.30 | $2.55 | ← 最低价
+   * | AtlasCloud | $0.95 | $3.15 |
+   * | Friendli / GMICloud / Parasail / Venice | $1 | $3.20 | ← 贵 3x
+   *
+   * 建议：providerSort: 'price' 优先 SiliconFlow
+   *
+   * @see https://openrouter.ai/z-ai/glm-5
+   */
+  'openrouter:glm-5': ModelConfig<'openrouter'>;
+  'openrouter:z-ai/glm-5': ModelConfig<'openrouter'>;
 
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
@@ -125,21 +276,55 @@ export type LLMProviderType = LLMModelRegistry[LLMModelKey]['provider'];
 // ==================== 运行时 Registry ====================
 
 const modelRegistry = new Map<string, ModelConfig>([
-  // OpenRouter 模型
+  // OpenRouter 模型（简称 + 全称成对，按模型分组）
+  // Gemini 2.5 Flash
   ['openrouter:gemini-2.5-flash', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash' }],
+  ['openrouter:google/gemini-2.5-flash', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash' }],
+  // Gemini 2.5 Pro
   ['openrouter:gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
+  ['openrouter:google/gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
+  // Gemini 2.5 Flash Lite
   ['openrouter:gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
+  ['openrouter:google/gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
+  // Gemini 3 Flash Preview
   ['openrouter:gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
+  ['openrouter:google/gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
+  // Claude 3.5 Sonnet
   ['openrouter:claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
+  ['openrouter:anthropic/claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
+  // Claude 3.5 Haiku
   ['openrouter:claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku' }],
+  ['openrouter:anthropic/claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku' }],
+  // Claude 4 Sonnet
   ['openrouter:claude-4-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' }],
+  ['openrouter:anthropic/claude-sonnet-4', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' }],
+  // Claude Sonnet 4.5
   ['openrouter:claude-sonnet-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.5' }],
+  ['openrouter:anthropic/claude-sonnet-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.5' }],
+  // Claude Opus 4.1
   ['openrouter:claude-4.1-opus', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
+  ['openrouter:anthropic/claude-opus-4.1', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
+  // Claude Opus 4.5
   ['openrouter:claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
+  ['openrouter:anthropic/claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
+  // GPT-4o Mini
   ['openrouter:gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
+  ['openrouter:openai/gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
+  // Grok 3 Mini
   ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
+  ['openrouter:x-ai/grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
+  // Grok 4.1 Fast
   ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
+  ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
+  // DeepSeek V3.2
   ['openrouter:deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
+  ['openrouter:deepseek/deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
+  // Kimi K2.5
+  ['openrouter:kimi-k2.5', { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.5' }],
+  ['openrouter:moonshotai/kimi-k2.5', { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.5' }],
+  // GLM 5
+  ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
+  ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],

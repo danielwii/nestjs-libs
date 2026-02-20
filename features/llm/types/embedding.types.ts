@@ -122,12 +122,12 @@ export interface EmbeddingModelMetadata {
  * | 模型 | "相关"分数范围 | 推荐阈值 | 说明 |
  * |------|---------------|----------|------|
  * | text-embedding-ada-002 | 0.70-0.85 | 0.75-0.79 | 旧模型，分数较高 |
- * | text-embedding-3-small | 0.30-0.55 | **0.30** | 新模型，分数较低 |
+ * | text-embedding-3-small | 0.37-0.56 | **0.38** | 校准：SIMILAR 最低 37.1%，0.3 会误召回表面相关 |
  * | text-embedding-3-large | 0.27-0.50 | **0.25-0.35** | 更大模型，分数更低 |
  */
 export const EMBEDDING_MODEL_THRESHOLDS: Record<EmbeddingModel, EmbeddingThresholdConfig> = {
   // OpenAI 模型
-  'text-embedding-3-small': { duplicate: 0.77, relevance: 0.3 },
+  'text-embedding-3-small': { duplicate: 0.77, relevance: 0.38 },
   'text-embedding-3-large': { duplicate: 0.78, relevance: 0.35 },
   'text-embedding-ada-002': { duplicate: 0.9, relevance: 0.75 }, // 旧模型，分数较高
   // Jina 模型

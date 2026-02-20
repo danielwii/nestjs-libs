@@ -26,12 +26,17 @@ interface ModelPricing {
  * - OpenRouter: https://openrouter.ai/models
  * - Google: https://ai.google.dev/pricing
  *
+ * OpenRouter Provider 定价差异：
+ * 同一模型不同 provider 定价不同，本表取最低价（如 DeepInfra）。
+ * 实际成本随 OpenRouter 路由结果波动，Vertex 等 provider 可能贵 2-4x。
+ * 选型时可通过 providerSort: 'price' 优先低价 provider。
+ *
  * 更新频率：每月检查一次
  */
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // Gemini 系列
   'google/gemini-2.5-flash': { input: 0.3, output: 2.5 }, // OpenRouter 价格
-  'google/gemini-2.5-flash-lite': { input: 0.075, output: 0.3 },
+  'google/gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
   'google/gemini-2.5-pro': { input: 1.25, output: 10.0 },
   'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'gemini-2.5-flash': { input: 0.15, output: 0.6 }, // Google 直连价格（更便宜）
@@ -40,14 +45,28 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
 
   // Anthropic Claude 系列
-  'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 },
+  'anthropic/claude-3.5-sonnet': { input: 6.0, output: 30.0 },
+  'anthropic/claude-3.5-haiku': { input: 0.8, output: 4.0 },
+  'anthropic/claude-sonnet-4': { input: 3.0, output: 15.0 },
+  'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 }, // alias
+  'anthropic/claude-opus-4.1': { input: 15.0, output: 75.0 },
   'anthropic/claude-4-opus': { input: 5.0, output: 25.0 },
-  'anthropic/claude-3.5-haiku': { input: 1.0, output: 5.0 },
 
   // xAI Grok
+  'x-ai/grok-3-mini': { input: 0.3, output: 0.5 },
   'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 },
 
+  // DeepSeek（OpenRouter 最低价 provider：DeepInfra/AtlasCloud；Vertex 约 $0.56/$1.68）
+  'deepseek/deepseek-v3.2': { input: 0.26, output: 0.38 },
+
+  // MoonshotAI Kimi（OpenRouter 最低价 provider：SiliconFlow；Venice 约 $0.75/$3.75）
+  'moonshotai/kimi-k2.5': { input: 0.23, output: 3.0 },
+
+  // Z.ai GLM（OpenRouter 最低价 provider：SiliconFlow；其他约 $0.95-1/$3.15-3.20）
+  'z-ai/glm-5': { input: 0.3, output: 2.55 },
+
   // OpenAI
+  'openai/gpt-4o-mini': { input: 0.15, output: 0.6 },
   'openai/gpt-5.2': { input: 1.75, output: 14.0 },
   'openai/gpt-5.2-pro': { input: 21.0, output: 168.0 },
 };
@@ -96,14 +115,21 @@ function calculateCostFromKey(
 
     let modelId: string;
     if (provider === 'openrouter') {
-      // OpenRouter 格式：'gemini-2.5-flash' → 'google/gemini-2.5-flash'
-      // 或 'claude-4-sonnet' → 'anthropic/claude-4-sonnet'
-      if (modelName.startsWith('gemini')) {
+      // 全称格式（含 '/'）：'z-ai/glm-5' 已是完整 modelId，直接使用
+      if (modelName.includes('/')) {
+        modelId = modelName;
+      } else if (modelName.startsWith('gemini')) {
         modelId = `google/${modelName}`;
       } else if (modelName.startsWith('claude')) {
         modelId = `anthropic/${modelName}`;
       } else if (modelName.startsWith('grok')) {
         modelId = `x-ai/${modelName}`;
+      } else if (modelName.startsWith('kimi')) {
+        modelId = `moonshotai/${modelName}`;
+      } else if (modelName.startsWith('deepseek')) {
+        modelId = `deepseek/${modelName}`;
+      } else if (modelName.startsWith('glm')) {
+        modelId = `z-ai/${modelName}`;
       } else {
         modelId = modelName; // 假设已经包含 provider 前缀
       }

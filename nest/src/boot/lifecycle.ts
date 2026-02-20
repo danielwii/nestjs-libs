@@ -9,6 +9,60 @@ import * as _ from 'radash';
 
 import type { INestApplication } from '@nestjs/common';
 
+/** 提取 unhandledRejection 的完整信息（含类型、stack、cause）用于日志 */
+function formatRejectionDetail(err: unknown): string {
+  const type = err === null ? 'null' : err === undefined ? 'undefined' : typeof err;
+  const constructorName =
+    err !== null && err !== undefined && typeof err === 'object' ? Object.prototype.toString.call(err) : '-';
+
+  let message: string;
+  let stack: string | undefined;
+  let cause: unknown;
+
+  if (err instanceof Error) {
+    message = err.message;
+    stack = err.stack;
+    cause = err.cause;
+  } else if (typeof err === 'string') {
+    message = err;
+  } else if (err !== null && err !== undefined && typeof err === 'object') {
+    const withMessage = err as { message?: string };
+    message = withMessage.message ?? JSON.stringify(err);
+    const withStack = err as { stack?: string };
+    stack = withStack.stack;
+    const withCause = err as { cause?: unknown };
+    cause = withCause.cause;
+  } else {
+    message = String(err);
+  }
+
+  const parts: string[] = [`[type=${type}, constructor=${constructorName}]`, `message: ${message}`];
+  // DOMException（如 AbortError/TimeoutError）通常无 stack，补充 name/code 便于诊断
+  if (typeof err === 'object' && err !== null && constructorName.includes('DOMException')) {
+    const dom = err as { name?: string; code?: number };
+    if (dom.name) parts.push(`name: ${dom.name}`);
+    if (typeof dom.code === 'number') parts.push(`code: ${dom.code}`);
+  }
+  if (cause !== undefined && cause !== 'unknown cause') {
+    let causeStr: string;
+    if (cause instanceof Error) {
+      causeStr = cause.message;
+    } else if (typeof cause === 'object' && cause !== null) {
+      causeStr = JSON.stringify(cause);
+    } else {
+      // 已排除 Error 和 object，此处 cause 为 primitive，String() 安全
+      causeStr = String(cause as string | number | boolean | undefined | symbol | bigint);
+    }
+    parts.push(`cause: ${causeStr}`);
+  }
+  if (stack) {
+    parts.push(`stack:\n${stack}`);
+  } else {
+    parts.push('stack: (none)');
+  }
+  return parts.join('\n');
+}
+
 export const runApp = <App extends INestApplication>(app: App) => {
   const logger = new Logger('AppRunner');
   logger.log(f`(${os.hostname}) runApp in (${SysEnv.environment.env}) env`);
@@ -50,17 +104,13 @@ export const runApp = <App extends INestApplication>(app: App) => {
       // 设计意图：LLMService 已统一处理 NoOutputError 并检查 signal.aborted
       // 如果走到这里，说明是 unhandledRejection（floating promise 未正确处理）
       // 记录警告但不退出，因为可能是预期的 abort
-      // isAiNoOutputError 为 true 时，maybeError 必然存在且有 message
-      logger.warn(
-        f`(${os.hostname}) unhandledRejection: AI_NoOutputGeneratedError (likely abort, but promise not properly awaited): ${maybeError.message}`,
-      );
+      const detail = formatRejectionDetail(err);
+      logger.warn(f`(${os.hostname}) unhandledRejection: AI_NoOutputGeneratedError (likely abort):\n${detail}`);
       return;
     }
 
-    logger.error(
-      f`(${os.hostname}) unhandledRejection: ${err instanceof Error ? err.message : err} - ${(err as { cause?: unknown }).cause ?? 'unknown cause'} -`,
-      err instanceof Error ? err.stack : undefined,
-    );
+    const detail = formatRejectionDetail(err);
+    logger.error(f`(${os.hostname}) unhandledRejection:\n${detail}`);
     if (SysEnv.EXIT_ON_ERROR) {
       // Sentry.captureException(err);
       app
@@ -71,10 +121,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
           logger.error(f`(${os.hostname}) exit by unhandledRejection error: ${message}`, stack);
         })
         .finally(() => {
-          logger.error(
-            f`(${os.hostname}) exit by unhandledRejection... ${err instanceof Error ? err.message : err}`,
-            err instanceof Error ? err.stack : undefined,
-          );
+          logger.error(f`(${os.hostname}) exit by unhandledRejection...\n${formatRejectionDetail(err)}`);
           process.exit(2);
         });
     }

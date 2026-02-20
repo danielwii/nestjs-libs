@@ -29,16 +29,37 @@
 
 import { Logger } from '@nestjs/common';
 
+import { SysEnv } from '@app/env';
+import { f } from '@app/utils/logging';
+
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
 import * as Sentry from '@sentry/nestjs';
-import { embed, generateText, Output, streamText, tool } from 'ai';
+import {
+  APICallError,
+  embed,
+  extractJsonMiddleware,
+  generateText,
+  Output,
+  streamText,
+  tool,
+  wrapLanguageModel,
+} from 'ai';
 
 import type { EmbeddingModelKey, EmbeddingProvider } from '../types/embedding.types';
 import type { LLMModelKey } from '../types/model.types';
+/**
+ * 仅对已知会包裹 markdown 代码块的模型启用 extractJsonMiddleware。
+ *
+ * 背景：
+ * Kimi K2.5 在 response_format: json 场景下，偶发返回 ```json ... ```，
+ * parseCompleteOutput 期望纯 JSON（以 `{` 开头），会导致 JSON.parse 失败。
+ *
+ * @see https://ai-sdk.dev/docs/reference/ai-sdk-core/extract-json-middleware
+ */
 import type { ProviderType } from './options.helpers';
 import type { LanguageModel, ModelMessage, StopCondition, TelemetrySettings, ToolSet } from 'ai';
 import type { z } from 'zod';
@@ -49,6 +70,9 @@ import type { z } from 'zod';
 
 /** 默认开启 telemetry，OTel exporter 未配置时无副作用 */
 const DEFAULT_TELEMETRY: TelemetrySettings = { isEnabled: true };
+
+/** 仅这些模型启用 JSON 代码块剥离中间件 */
+const MODELS_NEEDING_EXTRACT_JSON = new Set<LLMModelKey>(['openrouter:kimi-k2.5', 'openrouter:moonshotai/kimi-k2.5']);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -114,8 +138,10 @@ interface BaseParams {
   temperature?: number;
   /** 最大输出 token */
   maxOutputTokens?: number;
-  /** 中断信号 */
+  /** 中断信号（与 timeout 二选一，abortSignal 优先） */
   abortSignal?: AbortSignal;
+  /** 超时时间（毫秒），未传 abortSignal 时生效，默认 60000 */
+  timeout?: number;
   /** Telemetry 配置 */
   telemetry?: TelemetrySettings;
 }
@@ -250,13 +276,23 @@ export class LLM {
    */
   private static logError(id: string, method: string, modelKey: string, error: unknown): void {
     const message = error instanceof Error ? error.message : JSON.stringify(error);
-    LLM.logger.error(`[LLM:error] id=${id}, method=${method}, model=${modelKey}: ${message}`);
+    const providerData =
+      APICallError.isInstance(error) && error.data != null
+        ? (error.data as { code?: number; metadata?: unknown })
+        : undefined;
+    const extra = providerData ? f` providerData=${providerData}` : '';
+    LLM.logger.error(f`[LLM:error] id=${id}, method=${method}, model=${modelKey}: ${message}${extra} ${error}`);
 
     Sentry.withScope((scope) => {
       scope.setTag('llm.id', id);
       scope.setTag('llm.method', method);
       scope.setTag('llm.model', modelKey);
-      scope.setContext('llm', { id, method, model: modelKey });
+      scope.setContext('llm', {
+        id,
+        method,
+        model: modelKey,
+        ...(providerData && { providerError: providerData }),
+      });
       Sentry.captureException(error instanceof Error ? error : new Error(message));
     });
   }
@@ -290,6 +326,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout,
       telemetry = DEFAULT_TELEMETRY,
     } = params;
 
@@ -309,6 +346,7 @@ export class LLM {
         temperature,
         maxOutputTokens,
         abortSignal,
+        timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
         experimental_telemetry: telemetry,
       });
 
@@ -347,6 +385,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout,
       telemetry = DEFAULT_TELEMETRY,
       tools,
       modelIdSuffix,
@@ -368,10 +407,11 @@ export class LLM {
         temperature,
         maxOutputTokens,
         abortSignal,
+        timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
         experimental_telemetry: telemetry,
       });
 
-      const sourcesCount = result.sources?.length ?? 0;
+      const sourcesCount = result.sources.length;
       if (sourcesCount > 0) {
         LLM.logger.debug(`[LLM:sources] id=${id}, sources=${sourcesCount}`);
       }
@@ -391,6 +431,9 @@ export class LLM {
 
   /**
    * 流式结构化对象生成
+   *
+   * 对白名单模型（当前仅 Kimi）应用 extractJsonMiddleware，其他模型保持原始逻辑。
+   * 见 MODELS_NEEDING_EXTRACT_JSON。
    *
    * @example
    * ```typescript
@@ -434,6 +477,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout,
       telemetry = DEFAULT_TELEMETRY,
       tools,
       stopWhen,
@@ -442,13 +486,29 @@ export class LLM {
     LLM.logStart(id, 'streamObject', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
+    const model: LanguageModel = MODELS_NEEDING_EXTRACT_JSON.has(modelKey)
+      ? wrapLanguageModel({
+          model: languageModel as Parameters<typeof wrapLanguageModel>[0]['model'],
+          middleware: extractJsonMiddleware({
+            transform: (text) => {
+              const trimmed = text.trim();
+              // 剥离 ```json 或 ``` 包裹；无闭合时仅剥离开头
+              const jsonMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/);
+              if (jsonMatch?.[1]) return jsonMatch[1].trim();
+              if (trimmed.startsWith('```')) return trimmed.replace(/^```(?:json)?\s*\n?/, '').trim();
+              return trimmed;
+            },
+          }),
+        })
+      : languageModel;
+
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, providerSort);
 
     let ttftLogged = false;
 
     const result = streamText({
-      model: languageModel,
+      model,
       output: Output.object({ schema }),
       system,
       messages,
@@ -458,6 +518,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
         LLM.logError(id, 'streamObject', modelKey, error);
@@ -503,6 +564,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout,
       telemetry = DEFAULT_TELEMETRY,
     } = params;
 
@@ -522,6 +584,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
         LLM.logError(id, 'streamText', modelKey, error);
@@ -594,6 +657,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout,
       telemetry = DEFAULT_TELEMETRY,
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
@@ -640,6 +704,7 @@ export class LLM {
         temperature,
         maxOutputTokens,
         abortSignal,
+        timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
         experimental_telemetry: telemetry,
       });
 
@@ -717,6 +782,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout,
       telemetry = DEFAULT_TELEMETRY,
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
@@ -749,6 +815,7 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
+      timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
         LLM.logError(id, 'streamObjectViaTool', modelKey, error);
@@ -816,9 +883,12 @@ export class LLM {
     id: string;
     model: EmbeddingModelKey;
     text: string;
+    abortSignal?: AbortSignal;
+    /** 超时时间（毫秒），默认 60000 */
+    timeout?: number;
   }): Promise<{ embedding: number[]; usage: TokenUsage }> {
     const startTime = Date.now();
-    const { id, model: modelKey, text } = params;
+    const { id, model: modelKey, text, abortSignal, timeout } = params;
 
     LLM.logStart(id, 'embedding', modelKey);
 
@@ -834,7 +904,13 @@ export class LLM {
         throw new Error(`Embedding provider "${provider}" is not implemented yet`);
     }
 
-    const result = await embed({ model: embeddingModel, value: text });
+    const timeoutMs = timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;
+    const effectiveAbortSignal = abortSignal ?? AbortSignal.timeout(timeoutMs);
+    const result = await embed({
+      model: embeddingModel,
+      value: text,
+      abortSignal: effectiveAbortSignal,
+    });
 
     const usage: TokenUsage = { inputTokens: result.usage.tokens, outputTokens: 0 };
     LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
