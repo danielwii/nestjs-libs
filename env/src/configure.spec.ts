@@ -15,6 +15,7 @@ describe('AppConfigure', () => {
     class TestEnvs {
       @DatabaseField('string', '测试字段')
       TEST_FIELD: string = 'default_code_value';
+      APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
     }
 
     it('should separate code default value from runtime env value', async () => {
@@ -86,6 +87,7 @@ describe('AppConfigure', () => {
     it('should handle deprecation and restoration', async () => {
       class Envs {
         @DatabaseField('string') FIELD1: string = 'v1';
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -119,6 +121,7 @@ describe('AppConfigure', () => {
       class NumberEnvs {
         @DatabaseField('number', '每日配额')
         DAILY_MINUTES: number = 60; // 代码默认值
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
 
       const originalEnvs = new NumberEnvs(); // 60
@@ -155,6 +158,7 @@ describe('AppConfigure', () => {
       class NumberEnvs {
         @DatabaseField('number', '每日配额')
         DAILY_MINUTES: number = 60;
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
 
       const originalEnvs = new NumberEnvs();
@@ -193,6 +197,7 @@ describe('AppConfigure', () => {
       class NumberEnvs {
         @DatabaseField('number', '每日配额')
         DAILY_MINUTES: number = 60;
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
 
       const originalEnvs = new NumberEnvs();
@@ -230,6 +235,7 @@ describe('AppConfigure', () => {
         @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
         @Min(1000)
         AI_LLM_TIMEOUT_MS: number = 60_000;
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
 
       const originalEnvs = new NumberEnvs();
@@ -271,6 +277,7 @@ describe('AppConfigure', () => {
       class NumberEnvs {
         @DatabaseField('number', '每日配额')
         DAILY_MINUTES: number = 60;
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
 
       const activeEnvs = new NumberEnvs(); // 类实例，有原型链
@@ -310,6 +317,7 @@ describe('AppConfigure', () => {
       class Envs {
         @DatabaseField('string', 'New Description')
         FIELD: string = 'new_default';
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -340,6 +348,55 @@ describe('AppConfigure', () => {
       const updateData = (mockPrisma.sysAppSetting.update.mock.calls as any[][])[0]![0].data;
       expect(updateData.defaultValue).toBe('new_default');
       expect(updateData.description).toBe('New Description');
+    });
+
+    it('should skip all DB writes when APP_CONFIG_SYNC_WRITE_ENABLED is false', async () => {
+      class Envs {
+        @DatabaseField('string', 'New Description')
+        FIELD: string = 'new_default';
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
+      }
+      const original = new Envs();
+      const active = new Envs();
+
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'FIELD',
+                value: 'db_value',
+                defaultValue: 'old_default',
+                description: 'Old Description',
+                format: 'string',
+                deprecatedAt: null,
+              },
+              {
+                key: 'ORPHAN',
+                value: 'old',
+                format: 'string',
+                deprecatedAt: null,
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve({ key: 'FIELD' })),
+          create: mock(() => Promise.resolve({})),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any);
+
+      // 读路径仍生效
+      expect(active.FIELD).toBe('db_value');
+      // 写路径全部跳过
+      expect(mockPrisma.sysAppSetting.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.createMany).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.create).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
     });
   });
 

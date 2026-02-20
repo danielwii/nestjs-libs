@@ -240,6 +240,10 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
+  // 关键约束：此开关只能由实例本地环境变量控制，严禁加 @DatabaseField。
+  // 原因：它用于决定当前实例是否有权写 sysAppSetting，若存入 DB 会破坏读写隔离并引入竞态。
+  // 运行约定：默认 false，仅配置主管理实例显式设为 true。
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
   @DatabaseField('number', 'Prisma 事务超时时间（毫秒）') @IsNumber() PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
 
   /**
@@ -592,9 +596,18 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         };
       })
       .filter(({ isDatabaseField }) => !!isDatabaseField);
+    const syncWriteEnabledRaw = (activeEnvs as Record<string, unknown>).APP_CONFIG_SYNC_WRITE_ENABLED;
+    const syncWriteEnabled =
+      syncWriteEnabledRaw === true || syncWriteEnabledRaw === 'true' || syncWriteEnabledRaw === '1';
 
     // 仅在有变更时才打印详细日志，避免每次同步都输出大量重复信息
     Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
+    if (!syncWriteEnabled) {
+      Logger.log(
+        '#syncFromDB read-only mode enabled, skip DB writes (APP_CONFIG_SYNC_WRITE_ENABLED=false)',
+        'AppConfigure',
+      );
+    }
     const appSettings = (await prisma.sysAppSetting.findMany()).map(({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' && value != null ? JSON.parse(value) : value, format }),
@@ -619,55 +632,76 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // =====================================================
     const orphanSettings = appSettings.filter((s) => !fieldNamesInCode.includes(s.key) && !s.deprecatedAt);
     if (orphanSettings.length > 0) {
-      Logger.log(
-        f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`,
-        'AppConfigure',
-      );
-      await prisma.sysAppSetting.updateMany({
-        where: { key: { in: orphanSettings.map((s) => s.key) } },
-        data: { deprecatedAt: new Date() },
-      });
+      if (syncWriteEnabled) {
+        Logger.log(
+          f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`,
+          'AppConfigure',
+        );
+        await prisma.sysAppSetting.updateMany({
+          where: { key: { in: orphanSettings.map((s) => s.key) } },
+          data: { deprecatedAt: new Date() },
+        });
+      } else {
+        Logger.log(
+          f`#syncFromDB 检测到 ${orphanSettings.length} 个废弃配置，read-only 跳过写入: ${orphanSettings.map((s) => s.key).join(', ')}`,
+          'AppConfigure',
+        );
+      }
     }
 
     // 恢复：如果配置被重新添加到代码中，清除 deprecatedAt 标记
     const restoredSettings = appSettings.filter((s) => fieldNamesInCode.includes(s.key) && Boolean(s.deprecatedAt));
     if (restoredSettings.length > 0) {
-      Logger.log(
-        f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`,
-        'AppConfigure',
-      );
-      await prisma.sysAppSetting.updateMany({
-        where: { key: { in: restoredSettings.map((s) => s.key) } },
-        data: { deprecatedAt: null },
-      });
+      if (syncWriteEnabled) {
+        Logger.log(
+          f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`,
+          'AppConfigure',
+        );
+        await prisma.sysAppSetting.updateMany({
+          where: { key: { in: restoredSettings.map((s) => s.key) } },
+          data: { deprecatedAt: null },
+        });
+      } else {
+        Logger.log(
+          f`#syncFromDB 检测到 ${restoredSettings.length} 个可恢复配置，read-only 跳过写入: ${restoredSettings.map((s) => s.key).join(', ')}`,
+          'AppConfigure',
+        );
+      }
     }
 
     // 如何 appSettings 中不存在，则用当前的值更新
     const nonExistsFields = fields.filter(({ field }) => !fieldNamesInDB.includes(field));
 
     if (nonExistsFields.length > 0) {
-      Logger.log(f`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`, 'AppConfigure');
-      await prisma.sysAppSetting.createMany({
-        data: nonExistsFields.map(({ field, format, description, defaultValue }) => {
-          const defaultVal =
-            defaultValue !== undefined
-              ? typeof defaultValue === 'string'
-                ? defaultValue
-                : JSON.stringify(defaultValue)
-              : null;
+      if (syncWriteEnabled) {
+        Logger.log(f`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`, 'AppConfigure');
+        await prisma.sysAppSetting.createMany({
+          data: nonExistsFields.map(({ field, format, description, defaultValue }) => {
+            const defaultVal =
+              defaultValue !== undefined
+                ? typeof defaultValue === 'string'
+                  ? defaultValue
+                  : JSON.stringify(defaultValue)
+                : null;
 
-          const newVar = {
-            key: field,
-            value: null, // 新记录初始值为空，由 Env 决定
-            defaultValue: defaultVal,
-            format: format as string,
-            description: description as string | null,
-          };
-          Logger.log(f`#syncFromDB 创建配置: ${field} (默认值: ${defaultVal})`, 'AppConfigure');
-          return newVar;
-        }),
-        skipDuplicates: true,
-      });
+            const newVar = {
+              key: field,
+              value: null, // 新记录初始值为空，由 Env 决定
+              defaultValue: defaultVal,
+              format: format as string,
+              description: description as string | null,
+            };
+            Logger.log(f`#syncFromDB 创建配置: ${field} (默认值: ${defaultVal})`, 'AppConfigure');
+            return newVar;
+          }),
+          skipDuplicates: true,
+        });
+      } else {
+        Logger.log(
+          f`#syncFromDB 检测到 ${nonExistsFields.length} 个缺失配置，read-only 跳过写入: ${nonExistsFields.map((s) => s.field).join(', ')}`,
+          'AppConfigure',
+        );
+      }
     }
 
     // 如何 appSettings 中存在，则用当前的值更新 envs
@@ -715,6 +749,13 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
       // 执行更新
       if (!_.isEmpty(updates)) {
+        if (!syncWriteEnabled) {
+          Logger.log(
+            f`#syncFromDB 检测到元数据变更，read-only 跳过写入: ${field} ${JSON.stringify(updates)}`,
+            'AppConfigure',
+          );
+          continue;
+        }
         Logger.log(f`#syncFromDB 更新元数据: ${field} ${JSON.stringify(updates)}`, 'AppConfigure');
         try {
           // 首先检查记录是否存在
