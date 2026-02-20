@@ -6,7 +6,7 @@ import 'reflect-metadata';
 
 import * as os from 'node:os';
 
-import { IsString } from 'class-validator';
+import { IsString, Min } from 'class-validator';
 import * as _ from 'radash';
 
 describe('AppConfigure', () => {
@@ -223,6 +223,41 @@ describe('AppConfigure', () => {
 
       expect(activeEnvs.DAILY_MINUTES).toBe(1440);
       expect(typeof activeEnvs.DAILY_MINUTES).toBe('number');
+    });
+
+    it('should skip overriding activeEnvs when DB value is invalid', async () => {
+      class NumberEnvs {
+        @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
+        @Min(1000)
+        AI_LLM_TIMEOUT_MS: number = 60_000;
+      }
+
+      const originalEnvs = new NumberEnvs();
+      const activeEnvs = new NumberEnvs();
+
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'AI_LLM_TIMEOUT_MS',
+                value: 500, // 无效：小于 @Min(1000)
+                defaultValue: '60000',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve({ key: 'AI_LLM_TIMEOUT_MS' })),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // 不应被非法 DB 值覆盖
+      expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(60_000);
     });
 
     it('should work when originalEnvs is created via structuredClone (loses prototype chain)', async () => {

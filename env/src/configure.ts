@@ -11,7 +11,7 @@ import path from 'node:path';
 
 import { config } from '@dotenvx/dotenvx';
 import { plainToInstance, Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, validateSync } from 'class-validator';
 import JSON5 from 'json5';
 import * as _ from 'radash';
 
@@ -229,7 +229,11 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
 
   /** 默认 LLM 调用超时（毫秒），透传给 AI SDK 的 timeout 参数 */
-  @Type(() => Number) @IsNumber() @IsOptional() AI_LLM_TIMEOUT_MS: number = 60_000;
+  @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1_000)
+  AI_LLM_TIMEOUT_MS: number = 60_000;
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
   @IsString() @IsOptional() DATABASE_URL?: string;
@@ -543,6 +547,35 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // 注意：使用 activeEnvs 来查找装饰器元数据
     // 原因：originalEnvs 是通过 structuredClone 创建的普通对象，丢失了类原型链
     // 而 activeEnvs 是通过 plainToInstance 创建的类实例，保留了原型链和装饰器元数据
+    const envClass = (activeEnvs as { constructor: new () => T }).constructor as new () => T;
+    const validateDbValue = (
+      field: string,
+      rawValue: unknown,
+    ): { ok: true; value: unknown } | { ok: false; reason: string } => {
+      try {
+        const candidate = plainToInstance(envClass, { [field]: rawValue } as Record<string, unknown>, {
+          enableImplicitConversion: true,
+        }) as Record<string, unknown>;
+        const fieldErrors = validateSync(candidate as object, {
+          skipMissingProperties: true,
+        }).filter((error) => error.property === field);
+
+        if (fieldErrors.length > 0) {
+          const reason = fieldErrors
+            .map((error) => (error.constraints ? Object.values(error.constraints).join('; ') : 'unknown error'))
+            .join('; ');
+          return { ok: false, reason };
+        }
+
+        return { ok: true, value: candidate[field] };
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+
     const fields = Object.getOwnPropertyNames(originalEnvs)
       .map((field) => {
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, activeEnvs, field);
@@ -647,13 +680,18 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         continue;
       }
 
-      const dbValue = appSetting.value;
-      const equal = _.isEqual(value, dbValue);
-
       // 更新环境变量值 (用 DB Value覆盖内存里的 activeEnvs)
-      if (appSetting.value != null && !equal) {
-        Logger.log(f`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${dbValue}"`, 'AppConfigure');
-        (activeEnvs as Record<string, unknown>)[field] = dbValue;
+      if (appSetting.value != null) {
+        const validation = validateDbValue(field, appSetting.value);
+        if (!validation.ok) {
+          Logger.warn(
+            f`#syncFromDB skip invalid DB value ${{ field, value: appSetting.value, reason: validation.reason }}`,
+            'AppConfigure',
+          );
+        } else if (!_.isEqual(value, validation.value)) {
+          Logger.log(f`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${validation.value}"`, 'AppConfigure');
+          (activeEnvs as Record<string, unknown>)[field] = validation.value;
+        }
       }
 
       // 检查并更新默认值和描述 (始终以 originalEnvs 为准)
