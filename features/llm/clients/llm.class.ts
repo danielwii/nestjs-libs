@@ -722,8 +722,32 @@ export class LLM {
         );
       }
 
+      // 预处理：部分模型（如 Grok）将嵌套对象序列化为 JSON 字符串
+      // 在验证前尝试还原，无法还原的保持原样交给 safeParse 报错
+      const rawInput = toolCall.input;
+      const preprocessed = coerceStringifiedObjects(rawInput);
+
+      // safeParse 验证：fail fast，不兜底修复
+      const parseResult = schema.safeParse(preprocessed);
+      if (!parseResult.success) {
+        // 打印原始值帮助诊断 coerce 失败原因
+        const stringFields = Object.entries(rawInput as Record<string, unknown>)
+          .filter(([, v]) => typeof v === 'string' && v.length > 10)
+          .map(([k, v]) => `${k}=${JSON.stringify((v as string).slice(0, 120))}`)
+          .join(', ');
+        if (stringFields) {
+          LLM.logger.warn(`[LLM:coerce-debug] id=${id} string fields in raw input: ${stringFields}`);
+        }
+
+        const issues = parseResult.error.issues
+          .slice(0, 5)
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join('; ');
+        throw new Error(`[LLM:validation] id=${id} Tool call output validation failed: ${issues}`);
+      }
+
       return {
-        object: toolCall.input as T,
+        object: parseResult.data,
         usage: result.usage,
       };
     } catch (error) {
@@ -890,6 +914,13 @@ export class LLM {
     const startTime = Date.now();
     const { id, model: modelKey, text, abortSignal, timeout } = params;
 
+    if (!text || text.trim().length === 0) {
+      throw new Error(`[LLM:embedding] id=${id} empty text (type=${typeof text}, length=${text?.length ?? 'N/A'})`);
+    }
+
+    LLM.logger.debug(
+      `[LLM:embedding] id=${id} text="${text.slice(0, 80)}${text.length > 80 ? '...' : ''}" (${text.length} chars)`,
+    );
     LLM.logStart(id, 'embedding', modelKey);
 
     const [provider, modelId] = modelKey.split(':') as [EmbeddingProvider, string];
@@ -976,6 +1007,39 @@ function extractWebSources(sources: AiSdkSource[] | undefined): WebSource[] {
       url: s.url,
       title: s.title,
     }));
+}
+
+/**
+ * 部分模型（如 Grok）在 tool calling 时将嵌套对象序列化为 JSON 字符串，
+ * 且可能使用欧洲小数格式（0,5 → 应为 0.5）和截断输出。
+ *
+ * 处理流程（顶层字段，不递归）：
+ * 1. 值是 string 且以 { 或 [ 开头 → 尝试还原
+ * 2. 修复欧洲小数：(\d),(\d) → $1.$2（在非字符串上下文中安全）
+ * 3. 尝试 JSON.parse → 成功则替换
+ * 4. parse 失败（截断）→ tryParsePartialJson 补全括号后再试
+ * 5. 全部失败 → 保持原样，交给 safeParse 报错
+ */
+function coerceStringifiedObjects(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+      // 修复欧洲小数：0,5 → 0.5（仅在数字之间替换，不影响 JSON 逗号分隔符）
+      const fixed = value.replace(/(\d),(\d)/g, '$1.$2');
+      try {
+        result[key] = JSON.parse(fixed);
+      } catch {
+        // JSON.parse 失败（截断）→ 尝试 partial parse
+        const partial = tryParsePartialJson(fixed);
+        result[key] = partial ?? value;
+      }
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 /**
