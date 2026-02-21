@@ -8,10 +8,16 @@ export {
   defineSlot,
   type BagInspection,
   type CatalogDescription,
+  type CollectedTool,
+  type CollectToolsOptions,
   type CompileOptions,
   type CompiledBlock,
+  type ContextLayer,
   type ContextSlot,
   type LayoutConfig,
+  type Renderer,
+  type SlotToolParam,
+  type SlotToolSpec,
 } from './context-slot.types';
 
 export { ContextBag } from './context-bag';
@@ -20,6 +26,7 @@ export {
   compileRecipe,
   uShapedLayout,
   validateRecipe,
+  type CompileOverrides,
   type ContextRecipe,
   type RecipeCatalogDescription,
   type RecipeValidation,

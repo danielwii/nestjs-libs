@@ -4,6 +4,42 @@
  * 领域无关，0 外部依赖。任何 LLM Agent 项目都能用。
  */
 
+/** 渲染函数签名 */
+export type Renderer<T> = (data: T, options: CompileOptions) => string | null;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 三层架构：State + Strategy + Tools
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 编译层 */
+export type ContextLayer = 'state' | 'strategy';
+
+/** Tool 参数（JSON Schema 子集，0 依赖） */
+export interface SlotToolParam {
+  readonly type: 'string' | 'number' | 'boolean';
+  readonly description: string;
+  readonly enum?: readonly string[];
+}
+
+/** Tool 规格（框架层，不含 execute） */
+export interface SlotToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Readonly<Record<string, SlotToolParam>>;
+  readonly required?: readonly string[];
+}
+
+/** collectTools 输出（附加来源 slot） */
+export interface CollectedTool extends SlotToolSpec {
+  readonly slotId: string;
+}
+
+/** collectTools 过滤选项 */
+export interface CollectToolsOptions {
+  readonly categories?: readonly string[];
+  readonly exclude?: readonly string[];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ContextSlot<T> — 类型安全槽位
 // ═══════════════════════════════════════════════════════════════════════════
@@ -27,12 +63,22 @@ export interface ContextSlot<T = unknown> {
   readonly category: string;
   readonly priority: number;
   /**
-   * fidelity key → 渲染函数。
+   * Layer 1: State — fidelity key → 渲染函数。
    * @param data 槽位持有的业务数据
    * @param options 编译时的全局选项（用于实现动态激活逻辑）
    * @returns 渲染出的字符串，返回 null 表示在当前语境下跳过此槽位
    */
-  readonly renderers: Partial<Record<string, (data: T, options: CompileOptions) => string | null>>;
+  readonly renderers: Partial<Record<string, Renderer<T>>>;
+  /**
+   * Layer 2: Strategy — 行动指南（与 renderers 同 fidelity key + 同 Renderer 签名）。
+   * 描述 Agent 在此状态下可采取的行为指南。
+   */
+  readonly strategies?: Partial<Record<string, Renderer<T>>>;
+  /**
+   * Layer 3: Tools — 状态驱动的动态工具。
+   * 根据 data 动态决定提供哪些工具（如情绪偏差大时才提供 adjust_emotion）。
+   */
+  readonly tools?: (data: T, options: CompileOptions) => SlotToolSpec[];
   /** 可选元数据：数据变化频率 */
   readonly volatility?: 'static' | 'session' | 'turn';
 }
@@ -66,6 +112,8 @@ export interface CompileOptions {
   readonly categories?: readonly string[];
   /** 排除指定 slot ID */
   readonly exclude?: readonly string[];
+  /** 编译哪些层（默认 ['state']） */
+  readonly layers?: readonly ContextLayer[];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -78,6 +126,8 @@ export interface CompiledBlock {
   readonly content: string;
   readonly priority: number;
   readonly category: string;
+  /** 行动指南（仅 layers 含 'strategy' 且 slot 有 strategy renderer 时有值） */
+  readonly strategy?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

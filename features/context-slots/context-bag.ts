@@ -3,9 +3,27 @@
  *
  * fill 顺序保留（Map 插入顺序），compile 不排序。
  * 排列策略由领域层（LayoutStrategy）决定。
+ *
+ * ## 当前模式：Builder 手动分发
+ *
+ * Builder 从共享数据源（如 HeartbeatContext）手动拆包，逐个 fill 到各 slot。
+ * Slot 越多，Builder 的 fillBag() 越长 — 这是 slot 自治的代价。
+ *
+ * ## 未来方向：声明式投影（Projection）
+ *
+ * Slot 声明依赖（needs: ['emotion', 'time']），ContextBag 从注册的数据源自动投射。
+ * Builder 退化为"数据源注册器"（bag.provide(ctx)），不再手动拆包。
+ * 核心挑战：投影的类型安全（声明的 name → 数据类型映射）。
  */
 
-import type { BagInspection, CompiledBlock, CompileOptions, ContextSlot } from './context-slot.types';
+import type {
+  BagInspection,
+  CollectedTool,
+  CollectToolsOptions,
+  CompiledBlock,
+  CompileOptions,
+  ContextSlot,
+} from './context-slot.types';
 
 /**
  * 内部存储条目。
@@ -90,12 +108,13 @@ export class ContextBag {
    *   → 输出: CompiledBlock[] (fill 顺序)
    */
   compile(options: CompileOptions): CompiledBlock[] {
-    const { fidelity, minPriority, maxSlots, maxTokens, categories, exclude } = options;
+    const { fidelity, minPriority, maxSlots, maxTokens, categories, exclude, layers } = options;
     const tokenEstimator = options.tokenEstimator ?? DEFAULT_TOKEN_ESTIMATOR;
     const categorySet = categories ? new Set(categories) : undefined;
     const excludeSet = exclude ? new Set(exclude) : undefined;
+    const includeStrategy = layers?.includes('strategy') ?? false;
 
-    // Phase 1: filter + render（保持 fill 顺序）
+    // Phase 1: filter + render state（保持 fill 顺序）
     const rendered: CompiledBlock[] = [];
 
     for (const { slot, data } of this.entries.values()) {
@@ -114,16 +133,29 @@ export class ContextBag {
       const content = renderer(data, options);
       if (content === null || content.trim() === '') continue;
 
+      // Phase 3.5: render strategy（仅 layers 含 'strategy' 时）
+      let strategy: string | undefined;
+      if (includeStrategy && slot.strategies) {
+        const strategyRenderer = slot.strategies[fidelity];
+        if (strategyRenderer) {
+          const strategyText = strategyRenderer(data, options);
+          if (strategyText !== null && strategyText.trim() !== '') {
+            strategy = strategyText;
+          }
+        }
+      }
+
       rendered.push({
         id: slot.id,
         title: slot.title,
         content,
         priority: slot.priority,
         category: slot.category,
+        ...(strategy !== undefined && { strategy }),
       });
     }
 
-    // Phase 2: truncate（如指定）
+    // Phase 2: truncate（如指定）— token 估算包含 state + strategy
     if (maxSlots !== undefined && rendered.length > maxSlots) {
       return this.truncateBySlots(rendered, maxSlots);
     }
@@ -133,6 +165,34 @@ export class ContextBag {
     }
 
     return rendered;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Tools 收集
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 从已 fill 的 slot 收集动态 tools。
+   *
+   * 遍历 entries，调用 slot.tools(data, ...)，附加 slotId 后扁平返回。
+   */
+  collectTools(options?: CollectToolsOptions): CollectedTool[] {
+    const categorySet = options?.categories ? new Set(options.categories) : undefined;
+    const excludeSet = options?.exclude ? new Set(options.exclude) : undefined;
+    const collected: CollectedTool[] = [];
+
+    for (const { slot, data } of this.entries.values()) {
+      if (!slot.tools) continue;
+      if (categorySet && !categorySet.has(slot.category)) continue;
+      if (excludeSet?.has(slot.id)) continue;
+
+      const specs = slot.tools(data, { fidelity: 'full' });
+      for (const spec of specs) {
+        collected.push({ ...spec, slotId: slot.id });
+      }
+    }
+
+    return collected;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -200,7 +260,7 @@ export class ContextBag {
     let remaining = maxTokens;
 
     for (const { block } of indexed) {
-      const tokens = estimator(block.content);
+      const tokens = estimator(block.content) + (block.strategy ? estimator(block.strategy) : 0);
       if (tokens <= remaining) {
         keeperIds.add(block.id);
         remaining -= tokens;

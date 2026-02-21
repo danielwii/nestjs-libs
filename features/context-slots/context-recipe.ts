@@ -51,7 +51,7 @@
  */
 
 import type { ContextBag } from './context-bag';
-import type { CompiledBlock, CompileOptions, ContextSlot, LayoutConfig } from './context-slot.types';
+import type { CompiledBlock, CompileOptions, ContextLayer, ContextSlot, LayoutConfig } from './context-slot.types';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ContextRecipe
@@ -168,6 +168,14 @@ export function uShapedLayout(blocks: readonly CompiledBlock[], config: LayoutCo
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CompileOverrides — 编译覆盖选项
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface CompileOverrides {
+  readonly layers?: readonly ContextLayer[];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // compileRecipe — 编译 + 布局一步完成
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -176,9 +184,12 @@ export function uShapedLayout(blocks: readonly CompiledBlock[], config: LayoutCo
  *
  * 等价于 `bag.compile(recipe.preset)` + 可选 `uShapedLayout(blocks, recipe.layout)`。
  * Builder 消费 RECIPES 的推荐入口。
+ *
+ * @param overrides 可选覆盖选项（如 layers: ['state', 'strategy']）
  */
-export function compileRecipe(bag: ContextBag, recipe: ContextRecipe): CompiledBlock[] {
-  const blocks = bag.compile(recipe.preset);
+export function compileRecipe(bag: ContextBag, recipe: ContextRecipe, overrides?: CompileOverrides): CompiledBlock[] {
+  const preset = overrides?.layers ? { ...recipe.preset, layers: overrides.layers } : recipe.preset;
+  const blocks = bag.compile(preset);
   if (recipe.layout) {
     return uShapedLayout(blocks, recipe.layout);
   }
