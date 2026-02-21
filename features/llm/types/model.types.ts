@@ -248,6 +248,27 @@ export interface LLMModelRegistry {
    */
   'openrouter:glm-5': ModelConfig<'openrouter'>;
   'openrouter:z-ai/glm-5': ModelConfig<'openrouter'>;
+  /**
+   * MiniMax M2.5 - Programming #1, Technology #1
+   *
+   * 定价参考（2026.02）：Input $0.30/M, Output $1.10/M, Context 196K
+   *
+   * 特点：
+   * - SWE-Bench Verified 80.2%，Multi-SWE-Bench 51.3%
+   * - 基于 M2.1 扩展到通用办公（Word/Excel/PPT）
+   * - 多 Agent 协作、跨软件环境切换
+   * - token 效率优化，规划式输出
+   *
+   * Provider 定价（选型时注意）：
+   * | Provider | Input | Output |
+   * |----------|-------|--------|
+   * | Inceptron | $0.30 | $1.10 | ← 最低价
+   * | Parasail / Fireworks / AtlasCloud / Friendli / MiniMax | $0.30 | $1.20 |
+   *
+   * @see https://openrouter.ai/minimax/minimax-m2.5
+   */
+  'openrouter:minimax-m2.5': ModelConfig<'openrouter'>;
+  'openrouter:minimax/minimax-m2.5': ModelConfig<'openrouter'>;
 
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
@@ -325,6 +346,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   // GLM 5
   ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
   ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
+  // MiniMax M2.5
+  ['openrouter:minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5' }],
+  ['openrouter:minimax/minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5' }],
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],

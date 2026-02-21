@@ -65,6 +65,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // Z.ai GLM（OpenRouter 最低价 provider：SiliconFlow；其他约 $0.95-1/$3.15-3.20）
   'z-ai/glm-5': { input: 0.3, output: 2.55 },
 
+  // MiniMax（Inceptron $1.10，其他 provider $1.20）
+  'minimax/minimax-m2.5': { input: 0.3, output: 1.1 },
+
   // OpenAI
   'openai/gpt-4o-mini': { input: 0.15, output: 0.6 },
   'openai/gpt-5.2': { input: 1.75, output: 14.0 },
@@ -130,6 +133,8 @@ function calculateCostFromKey(
         modelId = `deepseek/${modelName}`;
       } else if (modelName.startsWith('glm')) {
         modelId = `z-ai/${modelName}`;
+      } else if (modelName.startsWith('minimax')) {
+        modelId = `minimax/${modelName}`;
       } else {
         modelId = modelName; // 假设已经包含 provider 前缀
       }
