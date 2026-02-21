@@ -36,6 +36,13 @@ export interface ModelConfig<P extends string = string> {
   modelId: string;
   /** UI 显示名称（可选） */
   displayName?: string;
+  /**
+   * 模型强制启用 reasoning，无法关闭
+   *
+   * 标记为 true 时，LLM class 不会发送 disableThinking 选项。
+   * 例：MiniMax M2.5（400 "Reasoning is mandatory"）、Grok 4.1 Fast（参数无效）
+   */
+  reasoningRequired?: boolean;
 }
 
 /**
@@ -259,6 +266,11 @@ export interface LLMModelRegistry {
    * - 多 Agent 协作、跨软件环境切换
    * - token 效率优化，规划式输出
    *
+   * ⚠️ 限制：
+   * - reasoning 强制开启，无法关闭（400 "Reasoning is mandatory"）
+   * - Function Calling / 结构化输出能力差，容易漏字段（finishReason=stop 但 schema 不完整）
+   * - 不适合需要严格 JSON Schema 遵守的场景（如 generateObject）
+   *
    * Provider 定价（选型时注意）：
    * | Provider | Input | Output |
    * |----------|-------|--------|
@@ -334,9 +346,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Grok 3 Mini
   ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
   ['openrouter:x-ai/grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
-  // Grok 4.1 Fast
-  ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
-  ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
+  // Grok 4.1 Fast (reasoningRequired: reasoning 无法关闭)
+  ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast', reasoningRequired: true }],
+  ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast', reasoningRequired: true }],
   // DeepSeek V3.2
   ['openrouter:deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
   ['openrouter:deepseek/deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
@@ -346,9 +358,12 @@ const modelRegistry = new Map<string, ModelConfig>([
   // GLM 5
   ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
   ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
-  // MiniMax M2.5
-  ['openrouter:minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5' }],
-  ['openrouter:minimax/minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5' }],
+  // MiniMax M2.5 (reasoningRequired: 400 "Reasoning is mandatory")
+  ['openrouter:minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5', reasoningRequired: true }],
+  [
+    'openrouter:minimax/minimax-m2.5',
+    { provider: 'openrouter', modelId: 'minimax/minimax-m2.5', reasoningRequired: true },
+  ],
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],

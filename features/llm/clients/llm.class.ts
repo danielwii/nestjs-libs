@@ -32,6 +32,7 @@ import { Logger } from '@nestjs/common';
 import { SysEnv } from '@app/env';
 import { f } from '@app/utils/logging';
 
+import { getModel } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
@@ -214,10 +215,23 @@ interface GenerateTextResult {
 
 /**
  * 根据 Provider 和 thinking 强度生成 providerOptions
+ *
+ * reasoningRequired 模型（如 MiniMax M2.5、Grok 4.1 Fast）：
+ * thinking='none' 时不发送 disableThinking，避免 400 错误。
  */
-function buildProviderOptions(provider: ProviderType, thinking: ThinkingEffort, providerSort?: ProviderSort) {
+function buildProviderOptions(
+  provider: ProviderType,
+  thinking: ThinkingEffort,
+  modelKey: LLMModelKey,
+  providerSort?: ProviderSort,
+) {
+  const modelConfig = getModel(modelKey);
   const thinkingOptions =
-    thinking === 'none' ? disableThinkingOptions(provider) : reasoningEffortOptions(provider, thinking);
+    thinking === 'none'
+      ? modelConfig.reasoningRequired
+        ? {}
+        : disableThinkingOptions(provider)
+      : reasoningEffortOptions(provider, thinking);
 
   // 只有 openrouter 支持 providerSort
   if (provider === 'openrouter' && providerSort) {
@@ -334,7 +348,7 @@ export class LLM {
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, providerSort);
+    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
     try {
       const result = await generateText({
@@ -395,7 +409,7 @@ export class LLM {
 
     const languageModel = createModel(modelKey, modelIdSuffix);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, providerSort);
+    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
     try {
       const result = await generateText({
@@ -503,7 +517,7 @@ export class LLM {
       : languageModel;
 
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, providerSort);
+    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
     let ttftLogged = false;
 
@@ -572,7 +586,7 @@ export class LLM {
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, providerSort);
+    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
     let ttftLogged = false;
 
@@ -668,7 +682,7 @@ export class LLM {
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const baseProviderOptions = buildProviderOptions(provider, thinking, providerSort);
+    const baseProviderOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
     // OpenRouter 支持 parallelToolCalls 参数控制并行 tool call
     const providerOptions =
@@ -829,7 +843,7 @@ export class LLM {
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, providerSort);
+    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
     // 创建 Tool，将 Schema 作为 inputSchema
     const tools = {
