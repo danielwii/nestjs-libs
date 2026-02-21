@@ -928,7 +928,7 @@ export class LLM {
     const { id, model: modelKey, text, abortSignal, timeout } = params;
 
     if (!text || text.trim().length === 0) {
-      throw new Error(`[LLM:embedding] id=${id} empty text (type=${typeof text}, length=${text?.length ?? 'N/A'})`);
+      throw new Error(`[LLM:embedding] id=${id} empty text (type=${typeof text}, length=${text.length})`);
     }
 
     LLM.logger.debug(
