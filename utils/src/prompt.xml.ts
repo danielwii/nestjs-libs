@@ -53,10 +53,23 @@ import { formatInTimeZone } from 'date-fns-tz';
 
 // ==================== Types ====================
 
+type PriorityLabel = 'critical' | 'high' | 'medium' | 'low';
+
+/** 数字 priority → label（90+ critical, 70+ high, 50+ medium, <50 low） */
+function numericPriorityLabel(p: number): PriorityLabel {
+  if (p >= 90) return 'critical';
+  if (p >= 70) return 'high';
+  if (p >= 50) return 'medium';
+  return 'low';
+}
+
 export interface ContextSection {
+  /** Slot ID（用于日志追踪） */
+  id?: string;
   title: string;
   content?: string | number;
-  priority?: 'critical' | 'high' | 'medium' | 'low';
+  /** 数字优先级（自动转 label）或字符串 label */
+  priority?: number | PriorityLabel;
   purpose?: string;
 }
 
@@ -178,12 +191,14 @@ export class Prompt {
     let totalContextTokens = 0;
     for (const section of sections) {
       const content = section.content ?? '<empty />';
-      const priority = section.priority ? ` priority="${section.priority}"` : '';
+      const label = typeof section.priority === 'number' ? numericPriorityLabel(section.priority) : section.priority;
+      const priority = label ? ` priority="${label}"` : '';
       const purpose = section.purpose ? ` purpose="${section.purpose}"` : '';
       const sectionXml = `  <section name="${section.title}"${priority}${purpose}>${content}</section>`;
       renderedSections.push(sectionXml);
       const tokens = estimateTokens(sectionXml);
-      sectionMetrics[section.title] = tokens;
+      const key = section.id ? `${section.id}(${section.title})` : section.title;
+      sectionMetrics[label ? `${key}[${label}]` : key] = tokens;
       totalContextTokens += tokens;
     }
     const contextXml = renderedSections.length > 0 ? `<context>\n${renderedSections.join('\n')}\n</context>` : '';

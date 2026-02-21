@@ -741,7 +741,20 @@ export class LLM {
 
         const issues = parseResult.error.issues
           .slice(0, 5)
-          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .map((i) => {
+            // 从原始输入中提取失败字段的实际值
+            let actual: unknown = preprocessed;
+            for (const seg of i.path) {
+              if (actual != null && typeof actual === 'object') {
+                actual = (actual as Record<string, unknown>)[String(seg)];
+              } else {
+                actual = undefined;
+                break;
+              }
+            }
+            const actualStr = actual === undefined ? '' : ` (got ${JSON.stringify(actual)})`;
+            return `${i.path.join('.')}: ${i.message}${actualStr}`;
+          })
           .join('; ');
         throw new Error(`[LLM:validation] id=${id} Tool call output validation failed: ${issues}`);
       }
