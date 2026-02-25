@@ -71,6 +71,8 @@ export interface ContextSection {
   /** 数字优先级（自动转 label）或字符串 label */
   priority?: number | PriorityLabel;
   purpose?: string;
+  /** 行动指南（来自 ContextSlot strategy 层） */
+  strategy?: string;
 }
 
 export interface Example {
@@ -190,7 +192,8 @@ export class Prompt {
     const renderedSections: string[] = [];
     let totalContextTokens = 0;
     for (const section of sections) {
-      const content = section.content ?? '<empty />';
+      const baseContent = section.content ?? '<empty />';
+      const content = section.strategy ? `${baseContent}\n（${section.strategy}）` : baseContent;
       const label = typeof section.priority === 'number' ? numericPriorityLabel(section.priority) : section.priority;
       const priority = label ? ` priority="${label}"` : '';
       const purpose = section.purpose ? ` purpose="${section.purpose}"` : '';
