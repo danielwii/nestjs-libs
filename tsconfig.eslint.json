@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // typescript-eslint scope-manager 8.56 尚不支持 ES2025 lib
+    // 跟踪：scope-manager/dist/lib/ 中无 es2025.*，历史上每个 ES 版本都需要单独跟进
+    // TODO: typescript-eslint 支持 ES2025 后，删除此文件并将 eslint.config.mjs 改回 tsconfig.json
+    "lib": ["ES2024"],
+    "target": "ES2024"
+  }
+}
