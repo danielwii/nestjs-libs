@@ -18,9 +18,9 @@
     ]
   },
   "dependencies": {
-    "@ai-sdk/google": "^3.0.31",
-    "@ai-sdk/google-vertex": "^4.0.63",
-    "@ai-sdk/openai": "^3.0.33",
+    "@ai-sdk/google": "^3.0.33",
+    "@ai-sdk/google-vertex": "^4.0.66",
+    "@ai-sdk/openai": "^3.0.36",
     "@ai-sdk/provider-utils": "^4.0.15",
     "@danielwii/libs-cli": ".",
     "@dotenvx/dotenvx": "^1.52.0",
@@ -33,9 +33,9 @@
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@opentelemetry/api": "^1.9.0",
     "@sentry/nestjs": "^10.40.0",
-    "ai": "^6.0.99",
+    "ai": "^6.0.103",
     "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.3",
+    "class-validator": "0.15.1",
     "compression": "^1.8.1",
     "connect-redis": "^9.0.0",
     "cookie-parser": "^1.4.7",
@@ -80,6 +80,8 @@
     "@types/number-to-words": "^1.2.3",
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
     "eslint": "^10.0.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -88,7 +90,7 @@
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.1",
     "ts-morph": "^27.0.2",
-    "typescript": "^5.9.3",
+    "typescript": "6.0.0-beta",
     "typescript-eslint": "^8.56.1"
   }
 }

@@ -1,34 +1,32 @@
 {
   "compilerOptions": {
-    "lib": ["ES2022"],
-    "target": "ES2022",
+    "lib": ["ES2025"],
+    "target": "ES2025",
     "module": "ESNext",
     "moduleDetection": "force",
+    "types": ["bun"],
     "allowJs": true,
     "moduleResolution": "bundler",
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "strict": true,
-    "strictBindCallApply": true,
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "baseUrl": ".",
     "paths": {
-      "@app/utils/*": ["utils/src/*"],
-      "@app/utils": ["utils/src/index.ts"],
-      "@app/nest/*": ["nest/src/*"],
-      "@app/env": ["env/src/index.ts"],
-      "@app/env/*": ["env/src/*"],
-      "@app/features/*": ["features/*"],
+      "@app/utils/*": ["./utils/src/*"],
+      "@app/utils": ["./utils/src/index.ts"],
+      "@app/nest/*": ["./nest/src/*"],
+      "@app/env": ["./env/src/index.ts"],
+      "@app/env/*": ["./env/src/*"],
+      "@app/features/*": ["./features/*"],
       "@/*": ["./*"]
     },
     // 数组/Record 索引访问返回 T | undefined，强制处理越界
     // 规避方式：.at(0) / charAt(i) / Partial<Record> / 显式标注，禁止用 ! 断言绕过
     "noUncheckedIndexedAccess": true,
-    "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true
   },
