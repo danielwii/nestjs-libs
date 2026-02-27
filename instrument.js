@@ -139,6 +139,7 @@ function initializeSentry() {
       /#shutdownTracing/,
       /TimeoutNegativeWarning/,
       /DeprecationWarning/,
+      /\[Langfuse SDK\]/, // Langfuse TS SDK 对非 JSON 响应硬编码 console.error，无法从 SDK 侧关闭
     ];
 
     Sentry.init({
