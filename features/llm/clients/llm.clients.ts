@@ -195,6 +195,7 @@ function getVertex() {
     }
     _vertex = createVertex({
       apiKey,
+      fetch: ApiFetcher.fetch,
     });
   }
   return _vertex;
