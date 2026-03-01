@@ -263,6 +263,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @DatabaseField('boolean', '是否启用异常处理器的 I18n 翻译功能')
   I18N_EXCEPTION_ENABLED?: boolean = false;
 
+  // ==================== Feature Flags ====================
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) FEATURE_SCHEDULER?: boolean;
+
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
   @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;
 
