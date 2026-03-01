@@ -6,6 +6,7 @@
 
 export {
   defineSlot,
+  resolveSlotRef,
   type BagInspection,
   type CatalogDescription,
   type CollectedTool,
@@ -16,6 +17,7 @@ export {
   type ContextSlot,
   type LayoutConfig,
   type Renderer,
+  type SlotRef,
   type SlotToolParam,
   type SlotToolSpec,
 } from './context-slot.types';
@@ -31,3 +33,4 @@ export {
   type RecipeCatalogDescription,
   type RecipeValidation,
 } from './context-recipe';
+export { applyProjections, forSource, type SlotProjection } from './context-projection';

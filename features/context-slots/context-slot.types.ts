@@ -56,7 +56,14 @@ export interface CollectToolsOptions {
  * 1. **激活自律**：函数内部可访问 options（如 currentTurn, maxTokens），返回 null 表示在当前语境下「隐藏」。
  * 2. **动态渲染**：内容可随 options 变化（如根据剩余预算返回不同长度的文本）。
  */
-export interface ContextSlot<T = unknown> {
+/**
+ * 上下文槽位定义。
+ *
+ * T 从 renderers 函数签名自动推导，调用方无需手动传泛型。
+ * K 是 renderer key 联合类型（默认 string），per-slot 类型推断时收窄。
+ * renderers 的 key 是 fidelity 标识（如 'full' | 'compact'）。
+ */
+export interface ContextSlot<T = unknown, K extends string = string> {
   readonly id: string;
   readonly title: string;
   readonly description: string;
@@ -68,12 +75,12 @@ export interface ContextSlot<T = unknown> {
    * @param options 编译时的全局选项（用于实现动态激活逻辑）
    * @returns 渲染出的字符串，返回 null 表示在当前语境下跳过此槽位
    */
-  readonly renderers: Partial<Record<string, Renderer<T>>>;
+  readonly renderers: Partial<Record<K, Renderer<T>>>;
   /**
    * Layer 2: Strategy — 行动指南（与 renderers 同 fidelity key + 同 Renderer 签名）。
    * 描述 Agent 在此状态下可采取的行为指南。
    */
-  readonly strategies?: Partial<Record<string, Renderer<T>>>;
+  readonly strategies?: Partial<Record<K, Renderer<T>>>;
   /**
    * Layer 3: Tools — 状态驱动的动态工具。
    * 根据 data 动态决定提供哪些工具（如情绪偏差大时才提供 adjust_emotion）。
@@ -89,7 +96,7 @@ export interface ContextSlot<T = unknown> {
  * 运行时是 identity 函数，价值在于让 T 从 renderers 自动推导。
  * 参数直接复用 ContextSlot<T>（结构一致，无需独立参数类型）。
  */
-export function defineSlot<T>(def: ContextSlot<T>): ContextSlot<T> {
+export function defineSlot<T, K extends string = string>(def: ContextSlot<T, K>): ContextSlot<T, K> {
   return def;
 }
 
@@ -142,6 +149,24 @@ export interface BagInspection {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SlotRef — Layout 中引用 slot 的方式
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Layout 中引用 slot 的方式。
+ *
+ * 优先使用 slot 对象引用（编译期安全 — 重命名 slot ID 时 layout 自动跟随）。
+ * 保留 string 是为了库层向后兼容（外部消费者可能只有 slot ID）。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type SlotRef = ContextSlot<any, any> | string;
+
+/** 将 SlotRef 解析为 slot ID 字符串 */
+export function resolveSlotRef(ref: SlotRef): string {
+  return typeof ref === 'string' ? ref : ref.id;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LayoutConfig — 后编译排列配置
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -152,8 +177,8 @@ export interface BagInspection {
  * 其余进入 middle 区按 priority 降序排列。
  */
 export interface LayoutConfig {
-  readonly head: readonly string[];
-  readonly tail: readonly string[];
+  readonly head: readonly SlotRef[];
+  readonly tail: readonly SlotRef[];
 }
 
 export interface CatalogDescription {

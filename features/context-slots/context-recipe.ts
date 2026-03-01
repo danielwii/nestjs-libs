@@ -50,6 +50,8 @@
  * ```
  */
 
+import { resolveSlotRef } from './context-slot.types';
+
 import type { ContextBag } from './context-bag';
 import type { CompiledBlock, CompileOptions, ContextLayer, ContextSlot, LayoutConfig } from './context-slot.types';
 
@@ -65,10 +67,10 @@ export interface ContextRecipe {
   readonly slots: {
     /** 必须 fill 的 slot（未 fill → 验证警告） */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly required: ReadonlyArray<ContextSlot<any>>;
+    readonly required: ReadonlyArray<ContextSlot<any, any>>;
     /** 条件 fill 的 slot（未 fill 是正常的） */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly optional: ReadonlyArray<ContextSlot<any>>;
+    readonly optional: ReadonlyArray<ContextSlot<any, any>>;
   };
   /** 编译选项 */
   readonly preset: CompileOptions;
@@ -151,17 +153,17 @@ export function validateRecipe(bag: ContextBag, recipe: ContextRecipe): RecipeVa
  * - 不在 head/tail 中的 block 进入 middle，按 priority 降序排列
  */
 export function uShapedLayout(blocks: readonly CompiledBlock[], config: LayoutConfig): CompiledBlock[] {
-  const headIds = new Set(config.head);
-  const tailIds = new Set(config.tail);
+  // 解引用：SlotRef → string ID，兼容 slot 对象引用和字符串
+  const headIds = config.head.map(resolveSlotRef);
+  const tailIds = config.tail.map(resolveSlotRef);
+  const headSet = new Set(headIds);
+  const tailSet = new Set(tailIds);
 
   const blockMap = new Map(blocks.map((b) => [b.id, b]));
-
-  const headBlocks = config.head.map((id) => blockMap.get(id)).filter((b): b is CompiledBlock => b !== undefined);
-
-  const tailBlocks = config.tail.map((id) => blockMap.get(id)).filter((b): b is CompiledBlock => b !== undefined);
-
+  const headBlocks = headIds.map((id) => blockMap.get(id)).filter((b): b is CompiledBlock => b !== undefined);
+  const tailBlocks = tailIds.map((id) => blockMap.get(id)).filter((b): b is CompiledBlock => b !== undefined);
   const middleBlocks = blocks
-    .filter((b) => !headIds.has(b.id) && !tailIds.has(b.id))
+    .filter((b) => !headSet.has(b.id) && !tailSet.has(b.id))
     .sort((a, b) => b.priority - a.priority);
 
   return [...headBlocks, ...middleBlocks, ...tailBlocks];

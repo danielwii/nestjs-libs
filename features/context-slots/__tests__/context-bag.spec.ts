@@ -185,12 +185,15 @@ describe('ContextBag — compile 基本行为', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('ContextBag — compile 过滤', () => {
-  it('跳过 fidelity 不存在的 renderer', () => {
+  it('fidelity 不存在时 fallback 到 full', () => {
     const bag = new ContextBag();
     bag.fill(FullOnlySlot, { text: '只有full' });
 
     expect(bag.compile({ fidelity: 'full' })).toHaveLength(1);
-    expect(bag.compile({ fidelity: 'compact' })).toHaveLength(0);
+    // fallback to 'full' renderer when 'compact' doesn't exist
+    const compactResult = bag.compile({ fidelity: 'compact' });
+    expect(compactResult).toHaveLength(1);
+    expect(compactResult[0]?.content).toBe('只有full');
   });
 
   it('renderer 返回 null 时跳过', () => {

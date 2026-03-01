@@ -29,12 +29,12 @@ import type {
  * 内部存储条目。
  *
  * ── 类型擦除点 ──
- * slot 存为 ContextSlot<any>（故意的类型擦除）。
+ * slot 存为 ContextSlot<any, any>（故意的类型擦除，T + K 都擦除）。
  * 安全不变量：同一 id 的 slot 和 data 始终配对（fill 是唯一写入路径）。
  */
 interface Entry {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly slot: ContextSlot<any>;
+  readonly slot: ContextSlot<any, any>;
   readonly data: unknown;
 }
 
@@ -68,7 +68,7 @@ export class ContextBag {
    * 不要从 catalog.get() 取出后 fill，否则会丢失泛型信息。
    */
   fill<T>(slot: ContextSlot<T>, data: T): this {
-    // Cast 点 1: ContextSlot<T> → ContextSlot<any>（故意的类型擦除）
+    // Cast 点 1: ContextSlot<T, K> → ContextSlot<any, any>（故意的类型擦除）
     // 安全因为同 id 的 data 由同一次 fill 提供
     this.entries.set(slot.id, { slot, data });
     return this;
@@ -125,18 +125,18 @@ export class ContextBag {
       // filter: exclude
       if (excludeSet?.has(slot.id)) continue;
 
-      // render: 取 fidelity 对应 renderer
-      const renderer = slot.renderers[fidelity];
+      // render: 取 fidelity 对应 renderer，fallback 到 'full'
+      const renderer = slot.renderers[fidelity] ?? slot.renderers['full'];
       if (!renderer) continue;
 
       // render + filter: null 或空字符串跳过
       const content = renderer(data, options);
       if (content === null || content.trim() === '') continue;
 
-      // Phase 3.5: render strategy（仅 layers 含 'strategy' 时）
+      // Phase 3.5: render strategy（仅 layers 含 'strategy' 时），fallback 到 'full'
       let strategy: string | undefined;
       if (includeStrategy && slot.strategies) {
-        const strategyRenderer = slot.strategies[fidelity];
+        const strategyRenderer = slot.strategies[fidelity] ?? slot.strategies['full'];
         if (strategyRenderer) {
           const strategyText = strategyRenderer(data, options);
           if (strategyText !== null && strategyText.trim() !== '') {

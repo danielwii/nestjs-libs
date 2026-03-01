@@ -9,6 +9,8 @@ import { SlotCatalog } from '../slot-catalog';
 
 import { describe, expect, it } from 'bun:test';
 
+import type { ContextRecipe } from '../context-recipe';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 测试用 Slot 定义
 // ═══════════════════════════════════════════════════════════════════════════
@@ -173,5 +175,85 @@ describe('SlotCatalog — createBag', () => {
     expect(info.filledSlots).toEqual(['personality']);
     expect(info.unfilledSlots).toContain('emotion');
     expect(info.unfilledSlots).toContain('relationship');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// fromRecipes — 静态工厂
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ExtraSlot = defineSlot<{ label: string }>({
+  id: 'extra',
+  title: 'Extra',
+  description: '额外 slot',
+  category: 'test',
+  priority: 30,
+  renderers: { full: (d) => d.label },
+});
+
+const recipeA: ContextRecipe = {
+  id: 'recipe-a',
+  name: 'Recipe A',
+  description: 'Test recipe A',
+  slots: {
+    required: [PersonalitySlot],
+    optional: [EmotionSlot],
+  },
+  preset: { fidelity: 'full' },
+};
+
+const recipeB: ContextRecipe = {
+  id: 'recipe-b',
+  name: 'Recipe B',
+  description: 'Test recipe B',
+  slots: {
+    required: [RelationshipSlot],
+    optional: [EmotionSlot], // 与 recipeA 共享 EmotionSlot
+  },
+  preset: { fidelity: 'full' },
+};
+
+describe('SlotCatalog.fromRecipes', () => {
+  it('registers all slots from recipes', () => {
+    const catalog = SlotCatalog.fromRecipes([recipeA, recipeB]);
+    expect(catalog.get('personality')).toBeDefined();
+    expect(catalog.get('emotion')).toBeDefined();
+    expect(catalog.get('relationship')).toBeDefined();
+  });
+
+  it('deduplicates shared slots across recipes', () => {
+    // EmotionSlot 同时在 recipeA 和 recipeB 中 → 只注册一次，不抛 duplicate
+    expect(() => SlotCatalog.fromRecipes([recipeA, recipeB])).not.toThrow();
+    const catalog = SlotCatalog.fromRecipes([recipeA, recipeB]);
+    expect(catalog.list()).toHaveLength(3);
+  });
+
+  it('registers extras not in any recipe', () => {
+    const catalog = SlotCatalog.fromRecipes([recipeA], [ExtraSlot]);
+    expect(catalog.get('extra')).toBeDefined();
+    expect(catalog.list()).toHaveLength(3); // personality + emotion + extra
+  });
+
+  it('extras already in recipe are silently deduplicated', () => {
+    // EmotionSlot is in recipeA AND in extras → no throw
+    expect(() => SlotCatalog.fromRecipes([recipeA], [EmotionSlot])).not.toThrow();
+  });
+
+  it('registers recipes after all slots', () => {
+    // 不抛 "references unregistered slot" 错误
+    expect(() => SlotCatalog.fromRecipes([recipeA, recipeB])).not.toThrow();
+    const catalog = SlotCatalog.fromRecipes([recipeA, recipeB]);
+    expect(catalog.listRecipes()).toHaveLength(2);
+  });
+
+  it('handles empty recipes array', () => {
+    const catalog = SlotCatalog.fromRecipes([]);
+    expect(catalog.list()).toHaveLength(0);
+    expect(catalog.listRecipes()).toHaveLength(0);
+  });
+
+  it('handles empty extras', () => {
+    const catalog = SlotCatalog.fromRecipes([recipeA], []);
+    expect(catalog.list()).toHaveLength(2); // personality + emotion
   });
 });
