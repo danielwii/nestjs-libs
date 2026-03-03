@@ -34,12 +34,13 @@ export class LoggerInjector implements Injector {
 
     if (!currentSpan) {
       if (storeTraceId) {
-        return LoggerInjector.formatMessage(storeTraceId, storeUserId, message);
+        return LoggerInjector.formatMessage(undefined, storeTraceId, storeUserId, message);
       }
       return message;
     }
 
     const spanContext = currentSpan.spanContext();
+    const spanName = (currentSpan as unknown as { name?: string }).name;
     const spanAttributes = (currentSpan as unknown as { attributes?: Record<string, unknown> }).attributes;
     const userIdFromSpan = spanAttributes?.['user.id'];
     const userId =
@@ -55,7 +56,7 @@ export class LoggerInjector implements Injector {
         if (!fallbackTraceId) {
           return message;
         }
-        return LoggerInjector.formatMessage(fallbackTraceId, userId, message);
+        return LoggerInjector.formatMessage(spanName, fallbackTraceId, userId, message);
       }
 
       currentSpan.addEvent(message);
@@ -68,13 +69,19 @@ export class LoggerInjector implements Injector {
     if (!traceId) {
       return message;
     }
-    return LoggerInjector.formatMessage(traceId, userId, message);
+    return LoggerInjector.formatMessage(spanName, traceId, userId, message);
   }
 
-  private static formatMessage(traceId: string, userId: unknown, message: string): string {
-    if (typeof userId === 'string' && userId.trim().length > 0) {
-      return `[${traceId}|${userId}] ${message}`;
-    }
-    return `[${traceId}] ${message}`;
+  private static formatMessage(
+    spanName: string | undefined,
+    traceId: string,
+    userId: unknown,
+    message: string,
+  ): string {
+    const parts: string[] = [];
+    if (spanName) parts.push(spanName);
+    parts.push(traceId);
+    if (typeof userId === 'string' && userId.trim().length > 0) parts.push(userId);
+    return `[${parts.join('|')}] ${message}`;
   }
 }

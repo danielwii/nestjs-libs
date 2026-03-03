@@ -46,8 +46,15 @@ process.emit = function (event, ...args) {
 };
 
 const { HttpInstrumentation } = require('@opentelemetry/instrumentation-http');
-const { GrpcInstrumentation } = require('@opentelemetry/instrumentation-grpc');
 const { SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-node');
+
+// Try to load optional gRPC instrumentation
+let GrpcInstrumentation = null;
+try {
+  GrpcInstrumentation = require('@opentelemetry/instrumentation-grpc').GrpcInstrumentation;
+} catch {
+  // gRPC instrumentation not installed, skip
+}
 const { getStringFromEnv } = require('@opentelemetry/core');
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { diag } = require('@opentelemetry/api');
@@ -194,7 +201,8 @@ function bootstrapTracing() {
   // see: https://github.com/open-telemetry/opentelemetry-js/issues/5514
   // 禁用后，HTTP traceId 由 bootstrap.ts 中的 otelTraceMiddleware 手动创建。
   const httpEnabled = (process.env.OTEL_HTTP_INSTRUMENTATION ?? 'true') !== 'false';
-  const instrumentations = [new GrpcInstrumentation()];
+  const instrumentations = [];
+  if (GrpcInstrumentation) instrumentations.push(new GrpcInstrumentation());
   if (httpEnabled) {
     instrumentations.push(
       new HttpInstrumentation({
