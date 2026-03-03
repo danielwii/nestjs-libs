@@ -1,8 +1,9 @@
 import { Logger } from '@nestjs/common';
 
-import { SysProxy } from '@app/env';
-
 import { f } from './logging';
+
+const proxyUrl =
+  process.env.APP_PROXY_ENABLED === 'true' ? `${process.env.APP_PROXY_HOST}:${process.env.APP_PROXY_PORT}` : '';
 
 /**
  * 支持代理的 fetch 包装
@@ -27,12 +28,12 @@ export class ApiFetcher {
     const hasAuth = !!(headers?.['authorization'] ?? headers?.['Authorization']);
 
     ApiFetcher.logger.debug(
-      f`#fetch url=${urlStr} method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth} proxy=${!!SysProxy.proxy}`,
+      f`#fetch url=${urlStr} method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth} proxy=${!!proxyUrl}`,
     );
 
     return fetch(url as string, {
       ...options,
-      ...(SysProxy.proxy ? { proxy: SysProxy.proxy } : {}),
+      ...(proxyUrl ? { proxy: proxyUrl } : {}),
     });
   }) as typeof fetch;
 }

@@ -43,7 +43,7 @@
  * ```
  */
 
-import { SysEnv, SysProxy } from '@app/env';
+import { SysEnv } from '@app/env';
 import { ApiFetcher } from '@app/utils/fetch';
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -237,7 +237,7 @@ export function getLLMClientStatus() {
     /* eslint-enable @typescript-eslint/no-deprecated */
     proxy: {
       enabled: SysEnv.APP_PROXY_ENABLED ?? false,
-      host: SysProxy.proxy || null,
+      host: SysEnv.APP_PROXY_ENABLED ? `${SysEnv.APP_PROXY_HOST}:${SysEnv.APP_PROXY_PORT}` : null,
     },
   };
 }
