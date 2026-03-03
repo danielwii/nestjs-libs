@@ -248,6 +248,54 @@ function buildProviderOptions(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Timeout Helper
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * 将 timeout + abortSignal 合并为单一 AbortSignal，自管理生命周期
+ *
+ * 为什么不直接传 timeout 给 AI SDK：
+ * AI SDK 内部用 AbortSignal.timeout() 实现超时，但超时后 DOMException
+ * 会作为 unhandledRejection 浮出（SDK 内部 promise 链未完全处理 abort）。
+ * 用 setTimeout + AbortController 替代，我们控制 abort 时机，
+ * 不会产生浮动的 DOMException。
+ */
+function createManagedSignal(
+  timeoutMs: number,
+  callerSignal?: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+  }, timeoutMs);
+
+  // 外部信号取消时，同步 abort
+  let callerHandler: (() => void) | undefined;
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      clearTimeout(timer);
+      controller.abort(callerSignal.reason);
+    } else {
+      callerHandler = () => {
+        clearTimeout(timer);
+        controller.abort(callerSignal.reason);
+      };
+      callerSignal.addEventListener('abort', callerHandler, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      if (callerHandler && callerSignal) {
+        callerSignal.removeEventListener('abort', callerHandler);
+      }
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LLM Class
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -350,6 +398,8 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+
     try {
       const result = await generateText({
         model: languageModel,
@@ -359,11 +409,11 @@ export class LLM {
         providerOptions,
         temperature,
         maxOutputTokens,
-        abortSignal,
-        timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
+        abortSignal: signal,
         experimental_telemetry: telemetry,
       });
 
+      cleanup();
       LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage);
 
       return {
@@ -371,6 +421,7 @@ export class LLM {
         usage: result.usage,
       };
     } catch (error) {
+      cleanup();
       LLM.logError(id, 'generateObject', modelKey, error);
       throw error;
     }
@@ -411,6 +462,8 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+
     try {
       const result = await generateText({
         model: languageModel,
@@ -420,10 +473,11 @@ export class LLM {
         providerOptions,
         temperature,
         maxOutputTokens,
-        abortSignal,
-        timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
+        abortSignal: signal,
         experimental_telemetry: telemetry,
       });
+
+      cleanup();
 
       const sourcesCount = result.sources.length;
       if (sourcesCount > 0) {
@@ -438,6 +492,7 @@ export class LLM {
         sources: extractWebSources(result.sources),
       };
     } catch (error) {
+      cleanup();
       LLM.logError(id, 'generateText', modelKey, error);
       throw error;
     }
@@ -519,6 +574,8 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+
     let ttftLogged = false;
 
     const result = streamText({
@@ -531,10 +588,10 @@ export class LLM {
       providerOptions,
       temperature,
       maxOutputTokens,
-      abortSignal,
-      timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
+      abortSignal: signal,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
+        cleanup();
         LLM.logError(id, 'streamObject', modelKey, error);
       },
       onChunk() {
@@ -544,6 +601,7 @@ export class LLM {
         }
       },
       onFinish(event) {
+        cleanup();
         LLM.logEnd(id, 'streamObject', modelKey, startTime, event.usage);
       },
     });
@@ -588,6 +646,8 @@ export class LLM {
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
 
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+
     let ttftLogged = false;
 
     const result = streamText({
@@ -597,10 +657,10 @@ export class LLM {
       providerOptions,
       temperature,
       maxOutputTokens,
-      abortSignal,
-      timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
+      abortSignal: signal,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
+        cleanup();
         LLM.logError(id, 'streamText', modelKey, error);
       },
       onChunk() {
@@ -610,6 +670,7 @@ export class LLM {
         }
       },
       onFinish(event) {
+        cleanup();
         LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage);
       },
     });
@@ -707,6 +768,8 @@ export class LLM {
     // 强制使用指定的 Tool
     const toolChoice = { type: 'tool' as const, toolName };
 
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+
     try {
       const result = await generateText({
         model: languageModel,
@@ -717,11 +780,11 @@ export class LLM {
         providerOptions,
         temperature,
         maxOutputTokens,
-        abortSignal,
-        timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
+        abortSignal: signal,
         experimental_telemetry: telemetry,
       });
 
+      cleanup();
       LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
 
       // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
@@ -778,6 +841,7 @@ export class LLM {
         usage: result.usage,
       };
     } catch (error) {
+      cleanup();
       LLM.logError(id, 'generateObjectViaTool', modelKey, error);
       throw error;
     }
@@ -856,6 +920,8 @@ export class LLM {
     // 强制使用指定的 Tool
     const toolChoice = { type: 'tool' as const, toolName };
 
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+
     const result = streamText({
       model: languageModel,
       system,
@@ -865,10 +931,10 @@ export class LLM {
       providerOptions,
       temperature,
       maxOutputTokens,
-      abortSignal,
-      timeout: timeout ?? SysEnv.AI_LLM_TIMEOUT_MS,
+      abortSignal: signal,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
+        cleanup();
         LLM.logError(id, 'streamObjectViaTool', modelKey, error);
       },
     });
@@ -908,6 +974,7 @@ export class LLM {
 
     // 获取 usage
     const usage = await result.usage;
+    cleanup();
     LLM.logEnd(id, 'streamObjectViaTool', modelKey, startTime, usage);
     yield { type: 'usage', usage };
   }
@@ -962,18 +1029,23 @@ export class LLM {
         throw new Error(`Embedding provider "${provider}" is not implemented yet`);
     }
 
-    const timeoutMs = timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;
-    const effectiveAbortSignal = abortSignal ?? AbortSignal.timeout(timeoutMs);
-    const result = await embed({
-      model: embeddingModel,
-      value: text,
-      abortSignal: effectiveAbortSignal,
-    });
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+    try {
+      const result = await embed({
+        model: embeddingModel,
+        value: text,
+        abortSignal: signal,
+      });
+      cleanup();
 
-    const usage: TokenUsage = { inputTokens: result.usage.tokens, outputTokens: 0 };
-    LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+      const usage: TokenUsage = { inputTokens: result.usage.tokens, outputTokens: 0 };
+      LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
 
-    return { embedding: result.embedding, usage };
+      return { embedding: result.embedding, usage };
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

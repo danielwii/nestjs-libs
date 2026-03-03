@@ -1,5 +1,7 @@
 import { parseJsonLoose } from './json-loose';
 
+import { describe, expect, it } from 'bun:test';
+
 describe('parseJsonLoose', () => {
   it('parses JSON wrapped in markdown fences with bare newlines inside strings', () => {
     const input = `\`\`\`json
