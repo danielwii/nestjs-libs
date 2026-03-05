@@ -35,14 +35,16 @@ interface ModelPricing {
  */
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // Gemini 系列
-  'google/gemini-2.5-flash': { input: 0.3, output: 2.5 }, // OpenRouter 价格
+  // Gemini 定价来源: https://ai.google.dev/gemini-api/docs/pricing
+  // OpenRouter 和 Vertex/Google AI 直连价格相同
+  'google/gemini-2.5-flash': { input: 0.3, output: 2.5 },
   'google/gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
-  'google/gemini-2.5-pro': { input: 1.25, output: 10.0 },
+  'google/gemini-2.5-pro': { input: 1.25, output: 10.0 }, // ≤200K tokens；>200K: $2.50/$15.00
   'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'google/gemini-3.1-flash-lite-preview': { input: 0.25, output: 1.5 },
-  'gemini-2.5-flash': { input: 0.15, output: 0.6 }, // Google 直连价格（更便宜）
-  'gemini-2.5-flash-lite': { input: 0.0375, output: 0.15 },
-  'gemini-2.5-pro': { input: 1.25, output: 10.0 },
+  'gemini-2.5-flash': { input: 0.3, output: 2.5 },
+  'gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
+  'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // ≤200K tokens；>200K: $2.50/$15.00
   'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'gemini-3.1-flash-lite-preview': { input: 0.25, output: 1.5 },
 
