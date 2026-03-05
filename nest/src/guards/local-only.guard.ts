@@ -32,6 +32,9 @@ const LOCALHOST_IPS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 @Injectable()
 export class LocalOnlyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
+    // 非 HTTP 上下文放行（避免误用于 gRPC handler 时报运行时错误）
+    if (context.getType() !== 'http') return true;
+
     const req = context.switchToHttp().getRequest<Request>();
     const ip = req.ip ?? req.socket.remoteAddress;
 
