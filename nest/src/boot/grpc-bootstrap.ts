@@ -6,6 +6,7 @@ import { SysEnv } from '@app/env';
 import { BootModule } from '@app/nest/boot/boot.module';
 import { runApp } from '@app/nest/boot/lifecycle';
 import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
+import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 
@@ -112,6 +113,7 @@ export async function grpcBootstrap(
   app.useGlobalPipes(new ValidationPipe({ enableDebugMessages: true, transform: true, whitelist: true }));
   // gRPC 服务只需要 GrpcExceptionFilter（不需要 AnyExceptionFilter，那是 HTTP/GraphQL 用的）
   app.useGlobalFilters(new GrpcExceptionFilter(provider));
+  app.useGlobalGuards(new GrpcServiceTokenGuard());
   app.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new LoggerInterceptor());
   app.enableShutdownHooks();
@@ -170,6 +172,7 @@ export async function grpcBootstrap(
           │ Host: ${os.hostname()}
           │ gRPC Port: ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}
           │ HTTP Port: ${httpPort} (health check)
+          │ Service Token: ${process.env.GRPC_SERVICE_TOKEN ? 'configured' : 'not configured'}
           │ PID: ${process.pid}
           ├─ 运行时信息 ───────────────────────────────────────────
           │ Platform: ${process.platform}
