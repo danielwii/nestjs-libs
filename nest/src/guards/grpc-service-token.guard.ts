@@ -9,21 +9,26 @@
  * 1. 环境变量配置（Doppler 注入）：
  *    GRPC_SERVICE_TOKEN=<shared-secret>
  *
- * 2. 服务端（NestJS gRPC Controller）：
+ * 2. 服务端 — 全局注册（推荐，所有 gRPC 端点自动保护）：
+ *    ```
+ *    @Module({
+ *      providers: [{ provide: APP_GUARD, useClass: GrpcServiceTokenGuard }],
+ *    })
+ *    export class AppModule {}
+ *    ```
+ *
+ * 3. 服务端 — 单个 Controller：
  *    ```
  *    @UseGuards(GrpcServiceTokenGuard)
  *    @Controller()
  *    export class MyGrpcController { ... }
  *    ```
  *
- * 3. 客户端（nice-grpc）：
- *    ```
- *    const metadata = Metadata();
- *    metadata.set('x-service-token', process.env.GRPC_SERVICE_TOKEN);
- *    client.someMethod(request, { metadata });
- *    ```
+ * 4. 客户端（contract SDK 自动注入，无需手动设置）：
+ *    token 由 contract/clients/tracing.ts 的 serviceTokenMiddleware 自动注入。
  *
  * 安全模型：
+ * - 自动跳过非 RPC 上下文（HTTP 健康检查等不受影响）
  * - 未配置 GRPC_SERVICE_TOKEN 时，跳过验证（本地开发兼容）
  * - 配置后，缺少或错误的 token 返回 UNAUTHENTICATED
  */
@@ -44,6 +49,9 @@ export class GrpcServiceTokenGuard implements CanActivate {
   private loggedSkipOnce = false;
 
   canActivate(context: ExecutionContext): boolean {
+    // 非 RPC 上下文直接放行（健康检查等 HTTP 端点）
+    if (context.getType() !== 'rpc') return true;
+
     const expectedToken = process.env.GRPC_SERVICE_TOKEN;
 
     // 未配置 token 时跳过验证（本地开发）
