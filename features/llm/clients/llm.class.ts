@@ -311,6 +311,31 @@ export class LLM {
     LLM.logger.log(`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}`);
   }
 
+  /**
+   * Schema keys + messages 摘要日志
+   *
+   * 帮助排查"空 schema"等结构性问题，不需要开 Proxyman。
+   */
+  private static logInputSummary(id: string, schema: z.ZodType, messages: Message[], system?: string): void {
+    // schema top-level keys（不依赖 z 运行时，直接检查 shape 属性）
+    const schemaKeys =
+      'shape' in schema && typeof schema.shape === 'object' && schema.shape !== null
+        ? Object.keys(schema.shape)
+        : ['(non-object schema)'];
+
+    // messages 摘要：role + content 长度
+    const msgSummary = messages
+      .map((m) => {
+        const len = typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length;
+        return `${m.role}:${len}`;
+      })
+      .join(', ');
+
+    const systemPart = system ? `, system=${system.length}ch` : '';
+
+    LLM.logger.debug(`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${systemPart}`);
+  }
+
   private static logEnd(id: string, method: string, modelKey: string, startTime: number, usage: TokenUsage): void {
     const duration = Date.now() - startTime;
     const inputTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
@@ -393,6 +418,7 @@ export class LLM {
     } = params;
 
     LLM.logStart(id, 'generateObject', modelKey, thinking);
+    LLM.logInputSummary(id, schema, messages, system);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
@@ -740,6 +766,7 @@ export class LLM {
     } = params;
 
     LLM.logStart(id, 'generateObjectViaTool', modelKey, thinking);
+    LLM.logInputSummary(id, schema, messages, system);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
