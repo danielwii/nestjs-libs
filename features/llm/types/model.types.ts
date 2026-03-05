@@ -282,17 +282,31 @@ export interface LLMModelRegistry {
   'openrouter:minimax-m2.5': ModelConfig<'openrouter'>;
   'openrouter:minimax/minimax-m2.5': ModelConfig<'openrouter'>;
 
+  /**
+   * Gemini 3.1 Flash Lite Preview - 轻量快速
+   *
+   * 定价参考（2026.03）：Input $0.25/M, Output $1.50/M, Context 1M
+   *
+   * 接近 Gemini 2.5 Flash 质量，比 2.5 Flash Lite 显著提升
+   *
+   * @see https://openrouter.ai/google/gemini-3.1-flash-lite-preview
+   */
+  'openrouter:gemini-3.1-flash-lite-preview': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-3.1-flash-lite-preview': ModelConfig<'openrouter'>;
+
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
   'google:gemini-2.5-pro': ModelConfig<'google'>;
   'google:gemini-2.5-flash-lite': ModelConfig<'google'>;
   'google:gemini-3-flash-preview': ModelConfig<'google'>;
+  'google:gemini-3.1-flash-lite-preview': ModelConfig<'google'>;
 
   // ==================== Vertex AI (Express Mode) ====================
   'vertex:gemini-2.5-flash': ModelConfig<'vertex'>;
   'vertex:gemini-2.5-pro': ModelConfig<'vertex'>;
   'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
+  'vertex:gemini-3.1-flash-lite-preview': ModelConfig<'vertex'>;
 }
 
 /**
@@ -365,17 +379,29 @@ const modelRegistry = new Map<string, ModelConfig>([
     { provider: 'openrouter', modelId: 'minimax/minimax-m2.5', reasoningRequired: true },
   ],
 
+  // Gemini 3.1 Flash Lite Preview
+  [
+    'openrouter:gemini-3.1-flash-lite-preview',
+    { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite-preview' },
+  ],
+  [
+    'openrouter:google/gemini-3.1-flash-lite-preview',
+    { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite-preview' },
+  ],
+
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],
   ['google:gemini-2.5-pro', { provider: 'google', modelId: 'gemini-2.5-pro' }],
   ['google:gemini-2.5-flash-lite', { provider: 'google', modelId: 'gemini-2.5-flash-lite' }],
   ['google:gemini-3-flash-preview', { provider: 'google', modelId: 'gemini-3-flash-preview' }],
+  ['google:gemini-3.1-flash-lite-preview', { provider: 'google', modelId: 'gemini-3.1-flash-lite-preview' }],
 
   // Vertex AI 模型 (Express Mode)
   ['vertex:gemini-2.5-flash', { provider: 'vertex', modelId: 'gemini-2.5-flash' }],
   ['vertex:gemini-2.5-pro', { provider: 'vertex', modelId: 'gemini-2.5-pro' }],
   ['vertex:gemini-2.5-flash-lite', { provider: 'vertex', modelId: 'gemini-2.5-flash-lite' }],
   ['vertex:gemini-3-flash-preview', { provider: 'vertex', modelId: 'gemini-3-flash-preview' }],
+  ['vertex:gemini-3.1-flash-lite-preview', { provider: 'vertex', modelId: 'gemini-3.1-flash-lite-preview' }],
 ]);
 
 // ==================== 注册函数 ====================

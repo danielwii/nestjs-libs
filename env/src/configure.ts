@@ -226,7 +226,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   /** @deprecated use AI_OPENAI_API_KEY */
   @IsString() @IsOptional() OPENAI_API_KEY?: string;
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境） */
-  @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
+  @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-3.1-flash-lite-preview';
 
   /** 默认 LLM 调用超时（毫秒），透传给 AI SDK 的 timeout 参数 */
   @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
