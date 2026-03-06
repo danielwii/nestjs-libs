@@ -135,10 +135,10 @@ function initializeSentry() {
 
   try {
     const Sentry = require('@sentry/nestjs');
-    console.log(`${LOG_NAMESPACE}: [Sentry] enabled`);
-
     const release = process.env.SENTRY_RELEASE ?? process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA;
     const environment = process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV;
+    const serverName = process.env.SENTRY_SERVER_NAME ?? process.env.APP_NAME;
+    console.log(`${LOG_NAMESPACE}: [Sentry] enabled server=${serverName ?? 'unknown'} env=${environment}`);
 
     const noisyPatterns = [
       /MISSING_ENV_FILE/i,
@@ -154,6 +154,7 @@ function initializeSentry() {
       sendDefaultPii: true,
       release,
       environment,
+      serverName,
       tracesSampleRate: process.env.NODE_ENV === 'development' ? 1.0 : 0.1,
       skipOpenTelemetrySetup: true,
       ignoreTransactions: [/^GET \/$/, /^GET \/health$/, /^GET \/api$/, /^handle.*Cron$/],
