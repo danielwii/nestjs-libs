@@ -13,12 +13,11 @@ import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import fs from 'node:fs';
 import os from 'node:os';
 
-import * as protoLoader from '@grpc/proto-loader';
-import { ReflectionService } from '@grpc/reflection';
 import dedent from 'dedent';
 import { DateTime } from 'luxon';
+import { ServerReflection, ServerReflectionService } from 'nice-grpc-server-reflection';
 
-import type { Server } from '@grpc/grpc-js';
+import type { Server, ServerDuplexStream } from '@grpc/grpc-js';
 import type { PackageDefinition } from '@grpc/proto-loader';
 import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type } from '@nestjs/common';
 import type { MicroserviceOptions } from '@nestjs/microservices';
@@ -63,6 +62,106 @@ export interface GrpcBootstrapOptions {
   httpPort?: number;
   /** 服务提供者标识（用于异常追踪），默认从 grpc.package 提取 */
   provider?: string;
+}
+
+/**
+ * 将 @grpc/grpc-js 的 bidi stream 转为 AsyncIterable
+ * 用于适配 nice-grpc 的 async generator 接口
+ */
+function callToAsyncIterable<T>(call: {
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+}): AsyncIterable<T> {
+  const queue: Array<{ value: T; done: false } | { value: undefined; done: true }> = [];
+  let resolve: ((v: { value: T; done: false } | { value: undefined; done: true }) => void) | null = null;
+
+  call.on('data', (data: unknown) => {
+    const item = { value: data as T, done: false as const };
+    if (resolve) {
+      const r = resolve;
+      resolve = null;
+      r(item);
+    } else {
+      queue.push(item);
+    }
+  });
+
+  call.on('end', () => {
+    const item = { value: undefined, done: true as const };
+    if (resolve) {
+      const r = resolve;
+      resolve = null;
+      r(item);
+    } else {
+      queue.push(item);
+    }
+  });
+
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        next(): Promise<IteratorResult<T>> {
+          const queued = queue.shift();
+          if (queued) return Promise.resolve(queued);
+          return new Promise((r) => {
+            resolve = r;
+          });
+        },
+      };
+    },
+  };
+}
+
+/**
+ * 从 FileDescriptorSet 二进制中提取所有 service 全限定名
+ * 使用 @grpc/proto-loader 解析，从 PackageDefinition 中提取 service 路径
+ */
+function extractServiceNames(protoset: Buffer): string[] {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/consistent-type-imports
+  const protoLoader: typeof import('@grpc/proto-loader') = require('@grpc/proto-loader');
+  const pkg = protoLoader.loadFileDescriptorSetFromBuffer(protoset);
+  const serviceNames = new Set<string>();
+  for (const key of Object.keys(pkg)) {
+    const def = pkg[key];
+    // service definition 是对象且不含 requestStream（区分 service 和 method）
+    if (def && typeof def === 'object' && !('requestStream' in def)) {
+      serviceNames.add(key);
+    }
+  }
+  return [...serviceNames];
+}
+
+/**
+ * 将预编译 descriptor set 注册为 gRPC reflection service
+ * 使用 nice-grpc-server-reflection 直接服务原始字节，绕过 protobufjs roundtrip bug
+ */
+function addDescriptorSetReflection(server: Pick<Server, 'addService'>, descriptorSetPath: string): void {
+  const protoset = fs.readFileSync(descriptorSetPath);
+  const serviceNames = extractServiceNames(protoset);
+  const impl = ServerReflection(protoset, serviceNames);
+
+  // nice-grpc ServiceDefinition → @grpc/grpc-js addService 需要类型断言
+  // nice-grpc 的 async generator handler → @grpc/grpc-js 的 bidi stream callback
+  server.addService(
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+    ServerReflectionService as any,
+    {
+      serverReflectionInfo: (call: ServerDuplexStream<unknown, unknown>) => {
+        void (async () => {
+          try {
+            const requests = callToAsyncIterable(call);
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+            for await (const response of impl.serverReflectionInfo(requests as any, {} as any)) {
+              call.write(response);
+            }
+          } catch (err) {
+            Logger.error(`Reflection error: ${err instanceof Error ? err.message : String(err)}`, 'gRPC-Reflection');
+          } finally {
+            call.end();
+          }
+        })();
+      },
+    },
+  );
 }
 
 /**
@@ -135,20 +234,14 @@ export async function grpcBootstrap(
         protoPath: options.grpc.protoPath,
         url: `0.0.0.0:${grpcPort}`,
         loader: options.grpc.loader,
-        // 启用 gRPC reflection，支持 grpcurl list 等命令
-        onLoadPackageDefinition: enableReflection
-          ? (pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
-              if (options.grpc.descriptorSetPath) {
-                // 预编译 descriptor 绕过 protobufjs map entry name bug (#519)
-                const buf = fs.readFileSync(options.grpc.descriptorSetPath);
-                const descriptorPkg = protoLoader.loadFileDescriptorSetFromBuffer(buf, options.grpc.loader);
-                new ReflectionService(descriptorPkg).addToServer(server);
-              } else {
-                // fallback: 运行时解析（map 字段 reflection 可能不正确）
-                new ReflectionService(pkg).addToServer(server);
+        // gRPC reflection: 使用预编译 descriptor set 绕过 protobufjs map entry bug
+        onLoadPackageDefinition:
+          enableReflection && options.grpc.descriptorSetPath
+            ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
+                // descriptorSetPath 在三元条件已确认存在
+                addDescriptorSetReflection(server, options.grpc.descriptorSetPath as string);
               }
-            }
-          : undefined,
+            : undefined,
       },
     },
     { inheritAppConfig: true },
