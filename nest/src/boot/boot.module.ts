@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { ConnectionModule } from '@app/nest/connection/connection.module';
 import { HealthModule } from '@app/nest/health/health.module';
+import { SentryDebugModule } from '@app/nest/sentry-debug/sentry-debug.module';
 import { TraceModule } from '@app/nest/trace/trace.module';
 
 import { InitializableModule } from './initializable.module';
@@ -29,6 +30,6 @@ import { InitializableModule } from './initializable.module';
  * - GET /health/ready - Readiness 探针（优雅关闭时返回 503）
  */
 @Module({
-  imports: [TraceModule, HealthModule, ConnectionModule],
+  imports: [TraceModule, HealthModule, ConnectionModule, SentryDebugModule],
 })
 export class BootModule extends InitializableModule {}
