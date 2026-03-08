@@ -10,8 +10,10 @@ import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 
+import fs from 'node:fs';
 import os from 'node:os';
 
+import * as protoLoader from '@grpc/proto-loader';
 import { ReflectionService } from '@grpc/reflection';
 import dedent from 'dedent';
 import { DateTime } from 'luxon';
@@ -48,6 +50,8 @@ export interface GrpcBootstrapOptions {
     package: string | string[];
     /** Proto 文件路径 */
     protoPath: string | string[];
+    /** 预编译 FileDescriptorSet 路径（绕过 protobufjs map entry name bug） */
+    descriptorSetPath?: string;
     /** gRPC 服务端口，默认 50051 */
     port?: number;
     /** 额外的 loader 选项 */
@@ -134,7 +138,15 @@ export async function grpcBootstrap(
         // 启用 gRPC reflection，支持 grpcurl list 等命令
         onLoadPackageDefinition: enableReflection
           ? (pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
-              new ReflectionService(pkg).addToServer(server);
+              if (options.grpc.descriptorSetPath) {
+                // 预编译 descriptor 绕过 protobufjs map entry name bug (#519)
+                const buf = fs.readFileSync(options.grpc.descriptorSetPath);
+                const descriptorPkg = protoLoader.loadFileDescriptorSetFromBuffer(buf, options.grpc.loader);
+                new ReflectionService(descriptorPkg).addToServer(server);
+              } else {
+                // fallback: 运行时解析（map 字段 reflection 可能不正确）
+                new ReflectionService(pkg).addToServer(server);
+              }
             }
           : undefined,
       },
