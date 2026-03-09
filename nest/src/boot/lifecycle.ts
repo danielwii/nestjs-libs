@@ -5,6 +5,7 @@ import { f } from '@app/utils/logging';
 
 import os from 'node:os';
 
+import * as Sentry from '@sentry/nestjs';
 import * as _ from 'radash';
 
 import type { INestApplication } from '@nestjs/common';
@@ -80,7 +81,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
 
     logger.error(f`(${os.hostname}) uncaughtException: ${err.message}`, err.stack);
     if (SysEnv.EXIT_ON_ERROR) {
-      // Sentry.captureException(err);
+      Sentry.captureException(err);
       app
         .close()
         .catch((error: unknown) => {
@@ -112,7 +113,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
     const detail = formatRejectionDetail(err);
     logger.error(f`(${os.hostname}) unhandledRejection:\n${detail}`);
     if (SysEnv.EXIT_ON_ERROR) {
-      // Sentry.captureException(err);
+      Sentry.captureException(err);
       app
         .close()
         .catch((error: unknown) => {
