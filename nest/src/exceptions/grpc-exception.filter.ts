@@ -1,5 +1,4 @@
 import { Catch, Logger } from '@nestjs/common';
-import { RpcException } from '@nestjs/microservices';
 
 import { status } from '@grpc/grpc-js';
 import * as Sentry from '@sentry/nestjs';
@@ -65,11 +64,6 @@ export class GrpcExceptionFilter implements ExceptionFilter {
       return this.handleZodError(exception);
     }
 
-    // RpcException 直接抛出
-    if (exception instanceof RpcException) {
-      return throwError(() => exception);
-    }
-
     // 其他未知错误
     return this.handleUnexpectedError(exception);
   }
@@ -112,7 +106,11 @@ export class GrpcExceptionFilter implements ExceptionFilter {
       this.logger.warn(`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`);
     }
 
-    return throwError(() => new RpcException({ code: grpcStatus, message: details }));
+    // 直接抛出 { code, details } 而非 RpcException
+    // 原因：@grpc/grpc-js 的 serverErrorToStatus() 检查 error.code（顶层属性）
+    // RpcException 把 code 包在 getError() 里，顶层没有 .code → 永远 fallback 到 UNKNOWN (2)
+    // 参考：https://github.com/nestjs/nest/issues/5615
+    return throwError(() => ({ code: grpcStatus, details }));
   }
 
   private handleZodError(exception: ZodError): Observable<never> {
@@ -128,7 +126,7 @@ export class GrpcExceptionFilter implements ExceptionFilter {
 
     this.logger.warn(`[ZodError] ${firstIssue?.path.join('.')}: ${firstIssue?.message}`);
 
-    return throwError(() => new RpcException({ code: status.INVALID_ARGUMENT, message: JSON.stringify(grpcError) }));
+    return throwError(() => ({ code: status.INVALID_ARGUMENT, details: JSON.stringify(grpcError) }));
   }
 
   private handleUnexpectedError(exception: unknown): Observable<never> {
@@ -147,7 +145,7 @@ export class GrpcExceptionFilter implements ExceptionFilter {
       provider: this.provider,
     };
 
-    return throwError(() => new RpcException({ code: status.INTERNAL, message: JSON.stringify(grpcError) }));
+    return throwError(() => ({ code: status.INTERNAL, details: JSON.stringify(grpcError) }));
   }
 
   private httpStatusToGrpcStatus(httpStatus: number): number {
