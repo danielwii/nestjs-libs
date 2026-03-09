@@ -234,6 +234,8 @@ export async function grpcBootstrap(
         protoPath: options.grpc.protoPath,
         url: `0.0.0.0:${grpcPort}`,
         loader: options.grpc.loader,
+        // 滚动更新时发 GOAWAY 并等待在途 stream 完成，而非 forceShutdown 立即断开
+        gracefulShutdown: true,
         // gRPC reflection: 使用预编译 descriptor set 绕过 protobufjs map entry bug
         onLoadPackageDefinition:
           enableReflection && options.grpc.descriptorSetPath
