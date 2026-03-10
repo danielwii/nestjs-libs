@@ -10,6 +10,8 @@ import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 
+import { addGrpcHealthService } from './grpc-health';
+
 import fs from 'node:fs';
 import os from 'node:os';
 
@@ -226,6 +228,12 @@ export async function grpcBootstrap(
   const grpcPort = options.grpc.port ?? SysEnv.GRPC_PORT;
   const enableReflection = options.grpc.reflection !== false; // 默认启用
 
+  // gRPC Health Service: 追踪 shutdown 状态，SIGTERM 后返回 NOT_SERVING
+  let grpcShuttingDown = false;
+  process.on('SIGTERM', () => {
+    grpcShuttingDown = true;
+  });
+
   app.connectMicroservice<MicroserviceOptions>(
     {
       transport: Transport.GRPC,
@@ -236,14 +244,18 @@ export async function grpcBootstrap(
         loader: options.grpc.loader,
         // 滚动更新时发 GOAWAY 并等待在途 stream 完成，而非 forceShutdown 立即断开
         gracefulShutdown: true,
-        // gRPC reflection: 使用预编译 descriptor set 绕过 protobufjs map entry bug
-        onLoadPackageDefinition:
-          enableReflection && options.grpc.descriptorSetPath
-            ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
-                // descriptorSetPath 在三元条件已确认存在
-                addDescriptorSetReflection(server, options.grpc.descriptorSetPath as string);
+        // gRPC reflection + health: 使用预编译 descriptor set
+        onLoadPackageDefinition: options.grpc.descriptorSetPath
+          ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
+              const dsPath = options.grpc.descriptorSetPath as string;
+              // Reflection service（grpcurl / grpc-client-cli 等工具发现服务）
+              if (enableReflection) {
+                addDescriptorSetReflection(server, dsPath);
               }
-            : undefined,
+              // Health service（grpc.health.v1.Health/Check）
+              addGrpcHealthService(server, dsPath, () => grpcShuttingDown);
+            }
+          : undefined,
       },
     },
     { inheritAppConfig: true },

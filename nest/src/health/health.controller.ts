@@ -1,42 +1,32 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 
+import { HealthRegistry } from './health-registry';
+
+import type { HealthIndicatorResult } from './health-indicator';
 import type { OnApplicationShutdown } from '@nestjs/common';
 
 /**
  * Health Controller
  *
- * 提供 K8s 健康检查端点，支持优雅关闭时主动返回 503。
+ * 三层 K8s 健康检查端点，auto-discovery 通过 HealthRegistry 实现。
  *
  * 端点：
- * - GET /health       - 基础健康检查（Startup/Liveness 探针）
- * - GET /health/ready - 就绪检查（Readiness 探针），关闭时返回 503
+ * - GET /health          - liveness（进程活着）
+ * - GET /health/ready    - readiness（自身 + DB + Redis），失败 → K8s 摘流量
+ * - GET /health/topology - 下游 gRPC 可达性，始终 HTTP 200，body 标 ok/degraded
  *
- * K8s 配置示例：
- * ```yaml
- * livenessProbe:
- *   httpGet:
- *     path: /health
- *     port: 3000
- *   initialDelaySeconds: 10
- *   periodSeconds: 10
- *
- * readinessProbe:
- *   httpGet:
- *     path: /health/ready
- *     port: 3000
- *   initialDelaySeconds: 5
- *   periodSeconds: 5
- * ```
+ * 设计决策：
+ * - /health/ready 不检查下游 gRPC — 避免级联故障
+ * - /health/topology 始终 HTTP 200 — 只用于告警，不影响 K8s 探针
  */
 @Controller('health')
 export class HealthController implements OnApplicationShutdown {
   private isShuttingDown = false;
 
+  constructor(private readonly registry: HealthRegistry) {}
+
   /**
-   * 基础健康检查
-   *
-   * 用于 Startup 和 Liveness 探针。
-   * 只要进程活着就返回 200，不检查依赖服务状态。
+   * Liveness 探针 — 进程活着就返回 200
    */
   @Get()
   health(): { status: string } {
@@ -44,29 +34,55 @@ export class HealthController implements OnApplicationShutdown {
   }
 
   /**
-   * 就绪检查
-   *
-   * 用于 Readiness 探针。
-   * - 正常时返回 200，表示可以接收流量
-   * - 关闭中返回 503，让 K8s 从 Service Endpoints 移除此 Pod
-   *
-   * 设计意图：配合 preStop hook 的 sleep，在 SIGTERM 后立即标记 NotReady，
-   * 让 K8s 更快地将流量从此 Pod 移走。
+   * Readiness 探针 — 检查自身依赖（DB、Redis），shutdown 时返回 503
    */
   @Get('ready')
-  ready(): { status: string } {
+  async ready(): Promise<{ status: string; checks: Record<string, HealthIndicatorResult> }> {
     if (this.isShuttingDown) {
       throw new ServiceUnavailableException('Shutting down');
     }
-    return { status: 'ready' };
+
+    const indicators = this.registry.getByType('readiness');
+    if (indicators.length === 0) {
+      return { status: 'ready', checks: {} };
+    }
+
+    const results = await Promise.all(indicators.map((i) => i.check()));
+    const checks: Record<string, HealthIndicatorResult> = {};
+    for (const r of results) {
+      checks[r.name] = r;
+    }
+
+    const allHealthy = results.every((r) => r.healthy);
+    if (!allHealthy) {
+      throw new ServiceUnavailableException({ status: 'not_ready', checks });
+    }
+
+    return { status: 'ready', checks };
   }
 
   /**
-   * 应用关闭钩子
+   * Topology 端点 — 检查下游 gRPC 可达性
    *
-   * NestJS 收到 SIGTERM 后会调用此方法。
-   * 标记 isShuttingDown 后，后续 /health/ready 请求都会返回 503。
+   * 始终返回 HTTP 200（不影响 K8s 探针），body 标 ok/degraded。
    */
+  @Get('topology')
+  async topology(): Promise<{ status: string; checks: Record<string, HealthIndicatorResult> }> {
+    const indicators = this.registry.getByType('topology');
+    if (indicators.length === 0) {
+      return { status: 'ok', checks: {} };
+    }
+
+    const results = await Promise.all(indicators.map((i) => i.check()));
+    const checks: Record<string, HealthIndicatorResult> = {};
+    for (const r of results) {
+      checks[r.name] = r;
+    }
+
+    const allHealthy = results.every((r) => r.healthy);
+    return { status: allHealthy ? 'ok' : 'degraded', checks };
+  }
+
   onApplicationShutdown(_signal?: string): void {
     this.isShuttingDown = true;
   }
