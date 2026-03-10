@@ -43,7 +43,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@openrouter/ai-sdk-provider": "^2.2.5",
     "@opentelemetry/api": "^1.9.0",
-    "@sentry/nestjs": "^10.42.0",
+    "@sentry/nestjs": "^10.43.0",
     "ai": "^6.0.116",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
@@ -67,7 +67,7 @@
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
-    "@jest/globals": "^30.2.0",
+    "@jest/globals": "^30.3.0",
     "@types/bun": "^1.3.10",
     "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.10",
@@ -87,10 +87,10 @@
     "eslint-plugin-prettier": "^5.5.5",
     "globals": "^17.4.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.3.2",
+    "lint-staged": "^16.3.3",
     "prettier": "^3.8.1",
     "ts-morph": "^27.0.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.56.1"
+    "typescript-eslint": "^8.57.0"
   }
 }
