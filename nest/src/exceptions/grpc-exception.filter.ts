@@ -1,15 +1,13 @@
 import { Catch, Logger } from '@nestjs/common';
 
+import { OOPS_ERROR_METADATA_KEY } from './error-codes';
+
 import { Metadata as GrpcMetadata, status } from '@grpc/grpc-js';
 import * as Sentry from '@sentry/nestjs';
 import { Observable, of, throwError } from 'rxjs';
 import { ZodError } from 'zod';
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
-
-// x-oops-error-bin header key — 客户端 middleware 读取此 key 还原 BusinessException
-// 使用 -bin 后缀：@grpc/grpc-js 自动 Base64 编解码，支持非 ASCII 字符（中文 userMessage）
-export const OOPS_ERROR_METADATA_KEY = 'x-oops-error-bin';
 
 /**
  * OopsException 接口

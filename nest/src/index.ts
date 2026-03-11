@@ -6,4 +6,4 @@ export * from './common/interface';
 export * from './common/response';
 export * from './exceptions/business-exception.interface';
 export * from './exceptions/error-codes';
-export { OOPS_ERROR_METADATA_KEY } from './exceptions/grpc-exception.filter';
+// OOPS_ERROR_METADATA_KEY already exported via error-codes above

@@ -55,6 +55,9 @@ export enum ErrorCodes {
 
 export type ErrorCodeValue = `${ErrorCodes}`;
 
+/** gRPC metadata key for business error OK pattern (-bin suffix = auto Base64) */
+export const OOPS_ERROR_METADATA_KEY = 'x-oops-error-bin';
+
 /**
  * 检查是否为有效的错误码
  */
