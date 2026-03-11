@@ -1,5 +1,3 @@
-import { ServiceUnavailableException } from '@nestjs/common';
-
 import { HealthRegistry } from './health-registry';
 import { HealthController } from './health.controller';
 
@@ -27,14 +25,41 @@ function setup(...indicators: HealthIndicator[]) {
   return new HealthController(registry);
 }
 
+/** Mock Express Response that captures status + json */
+function mockRes() {
+  let capturedStatus = 200;
+  let capturedBody: unknown;
+  const res = {
+    status(code: number) {
+      capturedStatus = code;
+      return res;
+    },
+    json(body: unknown) {
+      capturedBody = body;
+      return res;
+    },
+  };
+  return {
+    res: res as unknown as import('express').Response,
+    get statusCode() {
+      return capturedStatus;
+    },
+    get body() {
+      return capturedBody as Record<string, unknown>;
+    },
+  };
+}
+
 // ==================== Tests ====================
 
 describe('HealthController /health/topology', () => {
   test('无 indicator → 200 ok', async () => {
     const controller = setup();
-    const result = await controller.topology();
-    expect(result.status).toBe('ok');
-    expect(result.checks).toEqual({});
+    const mock = mockRes();
+    await controller.topology(mock.res);
+    expect(mock.statusCode).toBe(200);
+    expect(mock.body.status).toBe('ok');
+    expect(mock.body.checks).toEqual({});
   });
 
   test('全部健康 → 200 ok', async () => {
@@ -43,11 +68,14 @@ describe('HealthController /health/topology', () => {
       mockIndicator('grpc:marsgate', true),
       mockIndicator('grpc:thirdparty', true),
     );
-    const result = await controller.topology();
-    expect(result.status).toBe('ok');
-    expect(result.checks['grpc:ai-persona']?.healthy).toBe(true);
-    expect(result.checks['grpc:marsgate']?.healthy).toBe(true);
-    expect(result.checks['grpc:thirdparty']?.healthy).toBe(true);
+    const mock = mockRes();
+    await controller.topology(mock.res);
+    expect(mock.statusCode).toBe(200);
+    expect(mock.body.status).toBe('ok');
+    const checks = mock.body.checks as Record<string, { healthy: boolean }>;
+    expect(checks['grpc:ai-persona']?.healthy).toBe(true);
+    expect(checks['grpc:marsgate']?.healthy).toBe(true);
+    expect(checks['grpc:thirdparty']?.healthy).toBe(true);
   });
 
   test('部分不通 → 503 degraded（黄）', async () => {
@@ -56,16 +84,13 @@ describe('HealthController /health/topology', () => {
       mockIndicator('grpc:marsgate', false),
       mockIndicator('grpc:thirdparty', true),
     );
-    try {
-      await controller.topology();
-      throw new Error('Expected 503');
-    } catch (e) {
-      expect(e).toBeInstanceOf(ServiceUnavailableException);
-      const body = (e as ServiceUnavailableException).getResponse() as any;
-      expect(body.status).toBe('degraded');
-      expect(body.checks['grpc:marsgate']?.healthy).toBe(false);
-      expect(body.checks['grpc:ai-persona']?.healthy).toBe(true);
-    }
+    const mock = mockRes();
+    await controller.topology(mock.res);
+    expect(mock.statusCode).toBe(503);
+    expect(mock.body.status).toBe('degraded');
+    const checks = mock.body.checks as Record<string, { healthy: boolean }>;
+    expect(checks['grpc:marsgate']?.healthy).toBe(false);
+    expect(checks['grpc:ai-persona']?.healthy).toBe(true);
   });
 
   test('全部不通 → 503 down（红）', async () => {
@@ -74,14 +99,11 @@ describe('HealthController /health/topology', () => {
       mockIndicator('grpc:marsgate', false),
       mockIndicator('grpc:thirdparty', false),
     );
-    try {
-      await controller.topology();
-      throw new Error('Expected 503');
-    } catch (e) {
-      expect(e).toBeInstanceOf(ServiceUnavailableException);
-      const body = (e as ServiceUnavailableException).getResponse() as any;
-      expect(body.status).toBe('down');
-      expect(body.checks['grpc:ai-persona']?.healthy).toBe(false);
-    }
+    const mock = mockRes();
+    await controller.topology(mock.res);
+    expect(mock.statusCode).toBe(503);
+    expect(mock.body.status).toBe('down');
+    const checks = mock.body.checks as Record<string, { healthy: boolean }>;
+    expect(checks['grpc:ai-persona']?.healthy).toBe(false);
   });
 });

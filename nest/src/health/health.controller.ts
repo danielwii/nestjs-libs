@@ -1,9 +1,10 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Logger, Res, ServiceUnavailableException } from '@nestjs/common';
 
 import { HealthRegistry } from './health-registry';
 
 import type { HealthIndicatorResult } from './health-indicator';
 import type { OnApplicationShutdown } from '@nestjs/common';
+import type { Response } from 'express';
 
 /**
  * Health Controller
@@ -19,9 +20,11 @@ import type { OnApplicationShutdown } from '@nestjs/common';
  * - /health/ready 不检查下游 gRPC — 避免级联故障
  * - /health/topology 不用于 K8s 探针，503 供监控工具告警
  * - topology 三档：ok（全通 200）/ degraded（部分不通 503）/ down（全挂 503）
+ * - topology 503 不走 exception 流程，直接 res.status().json() — 避免全局 ExceptionFilter 误报 ERROR
  */
 @Controller('health')
 export class HealthController implements OnApplicationShutdown {
+  private readonly logger = new Logger(HealthController.name);
   private isShuttingDown = false;
 
   constructor(private readonly registry: HealthRegistry) {}
@@ -65,19 +68,39 @@ export class HealthController implements OnApplicationShutdown {
   /**
    * Topology 端点 — 检查下游 gRPC 可达性
    *
-   * 不用于 K8s 探针，供监控工具告警：
+   * 不走 exception 流程，直接设 status code 返回。
+   * 避免全局 AnyExceptionFilter 把 topology 503 当 fatal error 打 ERROR 日志。
+   *
    * - ok（200）：全部健康
    * - degraded（503）：部分不通（黄，P2）
    * - down（503）：全部不通（红，P1）
    */
   @Get('topology')
-  async topology(): Promise<{ status: string; checks: Record<string, HealthIndicatorResult> }> {
+  async topology(@Res() res: Response): Promise<void> {
     const indicators = this.registry.getByType('topology');
     if (indicators.length === 0) {
-      return { status: 'ok', checks: {} };
+      res.status(HttpStatus.OK).json({ status: 'ok', checks: {} });
+      return;
     }
 
-    const results = await Promise.all(indicators.map((i) => i.check()));
+    // 总超时兜底：即使单个 indicator 的内部超时失效（如 gRPC channel reconnecting），
+    // 也保证 topology 端点在 5 秒内返回，避免监控探测卡死。
+    const TOPOLOGY_TIMEOUT_MS = 5000;
+    let results: HealthIndicatorResult[];
+    try {
+      results = await Promise.race([
+        Promise.all(indicators.map((i) => i.check())),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => { reject(new Error(`topology timeout (${TOPOLOGY_TIMEOUT_MS}ms)`)); }, TOPOLOGY_TIMEOUT_MS),
+        ),
+      ]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`topology check failed: ${message}`);
+      res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ status: 'down', error: message });
+      return;
+    }
+
     const checks: Record<string, HealthIndicatorResult> = {};
     for (const r of results) {
       checks[r.name] = r;
@@ -85,11 +108,12 @@ export class HealthController implements OnApplicationShutdown {
 
     const healthyCount = results.filter((r) => r.healthy).length;
     if (healthyCount === results.length) {
-      return { status: 'ok', checks };
+      res.status(HttpStatus.OK).json({ status: 'ok', checks });
+      return;
     }
 
     const status = healthyCount === 0 ? 'down' : 'degraded';
-    throw new ServiceUnavailableException({ status, checks });
+    res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ status, checks });
   }
 
   onApplicationShutdown(_signal?: string): void {
