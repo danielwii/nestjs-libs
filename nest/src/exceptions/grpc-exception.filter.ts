@@ -1,11 +1,15 @@
 import { Catch, Logger } from '@nestjs/common';
 
-import { status } from '@grpc/grpc-js';
+import { Metadata as GrpcMetadata, status } from '@grpc/grpc-js';
 import * as Sentry from '@sentry/nestjs';
-import { Observable, throwError } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { ZodError } from 'zod';
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
+
+// x-oops-error-bin header key — 客户端 middleware 读取此 key 还原 BusinessException
+// 使用 -bin 后缀：@grpc/grpc-js 自动 Base64 编解码，支持非 ASCII 字符（中文 userMessage）
+export const OOPS_ERROR_METADATA_KEY = 'x-oops-error-bin';
 
 /**
  * OopsException 接口
@@ -38,10 +42,13 @@ interface GrpcError {
 /**
  * gRPC 异常过滤器
  *
- * 将 OopsException (BusinessException/FatalException) 转换为 gRPC 错误：
- * - 序列化错误信息到 details 字段
- * - FatalException (500) 触发 Sentry 告警
- * - BusinessException (422) 仅记录 warn 日志
+ * 错误分类策略：
+ * - BusinessException (isFatal=false) → gRPC OK + x-business-error header
+ *   传输层视角：服务正常处理了请求，Istio metrics 不计为错误
+ *   客户端通过 businessErrorMiddleware 读取 header 还原异常
+ *
+ * - FatalException (isFatal=true) → gRPC INTERNAL + details JSON
+ *   传输层视角：服务出了问题，Istio metrics 计为错误，触发 Sentry
  *
  * @example
  * // 在 grpc-bootstrap.ts 中注册
@@ -53,10 +60,10 @@ export class GrpcExceptionFilter implements ExceptionFilter {
 
   constructor(private readonly provider: string) {}
 
-  catch(exception: unknown, _host: ArgumentsHost): Observable<never> {
+  catch(exception: unknown, host: ArgumentsHost): Observable<unknown> {
     // OopsException 转换为结构化 gRPC 错误
     if (this.isOopsException(exception)) {
-      return this.handleOopsException(exception);
+      return this.handleOopsException(exception, host);
     }
 
     // Zod 验证错误
@@ -81,9 +88,8 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     );
   }
 
-  private handleOopsException(exception: IOopsException): Observable<never> {
+  private handleOopsException(exception: IOopsException, host: ArgumentsHost): Observable<unknown> {
     const isFatal = exception.isFatal();
-    const grpcStatus = this.httpStatusToGrpcStatus(exception.httpStatus);
 
     const grpcError: GrpcError = {
       httpStatus: exception.httpStatus,
@@ -102,15 +108,27 @@ export class GrpcExceptionFilter implements ExceptionFilter {
         exception.stack,
       );
       Sentry.captureException(exception);
-    } else {
-      this.logger.warn(`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`);
+
+      const grpcStatus = this.httpStatusToGrpcStatus(exception.httpStatus);
+      // 直接抛出 { code, details } 而非 RpcException
+      // 原因：@grpc/grpc-js 的 serverErrorToStatus() 检查 error.code（顶层属性）
+      return throwError(() => ({ code: grpcStatus, details }));
     }
 
-    // 直接抛出 { code, details } 而非 RpcException
-    // 原因：@grpc/grpc-js 的 serverErrorToStatus() 检查 error.code（顶层属性）
-    // RpcException 把 code 包在 getError() 里，顶层没有 .code → 永远 fallback 到 UNKNOWN (2)
-    // 参考：https://github.com/nestjs/nest/issues/5615
-    return throwError(() => ({ code: grpcStatus, details }));
+    // 业务错误：gRPC OK + initial metadata 携带错误详情
+    // 传输层返回 OK → Istio/Kiali 不计为错误
+    // 客户端 businessErrorMiddleware 读取 x-oops-error header → 还原 BusinessException
+    this.logger.warn(`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`);
+
+    // host.getArgByIndex(2) = gRPC call 对象，NestJS 适配层传递 [request, metadata, call]
+    const call = host.getArgByIndex(2);
+    if (call?.sendMetadata) {
+      const metadata = new GrpcMetadata();
+      metadata.set(OOPS_ERROR_METADATA_KEY, Buffer.from(details, 'utf-8'));
+      call.sendMetadata(metadata);
+    }
+
+    return of({});
   }
 
   private handleZodError(exception: ZodError): Observable<never> {
