@@ -20,7 +20,7 @@
  * });
  */
 
-import { Injectable, Logger, Module } from '@nestjs/common';
+import { Injectable, Logger, Module, Optional } from '@nestjs/common';
 
 import { HealthRegistry } from '../health/health-registry';
 import { createGrpcHealthIndicator } from '../health/indicators/grpc.health-indicator';
@@ -51,12 +51,15 @@ export class GrpcClientModule {
     class GrpcClientInitializer implements OnModuleInit {
       private readonly logger = new Logger(`${name}GrpcModule`);
 
-      constructor(private readonly healthRegistry: HealthRegistry) {}
+      // @Optional: CLI 路径不经过 bootstrap，无 HealthRegistry
+      constructor(@Optional() private readonly healthRegistry: HealthRegistry | undefined) {}
 
       onModuleInit() {
         const addr = address();
         this.logger.log(`${name} gRPC at ${addr}`);
-        this.healthRegistry.register(createGrpcHealthIndicator(name, healthCheckFactory(addr)));
+        if (this.healthRegistry) {
+          this.healthRegistry.register(createGrpcHealthIndicator(name, healthCheckFactory(addr)));
+        }
       }
     }
     // 方便调试时识别
