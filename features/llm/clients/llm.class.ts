@@ -1053,6 +1053,7 @@ export class LLM {
         break;
       case 'jina':
       case 'voyage':
+      case 'gemini':
         throw new Error(`Embedding provider "${provider}" is not implemented yet`);
     }
 
