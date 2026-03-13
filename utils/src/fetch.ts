@@ -1,6 +1,4 @@
-import { Logger } from '@nestjs/common';
-
-import { f } from './logging';
+import { getLogger } from '@logtape/logtape';
 
 const proxyUrl =
   process.env.APP_PROXY_ENABLED === 'true' ? `${process.env.APP_PROXY_HOST}:${process.env.APP_PROXY_PORT}` : '';
@@ -12,7 +10,7 @@ const proxyUrl =
  * 类型断言 as typeof fetch 确保与 AI SDK 等库的 fetch 参数类型兼容。
  */
 export class ApiFetcher {
-  private static readonly logger = new Logger(this.constructor.name);
+  private static readonly logger = getLogger(['app', 'ApiFetcher']);
 
   static fetch = (async (url: string | URL | Request, options?: RequestInit): Promise<Response> => {
     const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
@@ -27,9 +25,8 @@ export class ApiFetcher {
     const contentType = headers?.['content-type'] ?? headers?.['Content-Type'] ?? '-';
     const hasAuth = !!(headers?.['authorization'] ?? headers?.['Authorization']);
 
-    ApiFetcher.logger.debug(
-      f`#fetch url=${urlStr} method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth} proxy=${!!proxyUrl}`,
-    );
+    ApiFetcher.logger
+      .debug`#fetch url=${urlStr} method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth} proxy=${!!proxyUrl}`;
 
     const response = await fetch(url as string, {
       ...options,
@@ -88,7 +85,7 @@ export class ApiFetcher {
       }
 
       if (stripped > 0) {
-        ApiFetcher.logger.debug(`#fetch stripped ${stripped} reasoning.encrypted block(s) from OpenRouter response`);
+        ApiFetcher.logger.debug`#fetch stripped ${stripped} reasoning.encrypted block(s) from OpenRouter response`;
       }
 
       return new Response(JSON.stringify(json), {

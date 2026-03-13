@@ -1,8 +1,6 @@
-import { Logger } from '@nestjs/common';
-
 import { named } from './annotation';
-import { f } from './logging';
 
+import { getLogger } from '@logtape/logtape';
 import * as _ from 'radash';
 import { filter, from, Observable } from 'rxjs';
 
@@ -46,36 +44,36 @@ export class ReactiveUtils {
             }
           } catch (e: unknown) {
             const error = e instanceof Error ? e : new Error(String(e));
-            logger.error(f`#${funcName} generator error ${{ key, e: error }}`, error.stack);
+            logger.error`#${funcName} generator error ${{ key, e: error }}`;
             observer.error(error);
           }
 
           completed = true;
 
           if (answer && !validate(answer)) {
-            logger.log(f`#${funcName} cache ${{ key, answer }}`);
+            logger.info`#${funcName} cache ${{ key, answer }}`;
             // this.cacheService.cacheManager
             //   .set(key, answer, 60 * 60 * 24 * 1000)
-            //   .catch((e) => logger.error(f`#${funcName} cache error ${e}`, e.stack), 'ReactiveUtils);
+            //   .catch((e) => logger.error`#${funcName} cache error ${e}`);
             onComplete?.(answer);
           } else {
-            logger.warn(f`#${funcName} unanswered ${{ key, answer }}`);
+            logger.warning`#${funcName} unanswered ${{ key, answer }}`;
           }
 
-          logger.log(f`#${funcName} complete ... ${key}`);
+          logger.info`#${funcName} complete ... ${key}`;
           observer.complete();
         } catch (e: unknown) {
           const error = e instanceof Error ? e : new Error(String(e));
-          logger.error(f`#${funcName} error ${{ key, completed, error }}`, error.stack);
+          logger.error`#${funcName} error ${{ key, completed, error }}`;
           observer.error('no answer');
         }
       })();
 
       return () => {
-        logger.log(f`#${funcName} unsubscribe ... ${{ key, completed }}`);
+        logger.info`#${funcName} unsubscribe ... ${{ key, completed }}`;
       };
     });
   }
 }
 
-const logger = new Logger(ReactiveUtils.name);
+const logger = getLogger(['app', 'ReactiveUtils']);

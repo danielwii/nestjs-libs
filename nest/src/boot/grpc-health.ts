@@ -10,9 +10,9 @@
  * 使用方式：在 grpcBootstrap 的 onLoadPackageDefinition 回调中调用。
  */
 
-import { Logger } from '@nestjs/common';
-
 import fs from 'node:fs';
+
+import { getLogger } from '@logtape/logtape';
 
 import type { sendUnaryData, Server, ServerUnaryCall } from '@grpc/grpc-js';
 
@@ -46,8 +46,10 @@ export function addGrpcHealthService(
     // 导航到 grpc.health.v1.Health — grpcObject 是嵌套对象
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const healthService = (grpcObject as any)?.grpc?.health?.v1?.Health;
+    const logger = getLogger(['boot', 'gRPC-Health']);
+
     if (!healthService?.service) {
-      Logger.warn('Health service definition not found in descriptor set', 'gRPC-Health');
+      logger.warning`Health service definition not found in descriptor set`;
       return;
     }
 
@@ -62,11 +64,8 @@ export function addGrpcHealthService(
       },
     });
 
-    Logger.log('gRPC Health service registered (grpc.health.v1.Health)', 'gRPC-Health');
+    logger.info`gRPC Health service registered (grpc.health.v1.Health)`;
   } catch (err) {
-    Logger.error(
-      `Failed to register gRPC Health service: ${err instanceof Error ? err.message : String(err)}`,
-      'gRPC-Health',
-    );
+    getLogger(['boot', 'gRPC-Health']).error`Failed to register gRPC Health service: ${err}`;
   }
 }

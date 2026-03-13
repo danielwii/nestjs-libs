@@ -27,10 +27,7 @@
  * ```
  */
 
-import { Logger } from '@nestjs/common';
-
 import { SysEnv } from '@app/env';
-import { f } from '@app/utils/logging';
 
 import { getModel } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
@@ -38,6 +35,7 @@ import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
+import { getLogger } from '@logtape/logtape';
 import * as Sentry from '@sentry/nestjs';
 import {
   APICallError,
@@ -300,7 +298,7 @@ function createManagedSignal(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class LLM {
-  private static readonly logger = new Logger('LLM');
+  private static readonly logger = getLogger(['features', 'LLM']);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Logging Helpers
@@ -308,7 +306,7 @@ export class LLM {
 
   private static logStart(id: string, method: string, modelKey: string, thinking?: ThinkingEffort): void {
     const thinkingPart = thinking && thinking !== 'none' ? `, thinking=${thinking}` : '';
-    LLM.logger.log(`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}`);
+    LLM.logger.info`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}`;
   }
 
   /**
@@ -333,7 +331,7 @@ export class LLM {
 
     const systemPart = system ? `, system=${system.length}ch` : '';
 
-    LLM.logger.debug(`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${systemPart}`);
+    LLM.logger.debug`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${systemPart}`;
   }
 
   private static logEnd(id: string, method: string, modelKey: string, startTime: number, usage: TokenUsage): void {
@@ -343,14 +341,13 @@ export class LLM {
     const totalTokens = inputTokens + outputTokens;
     const cost = getCostFromUsage(usage, modelKey);
     const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}` : '';
-    LLM.logger.log(
-      `[LLM:end] id=${id}, method=${method}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}`,
-    );
+    LLM.logger
+      .info`[LLM:end] id=${id}, method=${method}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}`;
   }
 
   private static logTTFT(id: string, startTime: number): void {
     const ttft = Date.now() - startTime;
-    LLM.logger.debug(`[LLM:ttft] id=${id}, ttft=${ttft}ms`);
+    LLM.logger.debug`[LLM:ttft] id=${id}, ttft=${ttft}ms`;
   }
 
   /**
@@ -367,8 +364,8 @@ export class LLM {
       APICallError.isInstance(error) && error.data != null
         ? (error.data as { code?: number; metadata?: unknown })
         : undefined;
-    const extra = providerData ? f` providerData=${providerData}` : '';
-    LLM.logger.error(f`[LLM:error] id=${id}, method=${method}, model=${modelKey}: ${message}${extra} ${error}`);
+    const extra = providerData ? ` providerData=${JSON.stringify(providerData)}` : '';
+    LLM.logger.error`[LLM:error] id=${id}, method=${method}, model=${modelKey}: ${message}${extra} ${error}`;
 
     Sentry.withScope((scope) => {
       scope.setTag('llm.id', id);
@@ -507,7 +504,7 @@ export class LLM {
 
       const sourcesCount = result.sources.length;
       if (sourcesCount > 0) {
-        LLM.logger.debug(`[LLM:sources] id=${id}, sources=${sourcesCount}`);
+        LLM.logger.debug`[LLM:sources] id=${id}, sources=${sourcesCount}`;
       }
 
       LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
@@ -821,9 +818,8 @@ export class LLM {
       }
 
       if (!parallelToolCalls && result.toolCalls.length > 1) {
-        LLM.logger.warn(
-          `[LLM:warn] id=${id} generateObjectViaTool returned ${result.toolCalls.length} tool calls (expected 1), using first`,
-        );
+        LLM.logger
+          .warning`[LLM:warn] id=${id} generateObjectViaTool returned ${result.toolCalls.length} tool calls (expected 1), using first`;
       }
 
       // 预处理：部分模型（如 Grok）将嵌套对象序列化为 JSON 字符串
@@ -840,7 +836,7 @@ export class LLM {
           .map(([k, v]) => `${k}=${JSON.stringify((v as string).slice(0, 120))}`)
           .join(', ');
         if (stringFields) {
-          LLM.logger.warn(`[LLM:coerce-debug] id=${id} string fields in raw input: ${stringFields}`);
+          LLM.logger.warning`[LLM:coerce-debug] id=${id} string fields in raw input: ${stringFields}`;
         }
 
         const issues = parseResult.error.issues
@@ -1039,9 +1035,8 @@ export class LLM {
       throw new Error(`[LLM:embedding] id=${id} empty text (type=${typeof text}, length=${text.length})`);
     }
 
-    LLM.logger.debug(
-      `[LLM:embedding] id=${id} text="${text.slice(0, 80)}${text.length > 80 ? '...' : ''}" (${text.length} chars)`,
-    );
+    LLM.logger
+      .debug`[LLM:embedding] id=${id} text="${text.slice(0, 80)}${text.length > 80 ? '...' : ''}" (${text.length} chars)`;
     LLM.logStart(id, 'embedding', modelKey);
 
     const [provider, modelId] = modelKey.split(':') as [EmbeddingProvider, string];

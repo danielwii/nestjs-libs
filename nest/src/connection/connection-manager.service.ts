@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+
+import { getLogger } from '@logtape/logtape';
 
 import type { BeforeApplicationShutdown } from '@nestjs/common';
 import type { Response } from 'express';
@@ -111,7 +113,7 @@ type WSConnection = {
  */
 @Injectable()
 export class ConnectionManagerService implements BeforeApplicationShutdown {
-  private readonly logger = new Logger(this.constructor.name);
+  private readonly logger = getLogger(['app', 'ConnectionManager']);
 
   /** 活跃的 SSE 连接 */
   private readonly sseConnections = new Set<SSEConnection>();
@@ -145,14 +147,14 @@ export class ConnectionManagerService implements BeforeApplicationShutdown {
     // 连接关闭时自动清理
     const cleanup = () => {
       this.sseConnections.delete(connection);
-      this.logger.debug(`#unregisterSSE userId=${userId ?? 'anonymous'} activeConnections=${this.sseConnections.size}`);
+      this.logger.debug`#unregisterSSE userId=${userId ?? 'anonymous'} activeConnections=${this.sseConnections.size}`;
     };
 
     res.on('close', cleanup);
     res.on('finish', cleanup);
     res.on('error', cleanup);
 
-    this.logger.debug(`#registerSSE userId=${userId ?? 'anonymous'} activeConnections=${this.sseConnections.size}`);
+    this.logger.debug`#registerSSE userId=${userId ?? 'anonymous'} activeConnections=${this.sseConnections.size}`;
   }
 
   /**
@@ -179,7 +181,7 @@ export class ConnectionManagerService implements BeforeApplicationShutdown {
     };
     this.wsConnections.add(connection);
 
-    this.logger.debug(`#registerWS userId=${userId ?? 'anonymous'} activeConnections=${this.wsConnections.size}`);
+    this.logger.debug`#registerWS userId=${userId ?? 'anonymous'} activeConnections=${this.wsConnections.size}`;
   }
 
   /**
@@ -195,9 +197,8 @@ export class ConnectionManagerService implements BeforeApplicationShutdown {
     for (const connection of this.wsConnections) {
       if (connection.socket === socket) {
         this.wsConnections.delete(connection);
-        this.logger.debug(
-          `#unregisterWS userId=${connection.userId ?? 'anonymous'} activeConnections=${this.wsConnections.size}`,
-        );
+        this.logger
+          .debug`#unregisterWS userId=${connection.userId ?? 'anonymous'} activeConnections=${this.wsConnections.size}`;
         break;
       }
     }
@@ -233,25 +234,24 @@ export class ConnectionManagerService implements BeforeApplicationShutdown {
     const sseCount = this.sseConnections.size;
     const wsCount = this.wsConnections.size;
 
-    this.logger.log(
-      `#beforeApplicationShutdown signal=${signal ?? 'unknown'} sseConnections=${sseCount} wsConnections=${wsCount}`,
-    );
+    this.logger
+      .info`#beforeApplicationShutdown signal=${signal ?? 'unknown'} sseConnections=${sseCount} wsConnections=${wsCount}`;
 
     // 并行关闭 SSE 和 WebSocket 连接
     const tasks: Promise<void>[] = [];
 
     if (sseCount > 0) {
-      this.logger.log(`#beforeApplicationShutdown 开始通知 ${sseCount} 个 SSE 连接...`);
+      this.logger.info`#beforeApplicationShutdown 开始通知 ${sseCount} 个 SSE 连接...`;
       tasks.push(this.notifyAllSSEConnections());
     }
 
     if (wsCount > 0) {
-      this.logger.log(`#beforeApplicationShutdown 开始关闭 ${wsCount} 个 WebSocket 连接...`);
+      this.logger.info`#beforeApplicationShutdown 开始关闭 ${wsCount} 个 WebSocket 连接...`;
       tasks.push(this.closeAllWSConnections());
     }
 
     await Promise.allSettled(tasks);
-    this.logger.log(`#beforeApplicationShutdown 所有连接关闭完成`);
+    this.logger.info`#beforeApplicationShutdown 所有连接关闭完成`;
   }
 
   /**
@@ -276,11 +276,10 @@ export class ConnectionManagerService implements BeforeApplicationShutdown {
 
     try {
       this.sendSSERestartSignal(res);
-      this.logger.debug(`#notifySSEConnection userId=${userId ?? 'anonymous'} 通知发送成功`);
+      this.logger.debug`#notifySSEConnection userId=${userId ?? 'anonymous'} 通知发送成功`;
     } catch (error) {
-      this.logger.debug(
-        `#notifySSEConnection userId=${userId ?? 'anonymous'} 通知发送失败: ${error instanceof Error ? error.message : 'unknown'}`,
-      );
+      this.logger
+        .debug`#notifySSEConnection userId=${userId ?? 'anonymous'} 通知发送失败: ${error instanceof Error ? error.message : 'unknown'}`;
     }
   }
 
@@ -333,11 +332,10 @@ export class ConnectionManagerService implements BeforeApplicationShutdown {
 
     try {
       socket.close(WS_CLOSE_CODE.SERVER_RESTART, 'Server is restarting, please reconnect immediately');
-      this.logger.debug(`#closeWSConnection userId=${userId ?? 'anonymous'} 关闭成功`);
+      this.logger.debug`#closeWSConnection userId=${userId ?? 'anonymous'} 关闭成功`;
     } catch (error) {
-      this.logger.debug(
-        `#closeWSConnection userId=${userId ?? 'anonymous'} 关闭失败: ${error instanceof Error ? error.message : 'unknown'}`,
-      );
+      this.logger
+        .debug`#closeWSConnection userId=${userId ?? 'anonymous'} 关闭失败: ${error instanceof Error ? error.message : 'unknown'}`;
     }
   }
 }

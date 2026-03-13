@@ -1,4 +1,4 @@
-import { Logger, Module, ValidationPipe } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 
 import { SysEnv } from '@app/env';
@@ -15,6 +15,7 @@ import { maskSecret } from '@app/utils/security';
 
 import os from 'node:os';
 
+import { getLogger } from '@logtape/logtape';
 import compression from 'compression';
 import { RedisStore } from 'connect-redis';
 import cookieParser from 'cookie-parser';
@@ -32,6 +33,8 @@ import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type 
 import type { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
+
+const bootstrapLogger = getLogger(['boot', 'Bootstrap']);
 
 type IEntryNestModule = Type<unknown> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 
@@ -98,8 +101,7 @@ export async function simpleBootstrap(
           ? '预发布环境(测试数据)'
           : '开发环境(测试数据)';
 
-      Logger.log(
-        dedent`🦋 [Server] API Server started successfully
+      bootstrapLogger.info`${dedent`🦋 [Server] API Server started successfully
           ┌─ 环境配置 ─────────────────────────────────────────────
           │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'} - ${runtimeModeDesc}
           │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}
@@ -118,9 +120,7 @@ export async function simpleBootstrap(
           │ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
           │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
           └─ Startup Time: ${Date.now() - now}ms
-        `,
-        'Bootstrap',
-      );
+        `}`;
     });
   return app;
 }
@@ -137,9 +137,9 @@ export async function bootstrap(
   const levels = allLogLevels.slice(allLogLevels.indexOf(logLevel), allLogLevels.length);
 
   const notShowLogLevels = allLogLevels.slice(0, allLogLevels.indexOf(logLevel));
-  Logger.log(`[Config] Log level set to "${SysEnv.LOG_LEVEL}" - Enabled levels: ${levels.join(', ')}`, 'Bootstrap');
+  bootstrapLogger.info`[Config] Log level set to "${SysEnv.LOG_LEVEL}" - Enabled levels: ${levels.join(', ')}`;
   if (notShowLogLevels.length) {
-    Logger.warn(`[Config] Disabled log levels: ${notShowLogLevels.join(', ')}`, 'Bootstrap');
+    bootstrapLogger.warning`[Config] Disabled log levels: ${notShowLogLevels.join(', ')}`;
   }
 
   // LLM 配置验证（自动验证所有 @LLMModelField 标记的字段）
@@ -148,7 +148,7 @@ export async function bootstrap(
     throw new Error(`LLM configuration invalid: ${llmValidation.errors.join(', ')}`);
   }
   llmValidation.warnings.forEach((w: string) => {
-    Logger.warn(`[LLM] ${w}`, 'Bootstrap');
+    bootstrapLogger.warning`[LLM] ${w}`;
   });
 
   await configureLogging(logLevel);
@@ -161,7 +161,7 @@ export async function bootstrap(
 
   // 先使用无翻译功能的过滤器，稍后通过应用引用注入
   app.useGlobalFilters(new AnyExceptionFilter(app));
-  Logger.log('[Config] AnyExceptionFilter initialized with app reference for lazy i18n support', 'Bootstrap');
+  bootstrapLogger.info`[Config] AnyExceptionFilter initialized with app reference for lazy i18n support`;
 
   app.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(app.get(Reflector)));
   app.useGlobalInterceptors(new VisitorInterceptor());
@@ -185,7 +185,7 @@ export async function bootstrap(
     // allowedHeaders: '*',
     // methods: '*',
   };
-  Logger.log(`[Config] CORS enabled with options: ${JSON.stringify(corsOptions)}`, 'Bootstrap');
+  bootstrapLogger.info`[Config] CORS enabled with options: ${JSON.stringify(corsOptions)}`;
   app.enableCors(corsOptions);
 
   // see https://expressjs.com/en/guide/behind-proxies.html
@@ -196,14 +196,15 @@ export async function bootstrap(
   // OTel tracing middleware — 仅在 HttpInstrumentation 禁用时使用
   // 替代 HttpInstrumentation，只创建 span + context.with()，不 patch EventEmitter
   if (process.env.OTEL_HTTP_INSTRUMENTATION === 'false') {
-    Logger.log('[Config] OTel HTTP instrumentation disabled, using lightweight otelTraceMiddleware', 'Bootstrap');
+    bootstrapLogger.info`[Config] OTel HTTP instrumentation disabled, using lightweight otelTraceMiddleware`;
     app.use(otelTraceMiddleware);
   }
 
   if (SysEnv.SESSION_SECRET) {
     if (!SysEnv.INFRA_REDIS_URL) throw new Error('INFRA_REDIS_URL is not set and required for session storage');
     const client = new Redis(SysEnv.INFRA_REDIS_URL, { maxRetriesPerRequest: 3 });
-    Logger.log(`[Config] Session enabled with secret: "${maskSecret(SysEnv.SESSION_SECRET)}"`, 'Bootstrap');
+    bootstrapLogger.info`[Config] Session enabled with secret: "${maskSecret(SysEnv.SESSION_SECRET)}"`;
+
     app.use(
       session({
         store: new RedisStore({ client }),
@@ -336,12 +337,9 @@ export async function bootstrap(
       // 设计意图：防止在生产模式(NODE_ENV=production)下误用默认的 dev 环境，导致数据混乱或安全问题
       if (process.env.NODE_ENV === 'production') {
         if (!SysEnv.ENV && !SysEnv.DOPPLER_ENVIRONMENT) {
-          Logger.warn(
-            '⚠️  [Security] NODE_ENV=production 但未设置 ENV 或 DOPPLER_ENVIRONMENT，将使用默认值 "dev"',
-            'Bootstrap',
-          );
-          Logger.warn('   建议：在 .env.production 中明确设置 ENV=prd (生产) 或 ENV=stg (预发布)', 'Bootstrap');
-          Logger.warn('   风险：当前配置可能导致生产模式代码连接到测试环境数据，或测试代码连接到生产数据', 'Bootstrap');
+          bootstrapLogger.warning`[Security] NODE_ENV=production 但未设置 ENV 或 DOPPLER_ENVIRONMENT，将使用默认值 "dev"`;
+          bootstrapLogger.warning`建议：在 .env.production 中明确设置 ENV=prd (生产) 或 ENV=stg (预发布)`;
+          bootstrapLogger.warning`风险：当前配置可能导致生产模式代码连接到测试环境数据，或测试代码连接到生产数据`;
         }
       }
 
@@ -368,8 +366,7 @@ export async function bootstrap(
         'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
       const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
 
-      Logger.log(
-        dedent`🦋 [Server] API Server started successfully
+      bootstrapLogger.info`${dedent`🦋 [Server] API Server started successfully
           ┌─ 环境配置 ─────────────────────────────────────────────
           │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV} - ${runtimeModeDesc}
           │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}
@@ -388,9 +385,7 @@ export async function bootstrap(
           │ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
           │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
           └─ Startup Time: ${Date.now() - now}ms
-        `,
-        'Bootstrap',
-      );
+        `}`;
     });
 
   return app;

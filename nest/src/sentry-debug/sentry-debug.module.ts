@@ -10,7 +10,7 @@ import { SentryDebugController } from './sentry-debug.controller';
 export class SentryDebugModule extends InitializableModule {
   protected override async initialize(): Promise<void> {
     if (process.env.SENTRY_DSN) {
-      this.logger.log('Sentry debug endpoint available at GET /sentry-debug (localhost only)');
+      this.logger.info`Sentry debug endpoint available at GET /sentry-debug (localhost only)`;
     }
   }
 }

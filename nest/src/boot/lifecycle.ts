@@ -1,10 +1,8 @@
-import { Logger } from '@nestjs/common';
-
 import { SysEnv } from '@app/env';
-import { f } from '@app/utils/logging';
 
 import os from 'node:os';
 
+import { getLogger } from '@logtape/logtape';
 import * as Sentry from '@sentry/nestjs';
 import * as _ from 'radash';
 
@@ -65,8 +63,8 @@ function formatRejectionDetail(err: unknown): string {
 }
 
 export const runApp = <App extends INestApplication>(app: App) => {
-  const logger = new Logger('AppRunner');
-  logger.log(f`(${os.hostname}) runApp in (${SysEnv.environment.env}) env`);
+  const logger = getLogger(['boot', 'AppRunner']);
+  logger.info`(${os.hostname}) runApp in (${SysEnv.environment.env}) env`;
 
   process.on('uncaughtException', (err) => {
     if ((err as unknown) === 'request closed') return;
@@ -75,22 +73,21 @@ export const runApp = <App extends INestApplication>(app: App) => {
     // 这个错误不影响业务逻辑，只是清理临时文件时的内部错误
     // 注意：不检查堆栈路径，因为 webpack 打包后路径会改变（本地 src/，生产 webpack://）
     if (err instanceof TypeError && err.message === 'callback is not a function') {
-      logger.warn(f`(${os.hostname}) Ignored known graphql-upload-ts cleanup error: ${err.message}`);
+      logger.warning`(${os.hostname}) Ignored known graphql-upload-ts cleanup error: ${err.message}`;
       return;
     }
 
-    logger.error(f`(${os.hostname}) uncaughtException: ${err.message}`, err.stack);
+    logger.error`(${os.hostname}) uncaughtException: ${err}`;
     if (SysEnv.EXIT_ON_ERROR) {
       Sentry.captureException(err);
       app
         .close()
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
-          const stack = error instanceof Error ? error.stack : undefined;
-          logger.error(f`(${os.hostname}) exit by uncaughtException error: ${message}`, stack);
+          logger.error`(${os.hostname}) exit by uncaughtException error: ${message}`;
         })
         .finally(() => {
-          logger.error(f`(${os.hostname}) exit by uncaughtException...`);
+          logger.error`(${os.hostname}) exit by uncaughtException...`;
           process.exit(1);
         });
     }
@@ -106,75 +103,74 @@ export const runApp = <App extends INestApplication>(app: App) => {
       // 如果走到这里，说明是 unhandledRejection（floating promise 未正确处理）
       // 记录警告但不退出，因为可能是预期的 abort
       const detail = formatRejectionDetail(err);
-      logger.warn(f`(${os.hostname}) unhandledRejection: AI_NoOutputGeneratedError (likely abort):\n${detail}`);
+      logger.warning`(${os.hostname}) unhandledRejection: AI_NoOutputGeneratedError (likely abort):\n${detail}`;
       return;
     }
 
     const detail = formatRejectionDetail(err);
-    logger.error(f`(${os.hostname}) unhandledRejection:\n${detail}`);
+    logger.error`(${os.hostname}) unhandledRejection:\n${detail}`;
     if (SysEnv.EXIT_ON_ERROR) {
       Sentry.captureException(err);
       app
         .close()
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
-          const stack = error instanceof Error ? error.stack : undefined;
-          logger.error(f`(${os.hostname}) exit by unhandledRejection error: ${message}`, stack);
+          logger.error`(${os.hostname}) exit by unhandledRejection error: ${message}`;
         })
         .finally(() => {
-          logger.error(f`(${os.hostname}) exit by unhandledRejection...\n${formatRejectionDetail(err)}`);
+          logger.error`(${os.hostname}) exit by unhandledRejection...\n${formatRejectionDetail(err)}`;
           process.exit(2);
         });
     }
   });
   process.on('beforeExit', (reason) => {
-    logger[reason ? 'error' : 'log'](f`(${os.hostname}) App will exit cause: ${reason}`);
+    logger[reason ? 'error' : 'info']`(${os.hostname}) App will exit cause: ${reason}`;
   });
   let sigintReceived = false;
   process.on('SIGINT', (signals) => {
     if (sigintReceived) return;
     sigintReceived = true;
-    logger.log(f`(${os.hostname}) Received SIGINT. ${signals} (${process.pid})`);
+    logger.info`(${os.hostname}) Received SIGINT. ${signals} (${process.pid})`;
     app
       .close()
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        logger.warn(f`(${os.hostname}) exit by SIGINT: ${message}`);
+        logger.warning`(${os.hostname}) exit by SIGINT: ${message}`;
       })
       .finally(() => {
-        logger.log(f`(${os.hostname}) SIGINT shutdown complete`);
+        logger.info`(${os.hostname}) SIGINT shutdown complete`;
         process.exit(0);
       });
   });
   process.on('SIGHUP', () => {
-    logger.warn('Process SIGHUP (可能是终端关闭)，强制退出...');
+    logger.warning`Process SIGHUP (可能是终端关闭)，强制退出...`;
     process.exit(1);
   });
   process.on('disconnect', () => {
-    logger.warn('Process disconnected (可能是终端关闭)，强制退出...');
+    logger.warning`Process disconnected (可能是终端关闭)，强制退出...`;
     process.exit(1);
   });
   process.on('exit', (reason) => {
-    logger[reason ? 'error' : 'log'](f`(${os.hostname}) App exit cause: ${reason} (${process.pid})`);
+    logger[reason ? 'error' : 'info']`(${os.hostname}) App exit cause: ${reason} (${process.pid})`;
     // sometimes the process will not exit, so we force exit it
     setTimeout(() => process.exit(0), 5e3);
   });
   process.on('SIGTERM', (signals) => {
-    logger.log(f`(${os.hostname}) Received SIGTERM. ${signals} (${process.pid})`);
-    logger.log(f`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`);
+    logger.info`(${os.hostname}) Received SIGTERM. ${signals} (${process.pid})`;
+    logger.info`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`;
 
     const server = app.getHttpServer();
     const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
 
     // 停止接收新连接，但保持现有连接
     server.close(() => {
-      logger.log(f`(${os.hostname}) HTTP server closed, all connections drained`);
+      logger.info`(${os.hostname}) HTTP server closed, all connections drained`;
     });
 
     // 等待进行中的请求完成（最多 30s）
     const waitForConnections = new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        logger.warn(f`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`);
+        logger.warning`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`;
         resolve();
       }, IN_FLIGHT_TIMEOUT_MS);
 
@@ -189,10 +185,10 @@ export const runApp = <App extends INestApplication>(app: App) => {
       .catch((error: unknown) => {
         // SIGTERM 关闭时连接已断开是预期行为，不是异常
         const message = error instanceof Error ? error.message : String(error);
-        logger.warn(f`(${os.hostname}) exit by SIGTERM: ${message}`);
+        logger.warning`(${os.hostname}) exit by SIGTERM: ${message}`;
       })
       .finally(() => {
-        logger.log(f`(${os.hostname}) Graceful shutdown complete`);
+        logger.info`(${os.hostname}) Graceful shutdown complete`;
         process.exit(0);
       });
   });

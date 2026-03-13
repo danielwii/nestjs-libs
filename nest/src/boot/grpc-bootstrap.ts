@@ -1,4 +1,4 @@
-import { Logger, Module, ValidationPipe } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { Transport } from '@nestjs/microservices';
 
@@ -16,6 +16,7 @@ import { addGrpcHealthService } from './grpc-health';
 import fs from 'node:fs';
 import os from 'node:os';
 
+import { getLogger } from '@logtape/logtape';
 import dedent from 'dedent';
 import { DateTime } from 'luxon';
 import { ServerReflection, ServerReflectionService } from 'nice-grpc-server-reflection';
@@ -25,6 +26,8 @@ import type { PackageDefinition } from '@grpc/proto-loader';
 import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type } from '@nestjs/common';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+
+const bootstrapLogger = getLogger(['boot', 'Bootstrap']);
 
 type IEntryNestModule = Type<unknown> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 
@@ -157,7 +160,7 @@ function addDescriptorSetReflection(server: Pick<Server, 'addService'>, descript
               call.write(response);
             }
           } catch (err) {
-            Logger.error(`Reflection error: ${err instanceof Error ? err.message : String(err)}`, 'gRPC-Reflection');
+            getLogger(['boot', 'gRPC-Reflection']).error`Reflection error: ${err}`;
           } finally {
             call.end();
           }
@@ -198,9 +201,9 @@ export async function grpcBootstrap(
   const levels = allLogLevels.slice(allLogLevels.indexOf(logLevel), allLogLevels.length);
 
   const notShowLogLevels = allLogLevels.slice(0, allLogLevels.indexOf(logLevel));
-  Logger.log(`[Config] Log level set to "${SysEnv.LOG_LEVEL}" - Enabled levels: ${levels.join(', ')}`, 'Bootstrap');
+  bootstrapLogger.info`[Config] Log level set to "${SysEnv.LOG_LEVEL}" - Enabled levels: ${levels.join(', ')}`;
   if (notShowLogLevels.length) {
-    Logger.warn(`[Config] Disabled log levels: ${notShowLogLevels.join(', ')}`, 'Bootstrap');
+    bootstrapLogger.warning`[Config] Disabled log levels: ${notShowLogLevels.join(', ')}`;
   }
 
   // 创建 HTTP 应用（用于健康检查），自动注入 BootModule
@@ -282,8 +285,7 @@ export async function grpcBootstrap(
         'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
       const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
 
-      Logger.log(
-        dedent`🦋 [Server] gRPC Server started successfully
+      bootstrapLogger.info`${dedent`🦋 [Server] gRPC Server started successfully
           ┌─ 环境配置 ─────────────────────────────────────────────
           │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV}
           │ Business Env (ENV): ${SysEnv.environment.env} → isProd=${SysEnv.environment.isProd}
@@ -300,9 +302,7 @@ export async function grpcBootstrap(
           │ Runtime: ${runtimeVersions}
           │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
           └─ Startup Time: ${Date.now() - now}ms
-        `,
-        'Bootstrap',
-      );
+        `}`;
     });
 
   return app;

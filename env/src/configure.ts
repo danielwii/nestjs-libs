@@ -1,7 +1,4 @@
-import { Logger } from '@nestjs/common';
-
 import { errorStack } from '@app/utils/error';
-import { f } from '@app/utils/logging';
 
 import { NODE_ENV } from './env';
 
@@ -10,12 +7,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { config } from '@dotenvx/dotenvx';
+import { getLogger } from '@logtape/logtape';
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, validateSync } from 'class-validator';
 import JSON5 from 'json5';
 import * as _ from 'radash';
 
 import type { TransformFnParams } from 'class-transformer';
+
+const transformLogger = getLogger(['app', 'Transform']);
+const configureLogger = getLogger(['app', 'Configure']);
+const dbFieldLogger = getLogger(['app', 'DatabaseField']);
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
@@ -26,11 +28,7 @@ export const objectTransformFn = ({ key, value, obj }: TransformFnParams) => {
   try {
     return _.isObject(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '{}');
   } catch (e: unknown) {
-    Logger.error(
-      f`#objectTransformFn error ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
-      errorStack(e),
-      'Transform',
-    );
+    transformLogger.error`#objectTransformFn error ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }} ${e instanceof Error ? e.message : String(e)} ${errorStack(e) ?? ''}`;
     throw e;
   }
 };
@@ -39,11 +37,7 @@ export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
   try {
     return _.isArray(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '[]');
   } catch (e: unknown) {
-    Logger.error(
-      f`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)}`,
-      errorStack(e),
-      'Transform',
-    );
+    transformLogger.error`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)} ${errorStack(e) ?? ''}`;
     throw e;
   }
 };
@@ -93,7 +87,7 @@ export function LLMModelField(): PropertyDecorator {
   return (_target, propertyKey) => {
     llmModelFields.add(propertyKey as string);
     if (isConfigureDebugEnabled()) {
-      Logger.verbose(`[LLMModelField] registered: ${String(propertyKey)}`, 'Configure');
+      configureLogger.debug`${`[LLMModelField] registered: ${String(propertyKey)}`}`;
     }
   };
 }
@@ -114,7 +108,7 @@ export const DatabaseField =
   (format: 'string' | 'number' | 'boolean' | 'json' = 'string', description?: string) =>
   (target: object, propertyKey: string) => {
     if (isConfigureDebugEnabled()) {
-      Logger.verbose(f`found ${propertyKey}:${format}${description ? ` (${description})` : ''}`, 'DatabaseField');
+      dbFieldLogger.debug`found ${propertyKey}:${format}${description ? ` (${description})` : ''}`;
     }
     Reflect.defineMetadata(DatabaseFieldSymbol, true, target, propertyKey);
     Reflect.defineMetadata(DatabaseFieldFormatSymbol, format, target, propertyKey);
@@ -129,7 +123,10 @@ export const DatabaseField =
   };
 
 export class AbstractEnvironmentVariables implements HostSetVariables {
-  private readonly logger = new Logger(this.constructor.name);
+  // getter 而非实例属性：此类会被 structuredClone 复制，LogTape logger 不可序列化
+  private get logger() {
+    return getLogger(['app', this.constructor.name]);
+  }
   private readonly hostname = os.hostname();
 
   // use doppler env instead
@@ -225,8 +222,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() GOOGLE_VERTEX_API_KEY?: string;
   /** @deprecated use AI_OPENAI_API_KEY */
   @IsString() @IsOptional() OPENAI_API_KEY?: string;
-  /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境） */
-  @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-3.1-flash-lite-preview';
+  /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境）。值须为已注册的 LLMModelKey（如 'openrouter:gemini-2.5-flash'） */
+  @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string;
 
   /** 默认 LLM 调用超时（毫秒），透传给 AI SDK 的 timeout 参数 */
   @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
@@ -356,10 +353,10 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
       this.hostKeys[host] = [...(this.hostKeys[host] ?? []), key];
       const index = this.hostIndex;
       const on = index == null ? !!acceptWhenNoIds : index === host;
-      this.logger.debug(f`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`);
+      this.logger.debug`#getUniqueHost (${this.hostname}) ${{ key }} ${{ host, index, acceptWhenNoIds, on }}`;
       return on;
     } catch {
-      this.logger.warn(f`#getUniqueHost no hostIndex for ${this.hostname}`, 'AppConfigure');
+      this.logger.warning`#getUniqueHost no hostIndex for ${this.hostname}`;
     }
     return !!acceptWhenNoIds;
   }
@@ -417,7 +414,7 @@ export interface AppConfigureOptions {
 }
 
 export class AppConfigure<T extends AbstractEnvironmentVariables> {
-  private readonly logger = new Logger(this.constructor.name);
+  private readonly logger = getLogger(['app', this.constructor.name]);
 
   public readonly vars: T;
   public readonly originalVars: T; // 添加原始副本
@@ -451,14 +448,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
     })();
 
-    if (this.sys && isConfigureDebugEnabled()) this.logger.log(f`load env from paths: ${envFilePath}`);
+    if (this.sys && isConfigureDebugEnabled()) this.logger.info`load env from paths: ${envFilePath}`;
     envFilePath.forEach((env) => {
       // 使用 process.env.PWD 而不是 process.cwd() 的原因：
       // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
       // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
       // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
       const fullPath = path.resolve(process.env.PWD ?? '', env);
-      if (this.sys && isConfigureDebugEnabled()) this.logger.log(f`envFilePath: ${fullPath}`);
+      if (this.sys && isConfigureDebugEnabled()) this.logger.info`envFilePath: ${fullPath}`;
       // dotenvx 对于缺失文件会输出一条 “injecting env (0)” 的噪音日志（即使配置了 ignore MISSING_ENV_FILE）。
       // 这里主动跳过不存在的文件，保持启动/测试输出干净。
       if (!fs.existsSync(fullPath)) {
@@ -482,13 +479,15 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       });
 
       if (errors.length > 0) {
-        this.logger.warn(`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`);
+        this.logger.warning`${`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`}`;
         const errorDetails = errors.map((e) => {
           const value = e.value === undefined ? '<undefined>' : e.value === '' ? '<empty>' : JSON.stringify(e.value);
           const constraints = e.constraints ? Object.values(e.constraints).join('; ') : 'unknown error';
-          return `  ${e.property}=${value}\n    └─ ${constraints}`;
+          return `${e.property}=${value} — ${constraints}`;
         });
-        console.error(errorDetails.join('\n'));
+        for (const detail of errorDetails) {
+          this.logger.error`${detail}`;
+        }
         throw new Error(errors.map((e) => e.property).join(', '));
       }
 
@@ -509,7 +508,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
               AbstractEnvironmentVariables.prototype,
               key,
             );
-            this.logger.log(f`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`);
+            this.logger.info`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`;
           });
         }
 
@@ -517,22 +516,18 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return; // exclude sys envs
           const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
           if (key.includes('_ENABLE'))
-            this.logger.log(
-              f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
-            );
+            this.logger.info`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`;
         });
         Object.entries(validatedConfig as object).forEach(([key, value]) => {
           if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return; // exclude sys envs
           const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
           if (key.startsWith('APP_'))
-            this.logger.log(
-              f`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value /* origin: config[key] */ }}`,
-            );
+            this.logger.info`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`;
         });
       }
     }
     if (isConfigureDebugEnabled()) {
-      Logger.verbose(f`[${this.sys ? 'SYS' : 'App'}] Configure validated`, 'Configure');
+      configureLogger.debug`[${this.sys ? 'SYS' : 'App'}] Configure validated`;
     }
     return validatedConfig;
   }
@@ -544,7 +539,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
    */
   async sync(prisma: ISysAppSettingClient) {
     if (this.options.noDB) {
-      Logger.debug('#sync skipped (noDB mode)', 'AppConfigure');
+      this.logger.debug`${'#sync skipped (noDB mode)'}`;
       return;
     }
     await AppConfigure.syncFromDB(prisma, this.originalVars, this.vars);
@@ -605,18 +600,16 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const syncMode = syncWriteEnabled ? 'read-write' : 'read-only';
     const managedFieldNames = fields.map((f) => f.field).sort((a, b) => a.localeCompare(b));
 
+    const logger = getLogger(['app', 'AppConfigure']);
+
     // 仅在有变更时才打印详细日志，避免每次同步都输出大量重复信息
-    Logger.debug(f`#syncFromDB... reload app settings from db.`, 'AppConfigure');
-    Logger.verbose(
+    logger.debug`#syncFromDB... reload app settings from db.`;
+    logger.debug`${
       syncWriteEnabled
         ? '#syncFromDB mode=read-write, DB values + metadata sync are enabled'
-        : '#syncFromDB mode=read-only, DB values will be applied to runtime, metadata writes are disabled',
-      'AppConfigure',
-    );
-    Logger.verbose(
-      f`#syncFromDB managed keys (${managedFieldNames.length}): ${managedFieldNames.join(', ') || '(none)'}`,
-      'AppConfigure',
-    );
+        : '#syncFromDB mode=read-only, DB values will be applied to runtime, metadata writes are disabled'
+    }`;
+    logger.debug`#syncFromDB managed keys (${managedFieldNames.length}): ${managedFieldNames.join(', ') || '(none)'}`;
     const appSettings = (await prisma.sysAppSetting.findMany()).map(({ value, format, ...rest }) =>
       /**/
       ({ ...rest, value: format !== 'string' && value != null ? JSON.parse(value) : value, format }),
@@ -654,10 +647,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const orphanSettings = appSettings.filter((s) => !fieldNamesInCode.has(s.key) && !s.deprecatedAt);
       if (orphanSettings.length > 0) {
         stats.metadataDeprecatedMarked += orphanSettings.length;
-        Logger.log(
-          f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`,
-          'AppConfigure',
-        );
+        logger.info`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`;
         await prisma.sysAppSetting.updateMany({
           where: { key: { in: orphanSettings.map((s) => s.key) } },
           data: { deprecatedAt: new Date() },
@@ -668,10 +658,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const restoredSettings = appSettings.filter((s) => fieldNamesInCode.has(s.key) && Boolean(s.deprecatedAt));
       if (restoredSettings.length > 0) {
         stats.metadataRestored += restoredSettings.length;
-        Logger.log(
-          f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`,
-          'AppConfigure',
-        );
+        logger.info`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`;
         await prisma.sysAppSetting.updateMany({
           where: { key: { in: restoredSettings.map((s) => s.key) } },
           data: { deprecatedAt: null },
@@ -682,7 +669,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const nonExistsFields = fields.filter(({ field }) => !fieldNamesInDB.has(field));
       if (nonExistsFields.length > 0) {
         stats.metadataCreated += nonExistsFields.length;
-        Logger.log(f`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`, 'AppConfigure');
+        logger.info`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`;
         await prisma.sysAppSetting.createMany({
           data: nonExistsFields.map(({ field, format, description, defaultValue }) => {
             const defaultVal =
@@ -699,7 +686,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
               format: format as string,
               description: description as string | null,
             };
-            Logger.log(f`#syncFromDB 创建配置: ${field} (默认值: ${defaultVal})`, 'AppConfigure');
+            logger.info`#syncFromDB 创建配置: ${field} (默认值: ${defaultVal})`;
             return newVar;
           }),
           skipDuplicates: true,
@@ -713,7 +700,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     for (const { field, value, defaultValue, description, format } of existsFields) {
       const appSetting = appSettings.find((setting) => setting.key === field);
       if (!appSetting) {
-        Logger.warn(f`#syncFromDB appSetting not found for ${field}`, 'AppConfigure');
+        logger.warning`#syncFromDB appSetting not found for ${field}`;
         continue;
       }
 
@@ -722,13 +709,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         const validation = validateDbValue(field, appSetting.value);
         if (!validation.ok) {
           stats.runtimeInvalidDBValue += 1;
-          Logger.warn(
-            f`#syncFromDB skip invalid DB value ${{ field, value: appSetting.value, reason: validation.reason }}`,
-            'AppConfigure',
-          );
+          logger.warning`#syncFromDB skip invalid DB value ${{ field, value: appSetting.value, reason: validation.reason }}`;
         } else if (!_.isEqual(value, validation.value)) {
           stats.runtimeOverridesApplied += 1;
-          Logger.log(f`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${validation.value}"`, 'AppConfigure');
+          logger.info`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${validation.value}"`;
           (activeEnvs as Record<string, unknown>)[field] = validation.value;
         } else {
           stats.runtimeOverridesUnchanged += 1;
@@ -763,7 +747,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 执行更新
       if (!_.isEmpty(updates)) {
         stats.metadataUpdated += 1;
-        Logger.log(f`#syncFromDB 更新元数据: ${field} ${JSON.stringify(updates)}`, 'AppConfigure');
+        logger.info`#syncFromDB 更新元数据: ${field} ${updates}`;
         try {
           // 首先检查记录是否存在
           const existingRecord = await prisma.sysAppSetting.findUnique({
@@ -771,7 +755,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           });
 
           if (!existingRecord) {
-            Logger.warn(f`#syncFromDB record not found for update: ${field}`, 'AppConfigure');
+            logger.warning`#syncFromDB record not found for update: ${field}`;
             // 记录不存在，创建新记录
             await prisma.sysAppSetting.create({
               data: {
@@ -782,30 +766,23 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
                 description: updates.description ?? null,
               },
             });
-            Logger.log(f`#syncFromDB created record for ${field} since it didn't exist`, 'AppConfigure');
+            logger.info`#syncFromDB created record for ${field} since it didn't exist`;
           } else {
             // 记录存在，执行更新
             await prisma.sysAppSetting.update({
               where: { key: field },
               data: updates,
             });
-            Logger.log(f`#syncFromDB successfully updated metadata for ${field}`, 'AppConfigure');
+            logger.info`#syncFromDB successfully updated metadata for ${field}`;
           }
         } catch (error: unknown) {
           stats.metadataUpdateFailed += 1;
-          Logger.error(
-            f`#syncFromDB failed to update metadata for ${field}: ${error instanceof Error ? error.message : String(error)}`,
-            error instanceof Error ? error.stack : undefined,
-            'AppConfigure',
-          );
+          logger.error`#syncFromDB failed to update metadata for ${field}: ${error instanceof Error ? error.message : String(error)} ${errorStack(error) ?? ''}`;
         }
       }
     }
 
-    Logger.log(
-      f`#syncFromDB summary mode=${syncMode} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`,
-      'AppConfigure',
-    );
+    logger.info`#syncFromDB summary mode=${syncMode} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`;
   }
 }
 

@@ -41,13 +41,11 @@
  * ```
  */
 
-import { Logger } from '@nestjs/common';
-
 import { normalizeTimezone } from './datetime';
-import { f } from './logging';
 import { TimeSensitivity } from './prompt';
 import { estimateTokens } from './tokenizer';
 
+import { getLogger } from '@logtape/logtape';
 import { format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 
@@ -118,7 +116,7 @@ export class Prompt {
   readonly id: string;
   readonly version: string;
   readonly data: PromptData;
-  private static readonly logger = new Logger('Prompt');
+  private static readonly logger = getLogger(['app', 'Prompt']);
 
   constructor(id: string, version: string, data: PromptData) {
     this.id = id;
@@ -228,8 +226,8 @@ export class Prompt {
 
     if (verbose) {
       const totalTokens = estimateTokens(fullPrompt);
-      const report = f`#render [${this.id}:${this.version}] meta=${metaTokens} context=${totalContextTokens} total=${totalTokens} details=${sectionMetrics}`;
-      Prompt.logger.log(report);
+      Prompt.logger
+        .info`#render [${this.id}:${this.version}] meta=${metaTokens} context=${totalContextTokens} total=${totalTokens} details=${sectionMetrics}`;
     }
 
     return fullPrompt;

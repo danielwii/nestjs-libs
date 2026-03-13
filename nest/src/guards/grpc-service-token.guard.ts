@@ -33,10 +33,11 @@
  * - 配置后，缺少或错误的 token 返回 UNAUTHENTICATED
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
 import { status } from '@grpc/grpc-js';
+import { getLogger } from '@logtape/logtape';
 
 import type { Metadata } from '@grpc/grpc-js';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
@@ -45,7 +46,7 @@ const SERVICE_TOKEN_KEY = 'x-service-token';
 
 @Injectable()
 export class GrpcServiceTokenGuard implements CanActivate {
-  private readonly logger = new Logger(GrpcServiceTokenGuard.name);
+  private readonly logger = getLogger(['app', 'GrpcServiceTokenGuard']);
   private loggedSkipOnce = false;
 
   canActivate(context: ExecutionContext): boolean {
@@ -57,7 +58,7 @@ export class GrpcServiceTokenGuard implements CanActivate {
     // 未配置 token 时跳过验证（本地开发）
     if (!expectedToken) {
       if (!this.loggedSkipOnce) {
-        this.logger.warn('#canActivate GRPC_SERVICE_TOKEN not configured, skipping auth (local dev mode)');
+        this.logger.warning`#canActivate GRPC_SERVICE_TOKEN not configured, skipping auth (local dev mode)`;
         this.loggedSkipOnce = true;
       }
       return true;

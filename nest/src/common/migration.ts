@@ -1,10 +1,10 @@
-import { Logger } from '@nestjs/common';
-
 import { SysEnv } from '@app/env';
 
 import { execSync } from 'node:child_process';
 
-const logger = new Logger('Migration');
+import { getLogger } from '@logtape/logtape';
+
+const logger = getLogger(['app', 'Migration']);
 
 export interface IPrismaClientLike {
   $connect(): Promise<void>;
@@ -14,7 +14,7 @@ export interface IPrismaClientLike {
 
 export async function doMigration(PrismaClient: new (...args: unknown[]) => IPrismaClientLike) {
   if (SysEnv.PRISMA_MIGRATION) {
-    logger.log('🚉 ------- MIGRATION MODE -------');
+    logger.info`🚉 ------- MIGRATION MODE -------`;
     try {
       execSync('bun prisma migrate status', { stdio: 'inherit' });
       // eslint-disable-next-line no-empty
@@ -27,13 +27,13 @@ export async function doMigration(PrismaClient: new (...args: unknown[]) => IPri
     } catch (e: unknown) {
       const notFound = e instanceof Error && e.message.includes('relation "_prisma_migrations" does not exist');
       if (notFound) applied = -1;
-      logger.log(`🚉 Migration Table Exists: ${!notFound}`);
+      logger.info`🚉 Migration Table Exists: ${!notFound}`;
     }
-    logger.log(`🚉 Applied Migrations: ${applied}`);
+    logger.info`🚉 Applied Migrations: ${applied}`;
     await prisma.$disconnect();
 
-    logger.log('🚉 Applying Migrations...');
+    logger.info`🚉 Applying Migrations...`;
     execSync('bun prisma migrate deploy', { stdio: 'inherit' });
-    logger.log(`🚉 ------- Finished Applying Migrations -------`);
+    logger.info`🚉 ------- Finished Applying Migrations -------`;
   }
 }

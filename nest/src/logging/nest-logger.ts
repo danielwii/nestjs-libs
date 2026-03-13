@@ -49,7 +49,6 @@ export class LogtapeNestLogger implements LoggerService {
   // LogTape gotcha: logger.info(string) 会把 {...} 当消息模板占位符，导致内容丢失显示 undefined。
   // 必须使用 tagged template: logger.info`${msg}`
   // 配合 configure.ts 的 value: String 避免插值被 inspect 加引号。
-  /* eslint-disable @typescript-eslint/no-unused-expressions -- LogTape tagged template 是有副作用的日志调用 */
 
   log(message: unknown, ...optionalParams: unknown[]): void {
     const [msg, logger] = this.extractContext(message, optionalParams);
@@ -80,7 +79,7 @@ export class LogtapeNestLogger implements LoggerService {
     const [msg, logger] = this.extractContext(message, optionalParams);
     logger.fatal`${msg}`;
   }
-  /* eslint-enable @typescript-eslint/no-unused-expressions */
+   
 
   /**
    * Extract trailing context string (NestJS convention: last arg is the class/module name).
@@ -115,6 +114,11 @@ export class LogtapeNestLogger implements LoggerService {
       // It's a context string
       const logger = this.baseLogger.getChild(param);
       return [message, logger];
+    }
+
+    // NestJS ExceptionsZone: error(errorObject) — single Error arg, no context
+    if (message instanceof Error) {
+      return [`${message.message} ${onelineStack(message.stack)}`, this.baseLogger];
     }
 
     return [message, this.baseLogger];

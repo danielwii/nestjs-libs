@@ -1,8 +1,9 @@
-import { Catch, Logger } from '@nestjs/common';
+import { Catch } from '@nestjs/common';
 
 import { OOPS_ERROR_METADATA_KEY } from './error-codes';
 
 import { Metadata as GrpcMetadata, status } from '@grpc/grpc-js';
+import { getLogger } from '@logtape/logtape';
 import * as Sentry from '@sentry/nestjs';
 import { Observable, of, throwError } from 'rxjs';
 import { ZodError } from 'zod';
@@ -52,9 +53,10 @@ interface GrpcError {
  * // 在 grpc-bootstrap.ts 中注册
  * app.useGlobalFilters(new GrpcExceptionFilter('marsgate'));
  */
+
 @Catch()
 export class GrpcExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(GrpcExceptionFilter.name);
+  private readonly logger = getLogger(['app', 'GrpcExceptionFilter']);
 
   constructor(private readonly provider: string) {}
 
@@ -101,10 +103,8 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     const details = JSON.stringify(grpcError);
 
     if (isFatal) {
-      this.logger.error(
-        `[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`,
-        exception.stack,
-      );
+      this.logger
+        .error`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails} ${exception}`;
       Sentry.captureException(exception);
 
       const grpcStatus = this.httpStatusToGrpcStatus(exception.httpStatus);
@@ -116,7 +116,7 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     // 业务错误：gRPC OK + initial metadata 携带错误详情
     // 传输层返回 OK → Istio/Kiali 不计为错误
     // 客户端 businessErrorMiddleware 读取 x-oops-error header → 还原 BusinessException
-    this.logger.warn(`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`);
+    this.logger.warning`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`;
 
     // host.getArgByIndex(2) = gRPC call 对象，NestJS 适配层传递 [request, metadata, call]
     const call = host.getArgByIndex(2);
@@ -140,16 +140,13 @@ export class GrpcExceptionFilter implements ExceptionFilter {
       provider: this.provider,
     };
 
-    this.logger.warn(`[ZodError] ${firstIssue?.path.join('.')}: ${firstIssue?.message}`);
+    this.logger.warning`[ZodError] ${firstIssue?.path.join('.')}: ${firstIssue?.message}`;
 
     return throwError(() => ({ code: status.INVALID_ARGUMENT, details: JSON.stringify(grpcError) }));
   }
 
   private handleUnexpectedError(exception: unknown): Observable<never> {
-    const errorMessage = exception instanceof Error ? exception.message : String(exception);
-    const errorStack = exception instanceof Error ? exception.stack : undefined;
-
-    this.logger.error(`[UnknownError] ${errorMessage}`, errorStack);
+    this.logger.error`[UnknownError] ${exception}`;
     Sentry.captureException(exception);
 
     const grpcError: GrpcError = {
@@ -157,7 +154,7 @@ export class GrpcExceptionFilter implements ExceptionFilter {
       errorCode: '0x0401', // SYSTEM_INTERNAL_ERROR
       businessCode: 'INTERNAL_ERROR',
       userMessage: '服务内部错误，请稍后重试',
-      internalDetails: errorMessage,
+      internalDetails: exception instanceof Error ? exception.message : String(exception),
       provider: this.provider,
     };
 

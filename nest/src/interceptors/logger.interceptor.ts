@@ -1,10 +1,9 @@
-import { Logger } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { RequestContext } from '@app/nest/trace/request-context';
 import { METADATA_KEYS } from '@app/utils/annotation';
-import { f } from '@app/utils/logging';
 
+import { getLogger } from '@logtape/logtape';
 import { context, trace } from '@opentelemetry/api';
 import * as _ from 'radash';
 import { catchError, finalize } from 'rxjs';
@@ -15,7 +14,7 @@ import type { Request, Response } from 'express';
 import type { Observable } from 'rxjs';
 
 export class LoggerInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(this.constructor.name);
+  private readonly logger = getLogger(['app', 'LoggerInterceptor']);
 
   public intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> | Promise<Observable<unknown>> {
     // 注意：Subscription 必须直接返回原始结果，任何额外的 pipe 都会把 AsyncIterator 变成 Observable，
@@ -38,9 +37,8 @@ export class LoggerInterceptor implements NestInterceptor {
 
       if (req) {
         const ua = req.headers['user-agent'];
-        this.logger.log(
-          f`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation} ua=${ua}`,
-        );
+        this.logger
+          .info`-> #${ctx.getClass().name}.${ctx.getHandler().name} isGraphql=${isGraphql} gqlOperation=${gqlOperation} ua=${ua}`;
       }
     }
 
@@ -54,9 +52,8 @@ export class LoggerInterceptor implements NestInterceptor {
         headers?: Record<string, unknown>;
       };
       const wsUa = wsReq.headers?.['user-agent'];
-      this.logger.debug(
-        f`-> (subscription) #${ctx.getClass().name}.${handlerName} ua=${wsUa} headers=${maskWsHeaders(wsReq.headers)}`,
-      );
+      this.logger
+        .debug`-> (subscription) #${ctx.getClass().name}.${handlerName} ua=${wsUa} headers=${maskWsHeaders(wsReq.headers)}`;
       const result = next.handle();
       const rawResult: unknown = result;
       let constructorName = typeof rawResult;
@@ -72,9 +69,8 @@ export class LoggerInterceptor implements NestInterceptor {
         hasSubscribe = typeof Reflect.get(rawResult, 'subscribe') === 'function';
       }
 
-      this.logger.debug(
-        f`<- (subscription) #${ctx.getClass().name}.${handlerName} resultType=${typeof result} constructor=${constructorName} hasAsyncIterator=${hasAsyncIterator} hasSubscribe=${hasSubscribe}`,
-      );
+      this.logger
+        .debug`<- (subscription) #${ctx.getClass().name}.${handlerName} resultType=${typeof result} constructor=${constructorName} hasAsyncIterator=${hasAsyncIterator} hasSubscribe=${hasSubscribe}`;
       return result;
     }
 
@@ -86,9 +82,8 @@ export class LoggerInterceptor implements NestInterceptor {
     // ws subscription request - NestJS 某些场景下 req 可能为空
 
     if (!req) {
-      this.logger.warn(
-        f`Request object is empty, skipping logging for ${ctx.getClass().name}.${ctx.getHandler().name}`,
-      );
+      this.logger
+        .warning`Request object is empty, skipping logging for ${ctx.getClass().name}.${ctx.getHandler().name}`;
       return next.handle();
     }
 
@@ -165,22 +160,21 @@ export class LoggerInterceptor implements NestInterceptor {
       }
 
       if (!isHealthCheck) {
-        this.logger.debug(
-          f`-> ${TAG} call... ip=${ipAddress} cfRay=${cfRay} ${req.method} ${req.url} ua=${req.headers['user-agent']}`,
-        );
+        this.logger
+          .debug`-> ${TAG} call... ip=${ipAddress} cfRay=${cfRay} ${req.method} ${req.url} ua=${req.headers['user-agent']}`;
       }
 
       const now = Date.now();
       return next.handle().pipe(
         finalize(() => {
           if (!isHealthCheck) {
-            this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
+            this.logger.debug`<- ${TAG} spent ${Date.now() - now}ms`;
           }
         }),
         catchError((e) => {
           const skipNotFound = (e as { status?: number }).status !== 404;
           if (skipNotFound) {
-            this.logger.warn(f`${TAG} ${info}: ${e}`);
+            this.logger.warning`${TAG} ${info}: ${e}`;
           }
           throw e;
         }),
@@ -215,15 +209,15 @@ export class LoggerInterceptor implements NestInterceptor {
     return RequestContext.run({ traceId, userId: null }, () => {
       // Truncate large data for logging (similar to HTTP body truncation)
       const truncatedData = this.truncateData(data);
-      this.logger.debug(f`-> ${TAG} call... data=${truncatedData}`);
+      this.logger.debug`-> ${TAG} call... data=${truncatedData}`;
 
       const now = Date.now();
       return next.handle().pipe(
         finalize(() => {
-          this.logger.debug(f`<- ${TAG} spent ${Date.now() - now}ms`);
+          this.logger.debug`<- ${TAG} spent ${Date.now() - now}ms`;
         }),
         catchError((e) => {
-          this.logger.error(f`${TAG} error: ${e}`);
+          this.logger.error`${TAG} error: ${e}`;
           throw e;
         }),
       );

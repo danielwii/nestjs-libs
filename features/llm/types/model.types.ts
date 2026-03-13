@@ -22,9 +22,9 @@
  * ```
  */
 
-import { Logger } from '@nestjs/common';
-
 import { getLLMModelFields, SysEnv } from '@app/env';
+
+import { getLogger } from '@logtape/logtape';
 
 /**
  * Model 配置接口
@@ -418,7 +418,7 @@ export function registerModel<K extends string, P extends string>(key: K, config
 
 // ==================== 查询函数 ====================
 
-const logger = new Logger('LLMModel');
+const logger = getLogger(['features', 'LLMModel']);
 
 /**
  * 获取 Model 配置
@@ -452,10 +452,7 @@ export function getModel(key: LLMModelKey): ModelConfig {
     );
   }
 
-  logger.warn(
-    `#getModel Unknown model "${key}", falling back to "${fallbackKey}". ` +
-      `This indicates a configuration issue that should be fixed.`,
-  );
+  logger.warning`#getModel Unknown model "${key}", falling back to "${fallbackKey}". This indicates a configuration issue that should be fixed.`;
 
   return fallbackConfig;
 }

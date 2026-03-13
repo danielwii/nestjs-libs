@@ -1,10 +1,9 @@
-import { Logger } from '@nestjs/common';
-
 import { Trace } from '@app/nest/trace';
-import { f } from '@app/utils/logging';
 
+import { getLogger } from '@logtape/logtape';
 import { DateTime } from 'luxon';
 
+import type { Logger } from '@logtape/logtape';
 import type { OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 
 export interface InitializationOptions {
@@ -23,18 +22,18 @@ export abstract class InitializableModule
   constructor(options: InitializationOptions = {}) {
     this.timeout = options.timeout ?? 30;
     this.moduleName = options.moduleName ?? this.constructor.name;
-    this.logger = new Logger(this.moduleName);
+    this.logger = getLogger(['app', this.moduleName]);
     this.startTime = DateTime.now();
   }
 
   @Trace()
   async onModuleInit() {
     if (this.initialize === InitializableModule.prototype.initialize) {
-      this.logger.debug(`#onModuleInit initialized`);
+      this.logger.debug`#onModuleInit initialized`;
       return;
     }
 
-    this.logger.debug(`#initialize initializing...`);
+    this.logger.debug`#initialize initializing...`;
 
     try {
       // 设置超时检查
@@ -54,12 +53,9 @@ export abstract class InitializableModule
       const endTime = DateTime.now();
       const duration = endTime.diff(this.startTime);
 
-      this.logger.debug(f`#initialize initialized in ${duration.rescale().toHuman()}`);
+      this.logger.debug`#initialize initialized in ${duration.rescale().toHuman()}`;
     } catch (error: unknown) {
-      this.logger.error(
-        `#initialize failed: ${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
+      this.logger.error`#initialize failed: ${error}`;
       throw error;
     }
   }
@@ -78,9 +74,9 @@ export abstract class InitializableModule
       return;
     }
     this.destroying = true;
-    this.logger.verbose('#onDispose destroying ...');
+    this.logger.debug`#onDispose destroying ...`;
     await this.onDispose();
-    this.logger.debug('#onDispose disposed.');
+    this.logger.debug`#onDispose disposed.`;
   }
 
   @Trace()
@@ -91,11 +87,11 @@ export abstract class InitializableModule
     }
 
     const startTime = DateTime.now();
-    this.logger.debug(`#onBootstrap bootstraping...`);
+    this.logger.debug`#onBootstrap bootstraping...`;
     await this.onBootstrap();
     const endTime = DateTime.now();
     const duration = endTime.diff(startTime);
-    this.logger.debug(`#onBootstrap bootstraped in ${duration.toHuman()}`);
+    this.logger.debug`#onBootstrap bootstraped in ${duration.toHuman()}`;
   }
 
   protected async onBootstrap(): Promise<void> {
@@ -110,11 +106,11 @@ export abstract class InitializableModule
     }
 
     const startTime = DateTime.now();
-    this.logger.debug(f`#onShutdown bootstraping... ${{ signal }}`);
+    this.logger.debug`#onShutdown shutting down... ${{ signal }}`;
     await this.onShutdown();
     const endTime = DateTime.now();
     const duration = endTime.diff(startTime);
-    this.logger.debug(`#onShutdown bootstraped in ${duration.toHuman()}`);
+    this.logger.debug`#onShutdown shut down in ${duration.toHuman()}`;
   }
 
   protected async onShutdown() {

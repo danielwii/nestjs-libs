@@ -1,6 +1,8 @@
-import { Controller, Get, HttpStatus, Logger, Res, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Res, ServiceUnavailableException } from '@nestjs/common';
 
 import { HealthRegistry } from './health-registry';
+
+import { getLogger } from '@logtape/logtape';
 
 import type { HealthIndicatorResult } from './health-indicator';
 import type { OnApplicationShutdown } from '@nestjs/common';
@@ -22,9 +24,10 @@ import type { Response } from 'express';
  * - topology 三档：ok（全通 200）/ degraded（部分不通 503）/ down（全挂 503）
  * - topology 503 不走 exception 流程，直接 res.status().json() — 避免全局 ExceptionFilter 误报 ERROR
  */
+
 @Controller('health')
 export class HealthController implements OnApplicationShutdown {
-  private readonly logger = new Logger(HealthController.name);
+  private readonly logger = getLogger(['app', 'HealthController']);
   private isShuttingDown = false;
 
   constructor(private readonly registry: HealthRegistry) {}
@@ -91,12 +94,14 @@ export class HealthController implements OnApplicationShutdown {
       results = await Promise.race([
         Promise.all(indicators.map((i) => i.check())),
         new Promise<never>((_, reject) =>
-          setTimeout(() => { reject(new Error(`topology timeout (${TOPOLOGY_TIMEOUT_MS}ms)`)); }, TOPOLOGY_TIMEOUT_MS),
+          setTimeout(() => {
+            reject(new Error(`topology timeout (${TOPOLOGY_TIMEOUT_MS}ms)`));
+          }, TOPOLOGY_TIMEOUT_MS),
         ),
       ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`topology check failed: ${message}`);
+      this.logger.warning`topology check failed: ${message}`;
       res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ status: 'down', error: message });
       return;
     }

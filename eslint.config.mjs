@@ -407,6 +407,10 @@ export default defineConfig(
         },
       ],
 
+      // LogTape 使用 tagged template 记录日志（logger.info`...`），
+      // 语法上是表达式语句，需允许 tagged templates
+      '@typescript-eslint/no-unused-expressions': ['error', { allowTaggedTemplates: true }],
+
       // ========================================================================
       // Unsafe Rules - 不安全规则（逐步收紧）
       // ========================================================================

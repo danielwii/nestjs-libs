@@ -1,3 +1,5 @@
+import { r } from '@app/utils/logging';
+
 import { configure, getAnsiColorFormatter, getConsoleSink, getJsonLinesFormatter } from '@logtape/logtape';
 
 import type { LogLevel as LogTapeLevel } from '@logtape/logtape';
@@ -39,7 +41,11 @@ export async function configureLogging(nestLevel?: LogLevel): Promise<void> {
           : createDevFormatter(prefix),
       }),
     },
-    loggers: [{ category: [], sinks: ['console'], lowestLevel }],
+    loggers: [
+      // 抑制 LogTape 自身的 meta 提示（"LogTape loggers are configured..."）
+      { category: ['logtape', 'meta'], sinks: ['console'], lowestLevel: 'warning' },
+      { category: [], sinks: ['console'], lowestLevel },
+    ],
   });
 }
 
@@ -48,9 +54,8 @@ export async function configureLogging(nestLevel?: LogLevel): Promise<void> {
  * and injects [traceId|userId|...] from LogRecord properties.
  */
 function createDevFormatter(prefix: string) {
-  // value: String 避免 inspect 加引号——NestJS 消息已是完整字符串，
-  // 通过 tagged template 传入时不需要 inspect 风格渲染
-  const baseFormatter = getAnsiColorFormatter({ timestamp: 'time', level: 'ABBR', value: String });
+  // value: r 复用 @app/utils/logging 的格式化逻辑——对象用 inspect，Error 用 onelineStack
+  const baseFormatter = getAnsiColorFormatter({ timestamp: 'time', level: 'ABBR', value: r });
 
   return (record: Parameters<typeof baseFormatter>[0]): string => {
     const base = baseFormatter(record);
