@@ -5,11 +5,11 @@ import { SysEnv } from '@app/env';
 import { validateLLMConfiguration } from '@app/features/llm';
 import { BootModule } from '@app/nest/boot/boot.module';
 import { runApp } from '@app/nest/boot/lifecycle';
-import { initStackTraceFormatter } from '@app/nest/common/logger.utils';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { VisitorInterceptor } from '@app/nest/interceptors/visitor.interceptor';
+import { configureLogging, LogtapeNestLogger } from '@app/nest/logging';
 import { otelTraceMiddleware } from '@app/nest/middleware/otel-trace.middleware';
 import { maskSecret } from '@app/utils/security';
 
@@ -61,7 +61,10 @@ export async function simpleBootstrap(
   options?: BootstrapOptions,
 ) {
   const now = Date.now();
-  const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule));
+  await configureLogging();
+  const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule), {
+    logger: new LogtapeNestLogger(),
+  });
   if (onInit) await onInit(app);
   await runApp(app)
     .listen(SysEnv.PORT)
@@ -118,7 +121,6 @@ export async function simpleBootstrap(
         `,
         'Bootstrap',
       );
-      initStackTraceFormatter();
     });
   return app;
 }
@@ -149,8 +151,9 @@ export async function bootstrap(
     Logger.warn(`[LLM] ${w}`, 'Bootstrap');
   });
 
+  await configureLogging(logLevel);
   const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule), {
-    logger: levels,
+    logger: new LogtapeNestLogger(),
   });
   app.set('query parser', 'extended');
 
@@ -388,7 +391,6 @@ export async function bootstrap(
         `,
         'Bootstrap',
       );
-      initStackTraceFormatter();
     });
 
   return app;

@@ -9,6 +9,7 @@ import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter'
 import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
+import { configureLogging, LogtapeNestLogger } from '@app/nest/logging';
 
 import { addGrpcHealthService } from './grpc-health';
 
@@ -203,8 +204,9 @@ export async function grpcBootstrap(
   }
 
   // 创建 HTTP 应用（用于健康检查），自动注入 BootModule
+  await configureLogging(logLevel);
   const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule), {
-    logger: levels,
+    logger: new LogtapeNestLogger(),
   });
 
   // 提取 provider 名称（用于异常追踪）

@@ -1,0 +1,73 @@
+import { configure, getAnsiColorFormatter, getConsoleSink, getJsonLinesFormatter } from '@logtape/logtape';
+
+import type { LogLevel as LogTapeLevel } from '@logtape/logtape';
+import type { LogLevel } from '@nestjs/common';
+
+/** NestJS LogLevel -> LogTape level */
+const nestToLogtapeLevel: Record<LogLevel, LogTapeLevel> = {
+  verbose: 'debug',
+  debug: 'debug',
+  log: 'info',
+  warn: 'warning',
+  error: 'error',
+  fatal: 'fatal',
+};
+
+let configured = false;
+
+/**
+ * Initialize LogTape logging.
+ *
+ * Dev: ansi color formatter with appName pid prefix
+ * Prod: JSON lines for log aggregation
+ */
+export async function configureLogging(nestLevel?: LogLevel): Promise<void> {
+  if (configured) return;
+  configured = true;
+
+  const isProd = process.env.NODE_ENV === 'production';
+  const lowestLevel = nestLevel ? nestToLogtapeLevel[nestLevel] : 'debug';
+
+  const appName = process.env.APP_NAME ?? 'app';
+  const prefix = `${appName} ${process.pid}`;
+
+  await configure({
+    sinks: {
+      console: getConsoleSink({
+        formatter: isProd
+          ? getJsonLinesFormatter({ properties: 'flatten', message: 'rendered' })
+          : createDevFormatter(prefix),
+      }),
+    },
+    loggers: [{ category: [], sinks: ['console'], lowestLevel }],
+  });
+}
+
+/**
+ * Dev formatter: wraps ansiColorFormatter, prepends appName pid,
+ * and injects [traceId|userId|...] from LogRecord properties.
+ */
+function createDevFormatter(prefix: string) {
+  // value: String 避免 inspect 加引号——NestJS 消息已是完整字符串，
+  // 通过 tagged template 传入时不需要 inspect 风格渲染
+  const baseFormatter = getAnsiColorFormatter({ timestamp: 'time', level: 'ABBR', value: String });
+
+  return (record: Parameters<typeof baseFormatter>[0]): string => {
+    const base = baseFormatter(record);
+
+    // Build context tag from record properties (set by lazy() in LogtapeNestLogger)
+    const parts: string[] = [];
+    const { traceId, userId, spanName } = record.properties;
+    if (spanName && typeof spanName === 'string') parts.push(spanName);
+    if (traceId && typeof traceId === 'string') parts.push(traceId);
+    if (userId && typeof userId === 'string' && userId.trim().length > 0) parts.push(userId);
+    const contextTag = parts.length > 0 ? ` [${parts.join('|')}]` : '';
+
+    // ansiColorFormatter 已包含 timestamp + level + category + message + trailing newline
+    // 在整行前加上 prefix + context tag
+    const firstNewline = base.indexOf('\n');
+    const line = firstNewline >= 0 ? base.slice(0, firstNewline) : base;
+    const trailing = firstNewline >= 0 ? base.slice(firstNewline) : '';
+    return `${prefix}${contextTag} ${line}${trailing}`;
+  };
+}

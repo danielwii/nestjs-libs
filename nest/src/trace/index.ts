@@ -6,4 +6,4 @@ export * from './telemetry-span';
 export * from './container-span';
 export * from './stage-scope';
 
-// TraceModule 已通过 bootstrap/grpcBootstrap 自动注入，不再对外导出避免重复注入
+// TraceModule 已移除，日志 traceId 注入由 LogtapeNestLogger 的 lazy() 实现
