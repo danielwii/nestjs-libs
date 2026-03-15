@@ -41,6 +41,10 @@ export interface HealthRegistryService {
   readonly getByType: (type: HealthIndicatorType) => Effect.Effect<ReadonlyArray<HealthIndicator>>;
   /** 执行指定类型的所有检查 */
   readonly checkAll: (type: HealthIndicatorType) => Effect.Effect<ReadonlyArray<HealthIndicatorResult>>;
+  /** 标记为正在关闭（readiness 探针返回 not_ready，K8s 摘流量） */
+  readonly markShuttingDown: () => Effect.Effect<void>;
+  /** 是否正在关闭 */
+  readonly isShuttingDown: () => Effect.Effect<boolean>;
 }
 
 // ==================== Tag (Port) ====================
@@ -54,6 +58,7 @@ export const HealthRegistryLive: Layer.Layer<HealthRegistry> = Layer.effect(
   HealthRegistry,
   Effect.gen(function* () {
     const indicatorsRef = yield* Ref.make<ReadonlyArray<HealthIndicator>>([]);
+    const shuttingDownRef = yield* Ref.make(false);
 
     const service: HealthRegistryService = {
       register: (indicator) => Ref.update(indicatorsRef, (list) => [...list, indicator]),
@@ -66,6 +71,10 @@ export const HealthRegistryLive: Layer.Layer<HealthRegistry> = Layer.effect(
           if (indicators.length === 0) return [];
           return yield* Effect.promise(() => Promise.all(indicators.map((i) => i.check())));
         }),
+
+      markShuttingDown: () => Ref.set(shuttingDownRef, true),
+
+      isShuttingDown: () => Ref.get(shuttingDownRef),
     };
 
     return service;

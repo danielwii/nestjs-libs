@@ -70,6 +70,25 @@ export const AiGoogleApiKey = Config.option(Config.map(Config.string('AI_GOOGLE_
 
 export const AiOpenAiApiKey = Config.option(Config.map(Config.string('AI_OPENAI_API_KEY'), Redacted.make));
 
+// ==================== Shutdown 配置 ====================
+
+/**
+ * Graceful shutdown drain timeout（毫秒）
+ *
+ * SIGTERM 后 Phase 2（等待已有流量排空）的等待时间。
+ * 此期间 HTTP server 仍在运行，in-flight 请求继续处理。
+ * 超时后关闭资源（DB、Redis），未完成的请求因连接断开而终止。
+ *
+ * - 默认 5000ms：适合普通 REST API
+ * - AI streaming（诊断/生成）：建议 60000-120000ms
+ *
+ * K8s terminationGracePeriodSeconds 必须 > 此值 + preStop 时间。
+ */
+export const ShutdownDrainMs = Schema.Config(
+  'SHUTDOWN_DRAIN_MS',
+  Schema.NumberFromString.pipe(Schema.int(), Schema.greaterThan(0)),
+).pipe(Config.withDefault(5000));
+
 // ==================== 组合配置 ====================
 
 /** 服务器基础配置 */

@@ -34,24 +34,96 @@
  * ```
  */
 
-import { FullLoggerLayer, Port } from '../core';
-import { HealthRegistryLive } from '../health';
+import { FullLoggerLayer, Port, ShutdownDrainMs } from '../core';
+import { HealthRegistry, HealthRegistryLive } from '../health';
 
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from '@effect/platform';
 import { BunHttpServer, BunRuntime } from '@effect/platform-bun';
 import { RpcSerialization, RpcServer } from '@effect/rpc';
-import type { Config} from 'effect';
 import { Effect, Layer } from 'effect';
+
+import type { Config } from 'effect';
 
 // ==================== Internal ====================
 
-/** 组合 Layer + HealthRegistry + Logger → launch */
+/**
+ * 组合 Layer + HealthRegistry + Logger → launch
+ *
+ * ## Graceful Shutdown（K8s 流量排空）
+ *
+ * 两个阶段，解决两个不同的问题：
+ *
+ * ### Phase 1: 停止接受新流量
+ *
+ * ```
+ * SIGTERM → markShuttingDown()
+ *   → /health/ready 返回 { status: "not_ready" }
+ *   → K8s 从 Service endpoints 移除 pod
+ *   → 新请求不再路由到此 pod
+ * ```
+ *
+ * 此时 HTTP server 仍在运行，已建立连接的请求继续处理。
+ *
+ * ### Phase 2: 等待已有流量排空
+ *
+ * ```
+ * sleep(SHUTDOWN_DRAIN_MS)
+ *   → in-flight 请求继续处理直到完成或超时
+ *   → AI streaming 场景（诊断/生成）可能需要 60-120s
+ *   → 超时后无论是否还有请求，开始关闭资源
+ * ```
+ *
+ * drain 结束后，Layer scoped finalizers 逆序执行（Prisma、Redis、gRPC 断开），进程退出。
+ *
+ * ### 配置
+ *
+ * - `SHUTDOWN_DRAIN_MS`：drain 等待时间（默认 5000ms，AI stream 建议 60000-120000ms）
+ * - K8s `terminationGracePeriodSeconds` 必须 > `SHUTDOWN_DRAIN_MS` + preStop 时间
+ *
+ * ### 完整时序
+ *
+ * ```
+ * t=0s   SIGTERM 到达
+ * t=0s   ① markShuttingDown() — 停止接受新流量
+ * t=0~5s K8s 轮询 readiness，发现 not_ready，移除 endpoints — 新流量停止
+ * t=Ns   ② sleep(SHUTDOWN_DRAIN_MS) 结束 — 已有流量排空超时
+ * t=Ns   ③ Prisma.$disconnect(), Redis.disconnect() — 关闭资源
+ * t=Ns   进程退出
+ * ```
+ */
 const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Layer<any, any, any>) => {
   const composed = appLayers
     ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(FullLoggerLayer()))
     : serverLive.pipe(Layer.provide(HealthRegistryLive), Layer.provide(FullLoggerLayer()));
 
-  (composed as unknown as Layer.Layer<never>).pipe(Layer.launch, BunRuntime.runMain);
+  const program = Effect.gen(function* () {
+    const registry = yield* HealthRegistry;
+    const drainMs = yield* ShutdownDrainMs;
+
+    // Finalizer 在 SIGTERM 中断 Effect.never 后执行。
+    // 因为是最后注册的 finalizer，所以最先执行（逆序），先于 Layer 的资源清理。
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        // Phase 1: 停止接受新流量
+        // markShuttingDown 让 /health/ready 返回 not_ready，K8s 据此摘流量。
+        // 此刻 HTTP server 仍在运行，已建立连接的 in-flight 请求不受影响。
+        yield* registry.markShuttingDown();
+        yield* Effect.log('Phase 1: readiness → not_ready, no new traffic will be routed');
+
+        // Phase 2: 等待已有流量排空
+        // sleep 期间 HTTP server 继续服务 in-flight 请求（含 AI streaming）。
+        // drain 超时后才关闭资源，未完成的请求将因连接断开而终止。
+        yield* Effect.log(`Phase 2: draining in-flight requests (${drainMs}ms)...`);
+        yield* Effect.sleep(`${drainMs} millis`);
+
+        yield* Effect.log('Drain complete, proceeding to close resources');
+      }),
+    );
+
+    yield* Effect.never;
+  });
+
+  program.pipe(Effect.scoped, Effect.provide(composed as unknown as Layer.Layer<HealthRegistry>), BunRuntime.runMain);
 };
 
 // ==================== HttpApi Bootstrap ====================
