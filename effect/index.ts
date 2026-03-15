@@ -7,3 +7,4 @@ export * as Middleware from './middleware/index';
 export * as GraphQL from './graphql/index';
 export * as Rpc from './rpc/index';
 export * as Trace from './trace/index';
+export * as AppSetting from './app-setting/index';
