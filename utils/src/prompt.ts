@@ -1,9 +1,7 @@
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import dedent from 'dedent';
-import Handlebars from 'handlebars';
 import { DateTime } from 'luxon';
-import * as _ from 'radash';
 import { z } from 'zod';
 
 export function generateJsonFormat(schema: z.ZodType, indent = 0): string {
@@ -46,12 +44,6 @@ export function formatLocalDateTime(
   return format(dt, sensitivity, { locale: zhCN });
 }
 
-// 目的 (Objective/Purpose)
-const ObjectiveSchema = z.string(); // 必须明确的任务目的
-
-// 上下文/背景知识 (Context/Background Information)
-// 已移动到XmlPromptSchema内部定义
-
 // 生成要求 (Requirements/Instructions)
 const RequirementsSchema = z.union([z.string(), z.array(z.string())]);
 
@@ -60,8 +52,8 @@ const SpecialConsiderationsSchema = z.union([z.string(), z.array(z.string())]).o
 
 // 完整的通用 prompt schema
 const PromptSchema = z.object({
-  purpose: ObjectiveSchema, // 任务目的
-  background: z.string().optional(), // 描述背景设定
+  purpose: z.string(),
+  background: z.string().optional(),
   context: z
     .array(
       z.object({
@@ -69,17 +61,19 @@ const PromptSchema = z.object({
         content: z.union([z.string(), z.number()]).optional(),
       }),
     )
-    .optional(), // 上下文/背景知识
-  requirements: RequirementsSchema.optional(), // 生成要求
-  instructions: z.string().optional(), // 生成要求
-  specialConsiderations: SpecialConsiderationsSchema.optional(), // 注意事项
-  examples: z.union([z.string(), z.array(z.string())]).optional(), // 示例
-  output: z.string().optional(), // 输出
+    .optional(),
+  requirements: RequirementsSchema.optional(),
+  instructions: z.string().optional(),
+  specialConsiderations: SpecialConsiderationsSchema.optional(),
+  examples: z.union([z.string(), z.array(z.string())]).optional(),
+  output: z.string().optional(),
 });
 type PromptSchema = z.infer<typeof PromptSchema>;
 
-Handlebars.registerHelper('isArray', (value) => Array.isArray(value));
-Handlebars.registerHelper('isString', (value) => typeof value === 'string');
+/** 将 string | string[] 渲染为列表或纯文本 */
+function renderList(items: string | string[]): string {
+  return Array.isArray(items) ? items.map((item) => `- ${item}`).join('\n') : items;
+}
 
 export function createBasePrompt(
   id: string,
@@ -90,17 +84,7 @@ export function createBasePrompt(
 ) {
   const datetime = timezone ? DateTime.now().setZone(timezone).toJSDate() : new Date();
   const now = format(datetime, sensitivity, { locale: zhCN });
-  return Handlebars.compile(dedent`
-    [{{id}}]
-    ------
-    {{{content}}}
-    ------
-    Now:{{now}}
-    Output:
-    {{#if output}}
-    {{{output}}}
-    {{/if}}
-  `)({ id, now, content, output });
+  return [`[${id}]`, '------', content, '------', `Now:${now}`, 'Output:', output].filter(Boolean).join('\n');
 }
 
 export function createPrompt(
@@ -109,77 +93,51 @@ export function createPrompt(
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
   data: PromptSchema,
 ) {
-  return createBasePrompt(
-    id,
-    timezone,
-    sensitivity,
-    Handlebars.compile(dedent`
+  const content = [
+    dedent`
       ## Objective / Purpose
-      {{{purpose}}}
+      ${data.purpose}
+    `,
 
-      {{#if background}}
-      ## Background Information
-      {{{background}}}
-      {{/if}}
+    data.background &&
+      dedent`
+        ## Background Information
+        ${data.background}
+      `,
 
-      ## Requirements / Instructions
-      {{#if instructions}}
-      {{{instructions}}}
-      {{/if}}
-      {{#if requirements}}
-      {{#if (isArray requirements)}}
-      {{#each requirements}}
-      {{#if (isString this)}}
-      - {{{this}}}
-      {{else}}
-      - {{{this.[0]}}}
-        {{#each this.[1]}}
-        - {{{this}}}
-        {{/each}}
-      {{/if}}
-      {{/each}}
-      {{else}}
-      {{{requirements}}}
-      {{/if}}
-      {{/if}}
+    (data.instructions || data.requirements) &&
+      ['## Requirements / Instructions', data.instructions, data.requirements && renderList(data.requirements)]
+        .filter(Boolean)
+        .join('\n'),
 
-      {{#if specialConsiderations}}
-      ## Special Considerations
-      {{#if (isArray specialConsiderations)}}
-      {{#each specialConsiderations}}
-      - {{{this}}}
-      {{/each}}
-      {{else}}
-      {{{specialConsiderations}}}
-      {{/if}}
-      {{/if}}
+    data.specialConsiderations &&
+      dedent`
+        ## Special Considerations
+        ${renderList(data.specialConsiderations)}
+      `,
 
-      {{#if examples}}
-      ## Examples
-      {{#if (isArray examples)}}
-      {{#each examples}}
-      - {{{this}}}
-      {{/each}}
-      {{else}}
-      {{{examples}}}
-      {{/if}}
-      {{/if}}
+    data.examples &&
+      dedent`
+        ## Examples
+        ${renderList(data.examples)}
+      `,
 
-      {{#if context}}
-      ## Context
-      {{#each context}}
-      <{{title}}>
-      {{#if content}}
-      {{{content}}}
-      {{else}}
-      <empty />
-      {{/if}}
-      </{{title}}>
-      {{/each}}
-      {{/if}}
-    `)(data),
-    data.output,
-  );
+    data.context?.length &&
+      [
+        '## Context',
+        ...data.context.map(
+          (ctx) => dedent`
+            <${ctx.title}>
+            ${ctx.content ?? '<empty />'}
+            </${ctx.title}>
+          `,
+        ),
+      ].join('\n'),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return createBasePrompt(id, timezone, sensitivity, content, data.output);
 }
 
 export function createEnhancedPrompt<Response>({
