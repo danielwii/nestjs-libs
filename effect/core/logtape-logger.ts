@@ -11,7 +11,7 @@
 
 import { Cause, Effect, Layer, Logger, LogLevel } from 'effect';
 
-import { configure, getConsoleSink, getJsonLinesFormatter } from '@logtape/logtape';
+import { configure, getConsoleSink } from '@logtape/logtape';
 import { context, trace } from '@opentelemetry/api';
 
 import { r } from '@app/utils/logging';
@@ -177,6 +177,38 @@ function devFormatter(record: {
 
 // ==================== LogTape Configuration ====================
 
+/**
+ * Prod formatter — JSON lines for log aggregation (Loki/CloudWatch)
+ *
+ * 自定义而非 getJsonLinesFormatter，因为 LogTape 的 rendered message 会双重引号。
+ */
+function prodFormatter(record: {
+  readonly timestamp: number;
+  readonly level: string;
+  readonly category: readonly string[];
+  readonly message: readonly unknown[];
+  readonly rawMessage: string | TemplateStringsArray;
+  readonly properties: Record<string, unknown>;
+}): string {
+  const message = Array.isArray(record.message)
+    ? record.message.map((p) => (typeof p === 'string' ? p : String(p))).join('')
+    : String(record.message);
+
+  const entry: Record<string, unknown> = {
+    '@timestamp': new Date(record.timestamp).toISOString(),
+    level: record.level.toUpperCase(),
+    message,
+    logger: record.category.join('.'),
+  };
+
+  // Flatten properties (module, traceId, userId, spanName)
+  for (const [k, v] of Object.entries(record.properties)) {
+    if (v !== undefined && v !== null) entry[k] = v;
+  }
+
+  return JSON.stringify(entry);
+}
+
 /** NestJS 旧名 → LogTape 标准名 */
 const nestAliases: Record<string, string> = { verbose: 'trace', log: 'info', warn: 'warning' };
 const normalizeLogLevel = (level: string): string => nestAliases[level] ?? level;
@@ -194,9 +226,7 @@ const ensureLogTapeConfigured = (() => {
       reset: true, // override instrument.ts preload configure if already called
       sinks: {
         console: getConsoleSink({
-          formatter: isProd
-            ? getJsonLinesFormatter({ properties: 'flatten', message: 'rendered' })
-            : devFormatter,
+          formatter: isProd ? prodFormatter : devFormatter,
         }),
       },
       loggers: [
