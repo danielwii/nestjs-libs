@@ -190,6 +190,19 @@ export interface LLMModelRegistry {
   'openrouter:grok-4.1-fast': ModelConfig<'openrouter'>;
   'openrouter:x-ai/grok-4.1-fast': ModelConfig<'openrouter'>;
   /**
+   * Step 3.5 Flash - 免费 MoE 模型
+   *
+   * 定价：免费（Input $0/M, Output $0/M），Context 256K
+   *
+   * 特点：
+   * - MoE 架构 196B/11B（稀疏激活）
+   * - Tool Call Error Rate 2.19%
+   * - Reasoning 模型，速度高效
+   *
+   * @see https://openrouter.ai/stepfun/step-3.5-flash:free
+   */
+  'openrouter:stepfun/step-3.5-flash:free': ModelConfig<'openrouter'>;
+  /**
    * DeepSeek V3.2 - Roleplay #1
    *
    * 定价参考（2026.02）：Input $0.26/M, Output $0.38/M, Context 164K
@@ -363,6 +376,11 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Grok 4.1 Fast (reasoningRequired: reasoning 无法关闭)
   ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast', reasoningRequired: true }],
   ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast', reasoningRequired: true }],
+  // Step 3.5 Flash (免费 MoE 196B/11B, reasoningRequired)
+  [
+    'openrouter:stepfun/step-3.5-flash:free',
+    { provider: 'openrouter', modelId: 'stepfun/step-3.5-flash:free', reasoningRequired: true },
+  ],
   // DeepSeek V3.2
   ['openrouter:deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
   ['openrouter:deepseek/deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],

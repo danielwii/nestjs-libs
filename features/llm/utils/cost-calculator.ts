@@ -60,6 +60,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'x-ai/grok-3-mini': { input: 0.3, output: 0.5 },
   'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 },
 
+  // StepFun
+  'stepfun/step-3.5-flash:free': { input: 0, output: 0 },
+
   // DeepSeek（OpenRouter 最低价 provider：DeepInfra/AtlasCloud；Vertex 约 $0.56/$1.68）
   'deepseek/deepseek-v3.2': { input: 0.26, output: 0.38 },
 

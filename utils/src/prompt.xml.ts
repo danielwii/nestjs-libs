@@ -90,6 +90,8 @@ export interface PromptData {
   sections: ContextSection[];
   output?: string;
   language?: string;
+  /** 最终约束文本，插在 </context> 之后、footer 之前（U-shaped attention 尾部高权重区） */
+  epilogue?: string;
 }
 
 export interface RenderOptions {
@@ -211,11 +213,14 @@ export class Prompt {
       ? formatInTimeZone(base, normalizedTimezone, sensitivity)
       : format(base, sensitivity);
 
+    const epiloguePart = this.data.epilogue ? `<epilogue priority="critical">${this.data.epilogue}</epilogue>` : '';
+
     const fullPrompt = [
       `[${this.id}:${this.version}]`,
       '------',
       metaXml,
       contextXml,
+      epiloguePart,
       languagePart,
       '------',
       'When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.',
@@ -253,6 +258,8 @@ export interface PromptConfig {
   contexts?: ContextSection[];
   output?: string;
   language?: string;
+  /** 最终约束文本，插在 </context> 之后、footer 之前（U-shaped attention 尾部高权重区） */
+  epilogue?: string;
 }
 
 /**
@@ -291,6 +298,7 @@ export class PromptBuilder {
   private _sections: ContextSection[] = [];
   private _output?: string;
   private _language?: string;
+  private _epilogue?: string;
 
   constructor(id: string, version: string = '1.0') {
     this._id = id;
@@ -332,6 +340,7 @@ export class PromptBuilder {
     if (config.examples) builder.examples(config.examples);
     if (config.contexts) builder.contexts(config.contexts);
     if (config.output) builder.output(config.output);
+    if (config.epilogue) builder.epilogue(config.epilogue);
 
     return builder.build();
   }
@@ -417,6 +426,12 @@ export class PromptBuilder {
     return this;
   }
 
+  /** 最终约束文本（U-shaped attention 尾部高权重区） */
+  epilogue(text: string): this {
+    this._epilogue = text;
+    return this;
+  }
+
   /**
    * 构建 Prompt 实例
    */
@@ -440,6 +455,7 @@ export class PromptBuilder {
       sections: this._sections.map((s) => ({ ...s })),
       output: this._output,
       language: this._language,
+      epilogue: this._epilogue,
     };
 
     return new Prompt(this._id, this._version, data);

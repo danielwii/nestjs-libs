@@ -28,7 +28,9 @@
  */
 
 import { SysEnv } from '@app/env';
+import { ApiFetcher } from '@app/utils/fetch';
 
+import { EMBEDDING_MODELS } from '../types/embedding.types';
 import { getModel } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
@@ -48,7 +50,7 @@ import {
   wrapLanguageModel,
 } from 'ai';
 
-import type { EmbeddingModelKey, EmbeddingProvider } from '../types/embedding.types';
+import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
 import type { LLMModelKey } from '../types/model.types';
 /**
  * 仅对已知会包裹 markdown 代码块的模型启用 extractJsonMiddleware。
@@ -1024,50 +1026,203 @@ export class LLM {
     id: string;
     model: EmbeddingModelKey;
     text: string;
+    /** Jina/Gemini task type（LoRA adapter 切换），OpenAI 忽略 */
+    task?: EmbeddingTaskType;
     abortSignal?: AbortSignal;
     /** 超时时间（毫秒），默认 60000 */
     timeout?: number;
   }): Promise<{ embedding: number[]; usage: TokenUsage }> {
     const startTime = Date.now();
-    const { id, model: modelKey, text, abortSignal, timeout } = params;
+    const { id, model: modelKey, text, task, abortSignal, timeout } = params;
 
     if (!text || text.trim().length === 0) {
       throw new Error(`[LLM:embedding] id=${id} empty text (type=${typeof text}, length=${text.length})`);
     }
 
+    const taskPart = task ? `, task=${task}` : '';
     LLM.logger
-      .debug`[LLM:embedding] id=${id} text="${text.slice(0, 80)}${text.length > 80 ? '...' : ''}" (${text.length} chars)`;
+      .debug`[LLM:embedding] id=${id} text="${text.slice(0, 80)}${text.length > 80 ? '...' : ''}" (${text.length} chars)${taskPart}`;
     LLM.logStart(id, 'embedding', modelKey);
 
     const [provider, modelId] = modelKey.split(':') as [EmbeddingProvider, string];
 
-    let embeddingModel;
     switch (provider) {
-      case 'openai':
-        embeddingModel = getOpenAI().embeddingModel(modelId);
-        break;
-      case 'jina':
-      case 'voyage':
-      case 'gemini':
-        throw new Error(`Embedding provider "${provider}" is not implemented yet`);
-    }
+      case 'openai': {
+        // OpenAI 不支持 task type，忽略
+        const embeddingModel = getOpenAI().embeddingModel(modelId);
+        const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+        try {
+          const result = await embed({
+            model: embeddingModel,
+            value: text,
+            abortSignal: signal,
+          });
+          cleanup();
 
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
-    try {
-      const result = await embed({
-        model: embeddingModel,
-        value: text,
-        abortSignal: signal,
-      });
-      cleanup();
+          const usage: TokenUsage = { inputTokens: result.usage.tokens, outputTokens: 0 };
+          LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+          return { embedding: result.embedding, usage };
+        } catch (error) {
+          cleanup();
+          throw error;
+        }
+      }
 
-      const usage: TokenUsage = { inputTokens: result.usage.tokens, outputTokens: 0 };
-      LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+      case 'jina': {
+        const apiKey = process.env.JINA_API_KEY;
+        if (!apiKey) {
+          throw new Error('JINA_API_KEY 环境变量未设置');
+        }
 
-      return { embedding: result.embedding, usage };
-    } catch (error) {
-      cleanup();
-      throw error;
+        const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+        try {
+          // Matryoshka 模型（v5-nano 默认 768d）需显式指定维度以匹配 DB schema
+          const modelMeta = EMBEDDING_MODELS[modelId as EmbeddingModel];
+          const body: Record<string, unknown> = {
+            model: modelId,
+            input: [text],
+            normalized: true,
+            ...(modelMeta && modelMeta.dimensions ? { dimensions: modelMeta.dimensions } : {}),
+          };
+          if (task) body.task = task;
+
+          const response = await ApiFetcher.fetch('https://api.jina.ai/v1/embeddings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Jina API error: ${response.status} - ${errorText}`);
+          }
+
+          const result = (await response.json()) as {
+            data: Array<{ embedding: number[] }>;
+            usage: { total_tokens?: number; prompt_tokens?: number };
+          };
+
+          cleanup();
+
+          const embedding = result.data[0]?.embedding;
+          if (!embedding) {
+            throw new Error(`[LLM:embedding] id=${id} Jina returned empty embedding`);
+          }
+
+          const totalTokens = result.usage.total_tokens ?? result.usage.prompt_tokens ?? 0;
+          const usage: TokenUsage = { inputTokens: totalTokens, outputTokens: 0 };
+          LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+          return { embedding, usage };
+        } catch (error) {
+          cleanup();
+          throw error;
+        }
+      }
+
+      case 'voyage': {
+        const apiKey = process.env.VOYAGE_API_KEY;
+        if (!apiKey) {
+          throw new Error('VOYAGE_API_KEY 环境变量未设置');
+        }
+
+        const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+        try {
+          const response = await ApiFetcher.fetch('https://api.voyageai.com/v1/embeddings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({ model: modelId, input: [text] }),
+            signal,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Voyage API error: ${response.status} - ${errorText}`);
+          }
+
+          const result = (await response.json()) as {
+            data: Array<{ embedding: number[] }>;
+            usage: { total_tokens?: number };
+          };
+
+          cleanup();
+
+          const embedding = result.data[0]?.embedding;
+          if (!embedding) {
+            throw new Error(`[LLM:embedding] id=${id} Voyage returned empty embedding`);
+          }
+
+          const usage: TokenUsage = { inputTokens: result.usage.total_tokens ?? 0, outputTokens: 0 };
+          LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+          return { embedding, usage };
+        } catch (error) {
+          cleanup();
+          throw error;
+        }
+      }
+
+      case 'gemini': {
+        const apiKey = SysEnv.AI_GOOGLE_API_KEY;
+        if (!apiKey) {
+          throw new Error('AI_GOOGLE_API_KEY 环境变量未设置');
+        }
+
+        const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+        try {
+          const body: Record<string, unknown> = {
+            content: { parts: [{ text }] },
+          };
+          // Gemini 用大写枚举格式，映射 Jina 风格 task type
+          if (task) {
+            const TASK_MAP: Record<string, string> = {
+              'retrieval.query': 'RETRIEVAL_QUERY',
+              'retrieval.passage': 'RETRIEVAL_DOCUMENT',
+              'text-matching': 'SEMANTIC_SIMILARITY',
+              classification: 'CLASSIFICATION',
+              clustering: 'CLUSTERING',
+            };
+            body.taskType = TASK_MAP[task] ?? task;
+          }
+
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent?key=${apiKey}`;
+          const response = await ApiFetcher.fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+          }
+
+          const result = (await response.json()) as {
+            embedding: { values: number[] };
+          };
+
+          cleanup();
+
+          const embedding = result.embedding.values;
+          if (!embedding || embedding.length === 0) {
+            throw new Error(`[LLM:embedding] id=${id} Gemini returned empty embedding`);
+          }
+
+          // Gemini embedContent 不返回 token usage
+          const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+          LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+          return { embedding, usage };
+        } catch (error) {
+          cleanup();
+          throw error;
+        }
+      }
     }
   }
 

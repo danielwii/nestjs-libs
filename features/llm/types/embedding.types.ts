@@ -20,52 +20,51 @@
 //
 // ## 模型对比
 //
-// | 模型                      | 维度   | 价格/M  | 上下文  | 多模态        | Task Type                              | 适用场景           |
-// |---------------------------|--------|---------|---------|---------------|----------------------------------------|--------------------|
-// | OpenAI v3-small           | 1536d  | $0.02   | 8K      | ❌ text only  | ❌ 无                                   | 低成本原型验证     |
-// | OpenAI v3-large           | 3072d  | $0.13   | 8K      | ❌ text only  | ❌ 无                                   | 精度优先，区分度最高 |
-// | Jina v5-text-small        | 可调   | $0.045  | 32K     | ❌ text only  | ✅ LoRA adapters (query/passage/matching/classification/separation) | 文本 RAG 最优，MTEB SOTA |
-// | Jina v4                   | 可调   | 免费    | 32K     | text+image+PDF| ✅ LoRA adapters                        | 免费但限速，不可商用（Qwen 许可） |
-// | Jina v3                   | 1024d  | $0.02   | 8K      | ❌ text only  | ✅ LoRA adapters                        | 低成本+LoRA        |
-// | Gemini embedding-2        | 3072d  | $0.20   | 8K      | ✅ text+image+video+audio+PDF | ✅ 6种 (similarity/classification/clustering/retrieval/code) | 唯一支持 video/audio |
-// | Gemini embedding-001      | 3072d  | $0.15   | 2K      | ❌ text only  | ✅ 同上                                 | 短文本，上下文太短   |
-// | Voyage 3-large            | 1024d  | $0.06   | 8K      | ❌ text only  | ❌ 无                                   | 性价比次优          |
-// | Voyage 3.5-lite           | 1024d  | $0.02   | 8K      | ❌ text only  | ❌ 无                                   | 低成本              |
+// | 模型                      | 维度   | 价格/M  | 上下文  | Task Type | 适用场景 |
+// |---------------------------|--------|---------|---------|-----------|----------|
+// | Jina v5-text-nano ✅       | 1024d  | $0.02   | 32K     | ✅ LoRA   | 最优性价比，质量第2 |
+// | Jina v5-text-small        | 1024d  | $0.045  | 32K     | ✅ LoRA   | 质量最高（Gap 9.6%） |
+// | OpenAI v3-small           | 1536d  | $0.02   | 8K      | ❌        | 低成本原型 |
+// | OpenAI v3-large           | 3072d  | $0.13   | 8K      | ❌        | 精度较高 |
+// | Voyage 3-large            | 1024d  | $0.06   | 8K      | ❌        | 区分度差（Gap -1.0%） |
+// | Voyage 3.5-lite           | 1024d  | $0.02   | 8K      | ❌        | 区分度最差（Gap -5.3%） |
+// | Jina v4                   | 可调   | 免费    | 32K     | ✅ LoRA   | 多模态，不可商用（Qwen 许可） |
+// | Gemini embedding-001      | 3072d  | $0.15   | 2K      | ✅        | 区分度极差（Gap 9.6%），不推荐 |
+// | Gemini embedding-2        | 3072d  | $0.20   | 8K      | ✅        | 多模态，区分度极差（Gap 7.3%） |
 //
-// ## Task Type 说明
+// ## Task Type（LoRA Adapter）效果验证
 //
-// 非对称检索（query 短、document 长）需要区分 query/passage embedding：
-// - Jina: embed 存储用 `retrieval.passage`，搜索用 `retrieval.query`（LoRA 物理切换）
-// - Gemini: `RETRIEVAL_QUERY` / `RETRIEVAL_DOCUMENT`（黑箱参数切换）
-// - OpenAI / Voyage: 不区分，query 和 document 用同一套参数
+// Ablation study (v5-small, 38 对真实数据):
+//   baseline (no task): Discrimination  3.6%
+//   recall (query+passage): Discrimination  9.6% (+6.0%)
+// 结论：LoRA task adapter 显著提升区分度，UNRELATED 平均下降 28%
 //
 // ## 推荐
 //
-// - 纯文本 RAG 最优质量：Jina v5-text-small（$0.045/M，32K ctx，LoRA task adapters）
-// - 纯文本 RAG 最低成本：OpenAI v3-small（$0.02/M）
-// - 纯文本精度优先：OpenAI v3-large（$0.13/M，区分度 33.1%）
-// - 多模态搜索：Gemini embedding-2（$0.20/M，唯一支持 video/audio）
+// - 纯文本 RAG 最优性价比：Jina v5-text-nano（$0.02/M，32K ctx，LoRA，Gap 9.1%）
+// - 纯文本 RAG 质量最高：Jina v5-text-small（$0.045/M，Gap 9.6%）
+// - 多模态搜索：Gemini embedding-2（$0.20/M，唯一支持 video/audio，但区分度差）
 //
 // ═══════════════════════════════════════════════════════════════════════════
-// 校准阈值（基于校准测试 2025-01-03，16 对测试数据）
+// 校准阈值（2026-03-14，38 对真实场景数据，recall scenario: query+passage）
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// | 模型                  | DUPLICATE | SIMILAR     | UNRELATED   | 区分度 |
-// |-----------------------|-----------|-------------|-------------|--------|
-// | OpenAI small          | 97-100%   | 37-56%      | 6-22%       | 14.9%  |
-// | OpenAI large ⭐        | 96-100%   | 51-59%      | 5-18%       | 33.1%  |
-// | Jina v3               | 99-100%   | 66-77%      | 31-44%      | 21.7%  |
-// | Voyage 3.5-lite       | 95-100%   | 54-72%      | 22-39%      | 15.6%  |
-// | Voyage 3-large        | 94-100%   | 70-81%      | 30-41%      | 28.9%  |
+// | 模型                  | DUPLICATE   | SIMILAR     | UNRELATED   | 区分度 |
+// |-----------------------|-------------|-------------|-------------|--------|
+// | Jina v5-small ⭐       | 87-96%      | 46-78%      | -1-36%      |  9.6%  |
+// | Jina v5-nano ⭐        | 86-97%      | 46-80%      |  0-37%      |  9.1%  |
+// | OpenAI large          | 95-99%      | 39-76%      |  5-35%      |  4.6%  |
+// | OpenAI small          | 95-99%      | 45-72%      |  3-41%      |  3.9%  |
+// | Voyage 3-large        | 97-100%     | 56-88%      | 23-57%      | -1.0%  |
+// | Voyage 3.5-lite       | 86-99%      | 42-75%      | 15-47%      | -5.3%  |
 //
 // 区分度 = SIMILAR.min - UNRELATED.max，越高越好。
-//
-// ⚠️ 不同模型差异巨大：Jina/Voyage SIMILAR 范围 65-81%，OpenAI 37-59%。
-// 硬编码阈值在切换模型时会完全失效，必须使用 model-aware thresholds。
+// Jina v5 是唯一区分度显著 >0 的模型，得益于 LoRA task adapter。
 //
 // 阈值算法：取相邻类别边界中点
 // - DUPLICATE = (max_similar + min_duplicate) / 2
 // - RELEVANCE = (max_unrelated + min_similar) / 2
+// - DUPLICATE 使用 dedup 场景（text-matching task），RELEVANCE 使用 recall 场景
 //
 // @see https://community.openai.com/t/rule-of-thumb-cosine-similarity-thresholds/693670
 // @see https://github.com/microsoft/kernel-memory/discussions/542
@@ -87,7 +86,7 @@ export type EmbeddingProvider = 'openai' | 'jina' | 'voyage' | 'gemini';
 export type OpenAIEmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large' | 'text-embedding-ada-002';
 
 /** Jina Embedding 模型 */
-export type JinaEmbeddingModel = 'jina-embeddings-v3' | 'jina-embeddings-v5-text-small';
+export type JinaEmbeddingModel = 'jina-embeddings-v5-text-small' | 'jina-embeddings-v5-text-nano';
 
 /** Voyage Embedding 模型 */
 export type VoyageEmbeddingModel = 'voyage-3.5-lite' | 'voyage-3-large';
@@ -175,12 +174,18 @@ export const EMBEDDING_MODEL_THRESHOLDS: Record<EmbeddingModel, EmbeddingThresho
   'text-embedding-3-large': { duplicate: 0.78, relevance: 0.35 },
   'text-embedding-ada-002': { duplicate: 0.9, relevance: 0.75 }, // 旧模型，分数较高
   // Jina 模型
-  'jina-embeddings-v3': { duplicate: 0.88, relevance: 0.55 },
   // Voyage 模型
   'voyage-3.5-lite': { duplicate: 0.83, relevance: 0.46 },
   'voyage-3-large': { duplicate: 0.88, relevance: 0.55 },
-  // Jina v5-text-small（待校准，暂用 v3 阈值作为起点）
-  'jina-embeddings-v5-text-small': { duplicate: 0.88, relevance: 0.55 },
+  // Jina v5-text-small（2026-03-14 校准，38 对真实场景数据）
+  // recall (query+passage): SIM 46-78% | UNR -1-36% | Gap 9.6%
+  // dedup  (text-matching): DUP 87-96%
+  // duplicate = dedup 场景 DUP 中点，relevance = recall 场景 (UNR.max + SIM.min) / 2
+  'jina-embeddings-v5-text-small': { duplicate: 0.93, relevance: 0.41 },
+  // Jina v5-text-nano（2026-03-14 校准，38 对真实场景数据）
+  // recall (query+passage): SIM 46-80% | UNR 0-37% | Gap 9.1%
+  // dedup  (text-matching): DUP 86-97%
+  'jina-embeddings-v5-text-nano': { duplicate: 0.93, relevance: 0.41 },
   // Gemini（待校准）
   'gemini-embedding-001': { duplicate: 0.78, relevance: 0.35 },
   'gemini-embedding-2-preview': { duplicate: 0.78, relevance: 0.35 },
@@ -213,10 +218,15 @@ export const DEFAULT_EMBEDDING_THRESHOLDS: EmbeddingThresholdConfig =
  * }
  * ```
  */
-export function getEmbeddingThresholds(model?: EmbeddingModel | string): EmbeddingThresholdConfig {
+export function getEmbeddingThresholds(model?: EmbeddingModel | EmbeddingModelKey | string): EmbeddingThresholdConfig {
   if (!model) return DEFAULT_EMBEDDING_THRESHOLDS;
-  if (model in EMBEDDING_MODEL_THRESHOLDS) {
-    return EMBEDDING_MODEL_THRESHOLDS[model as EmbeddingModel];
+
+  // 支持 'provider:model' 格式（如 'jina:jina-embeddings-v5-text-small'），自动提取 model 部分
+  const parts = model.split(':');
+  const modelId = parts.length > 1 ? (parts.at(1) ?? model) : model;
+
+  if (modelId in EMBEDDING_MODEL_THRESHOLDS) {
+    return EMBEDDING_MODEL_THRESHOLDS[modelId as EmbeddingModel];
   }
   return DEFAULT_EMBEDDING_THRESHOLDS;
 }
@@ -260,17 +270,6 @@ export const EMBEDDING_MODELS: Record<EmbeddingModel, EmbeddingModelMetadata> = 
     deprecated: true,
   },
   // ── Jina ──
-  'jina-embeddings-v3': {
-    id: 'jina-embeddings-v3',
-    provider: 'jina',
-    dimensions: 1024,
-    pricePerMillion: 0.02,
-    maxInputTokens: 8192,
-    thresholds: EMBEDDING_MODEL_THRESHOLDS['jina-embeddings-v3'],
-    taskTypes: ['retrieval.query', 'retrieval.passage', 'text-matching', 'classification', 'separation'],
-    modalities: ['text'],
-    deprecated: true, // v5 已取代，不再推荐
-  },
   'jina-embeddings-v5-text-small': {
     id: 'jina-embeddings-v5-text-small',
     provider: 'jina',
@@ -278,6 +277,16 @@ export const EMBEDDING_MODELS: Record<EmbeddingModel, EmbeddingModelMetadata> = 
     pricePerMillion: 0.045,
     maxInputTokens: 32768,
     thresholds: EMBEDDING_MODEL_THRESHOLDS['jina-embeddings-v5-text-small'],
+    taskTypes: ['retrieval.query', 'retrieval.passage', 'text-matching', 'classification', 'clustering'],
+    modalities: ['text'],
+  },
+  'jina-embeddings-v5-text-nano': {
+    id: 'jina-embeddings-v5-text-nano',
+    provider: 'jina',
+    dimensions: 768, // Matryoshka 可调（32-768），239M 参数
+    pricePerMillion: 0.02, // 比 small 便宜
+    maxInputTokens: 32768,
+    thresholds: EMBEDDING_MODEL_THRESHOLDS['jina-embeddings-v5-text-nano'],
     taskTypes: ['retrieval.query', 'retrieval.passage', 'text-matching', 'classification', 'clustering'],
     modalities: ['text'],
   },
