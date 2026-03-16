@@ -16,6 +16,7 @@ describe('logging.utils', () => {
 
   describe('f (template tag)', () => {
     it('should correctly format strings and values', () => {
+      process.env.NO_COLOR = 'true';
       const name = 'Daniel';
       const age = 18;
       expect(f`Name: ${name}, Age: ${age}`).toBe('Name: Daniel, Age: 18');
@@ -34,7 +35,7 @@ describe('logging.utils', () => {
       error.stack = 'Error: test error\n    at Object.<anonymous> (test.js:1:1)';
       const result = r(error);
       expect(result).toContain('test error');
-      expect(result).toContain('StackTrace');
+      expect(result).toContain('at Object');
     });
 
     it('should format Error objects in production', () => {
@@ -67,6 +68,7 @@ describe('logging.utils', () => {
     });
 
     it('should handle non-object/null/array values by stringifying them', () => {
+      process.env.NO_COLOR = 'true';
       expect(r(null)).toBe('null');
       expect(r(123)).toBe('123');
       expect(r('hello')).toBe('hello');

@@ -138,8 +138,8 @@ function devFormatter(record: {
   readonly timestamp: number;
   readonly level: string;
   readonly category: readonly string[];
-  readonly message: readonly (string | unknown)[];
-  readonly rawMessage: string;
+  readonly message: readonly unknown[];
+  readonly rawMessage: string | TemplateStringsArray;
   readonly properties: Record<string, unknown>;
 }): string {
   const timestamp = `${ansi.dim}${formatTimestamp(record.timestamp)}${ansi.reset}`;
@@ -191,6 +191,7 @@ const ensureLogTapeConfigured = (() => {
     const lowestLevel = normalizeLogLevel(process.env.LOG_LEVEL ?? 'debug');
 
     await configure({
+      reset: true, // override instrument.ts preload configure if already called
       sinks: {
         console: getConsoleSink({
           formatter: isProd
@@ -200,7 +201,7 @@ const ensureLogTapeConfigured = (() => {
       },
       loggers: [
         { category: ['logtape', 'meta'], sinks: ['console'], lowestLevel: 'warning' },
-        { category: [], sinks: ['console'], lowestLevel },
+        { category: [], sinks: ['console'], lowestLevel: lowestLevel as 'trace' | 'debug' | 'info' | 'warning' | 'error' | 'fatal' },
       ],
     });
   };

@@ -204,7 +204,7 @@ const startupBanner = (label: string) =>
       f`├─ Port: ${port} | Runtime: ${runtimeInfo}`,
       f`├─ Log Level: ${logLevel}`,
       f`├─ Body Limit: ${process.env.BODY_SIZE_LIMIT ?? '1mb (default)'}`,
-      f`├─ Trust Proxy: ${process.env.TRUST_PROXY ?? 'off'}`,
+      f`├─ Trust Proxy: ${process.env.TRUST_PROXY ?? 'on'}`,
       f`└─ Startup: ${elapsed}ms`,
     ];
 

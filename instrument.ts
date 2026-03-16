@@ -34,6 +34,13 @@
  * - 使用 connectMicroservice 时需要 { inheritAppConfig: true } 使全局 interceptors 生效
  */
 
+// ==================== Env Loading ====================
+// 必须最先执行：加载 .env 文件到 process.env
+// 在所有 Schema.Config / getLogger 之前
+import { config as dotenvConfig } from '@dotenvx/dotenvx';
+dotenvConfig({ path: '.env.local', override: false, ignore: ['MISSING_ENV_FILE'] });
+dotenvConfig({ path: '.env', override: false, ignore: ['MISSING_ENV_FILE'] });
+
 import { configureLogging } from '@app/nest/logging';
 
 import { getLogger } from '@logtape/logtape';
