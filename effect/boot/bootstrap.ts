@@ -34,13 +34,15 @@
  * ```
  */
 
-import { FullLoggerLayer, Port, ShutdownDrainMs } from '../core';
+import { AppConfig, Env, FullLoggerLayer, LogLevel, NodeEnv, Port, ServiceName, ShutdownDrainMs } from '../core';
 import { HealthRegistry, HealthRegistryLive } from '../health';
 
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from '@effect/platform';
 import { BunHttpServer, BunRuntime } from '@effect/platform-bun';
 import { RpcSerialization, RpcServer } from '@effect/rpc';
 import { Config, Effect, Layer } from 'effect';
+
+import os from 'node:os';
 
 // ==================== Internal ====================
 
@@ -138,30 +140,14 @@ export function mcpBootstrap(config: {
 
     // Setup: register tools, resources, prompts
     yield* config.setup;
-    yield* Effect.logInfo('MCP server initialized');
 
     if (transport === 'stdio') {
-      // stdio mode — run handler, exit when done
+      yield* startupBanner('MCP (stdio)');
       yield* config.stdio;
     } else {
-      // HTTP mode — start server + graceful shutdown
       yield* config.http;
-
-      const registry = yield* HealthRegistry;
-      const drainMs = yield* ShutdownDrainMs;
-
-      yield* Effect.addFinalizer(() =>
-        Effect.gen(function* () {
-          yield* registry.markShuttingDown();
-          yield* Effect.log('Phase 1: readiness → not_ready, no new traffic will be routed');
-
-          yield* Effect.log(`Phase 2: draining in-flight requests (${drainMs}ms)...`);
-          yield* Effect.sleep(`${drainMs} millis`);
-
-          yield* Effect.log('Drain complete, proceeding to close resources');
-        }),
-      );
-
+      yield* startupBanner('MCP (HTTP)');
+      yield* gracefulShutdown;
       yield* Effect.never;
     }
   });
@@ -173,39 +159,91 @@ export function mcpBootstrap(config: {
   );
 }
 
+// ==================== Startup Helpers ====================
+
+const startupTimestamp = Date.now();
+
+const bunVersion = 'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
+const runtimeInfo = bunVersion ? `Node ${process.version} / Bun ${bunVersion}` : `Node ${process.version}`;
+
+/**
+ * 启动时打印环境信息 + 安全检查
+ *
+ * 所有 bootstrap 共用（launch + mcpBootstrap）
+ */
+const startupBanner = (label: string) =>
+  Effect.gen(function* () {
+    const { nodeEnv, env, port, logLevel, serviceName } = yield* AppConfig;
+
+    // Env 安全检查：生产模式必须明确指定业务环境
+    if (nodeEnv === 'production' && env === 'dev') {
+      yield* Effect.logWarning(
+        'NODE_ENV=production but ENV=dev (default). Set ENV=prd or ENV=stg to avoid data environment mismatch.',
+      );
+    }
+
+    const modeDesc =
+      nodeEnv === 'production'
+        ? 'production (optimized)'
+        : nodeEnv === 'development'
+          ? 'development (watch)'
+          : 'test';
+
+    const envDesc =
+      env === 'prd' ? 'production (real data)' : env === 'stg' ? 'staging (test data)' : 'development (test data)';
+
+    const elapsed = Date.now() - startupTimestamp;
+
+    yield* Effect.log(
+      [
+        `${label} started`,
+        `├─ Environment: NODE_ENV=${nodeEnv} (${modeDesc}), ENV=${env} (${envDesc})`,
+        `├─ Service: ${serviceName} | Host: ${os.hostname()} | PID: ${process.pid}`,
+        `├─ Port: ${port} | Runtime: ${runtimeInfo}`,
+        `├─ Log Level: ${logLevel}`,
+        `├─ Body Limit: ${process.env.BODY_SIZE_LIMIT ?? '1mb (default)'}`,
+        `├─ Trust Proxy: ${process.env.TRUST_PROXY ?? 'off'}`,
+        `└─ Startup: ${elapsed}ms`,
+      ].join('\n'),
+    );
+  });
+
+/**
+ * Graceful shutdown finalizer — 共用逻辑
+ */
+const gracefulShutdown = Effect.gen(function* () {
+  const registry = yield* HealthRegistry;
+  const drainMs = yield* ShutdownDrainMs;
+
+  yield* Effect.addFinalizer(() =>
+    Effect.gen(function* () {
+      yield* registry.markShuttingDown();
+      yield* Effect.log('Phase 1: readiness → not_ready, no new traffic will be routed');
+
+      yield* Effect.log(`Phase 2: draining in-flight requests (${drainMs}ms)...`);
+      yield* Effect.sleep(`${drainMs} millis`);
+
+      yield* Effect.log('Drain complete, proceeding to close resources');
+    }),
+  );
+});
+
+// ==================== Internal Launch ====================
+
 const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Layer<any, any, any>) => {
   const composed = appLayers
     ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(FullLoggerLayer()))
     : serverLive.pipe(Layer.provide(HealthRegistryLive), Layer.provide(FullLoggerLayer()));
 
   const program = Effect.gen(function* () {
-    const registry = yield* HealthRegistry;
-    const drainMs = yield* ShutdownDrainMs;
-
-    // Finalizer 在 SIGTERM 中断 Effect.never 后执行。
-    // 因为是最后注册的 finalizer，所以最先执行（逆序），先于 Layer 的资源清理。
-    yield* Effect.addFinalizer(() =>
-      Effect.gen(function* () {
-        // Phase 1: 停止接受新流量
-        // markShuttingDown 让 /health/ready 返回 not_ready，K8s 据此摘流量。
-        // 此刻 HTTP server 仍在运行，已建立连接的 in-flight 请求不受影响。
-        yield* registry.markShuttingDown();
-        yield* Effect.log('Phase 1: readiness → not_ready, no new traffic will be routed');
-
-        // Phase 2: 等待已有流量排空
-        // sleep 期间 HTTP server 继续服务 in-flight 请求（含 AI streaming）。
-        // drain 超时后才关闭资源，未完成的请求将因连接断开而终止。
-        yield* Effect.log(`Phase 2: draining in-flight requests (${drainMs}ms)...`);
-        yield* Effect.sleep(`${drainMs} millis`);
-
-        yield* Effect.log('Drain complete, proceeding to close resources');
-      }),
-    );
-
+    yield* startupBanner('Server');
+    yield* gracefulShutdown;
     yield* Effect.never;
   });
 
-  program.pipe(Effect.scoped, Effect.provide(composed as unknown as Layer.Layer<HealthRegistry>), BunRuntime.runMain);
+  program.pipe(Effect.scoped, Effect.provide(composed as unknown as Layer.Layer<HealthRegistry>), (effect) =>
+    BunRuntime.runMain(effect, { disablePrettyLogger: true }),
+  );
 };
 
 // ==================== HttpApi Bootstrap ====================
