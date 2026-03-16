@@ -18,6 +18,8 @@ import { context, trace } from '@opentelemetry/api';
 
 import { r } from '@app/utils/logging';
 
+import { getAppLogger } from './app-logger';
+
 // ==================== Logger Implementation ====================
 
 /**
@@ -66,7 +68,7 @@ const logtapeLogger = Logger.make(({ logLevel, message, annotations, spans }) =>
 
   // 提取 category（从 annotations 的 "module" 或 "service"）
   const category = (props['module'] as string) ?? (props['service'] as string) ?? undefined;
-  const baseLogger = getLogger(['app']);
+  const baseLogger = getAppLogger();
   const logger = category ? baseLogger.getChild(category).with(props) : baseLogger.with(props);
 
   // Effect message 是 unknown[]，每个元素保留原始类型

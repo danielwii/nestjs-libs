@@ -1,7 +1,10 @@
+import { getAppLogger } from '@app/effect/core';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { onelineStack } from '@app/utils/error';
 
-import { getLogger, lazy } from '@logtape/logtape';
+import { lazy } from '@logtape/logtape';
+
+import type { Logger } from '@logtape/logtape';
 import { context, trace } from '@opentelemetry/api';
 
 import type { LoggerService } from '@nestjs/common';
@@ -21,7 +24,7 @@ import type { LoggerService } from '@nestjs/common';
  * 正常请求链路中两者 traceId 一致（LoggerInterceptor 优先从 span 取值再写入 RequestContext）。
  */
 export class LogtapeNestLogger implements LoggerService {
-  private readonly baseLogger = getLogger(['app']).with({
+  private readonly baseLogger = getAppLogger().with({
     // OTel span 优先；无 span 时回退到 RequestContext（测试/CLI 等无 preload 场景）
     traceId: lazy(() => {
       const span = trace.getSpan(context.active());
@@ -85,7 +88,7 @@ export class LogtapeNestLogger implements LoggerService {
    * Extract trailing context string (NestJS convention: last arg is the class/module name).
    * Returns [message, childLogger].
    */
-  private extractContext(message: unknown, params: unknown[]): [unknown, ReturnType<typeof getLogger>] {
+  private extractContext(message: unknown, params: unknown[]): [unknown, Logger] {
     const ctx = params.length > 0 && typeof params.at(-1) === 'string' ? (params.at(-1) as string) : undefined;
     const logger = ctx ? this.baseLogger.getChild(ctx) : this.baseLogger;
     return [message, logger];
@@ -95,7 +98,7 @@ export class LogtapeNestLogger implements LoggerService {
    * Handle NestJS error/warn 3-arg pattern: (message, stack, context).
    * Merges stack into message via onelineStack.
    */
-  private extractContextWithStack(message: unknown, params: unknown[]): [unknown, ReturnType<typeof getLogger>] {
+  private extractContextWithStack(message: unknown, params: unknown[]): [unknown, Logger] {
     // NestJS pattern: error(message, stack, context)
     if (params.length >= 2 && typeof params[0] === 'string' && typeof params[1] === 'string') {
       const stack = params[0];

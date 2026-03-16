@@ -162,7 +162,7 @@ function initializeSentry() {
     const Sentry = require('@sentry/nestjs');
     const release = process.env.SENTRY_RELEASE ?? process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA;
     const environment = process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV;
-    const serverName = process.env.SENTRY_SERVER_NAME ?? process.env.APP_NAME;
+    const serverName = process.env.APP_NAME ?? process.env.SENTRY_SERVER_NAME ?? process.env.SERVICE_NAME;
     sentryLogger.info`${`enabled server=${serverName ?? 'unknown'} env=${environment}`}`;
 
     const noisyPatterns = [

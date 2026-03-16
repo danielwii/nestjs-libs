@@ -46,7 +46,10 @@ export const LogLevel = Schema.Config(
   Schema.Literal('verbose', 'debug', 'log', 'warn', 'error', 'fatal'),
 ).pipe(Config.withDefault('debug' as const));
 
-export const ServiceName = Config.string('SERVICE_NAME').pipe(Config.withDefault('app'));
+export const ServiceName = Config.string('APP_NAME').pipe(
+  Config.orElse(() => Config.string('SERVICE_NAME')),
+  Config.withDefault('app'),
+);
 
 // ==================== 基础设施配置 ====================
 
