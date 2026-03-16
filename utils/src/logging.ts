@@ -43,13 +43,15 @@ export function r(o: unknown): string {
 
   // 原始类型：prod 直接 String，dev 加类型颜色（不加引号）
   if (o === null || o === undefined) {
-    return process.env.NODE_ENV === 'production' || process.env.NO_COLOR ? String(o) : `\x1b[2m${o}\x1b[0m`;
+    return process.env.NODE_ENV === 'production' || process.env.NO_COLOR ? String(o) : `\x1b[2m${String(o)}\x1b[0m`;
   }
   if (typeof o !== 'object') {
-    if (process.env.NODE_ENV === 'production' || process.env.NO_COLOR) return String(o);
-    if (typeof o === 'number' || typeof o === 'boolean') return `\x1b[33m${o}\x1b[0m`; // yellow
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- 日志场景：unknown 窄化后的原始类型转字符串是安全的
+    const s = String(o);
+    if (process.env.NODE_ENV === 'production' || process.env.NO_COLOR) return s;
+    if (typeof o === 'number' || typeof o === 'boolean') return `\x1b[33m${s}\x1b[0m`; // yellow
     if (typeof o === 'string') return o.includes('\x1b[') ? o : `\x1b[36m${o}\x1b[0m`; // cyan, skip if already colored
-    return String(o);
+    return s;
   }
 
   // 对象和数组都需要格式化
