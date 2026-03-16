@@ -25,12 +25,20 @@ export function f(strings: TemplateStringsArray, ...values: unknown[]): string {
 
 export function r(o: unknown): string {
   if (o instanceof Error) {
-    const errorInfo = {
-      name: o.name,
-      message: o.message,
-      stack: onelineStack(o.stack),
-    };
-    return process.env.NODE_ENV === 'production' ? JSON5.stringify(errorInfo) : inspect(errorInfo);
+    if (process.env.NODE_ENV === 'production') {
+      return JSON5.stringify({ name: o.name, message: o.message, stack: onelineStack(o.stack) });
+    }
+    // dev: message + stack trace (dim), custom Error name shown if not generic 'Error'
+    const prefix = o.name !== 'Error' ? `[${o.name}] ` : '';
+    const stack = o.stack
+      ? '\n' +
+        o.stack
+          .split('\n')
+          .slice(1) // skip first line (redundant with message)
+          .map((line) => `\x1b[2m${line}\x1b[0m`) // dim
+          .join('\n')
+      : '';
+    return `${prefix}${o.message}${stack}`;
   }
 
   // 原始类型：prod 直接 String，dev 加类型颜色（不加引号）

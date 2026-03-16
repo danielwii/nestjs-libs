@@ -1,3 +1,4 @@
+import { f } from '@app/utils/logging';
 /**
  * Connection Manager — 长连接生命周期管理
  *
@@ -73,7 +74,7 @@ export const ConnectionManagerLive: Layer.Layer<ConnectionManager> = Layer.scope
         const sseConns = yield* Ref.get(sseRef);
         const wsConns = yield* Ref.get(wsRef);
 
-        yield* Effect.log(`Closing connections: sse=${sseConns.size} ws=${wsConns.size}`);
+        yield* Effect.log(f`Closing connections: sse=${sseConns.size} ws=${wsConns.size}`);
 
         // 通知 SSE 客户端
         for (const conn of sseConns) {

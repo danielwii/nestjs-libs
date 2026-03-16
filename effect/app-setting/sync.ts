@@ -1,3 +1,4 @@
+import { f } from '@app/utils/logging';
 /**
  * syncFromDB — 核心同步逻辑
  *
@@ -141,7 +142,7 @@ export const syncFromDB = (
         : '#syncFromDB mode=read-only, DB values will be applied to runtime, metadata writes are disabled',
     );
     yield* Effect.logDebug(
-      `#syncFromDB managed keys (${managedFieldNames.length}): ${managedFieldNames.join(', ') || '(none)'}`,
+      f`#syncFromDB managed keys (${managedFieldNames.length}): ${managedFieldNames.join(', ') || '(none)'}`,
     );
 
     // 读取 DB 全量数据
@@ -173,7 +174,7 @@ export const syncFromDB = (
       if (orphanSettings.length > 0) {
         stats.metadataDeprecatedMarked += orphanSettings.length;
         yield* Effect.logInfo(
-          `#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`,
+          f`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`,
         );
         yield* Effect.tryPromise(() =>
           prisma.sysAppSetting.updateMany({
@@ -188,7 +189,7 @@ export const syncFromDB = (
       if (restoredSettings.length > 0) {
         stats.metadataRestored += restoredSettings.length;
         yield* Effect.logInfo(
-          `#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`,
+          f`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`,
         );
         yield* Effect.tryPromise(() =>
           prisma.sysAppSetting.updateMany({
@@ -202,7 +203,7 @@ export const syncFromDB = (
       const nonExistsFields = fieldEntries.filter(([k]) => !fieldNamesInDB.has(k));
       if (nonExistsFields.length > 0) {
         stats.metadataCreated += nonExistsFields.length;
-        yield* Effect.logInfo(`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`);
+        yield* Effect.logInfo(f`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`);
         const createData = nonExistsFields.map(([key, def]) => {
           const defaultVal = serializeValue(def.defaultValue);
           return {
@@ -214,7 +215,7 @@ export const syncFromDB = (
           };
         });
         for (const d of createData) {
-          yield* Effect.logInfo(`#syncFromDB 创建配置: ${d.key} (默认值: ${d.defaultValue})`);
+          yield* Effect.logInfo(f`#syncFromDB 创建配置: ${d.key} (默认值: ${d.defaultValue})`);
         }
         yield* Effect.tryPromise(() => prisma.sysAppSetting.createMany({ data: createData, skipDuplicates: true }));
       }
@@ -236,12 +237,12 @@ export const syncFromDB = (
         if (!validation.ok) {
           stats.runtimeInvalidDBValue += 1;
           yield* Effect.logWarning(
-            `#syncFromDB skip invalid DB value: field=${fieldName} value=${JSON.stringify(appSetting.value)} reason=${validation.reason}`,
+            f`#syncFromDB skip invalid DB value: field=${fieldName} value=${JSON.stringify(appSetting.value)} reason=${validation.reason}`,
           );
         } else if (!isEqual(currentValues[fieldName], validation.value)) {
           stats.runtimeOverridesApplied += 1;
           yield* Effect.logInfo(
-            `#syncFromDB 配置覆盖: ${fieldName} = "${String(currentValues[fieldName])}" -> "${String(validation.value)}"`,
+            f`#syncFromDB 配置覆盖: ${fieldName} = "${String(currentValues[fieldName])}" -> "${String(validation.value)}"`,
           );
           updatedValues[fieldName] = validation.value;
         } else {
@@ -266,7 +267,7 @@ export const syncFromDB = (
 
       if (Object.keys(updates).length > 0) {
         stats.metadataUpdated += 1;
-        yield* Effect.logInfo(`#syncFromDB 更新元数据: ${fieldName} ${JSON.stringify(updates)}`);
+        yield* Effect.logInfo(f`#syncFromDB 更新元数据: ${fieldName} ${JSON.stringify(updates)}`);
         yield* Effect.tryPromise(() => prisma.sysAppSetting.findUnique({ where: { key: fieldName } })).pipe(
           Effect.flatMap((existing) =>
             existing
@@ -286,7 +287,7 @@ export const syncFromDB = (
           Effect.catchAll((error) => {
             stats.metadataUpdateFailed += 1;
             return Effect.logError(
-              `#syncFromDB failed to update metadata for ${fieldName}: ${error instanceof Error ? error.message : String(error)}`,
+              f`#syncFromDB failed to update metadata for ${fieldName}: ${error instanceof Error ? error.message : String(error)}`,
             );
           }),
         );
@@ -300,6 +301,6 @@ export const syncFromDB = (
 
     // 统计日志（完全对齐 NestJS 版 9 项指标）
     yield* Effect.logInfo(
-      `#syncFromDB summary mode=${syncMode} managed=${fieldEntries.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`,
+      f`#syncFromDB summary mode=${syncMode} managed=${fieldEntries.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`,
     );
   });

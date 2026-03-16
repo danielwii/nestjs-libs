@@ -1,3 +1,4 @@
+import { f } from '@app/utils/logging';
 /**
  * makeAppSettingsLive — AppSettings Layer 工厂
  *
@@ -70,7 +71,7 @@ export const makeAppSettingsLive = (fields: Record<string, DatabaseFieldDef>, pr
       yield* doSync;
 
       // 安全 sync（catch + log，用于定时和手动触发）
-      const safeSync = doSync.pipe(Effect.catchAll((e) => Effect.logError(`AppSettings sync failed: ${String(e)}`)));
+      const safeSync = doSync.pipe(Effect.catchAll((e) => Effect.logError(f`AppSettings sync failed: ${String(e)}`)));
 
       // 定时 sync（生产环境每分钟）
       if (nodeEnv === 'production') {

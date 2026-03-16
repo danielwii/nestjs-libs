@@ -34,7 +34,7 @@
  * ```
  */
 
-import { AppConfig, LogTapeFullLoggerLayer, Port, ShutdownDrainMs } from '../core';
+import { AppConfig, LogTapeLoggerLayer, Port, ShutdownDrainMs } from '../core';
 import { HealthRegistry, HealthRegistryLive } from '../health';
 
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from '@effect/platform';
@@ -129,11 +129,11 @@ export function mcpBootstrap(config: {
   const transportConfig = Config.string(config.transportEnvVar ?? 'MCP_TRANSPORT').pipe(Config.withDefault('http'));
 
   const appLive = config.layers
-    ? (config.layers as Layer.Layer<any, any, any>).pipe(
+    ? (config.layers).pipe(
         Layer.provideMerge(HealthRegistryLive),
-        Layer.provideMerge(LogTapeFullLoggerLayer()),
+        Layer.provideMerge(LogTapeLoggerLayer),
       )
-    : HealthRegistryLive.pipe(Layer.provideMerge(LogTapeFullLoggerLayer()));
+    : HealthRegistryLive.pipe(Layer.provideMerge(LogTapeLoggerLayer));
 
   const program = Effect.gen(function* () {
     const transport = yield* transportConfig;
@@ -155,7 +155,7 @@ export function mcpBootstrap(config: {
   program.pipe(
     Effect.scoped,
     Effect.provide(appLive as any),
-    (effect: any) => BunRuntime.runMain(effect, { disablePrettyLogger: true }),
+    (effect: any) => { BunRuntime.runMain(effect, { disablePrettyLogger: true }); },
   );
 }
 
@@ -230,7 +230,7 @@ const gracefulShutdown = Effect.gen(function* () {
       yield* registry.markShuttingDown();
       yield* Effect.log('Phase 1: readiness → not_ready, no new traffic will be routed');
 
-      yield* Effect.log(`Phase 2: draining in-flight requests (${drainMs}ms)...`);
+      yield* Effect.log(f`Phase 2: draining in-flight requests (${drainMs}ms)...`);
       yield* Effect.sleep(`${drainMs} millis`);
 
       yield* Effect.log('Drain complete, proceeding to close resources');
@@ -242,8 +242,8 @@ const gracefulShutdown = Effect.gen(function* () {
 
 const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Layer<any, any, any>) => {
   const composed = appLayers
-    ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(LogTapeFullLoggerLayer()))
-    : serverLive.pipe(Layer.provide(HealthRegistryLive), Layer.provide(LogTapeFullLoggerLayer()));
+    ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(LogTapeLoggerLayer))
+    : serverLive.pipe(Layer.provide(HealthRegistryLive), Layer.provide(LogTapeLoggerLayer));
 
   const program = Effect.gen(function* () {
     yield* startupBanner('Server');
@@ -252,7 +252,7 @@ const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Laye
   });
 
   program.pipe(Effect.scoped, Effect.provide(composed as unknown as Layer.Layer<HealthRegistry>), (effect) =>
-    BunRuntime.runMain(effect, { disablePrettyLogger: true }),
+    { BunRuntime.runMain(effect, { disablePrettyLogger: true }); },
   );
 };
 
