@@ -34,7 +34,7 @@
  * ```
  */
 
-import { AppConfig, Env, FullLoggerLayer, LogLevel, NodeEnv, Port, ServiceName, ShutdownDrainMs } from '../core';
+import { AppConfig, LogTapeFullLoggerLayer, Port, ShutdownDrainMs } from '../core';
 import { HealthRegistry, HealthRegistryLive } from '../health';
 
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from '@effect/platform';
@@ -131,9 +131,9 @@ export function mcpBootstrap(config: {
   const appLive = config.layers
     ? (config.layers as Layer.Layer<any, any, any>).pipe(
         Layer.provideMerge(HealthRegistryLive),
-        Layer.provideMerge(FullLoggerLayer()),
+        Layer.provideMerge(LogTapeFullLoggerLayer()),
       )
-    : HealthRegistryLive.pipe(Layer.provideMerge(FullLoggerLayer()));
+    : HealthRegistryLive.pipe(Layer.provideMerge(LogTapeFullLoggerLayer()));
 
   const program = Effect.gen(function* () {
     const transport = yield* transportConfig;
@@ -166,6 +166,8 @@ const startupTimestamp = Date.now();
 const bunVersion = 'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
 const runtimeInfo = bunVersion ? `Node ${process.version} / Bun ${bunVersion}` : `Node ${process.version}`;
 
+import { f } from '@app/utils/logging';
+
 /**
  * 启动时打印环境信息 + 安全检查
  *
@@ -193,20 +195,28 @@ const startupBanner = (label: string) =>
       env === 'prd' ? 'production (real data)' : env === 'stg' ? 'staging (test data)' : 'development (test data)';
 
     const elapsed = Date.now() - startupTimestamp;
+    const isProd = nodeEnv === 'production';
 
-    yield* Effect.log(
-      [
-        `${label} started`,
-        `├─ Environment: NODE_ENV=${nodeEnv} (${modeDesc}), ENV=${env} (${envDesc})`,
-        `├─ Service: ${serviceName} | Host: ${os.hostname()} | PID: ${process.pid}`,
-        `├─ Port: ${port} | Runtime: ${runtimeInfo}`,
-        `├─ Log Level: ${logLevel}`,
-        `├─ Body Limit: ${process.env.BODY_SIZE_LIMIT ?? '1mb (default)'}`,
-        `├─ Trust Proxy: ${process.env.TRUST_PROXY ?? 'off'}`,
-        `└─ Startup: ${elapsed}ms`,
-      ].join('\n'),
-    );
-  });
+    const lines = [
+      `${label} started`,
+      f`├─ Environment: NODE_ENV=${nodeEnv} (${modeDesc}), ENV=${env} (${envDesc})`,
+      f`├─ Service: ${serviceName} | Host: ${os.hostname()} | PID: ${process.pid}`,
+      f`├─ Port: ${port} | Runtime: ${runtimeInfo}`,
+      f`├─ Log Level: ${logLevel}`,
+      f`├─ Body Limit: ${process.env.BODY_SIZE_LIMIT ?? '1mb (default)'}`,
+      f`├─ Trust Proxy: ${process.env.TRUST_PROXY ?? 'off'}`,
+      f`└─ Startup: ${elapsed}ms`,
+    ];
+
+    // dev: 多行可读, prod: 单行 JSON 友好
+    if (isProd) {
+      yield* Effect.logInfo(lines.join(' | '));
+    } else {
+      for (const line of lines) {
+        yield* Effect.logInfo(line);
+      }
+    }
+  }).pipe(Effect.annotateLogs('module', 'Bootstrap'));
 
 /**
  * Graceful shutdown finalizer — 共用逻辑
@@ -224,7 +234,7 @@ const gracefulShutdown = Effect.gen(function* () {
       yield* Effect.sleep(`${drainMs} millis`);
 
       yield* Effect.log('Drain complete, proceeding to close resources');
-    }),
+    }).pipe(Effect.annotateLogs('module', 'Shutdown')),
   );
 });
 
@@ -232,8 +242,8 @@ const gracefulShutdown = Effect.gen(function* () {
 
 const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Layer<any, any, any>) => {
   const composed = appLayers
-    ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(FullLoggerLayer()))
-    : serverLive.pipe(Layer.provide(HealthRegistryLive), Layer.provide(FullLoggerLayer()));
+    ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(LogTapeFullLoggerLayer()))
+    : serverLive.pipe(Layer.provide(HealthRegistryLive), Layer.provide(LogTapeFullLoggerLayer()));
 
   const program = Effect.gen(function* () {
     yield* startupBanner('Server');

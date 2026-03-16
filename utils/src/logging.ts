@@ -33,8 +33,16 @@ export function r(o: unknown): string {
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(errorInfo) : inspect(errorInfo);
   }
 
-  // 原始类型直接 String 化
-  if (typeof o !== 'object' || o === null) return String(o);
+  // 原始类型：prod 直接 String，dev 加类型颜色（不加引号）
+  if (o === null || o === undefined) {
+    return process.env.NODE_ENV === 'production' || process.env.NO_COLOR ? String(o) : `\x1b[2m${o}\x1b[0m`;
+  }
+  if (typeof o !== 'object') {
+    if (process.env.NODE_ENV === 'production' || process.env.NO_COLOR) return String(o);
+    if (typeof o === 'number' || typeof o === 'boolean') return `\x1b[33m${o}\x1b[0m`; // yellow
+    if (typeof o === 'string') return o.includes('\x1b[') ? o : `\x1b[36m${o}\x1b[0m`; // cyan, skip if already colored
+    return String(o);
+  }
 
   // 对象和数组都需要格式化
   try {
