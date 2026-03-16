@@ -45,7 +45,7 @@ import { normalizeTimezone } from './datetime';
 import { TimeSensitivity } from './prompt';
 import { estimateTokens } from './tokenizer';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import { format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 
@@ -116,7 +116,7 @@ export class Prompt {
   readonly id: string;
   readonly version: string;
   readonly data: PromptData;
-  private static readonly logger = getLogger(['app', 'Prompt']);
+  private static readonly logger = getAppLogger('Prompt');
 
   constructor(id: string, version: string, data: PromptData) {
     this.id = id;

@@ -1,6 +1,6 @@
 import { named } from './annotation';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import * as _ from 'radash';
 import { filter, from, Observable } from 'rxjs';
 
@@ -76,4 +76,4 @@ export class ReactiveUtils {
   }
 }
 
-const logger = getLogger(['app', 'ReactiveUtils']);
+const logger = getAppLogger('ReactiveUtils');

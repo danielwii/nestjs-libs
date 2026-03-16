@@ -35,7 +35,7 @@ import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import * as Sentry from '@sentry/nestjs';
 import {
   APICallError,
@@ -298,7 +298,7 @@ function createManagedSignal(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class LLM {
-  private static readonly logger = getLogger(['features', 'LLM']);
+  private static readonly logger = getAppLogger('features', 'LLM');
 
   // ─────────────────────────────────────────────────────────────────────────
   // Logging Helpers

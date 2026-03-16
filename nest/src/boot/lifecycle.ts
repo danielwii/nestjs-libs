@@ -2,7 +2,7 @@ import { SysEnv } from '@app/env';
 
 import os from 'node:os';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import * as Sentry from '@sentry/nestjs';
 import * as _ from 'radash';
 
@@ -63,7 +63,7 @@ function formatRejectionDetail(err: unknown): string {
 }
 
 export const runApp = <App extends INestApplication>(app: App) => {
-  const logger = getLogger(['boot', 'AppRunner']);
+  const logger = getAppLogger('boot', 'AppRunner');
   logger.info`(${os.hostname}) runApp in (${SysEnv.environment.env}) env`;
 
   process.on('uncaughtException', (err) => {

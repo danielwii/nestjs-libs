@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
 import type { sendUnaryData, Server, ServerUnaryCall } from '@grpc/grpc-js';
 
@@ -46,7 +46,7 @@ export function addGrpcHealthService(
     // 导航到 grpc.health.v1.Health — grpcObject 是嵌套对象
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const healthService = (grpcObject as any)?.grpc?.health?.v1?.Health;
-    const logger = getLogger(['boot', 'gRPC-Health']);
+    const logger = getAppLogger('boot', 'gRPC-Health');
 
     if (!healthService?.service) {
       logger.warning`Health service definition not found in descriptor set`;
@@ -66,6 +66,6 @@ export function addGrpcHealthService(
 
     logger.info`gRPC Health service registered (grpc.health.v1.Health)`;
   } catch (err) {
-    getLogger(['boot', 'gRPC-Health']).error`Failed to register gRPC Health service: ${err}`;
+    getAppLogger('boot', 'gRPC-Health').error`Failed to register gRPC Health service: ${err}`;
   }
 }

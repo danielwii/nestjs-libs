@@ -1,9 +1,9 @@
 import { Trace } from '@app/nest/trace';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import { DateTime } from 'luxon';
 
-import type { Logger } from '@logtape/logtape';
+import type { Logger } from '@app/utils/app-logger';
 import type { OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 
 export interface InitializationOptions {
@@ -22,7 +22,7 @@ export abstract class InitializableModule
   constructor(options: InitializationOptions = {}) {
     this.timeout = options.timeout ?? 30;
     this.moduleName = options.moduleName ?? this.constructor.name;
-    this.logger = getLogger(['app', this.moduleName]);
+    this.logger = getAppLogger(this.moduleName);
     this.startTime = DateTime.now();
   }
 

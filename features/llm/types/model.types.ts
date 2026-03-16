@@ -24,7 +24,7 @@
 
 import { getLLMModelFields, SysEnv } from '@app/env';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
 /**
  * Model 配置接口
@@ -418,7 +418,7 @@ export function registerModel<K extends string, P extends string>(key: K, config
 
 // ==================== 查询函数 ====================
 
-const logger = getLogger(['features', 'LLMModel']);
+const logger = getAppLogger('features', 'LLMModel');
 
 /**
  * 获取 Model 配置

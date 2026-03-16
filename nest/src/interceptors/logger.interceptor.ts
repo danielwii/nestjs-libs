@@ -3,7 +3,7 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { METADATA_KEYS } from '@app/utils/annotation';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import { context, trace } from '@opentelemetry/api';
 import * as _ from 'radash';
 import { catchError, finalize } from 'rxjs';
@@ -14,7 +14,7 @@ import type { Request, Response } from 'express';
 import type { Observable } from 'rxjs';
 
 export class LoggerInterceptor implements NestInterceptor {
-  private readonly logger = getLogger(['app', 'LoggerInterceptor']);
+  private readonly logger = getAppLogger('LoggerInterceptor');
 
   public intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> | Promise<Observable<unknown>> {
     // 注意：Subscription 必须直接返回原始结果，任何额外的 pipe 都会把 AsyncIterator 变成 Observable，

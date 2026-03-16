@@ -37,7 +37,7 @@ import { Injectable } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
 import { status } from '@grpc/grpc-js';
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
 import type { Metadata } from '@grpc/grpc-js';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
@@ -46,7 +46,7 @@ const SERVICE_TOKEN_KEY = 'x-service-token';
 
 @Injectable()
 export class GrpcServiceTokenGuard implements CanActivate {
-  private readonly logger = getLogger(['app', 'GrpcServiceTokenGuard']);
+  private readonly logger = getAppLogger('GrpcServiceTokenGuard');
   private loggedSkipOnce = false;
 
   canActivate(context: ExecutionContext): boolean {

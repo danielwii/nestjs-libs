@@ -1,4 +1,4 @@
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
 const proxyUrl =
   process.env.APP_PROXY_ENABLED === 'true' ? `${process.env.APP_PROXY_HOST}:${process.env.APP_PROXY_PORT}` : '';
@@ -10,7 +10,7 @@ const proxyUrl =
  * 类型断言 as typeof fetch 确保与 AI SDK 等库的 fetch 参数类型兼容。
  */
 export class ApiFetcher {
-  private static readonly logger = getLogger(['app', 'ApiFetcher']);
+  private static readonly logger = getAppLogger('ApiFetcher');
 
   static fetch = (async (url: string | URL | Request, options?: RequestInit): Promise<Response> => {
     const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;

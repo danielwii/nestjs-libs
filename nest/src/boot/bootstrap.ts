@@ -15,7 +15,7 @@ import { maskSecret } from '@app/utils/security';
 
 import os from 'node:os';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import compression from 'compression';
 import { RedisStore } from 'connect-redis';
 import cookieParser from 'cookie-parser';
@@ -34,7 +34,7 @@ import type { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 
-const bootstrapLogger = getLogger(['boot', 'Bootstrap']);
+const bootstrapLogger = getAppLogger('boot', 'Bootstrap');
 
 type IEntryNestModule = Type<unknown> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 

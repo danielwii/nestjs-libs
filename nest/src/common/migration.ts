@@ -2,9 +2,9 @@ import { SysEnv } from '@app/env';
 
 import { execSync } from 'node:child_process';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
-const logger = getLogger(['app', 'Migration']);
+const logger = getAppLogger('Migration');
 
 export interface IPrismaClientLike {
   $connect(): Promise<void>;

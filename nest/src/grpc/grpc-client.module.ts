@@ -25,7 +25,7 @@ import { Injectable, Module, Optional } from '@nestjs/common';
 import { HealthRegistry } from '../health/health-registry';
 import { createGrpcHealthIndicator } from '../health/indicators/grpc.health-indicator';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
 import type { DynamicModule, OnModuleInit } from '@nestjs/common';
 
@@ -51,7 +51,7 @@ export class GrpcClientModule {
     // NestJS 会在 module init 阶段调用其 onModuleInit
     @Injectable()
     class GrpcClientInitializer implements OnModuleInit {
-      private readonly logger = getLogger(['app', `${name}GrpcModule`]);
+      private readonly logger = getAppLogger(`${name}GrpcModule`);
 
       // @Optional: CLI 路径不经过 bootstrap，无 HealthRegistry
       constructor(@Optional() private readonly healthRegistry: HealthRegistry | undefined) {}

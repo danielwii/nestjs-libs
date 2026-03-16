@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { config } from '@dotenvx/dotenvx';
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, validateSync } from 'class-validator';
 import JSON5 from 'json5';
@@ -15,9 +15,9 @@ import * as _ from 'radash';
 
 import type { TransformFnParams } from 'class-transformer';
 
-const transformLogger = getLogger(['app', 'Transform']);
-const configureLogger = getLogger(['app', 'Configure']);
-const dbFieldLogger = getLogger(['app', 'DatabaseField']);
+const transformLogger = getAppLogger('Transform');
+const configureLogger = getAppLogger('Configure');
+const dbFieldLogger = getAppLogger('DatabaseField');
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
@@ -125,7 +125,7 @@ export const DatabaseField =
 export class AbstractEnvironmentVariables implements HostSetVariables {
   // getter 而非实例属性：此类会被 structuredClone 复制，LogTape logger 不可序列化
   private get logger() {
-    return getLogger(['app', this.constructor.name]);
+    return getAppLogger(this.constructor.name);
   }
   private readonly hostname = os.hostname();
 
@@ -414,7 +414,7 @@ export interface AppConfigureOptions {
 }
 
 export class AppConfigure<T extends AbstractEnvironmentVariables> {
-  private readonly logger = getLogger(['app', this.constructor.name]);
+  private readonly logger = getAppLogger(this.constructor.name);
 
   public readonly vars: T;
   public readonly originalVars: T; // 添加原始副本
@@ -600,7 +600,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const syncMode = syncWriteEnabled ? 'read-write' : 'read-only';
     const managedFieldNames = fields.map((f) => f.field).sort((a, b) => a.localeCompare(b));
 
-    const logger = getLogger(['app', 'AppConfigure']);
+    const logger = getAppLogger('AppConfigure');
 
     // 仅在有变更时才打印详细日志，避免每次同步都输出大量重复信息
     logger.debug`#syncFromDB... reload app settings from db.`;

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
 import type { BeforeApplicationShutdown } from '@nestjs/common';
 import type { Response } from 'express';
@@ -113,7 +113,7 @@ type WSConnection = {
  */
 @Injectable()
 export class ConnectionManagerService implements BeforeApplicationShutdown {
-  private readonly logger = getLogger(['app', 'ConnectionManager']);
+  private readonly logger = getAppLogger('ConnectionManager');
 
   /** 活跃的 SSE 连接 */
   private readonly sseConnections = new Set<SSEConnection>();

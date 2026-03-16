@@ -16,7 +16,7 @@ import { addGrpcHealthService } from './grpc-health';
 import fs from 'node:fs';
 import os from 'node:os';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import dedent from 'dedent';
 import { DateTime } from 'luxon';
 import { ServerReflection, ServerReflectionService } from 'nice-grpc-server-reflection';
@@ -27,7 +27,7 @@ import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type 
 import type { MicroserviceOptions } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 
-const bootstrapLogger = getLogger(['boot', 'Bootstrap']);
+const bootstrapLogger = getAppLogger('boot', 'Bootstrap');
 
 type IEntryNestModule = Type<unknown> | DynamicModule | ForwardReference | Promise<IEntryNestModule>;
 
@@ -160,7 +160,7 @@ function addDescriptorSetReflection(server: Pick<Server, 'addService'>, descript
               call.write(response);
             }
           } catch (err) {
-            getLogger(['boot', 'gRPC-Reflection']).error`Reflection error: ${err}`;
+            getAppLogger('boot', 'gRPC-Reflection').error`Reflection error: ${err}`;
           } finally {
             call.end();
           }

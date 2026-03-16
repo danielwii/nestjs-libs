@@ -2,7 +2,7 @@ import { Controller, Get, HttpStatus, Res, ServiceUnavailableException } from '@
 
 import { HealthRegistry } from './health-registry';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 
 import type { HealthIndicatorResult } from './health-indicator';
 import type { OnApplicationShutdown } from '@nestjs/common';
@@ -27,7 +27,7 @@ import type { Response } from 'express';
 
 @Controller('health')
 export class HealthController implements OnApplicationShutdown {
-  private readonly logger = getLogger(['app', 'HealthController']);
+  private readonly logger = getAppLogger('HealthController');
   private isShuttingDown = false;
 
   constructor(private readonly registry: HealthRegistry) {}

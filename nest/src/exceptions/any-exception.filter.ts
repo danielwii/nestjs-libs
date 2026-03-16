@@ -15,7 +15,7 @@ import { ApiRes } from '@app/nest/common/response';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { getErrorMessage, getErrorName, getErrorStatus, getResponseMessage } from '@app/utils/error';
 
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { GraphQLError } from 'graphql';
 import * as _ from 'radash';
@@ -63,7 +63,7 @@ import type { Response } from 'express';
 
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
 export class AnyExceptionFilter implements ExceptionFilter {
-  private readonly logger = getLogger(['app', 'AnyExceptionFilter']);
+  private readonly logger = getAppLogger('AnyExceptionFilter');
   private i18nService: II18nService | null = null;
   private i18nServiceRetrieved = false;
 

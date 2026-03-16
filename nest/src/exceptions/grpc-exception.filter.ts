@@ -3,7 +3,7 @@ import { Catch } from '@nestjs/common';
 import { OOPS_ERROR_METADATA_KEY } from './error-codes';
 
 import { Metadata as GrpcMetadata, status } from '@grpc/grpc-js';
-import { getLogger } from '@logtape/logtape';
+import { getAppLogger } from '@app/utils/app-logger';
 import * as Sentry from '@sentry/nestjs';
 import { Observable, of, throwError } from 'rxjs';
 import { ZodError } from 'zod';
@@ -56,7 +56,7 @@ interface GrpcError {
 
 @Catch()
 export class GrpcExceptionFilter implements ExceptionFilter {
-  private readonly logger = getLogger(['app', 'GrpcExceptionFilter']);
+  private readonly logger = getAppLogger('GrpcExceptionFilter');
 
   constructor(private readonly provider: string) {}
 
