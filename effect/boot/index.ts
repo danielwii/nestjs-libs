@@ -1,1 +1,1 @@
-export { bootstrap, simpleBootstrap, rpcBootstrap } from './bootstrap';
+export { bootstrap, simpleBootstrap, rpcBootstrap, mcpBootstrap } from './bootstrap';

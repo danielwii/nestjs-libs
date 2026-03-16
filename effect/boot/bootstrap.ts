@@ -40,9 +40,7 @@ import { HealthRegistry, HealthRegistryLive } from '../health';
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from '@effect/platform';
 import { BunHttpServer, BunRuntime } from '@effect/platform-bun';
 import { RpcSerialization, RpcServer } from '@effect/rpc';
-import { Effect, Layer } from 'effect';
-
-import type { Config } from 'effect';
+import { Config, Effect, Layer } from 'effect';
 
 // ==================== Internal ====================
 
@@ -91,6 +89,90 @@ import type { Config } from 'effect';
  * t=Ns   进程退出
  * ```
  */
+/**
+ * MCP 协议 bootstrap
+ *
+ * MCP (Model Context Protocol) 双 transport 模式：
+ * - HTTP SSE：注册 tools/resources/prompts → 启动 HTTP server → 阻塞 → graceful shutdown
+ * - stdio：注册 tools/resources/prompts → 运行 stdio handler → 退出
+ *
+ * Transport 通过 MCP_TRANSPORT env var 切换（默认 "http"）。
+ *
+ * @example
+ * ```ts
+ * mcpBootstrap({
+ *   setup: Effect.gen(function* () {
+ *     yield* registerAllTools;
+ *     yield* registerResources;
+ *     yield* registerPrompts;
+ *   }),
+ *   http: startHttpServer,
+ *   stdio: runStdio,
+ *   layers: Layer.mergeAll(InfrastructureLive, McpServerLive),
+ * });
+ * ```
+ */
+export function mcpBootstrap(config: {
+  /** 初始化逻辑（注册 tools/resources/prompts） */
+  setup: Effect.Effect<any, any, any>;
+  /** HTTP 模式：启动 server 后立即返回（不阻塞），bootstrap 自动阻塞等待 SIGTERM */
+  http: Effect.Effect<any, any, any>;
+  /** stdio 模式：运行 stdio handler，阻塞直到结束 */
+  stdio: Effect.Effect<any, any, any>;
+  /** 应用 Layer（infrastructure + MCP server 等） */
+  layers?: Layer.Layer<any, any, any>;
+  /** transport env var 名，默认 "MCP_TRANSPORT" */
+  transportEnvVar?: string;
+}): void {
+  const transportConfig = Config.string(config.transportEnvVar ?? 'MCP_TRANSPORT').pipe(Config.withDefault('http'));
+
+  const appLive = config.layers
+    ? (config.layers as Layer.Layer<any, any, any>).pipe(
+        Layer.provideMerge(HealthRegistryLive),
+        Layer.provideMerge(FullLoggerLayer()),
+      )
+    : HealthRegistryLive.pipe(Layer.provideMerge(FullLoggerLayer()));
+
+  const program = Effect.gen(function* () {
+    const transport = yield* transportConfig;
+
+    // Setup: register tools, resources, prompts
+    yield* config.setup;
+    yield* Effect.logInfo('MCP server initialized');
+
+    if (transport === 'stdio') {
+      // stdio mode — run handler, exit when done
+      yield* config.stdio;
+    } else {
+      // HTTP mode — start server + graceful shutdown
+      yield* config.http;
+
+      const registry = yield* HealthRegistry;
+      const drainMs = yield* ShutdownDrainMs;
+
+      yield* Effect.addFinalizer(() =>
+        Effect.gen(function* () {
+          yield* registry.markShuttingDown();
+          yield* Effect.log('Phase 1: readiness → not_ready, no new traffic will be routed');
+
+          yield* Effect.log(`Phase 2: draining in-flight requests (${drainMs}ms)...`);
+          yield* Effect.sleep(`${drainMs} millis`);
+
+          yield* Effect.log('Drain complete, proceeding to close resources');
+        }),
+      );
+
+      yield* Effect.never;
+    }
+  });
+
+  program.pipe(
+    Effect.scoped,
+    Effect.provide(appLive as any),
+    (effect: any) => BunRuntime.runMain(effect, { disablePrettyLogger: true }),
+  );
+}
+
 const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Layer<any, any, any>) => {
   const composed = appLayers
     ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(FullLoggerLayer()))
