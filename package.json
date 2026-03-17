@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@danielwii/libs-cli": ".",
-    "@dotenvx/dotenvx": "^1.54.1",
+    "@dotenvx/dotenvx": "^1.55.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dedent": "^1.7.2",
@@ -36,13 +36,13 @@
     "@logtape/logtape": "^2.0.4",
     "@ai-sdk/openai": "^3.0.41",
     "@ai-sdk/provider-utils": "^4.0.19",
-    "@nestjs/common": "^11.1.16",
-    "@nestjs/core": "^11.1.16",
+    "@nestjs/common": "^11.1.17",
+    "@nestjs/core": "^11.1.17",
     "@nestjs/graphql": "^13.2.4",
-    "@nestjs/microservices": "^11.1.16",
-    "@nestjs/platform-express": "^11.1.16",
+    "@nestjs/microservices": "^11.1.17",
+    "@nestjs/platform-express": "^11.1.17",
     "@nestjs/throttler": "^6.5.0",
-    "@openrouter/ai-sdk-provider": "^2.3.0",
+    "@openrouter/ai-sdk-provider": "^2.3.3",
     "@opentelemetry/api": "^1.9.0",
     "@sentry/nestjs": "^10.43.0",
     "ai": "^6.0.116",
@@ -91,10 +91,10 @@
     "eslint-plugin-prettier": "^5.5.5",
     "globals": "^17.4.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.3.3",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
     "ts-morph": "^27.0.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.0"
+    "typescript-eslint": "^8.57.1"
   }
 }
