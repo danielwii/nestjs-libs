@@ -155,6 +155,42 @@ export const runApp = <App extends INestApplication>(app: App) => {
     // sometimes the process will not exit, so we force exit it
     setTimeout(() => process.exit(0), 5e3);
   });
+  // SIGUSR1: memory-watchdog sidecar 触发的优雅重启（exit code 42 区分于 SIGTERM）
+  process.on('SIGUSR1', () => {
+    logger.warning`(${os.hostname}) Received SIGUSR1 (memory-watchdog triggered shutdown) (${process.pid})`;
+    logger.info`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`;
+
+    const server = app.getHttpServer();
+    const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
+
+    server.close(() => {
+      logger.info`(${os.hostname}) HTTP server closed, all connections drained`;
+    });
+
+    const waitForConnections = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        logger.warning`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`;
+        resolve();
+      }, IN_FLIGHT_TIMEOUT_MS);
+
+      server.on('close', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    waitForConnections
+      .then(() => app.close())
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warning`(${os.hostname}) exit by SIGUSR1: ${message}`;
+      })
+      .finally(() => {
+        logger.info`(${os.hostname}) Memory-watchdog shutdown complete`;
+        process.exit(42);
+      });
+  });
+
   process.on('SIGTERM', (signals) => {
     logger.info`(${os.hostname}) Received SIGTERM. ${signals} (${process.pid})`;
     logger.info`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`;
