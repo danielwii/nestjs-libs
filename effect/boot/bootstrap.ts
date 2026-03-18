@@ -138,7 +138,7 @@ export function mcpBootstrap(config: {
     const transport = yield* transportConfig;
 
     // Setup: register tools, resources, prompts
-    yield* config.setup;
+    yield* config.setup.pipe(Effect.withLogSpan('setup'));
 
     if (transport === 'stdio') {
       yield* startupBanner('MCP (stdio)');

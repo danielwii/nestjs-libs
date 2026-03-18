@@ -128,7 +128,7 @@ export function grpcBootstrap(config: GrpcBootstrapConfig): void {
   const program = Effect.gen(function* () {
     // Setup (read config, instantiate providers, etc.)
     if (config.setup) {
-      yield* config.setup;
+      yield* config.setup.pipe(Effect.withLogSpan('setup'));
     }
 
     // Read system config
