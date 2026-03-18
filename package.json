@@ -18,7 +18,6 @@
     ]
   },
   "dependencies": {
-    "@danielwii/libs-cli": ".",
     "@dotenvx/dotenvx": "^1.55.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
