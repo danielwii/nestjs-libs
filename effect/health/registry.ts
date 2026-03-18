@@ -84,6 +84,3 @@ export class HealthRegistry extends Effect.Service<HealthRegistry>()('HealthRegi
     } satisfies HealthRegistryService;
   }),
 }) {}
-
-/** @deprecated Use HealthRegistry.Default */
-export const HealthRegistryLive = HealthRegistry.Default;

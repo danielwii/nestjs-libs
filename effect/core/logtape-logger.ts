@@ -39,28 +39,24 @@ const logtapeLogger = Logger.make(({ logLevel, message, cause, annotations, span
   const props: Record<string, unknown> = {};
 
   // Effect annotations → LogTape properties
-  if (annotations && Symbol.iterator in annotations) {
-    for (const [k, v] of annotations as Iterable<[string, unknown]>) {
-      props[k] = v;
-    }
+  for (const [k, v] of annotations as Iterable<[string, unknown]>) {
+    props[k] = v;
   }
 
   // Effect log spans (from Effect.withLogSpan) → spanName
-  if (spans && Symbol.iterator in spans) {
-    for (const span of spans as Iterable<{ label: string }>) {
-      props['spanName'] = span.label;
-      break;
-    }
+  for (const span of spans as Iterable<{ label: string }>) {
+    props['spanName'] = span.label;
+    break;
   }
 
   // OTel context fallback
   if (!props['traceId'] || !props['spanName'] || !props['userId']) {
     const span = trace.getSpan(context.active());
     if (span) {
-      if (!props['traceId']) props['traceId'] = span.spanContext().traceId;
+      props['traceId'] ??= span.spanContext().traceId;
       // as unknown: OTel Span 接口不暴露 name/attributes，但运行时存在。
       // 这是 @opentelemetry/api 的已知限制，无公开 API 获取这些字段。
-      if (!props['spanName']) props['spanName'] = (span as unknown as { name?: string }).name;
+      props['spanName'] ??= (span as unknown as { name?: string }).name;
       if (!props['userId']) {
         const attrs = (span as unknown as { attributes?: Record<string, unknown> }).attributes;
         const uid = attrs?.['user.id'];
@@ -70,7 +66,7 @@ const logtapeLogger = Logger.make(({ logLevel, message, cause, annotations, span
   }
 
   // Route to LogTape logger with module as child category
-  const category = (props['module'] as string) ?? (props['service'] as string) ?? undefined;
+  const category = (props['module'] ?? props['service']) as string | undefined;
   const baseLogger = getAppLogger();
   const logger = category ? baseLogger.getChild(category).with(props) : baseLogger.with(props);
 
@@ -79,6 +75,7 @@ const logtapeLogger = Logger.make(({ logLevel, message, cause, annotations, span
   let msg = parts.map((p) => (typeof p === 'string' ? p : r(p))).join(' ');
 
   // Append cause if present (Effect Cause contains the actual error on fiber failure)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cause can be Empty at runtime despite the type
   const hasCause = cause && '_tag' in cause && (cause as { _tag: string })._tag !== 'Empty';
   if (hasCause) {
     const causeStr = Cause.pretty(cause);
@@ -126,7 +123,7 @@ function formatTimestamp(ts: number): string {
 /** Level label → ANSI colored full uppercase */
 function colorLevel(level: string): string {
   const upper = level.toUpperCase().padEnd(7); // 'WARNING' is longest (7)
-  const color = ansi[level as keyof typeof ansi] ?? ansi.info;
+  const color = (ansi as Record<string, string>)[level] ?? ansi.info;
   return `${ansi.bold}${color}${upper}${ansi.reset}`;
 }
 
@@ -166,8 +163,9 @@ function devFormatter(record: {
     return r(p);
   };
   const raw = Array.isArray(record.message) ? record.message.map(renderValue).join('') : String(record.message);
-  const levelColor = ansi[record.level as keyof typeof ansi] ?? '';
-  const message = levelColor ? `${levelColor}${raw.replaceAll(ansi.reset, ansi.reset + levelColor)}${ansi.reset}` : raw;
+  const levelColor = (ansi as Record<string, string>)[record.level] ?? '';
+  const message =
+    levelColor.length > 0 ? `${levelColor}${raw.replaceAll(ansi.reset, ansi.reset + levelColor)}${ansi.reset}` : raw;
 
   return `${timestamp} ${level} ${contextTag}${category} ${message}`;
 }
