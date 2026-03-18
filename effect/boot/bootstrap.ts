@@ -36,7 +36,7 @@
 
 import { f } from '@app/utils/logging';
 
-import { AppConfig, LogTapeLoggerLayer, Port, ShutdownDrainMs } from '../core';
+import { AppConfig, GrpcPort, LogTapeLoggerLayer, Port, ShutdownDrainMs } from '../core';
 import { HealthRegistry } from '../health';
 
 import os from 'node:os';
@@ -44,7 +44,7 @@ import os from 'node:os';
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from '@effect/platform';
 import { BunHttpServer, BunRuntime } from '@effect/platform-bun';
 import { RpcSerialization, RpcServer } from '@effect/rpc';
-import { Config, Effect, Layer } from 'effect';
+import { Config, Effect, Layer, Option } from 'effect';
 
 // ==================== Internal ====================
 
@@ -178,6 +178,7 @@ const runtimeInfo = bunVersion ? `Node ${process.version} / Bun ${bunVersion}` :
 const startupBanner = (label: string) =>
   Effect.gen(function* () {
     const { nodeEnv, env, port, logLevel, serviceName } = yield* AppConfig;
+    const grpcPort = yield* Config.option(GrpcPort);
 
     // Env 安全检查：生产模式必须明确指定业务环境
     if (nodeEnv === 'production' && env === 'dev') {
@@ -195,11 +196,18 @@ const startupBanner = (label: string) =>
     const elapsed = Date.now() - startupTimestamp;
     const isProd = nodeEnv === 'production';
 
+    // 端口行：HTTP + gRPC（有就打）
+    const portParts = [f`HTTP: ${port}`];
+    const grpcPortValue = Option.getOrUndefined(grpcPort);
+    if (grpcPortValue !== undefined) {
+      portParts.push(f`gRPC: ${grpcPortValue}`);
+    }
+
     const lines = [
       `${label} started`,
       f`├─ Environment: NODE_ENV=${nodeEnv} (${modeDesc}), ENV=${env} (${envDesc})`,
       f`├─ Service: ${serviceName} | Host: ${os.hostname()} | PID: ${process.pid}`,
-      f`├─ Port: ${port} | Runtime: ${runtimeInfo}`,
+      `├─ ${portParts.join(' | ')} | Runtime: ${runtimeInfo}`,
       f`├─ Log Level: ${logLevel}`,
       // why: process.env 直接读取 — 仅用于 banner 显示，非业务逻辑，不值得声明 Config
       f`├─ Body Limit: ${process.env.BODY_SIZE_LIMIT ?? '1mb (default)'}`,
