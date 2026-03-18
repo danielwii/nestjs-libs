@@ -4,8 +4,8 @@
   "description": "Shadcn-style CLI for nestjs-libs",
   "type": "module",
   "scripts": {
-    "lint": "eslint \"{nest,utils,env,features}/**/*.ts\" --fix",
-    "format": "prettier --write \"{nest,utils,env,features}/**/*.ts\"",
+    "lint": "eslint \"{nest,utils,env,features,effect}/**/*.ts\" --fix",
+    "format": "prettier --write \"{nest,utils,env,features,effect}/**/*.ts\"",
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
@@ -100,7 +100,7 @@
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
     "ts-morph": "^27.0.2",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.1-rc",
     "typescript-eslint": "^8.57.1"
   }
 }
