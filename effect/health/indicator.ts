@@ -10,6 +10,8 @@
  * - topology:  下游服务可达性，失败 → 告警
  */
 
+import { Effect } from 'effect';
+
 export type HealthIndicatorType = 'readiness' | 'topology';
 
 export interface HealthIndicatorResult {
@@ -19,21 +21,15 @@ export interface HealthIndicatorResult {
   readonly error?: string;
 }
 
+/** Effect-native health indicator — check 返回 Effect 而非 Promise */
 export interface HealthIndicator {
   readonly type: HealthIndicatorType;
-  readonly check: () => Promise<HealthIndicatorResult>;
+  readonly check: () => Effect.Effect<HealthIndicatorResult>;
 }
 
 // ==================== Factory Functions ====================
 
 const TIMEOUT_MS = 2000;
-
-const rejectAfter = (ms: number): Promise<never> =>
-  new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`Health check timeout (${ms}ms)`));
-    }, ms);
-  });
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -41,15 +37,22 @@ const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : S
 export function createDbHealthIndicator(queryFn: () => Promise<unknown>): HealthIndicator {
   return {
     type: 'readiness',
-    async check(): Promise<HealthIndicatorResult> {
-      const start = Date.now();
-      try {
-        await Promise.race([queryFn(), rejectAfter(TIMEOUT_MS)]);
-        return { name: 'database', healthy: true, latencyMs: Date.now() - start };
-      } catch (e) {
-        return { name: 'database', healthy: false, latencyMs: Date.now() - start, error: errorMessage(e) };
-      }
-    },
+    check: () =>
+      Effect.gen(function* () {
+        const start = Date.now();
+        return yield* Effect.tryPromise(() => queryFn()).pipe(
+          Effect.timeout(`${TIMEOUT_MS} millis`),
+          Effect.map(() => ({ name: 'database' as const, healthy: true, latencyMs: Date.now() - start })),
+          Effect.catchAll((e) =>
+            Effect.succeed({
+              name: 'database' as const,
+              healthy: false,
+              latencyMs: Date.now() - start,
+              error: errorMessage(e),
+            }),
+          ),
+        );
+      }),
   };
 }
 
@@ -57,14 +60,21 @@ export function createDbHealthIndicator(queryFn: () => Promise<unknown>): Health
 export function createRedisHealthIndicator(pingFn: () => Promise<string>): HealthIndicator {
   return {
     type: 'readiness',
-    async check(): Promise<HealthIndicatorResult> {
-      const start = Date.now();
-      try {
-        const result = await Promise.race([pingFn(), rejectAfter(TIMEOUT_MS)]);
-        return { name: 'redis', healthy: result === 'PONG', latencyMs: Date.now() - start };
-      } catch (e) {
-        return { name: 'redis', healthy: false, latencyMs: Date.now() - start, error: errorMessage(e) };
-      }
-    },
+    check: () =>
+      Effect.gen(function* () {
+        const start = Date.now();
+        return yield* Effect.tryPromise(() => pingFn()).pipe(
+          Effect.timeout(`${TIMEOUT_MS} millis`),
+          Effect.map((r) => ({ name: 'redis' as const, healthy: r === 'PONG', latencyMs: Date.now() - start })),
+          Effect.catchAll((e) =>
+            Effect.succeed({
+              name: 'redis' as const,
+              healthy: false,
+              latencyMs: Date.now() - start,
+              error: errorMessage(e),
+            }),
+          ),
+        );
+      }),
   };
 }

@@ -9,14 +9,13 @@
  * 兼容 NestJS 旧名（verbose/log/warn）。
  */
 
-import { Cause, Effect, Layer, Logger, LogLevel } from 'effect';
-
-import { configure, getConsoleSink } from '@logtape/logtape';
-import { context, trace } from '@opentelemetry/api';
-
 import { r } from '@app/utils/logging';
 
 import { getAppLogger } from './app-logger';
+
+import { configure, getConsoleSink } from '@logtape/logtape';
+import { context, trace } from '@opentelemetry/api';
+import { Cause, Effect, Layer, Logger, LogLevel } from 'effect';
 
 // ==================== ANSI Colors ====================
 
@@ -26,12 +25,12 @@ const ansi = {
   bold: '\x1b[1m',
   cyan: '\x1b[36m',
   // Level colors
-  trace: '\x1b[2m',     // dim
-  debug: '\x1b[34m',    // blue
-  info: '\x1b[32m',     // green
-  warning: '\x1b[33m',  // yellow
-  error: '\x1b[31m',    // red
-  fatal: '\x1b[35m',    // magenta
+  trace: '\x1b[2m', // dim
+  debug: '\x1b[34m', // blue
+  info: '\x1b[32m', // green
+  warning: '\x1b[33m', // yellow
+  error: '\x1b[31m', // red
+  fatal: '\x1b[35m', // magenta
 } as const;
 
 // ==================== Effect Logger → LogTape Bridge ====================
@@ -59,6 +58,8 @@ const logtapeLogger = Logger.make(({ logLevel, message, cause, annotations, span
     const span = trace.getSpan(context.active());
     if (span) {
       if (!props['traceId']) props['traceId'] = span.spanContext().traceId;
+      // as unknown: OTel Span 接口不暴露 name/attributes，但运行时存在。
+      // 这是 @opentelemetry/api 的已知限制，无公开 API 获取这些字段。
       if (!props['spanName']) props['spanName'] = (span as unknown as { name?: string }).name;
       if (!props['userId']) {
         const attrs = (span as unknown as { attributes?: Record<string, unknown> }).attributes;
@@ -164,13 +165,9 @@ function devFormatter(record: {
     }
     return r(p);
   };
-  const raw = Array.isArray(record.message)
-    ? record.message.map(renderValue).join('')
-    : String(record.message);
+  const raw = Array.isArray(record.message) ? record.message.map(renderValue).join('') : String(record.message);
   const levelColor = ansi[record.level as keyof typeof ansi] ?? '';
-  const message = levelColor
-    ? `${levelColor}${raw.replaceAll(ansi.reset, ansi.reset + levelColor)}${ansi.reset}`
-    : raw;
+  const message = levelColor ? `${levelColor}${raw.replaceAll(ansi.reset, ansi.reset + levelColor)}${ansi.reset}` : raw;
 
   return `${timestamp} ${level} ${contextTag}${category} ${message}`;
 }
@@ -219,6 +216,7 @@ const ensureLogTapeConfigured = (() => {
     if (configured) return;
     configured = true;
 
+    // why: ensureLogTapeConfigured 是同步闭包，Logger 初始化在 Config Layer 之前
     const isProd = process.env.NODE_ENV === 'production';
     const lowestLevel = normalizeLogLevel(process.env.LOG_LEVEL ?? 'debug');
 
@@ -231,7 +229,11 @@ const ensureLogTapeConfigured = (() => {
       },
       loggers: [
         { category: ['logtape', 'meta'], sinks: ['console'], lowestLevel: 'warning' },
-        { category: [], sinks: ['console'], lowestLevel: lowestLevel as 'trace' | 'debug' | 'info' | 'warning' | 'error' | 'fatal' },
+        {
+          category: [],
+          sinks: ['console'],
+          lowestLevel: lowestLevel as 'trace' | 'debug' | 'info' | 'warning' | 'error' | 'fatal',
+        },
       ],
     });
   };

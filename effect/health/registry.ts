@@ -4,31 +4,25 @@
  * DDD 分层：Application Service（编排层）
  *
  * Effect DI 模式：
- * - HealthRegistry 是 Context.Tag（Port）
- * - HealthRegistryLive 是 Layer（Adapter）
+ * - HealthRegistry 是 Effect.Service（Tag + Default Layer 一体）
+ * - accessors: true 允许 HealthRegistry.register(indicator) 直接调用
  * - Addon 通过 Layer.tap 在构建时注册 indicator
  *
  * 与 NestJS 版对比：
  * - NestJS: @Injectable() class + constructor DI + onModuleInit 注册
- * - Effect: Context.Tag + Ref + Layer.tap 注册（编译期类型安全）
+ * - Effect: Effect.Service + Ref + Layer.tap 注册（编译期类型安全）
  *
  * @example
  * ```ts
- * // addon 注册（在 Layer 构建时）
- * const PrismaLive = Layer.scoped(PrismaTag, ...).pipe(
- *   Layer.tap(() =>
- *     Effect.flatMap(HealthRegistry, (registry) =>
- *       registry.register(createDbHealthIndicator(() => prisma.$queryRawUnsafe('SELECT 1'))),
- *     ),
- *   ),
- * );
+ * // addon 注册（在 Layer 构建时）— 使用 accessors
+ * yield* HealthRegistry.register(createDbHealthIndicator(() => prisma.$queryRawUnsafe('SELECT 1')));
  *
  * // health endpoint 读取
- * const checks = yield* Effect.flatMap(HealthRegistry, (r) => r.checkAll('readiness'));
+ * const checks = yield* HealthRegistry.checkAll('readiness');
  * ```
  */
 
-import { Context, Effect, Layer, Ref } from 'effect';
+import { Effect, Ref } from 'effect';
 
 import type { HealthIndicator, HealthIndicatorResult, HealthIndicatorType } from './indicator';
 
@@ -47,36 +41,49 @@ export interface HealthRegistryService {
   readonly isShuttingDown: () => Effect.Effect<boolean>;
 }
 
-// ==================== Tag (Port) ====================
+// ==================== Service (Tag + Default Layer) ====================
 
-export class HealthRegistry extends Context.Tag('HealthRegistry')<HealthRegistry, HealthRegistryService>() {}
-
-// ==================== Layer (Adapter) ====================
-
-/** HealthRegistry 实现：Ref 管理可变注册表 */
-export const HealthRegistryLive: Layer.Layer<HealthRegistry> = Layer.effect(
-  HealthRegistry,
-  Effect.gen(function* () {
+export class HealthRegistry extends Effect.Service<HealthRegistry>()('HealthRegistry', {
+  accessors: true,
+  effect: Effect.gen(function* () {
     const indicatorsRef = yield* Ref.make<ReadonlyArray<HealthIndicator>>([]);
     const shuttingDownRef = yield* Ref.make(false);
 
-    const service: HealthRegistryService = {
-      register: (indicator) => Ref.update(indicatorsRef, (list) => [...list, indicator]),
+    return {
+      register: (indicator: HealthIndicator) => Ref.update(indicatorsRef, (list) => [...list, indicator]),
 
-      getByType: (type) => Ref.get(indicatorsRef).pipe(Effect.map((list) => list.filter((i) => i.type === type))),
+      getByType: (type: HealthIndicatorType) =>
+        Ref.get(indicatorsRef).pipe(Effect.map((list) => list.filter((i) => i.type === type))),
 
-      checkAll: (type) =>
+      checkAll: (type: HealthIndicatorType) =>
         Effect.gen(function* () {
-          const indicators = yield* service.getByType(type);
+          const indicators = yield* Ref.get(indicatorsRef).pipe(
+            Effect.map((list) => list.filter((i) => i.type === type)),
+          );
           if (indicators.length === 0) return [];
-          return yield* Effect.promise(() => Promise.all(indicators.map((i) => i.check())));
+          return yield* Effect.all(
+            indicators.map((i) =>
+              i.check().pipe(
+                // check() 内部已 catchAll，但防御未知 defect — 降级为 unhealthy 结果
+                Effect.catchAllDefect((e) =>
+                  Effect.succeed({
+                    name: 'unknown',
+                    healthy: false,
+                    error: e instanceof Error ? e.message : String(e),
+                  } satisfies HealthIndicatorResult),
+                ),
+              ),
+            ),
+            { concurrency: 'unbounded' },
+          );
         }),
 
       markShuttingDown: () => Ref.set(shuttingDownRef, true),
 
       isShuttingDown: () => Ref.get(shuttingDownRef),
-    };
-
-    return service;
+    } satisfies HealthRegistryService;
   }),
-);
+}) {}
+
+/** @deprecated Use HealthRegistry.Default */
+export const HealthRegistryLive = HealthRegistry.Default;

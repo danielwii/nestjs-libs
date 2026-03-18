@@ -9,7 +9,7 @@
  * - rpcBootstrap()    → @effect/rpc 微服务（对标 NestJS grpcBootstrap）
  *
  * 自动注入（对标 NestJS BootModule）：
- * - HealthRegistryLive（addon 自动注册 health check）
+ * - HealthRegistry.Default（addon 自动注册 health check）
  * - FullLoggerLayer（dev pretty / prod JSON）
  * - CORS middleware（可选）
  * - BunHttpServer + BunRuntime
@@ -34,15 +34,17 @@
  * ```
  */
 
+import { f } from '@app/utils/logging';
+
 import { AppConfig, LogTapeLoggerLayer, Port, ShutdownDrainMs } from '../core';
-import { HealthRegistry, HealthRegistryLive } from '../health';
+import { HealthRegistry } from '../health';
+
+import os from 'node:os';
 
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from '@effect/platform';
 import { BunHttpServer, BunRuntime } from '@effect/platform-bun';
 import { RpcSerialization, RpcServer } from '@effect/rpc';
 import { Config, Effect, Layer } from 'effect';
-
-import os from 'node:os';
 
 // ==================== Internal ====================
 
@@ -129,11 +131,8 @@ export function mcpBootstrap(config: {
   const transportConfig = Config.string(config.transportEnvVar ?? 'MCP_TRANSPORT').pipe(Config.withDefault('http'));
 
   const appLive = config.layers
-    ? (config.layers).pipe(
-        Layer.provideMerge(HealthRegistryLive),
-        Layer.provideMerge(LogTapeLoggerLayer),
-      )
-    : HealthRegistryLive.pipe(Layer.provideMerge(LogTapeLoggerLayer));
+    ? config.layers.pipe(Layer.provideMerge(HealthRegistry.Default), Layer.provideMerge(LogTapeLoggerLayer))
+    : HealthRegistry.Default.pipe(Layer.provideMerge(LogTapeLoggerLayer));
 
   const program = Effect.gen(function* () {
     const transport = yield* transportConfig;
@@ -154,8 +153,11 @@ export function mcpBootstrap(config: {
 
   program.pipe(
     Effect.scoped,
+    // as any: Layer 泛型在 composition root 无法精确推断，封闭在入口内部不影响类型安全
     Effect.provide(appLive as any),
-    (effect: any) => { BunRuntime.runMain(effect, { disablePrettyLogger: true }); },
+    (effect: any) => {
+      BunRuntime.runMain(effect, { disablePrettyLogger: true });
+    },
   );
 }
 
@@ -163,10 +165,10 @@ export function mcpBootstrap(config: {
 
 const startupTimestamp = Date.now();
 
+// why: process.env 直接读取 — 这些值在 Logger/Banner 构建时使用，
+// 此时 Config Layer 尚未就绪（Logger 必须先于 Config 初始化）
 const bunVersion = 'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
 const runtimeInfo = bunVersion ? `Node ${process.version} / Bun ${bunVersion}` : `Node ${process.version}`;
-
-import { f } from '@app/utils/logging';
 
 /**
  * 启动时打印环境信息 + 安全检查
@@ -185,11 +187,7 @@ const startupBanner = (label: string) =>
     }
 
     const modeDesc =
-      nodeEnv === 'production'
-        ? 'production (optimized)'
-        : nodeEnv === 'development'
-          ? 'development (watch)'
-          : 'test';
+      nodeEnv === 'production' ? 'production (optimized)' : nodeEnv === 'development' ? 'development (watch)' : 'test';
 
     const envDesc =
       env === 'prd' ? 'production (real data)' : env === 'stg' ? 'staging (test data)' : 'development (test data)';
@@ -203,6 +201,7 @@ const startupBanner = (label: string) =>
       f`├─ Service: ${serviceName} | Host: ${os.hostname()} | PID: ${process.pid}`,
       f`├─ Port: ${port} | Runtime: ${runtimeInfo}`,
       f`├─ Log Level: ${logLevel}`,
+      // why: process.env 直接读取 — 仅用于 banner 显示，非业务逻辑，不值得声明 Config
       f`├─ Body Limit: ${process.env.BODY_SIZE_LIMIT ?? '1mb (default)'}`,
       f`├─ Trust Proxy: ${process.env.TRUST_PROXY ?? 'on'}`,
       f`└─ Startup: ${elapsed}ms`,
@@ -242,8 +241,12 @@ const gracefulShutdown = Effect.gen(function* () {
 
 const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Layer<any, any, any>) => {
   const composed = appLayers
-    ? serverLive.pipe(Layer.provide(appLayers), Layer.provide(HealthRegistryLive), Layer.provide(LogTapeLoggerLayer))
-    : serverLive.pipe(Layer.provide(HealthRegistryLive), Layer.provide(LogTapeLoggerLayer));
+    ? serverLive.pipe(
+        Layer.provide(appLayers),
+        Layer.provide(HealthRegistry.Default),
+        Layer.provide(LogTapeLoggerLayer),
+      )
+    : serverLive.pipe(Layer.provide(HealthRegistry.Default), Layer.provide(LogTapeLoggerLayer));
 
   const program = Effect.gen(function* () {
     yield* startupBanner('Server');
@@ -251,9 +254,10 @@ const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Laye
     yield* Effect.never;
   });
 
-  program.pipe(Effect.scoped, Effect.provide(composed as unknown as Layer.Layer<HealthRegistry>), (effect) =>
-    { BunRuntime.runMain(effect, { disablePrettyLogger: true }); },
-  );
+  // as unknown: Layer 泛型在 composition root 无法精确推断，封闭在入口内部不影响类型安全
+  program.pipe(Effect.scoped, Effect.provide(composed as unknown as Layer.Layer<HealthRegistry>), (effect) => {
+    BunRuntime.runMain(effect, { disablePrettyLogger: true });
+  });
 };
 
 // ==================== HttpApi Bootstrap ====================
@@ -264,7 +268,7 @@ const launch = (serverLive: Layer.Layer<never, any, any>, appLayers?: Layer.Laye
  * 对标 NestJS 的 `bootstrap(AppModule)`：
  * 1. HttpApiBuilder.api + handlers → API 实现
  * 2. HttpApiBuilder.serve + CORS + logging middleware
- * 3. HealthRegistryLive + BunHttpServer + FullLoggerLayer
+ * 3. HealthRegistry.Default + BunHttpServer + FullLoggerLayer
  * 4. BunRuntime.runMain
  */
 export function bootstrap<HOut, HE, HIn, LOut, LE, LIn>(config: {
@@ -282,6 +286,7 @@ export function bootstrap<HOut, HE, HIn, LOut, LE, LIn>(config: {
   const port = config.port ?? Port;
   const enableCors = config.cors ?? true;
 
+  // as any: HttpApiBuilder.api 的泛型与 Layer.provide 组合时 TSC 无法自动推断
   const ApiLive = HttpApiBuilder.api(config.api).pipe(Layer.provide(config.handlers as Layer.Layer<any, any, any>));
 
   const ServerLive = Layer.unwrapEffect(
@@ -296,6 +301,7 @@ export function bootstrap<HOut, HE, HIn, LOut, LE, LIn>(config: {
     }),
   );
 
+  // as any: Layer 泛型在 composition root 无法精确推断，封闭在入口内部不影响类型安全
   launch(ServerLive, config.layers as Layer.Layer<any, any, any> | undefined);
 }
 
@@ -306,7 +312,7 @@ export function bootstrap<HOut, HE, HIn, LOut, LE, LIn>(config: {
  *
  * 对标 NestJS 的 `simpleBootstrap(AppModule)`：
  * 1. HttpServer.serve（HttpRouter 模式）
- * 2. HealthRegistryLive + BunHttpServer + FullLoggerLayer
+ * 2. HealthRegistry.Default + BunHttpServer + FullLoggerLayer
  * 3. BunRuntime.runMain
  */
 export function simpleBootstrap<ROut, E, RIn, LOut, LE, LIn>(
@@ -322,6 +328,7 @@ export function simpleBootstrap<ROut, E, RIn, LOut, LE, LIn>(
 
   const ServerLive = Layer.unwrapEffect(
     Effect.map(port, (p) =>
+      // as any: Layer 泛型在 composition root 无法精确推断，封闭在入口内部不影响类型安全
       (routerLive as Layer.Layer<any, any, any>).pipe(
         HttpServer.withLogAddress,
         Layer.provide(BunHttpServer.layer({ port: p })),
@@ -329,6 +336,7 @@ export function simpleBootstrap<ROut, E, RIn, LOut, LE, LIn>(
     ),
   );
 
+  // as any: Layer 泛型在 composition root 无法精确推断，封闭在入口内部不影响类型安全
   launch(ServerLive, options?.layers as Layer.Layer<any, any, any> | undefined);
 }
 
@@ -383,11 +391,13 @@ export function rpcBootstrap<ROut, RE, RIn, LOut, LE, LIn>(config: {
   const serializationLayer =
     config.serialization === 'json' ? RpcSerialization.layerJson : RpcSerialization.layerNdjson;
 
+  // as any: RpcServer.layerProtocolHttp path 参数类型比实际使用更窄
   const HttpProtocol = RpcServer.layerProtocolHttp({ path: rpcPath as any }).pipe(Layer.provide(serializationLayer));
 
   const ServerLive = Layer.unwrapEffect(
     Effect.map(port, (p) =>
       HttpRouter.Default.serve().pipe(
+        // as any: Layer 泛型在 composition root 无法精确推断，封闭在入口内部不影响类型安全
         Layer.provide(config.rpc as Layer.Layer<any, any, any>),
         Layer.provide(HttpProtocol),
         HttpServer.withLogAddress,
@@ -396,5 +406,6 @@ export function rpcBootstrap<ROut, RE, RIn, LOut, LE, LIn>(config: {
     ),
   );
 
+  // as any: Layer 泛型在 composition root 无法精确推断，封闭在入口内部不影响类型安全
   launch(ServerLive, config.layers as Layer.Layer<any, any, any> | undefined);
 }

@@ -132,7 +132,7 @@ export function configAll<A extends Record<string, Config.Config<unknown>>>(
 }
 
 /** 判断当前是否为生产环境 */
-export const isProduction = Effect.map(NodeEnv as Effect.Effect<string, ConfigError>, (env) => env === 'production');
+export const isProduction = Config.map(NodeEnv, (env) => env === 'production');
 
 /** 判断当前是否为测试环境 */
-export const isTest = Effect.map(NodeEnv as Effect.Effect<string, ConfigError>, (env) => env === 'test');
+export const isTest = Config.map(NodeEnv, (env) => env === 'test');

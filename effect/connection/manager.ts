@@ -1,4 +1,5 @@
 import { f } from '@app/utils/logging';
+
 /**
  * Connection Manager — 长连接生命周期管理
  *
@@ -10,10 +11,10 @@ import { f } from '@app/utils/logging';
  * Effect 模式：
  * - Context.Tag（Port）+ Layer.scoped（Adapter）
  * - addFinalizer 替代 beforeApplicationShutdown
- * - Ref 替代 class 可变状态
+ * - 闭包变量替代 Ref — conn.onClose 回调在 Node event loop 执行，不在 Effect Runtime
  */
 
-import { Context, Effect, Layer, Ref } from 'effect';
+import { Context, Effect, Layer } from 'effect';
 
 // ==================== Types ====================
 
@@ -62,17 +63,17 @@ export class ConnectionManager extends Context.Tag('ConnectionManager')<
 export const ConnectionManagerLive: Layer.Layer<ConnectionManager> = Layer.scoped(
   ConnectionManager,
   Effect.gen(function* () {
-    const sseRef = yield* Ref.make<Set<SSEConnection>>(new Set());
-    const wsRef = yield* Ref.make<Set<WSConnection>>(new Set());
-    const shuttingDownRef = yield* Ref.make(false);
+    // 闭包变量替代 Ref — conn.onClose 回调在 Node event loop 执行，不在 Effect Runtime
+    // Effect.runSync 在回调里可能没有 Runtime context，用普通 Set 更安全
+    // （同 Redis circuit breaker 的设计决策）
+    const sseConns = new Set<SSEConnection>();
+    const wsConns = new Set<WSConnection>();
+    let shuttingDown = false;
 
     // Finalizer: 优雅关闭所有连接
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
-        yield* Ref.set(shuttingDownRef, true);
-
-        const sseConns = yield* Ref.get(sseRef);
-        const wsConns = yield* Ref.get(wsRef);
+        shuttingDown = true;
 
         yield* Effect.log(f`Closing connections: sse=${sseConns.size} ws=${wsConns.size}`);
 
@@ -111,8 +112,7 @@ export const ConnectionManagerLive: Layer.Layer<ConnectionManager> = Layer.scope
     const service: ConnectionManagerService = {
       registerSSE: (conn) =>
         Effect.gen(function* () {
-          const isDown = yield* Ref.get(shuttingDownRef);
-          if (isDown) {
+          if (shuttingDown) {
             yield* Effect.sync(() => {
               const payload = JSON.stringify({
                 reason: SSE_CLOSE_REASON.SERVER_RESTART,
@@ -124,49 +124,35 @@ export const ConnectionManagerLive: Layer.Layer<ConnectionManager> = Layer.scope
             });
             return;
           }
-          yield* Ref.update(sseRef, (set) => {
-            set.add(conn);
-            return set;
-          });
+          sseConns.add(conn);
           conn.onClose(() => {
-            sseRef.pipe(
-              Ref.update((set) => {
-                set.delete(conn);
-                return set;
-              }),
-              Effect.runSync,
-            );
+            sseConns.delete(conn);
           });
         }),
 
       registerWS: (conn) =>
         Effect.gen(function* () {
-          const isDown = yield* Ref.get(shuttingDownRef);
-          if (isDown) {
+          if (shuttingDown) {
             yield* Effect.sync(() => {
               conn.close(WS_CLOSE_CODE.SERVER_RESTART, 'Server is restarting');
             });
             return;
           }
-          yield* Ref.update(wsRef, (set) => {
-            set.add(conn);
-            return set;
-          });
+          wsConns.add(conn);
         }),
 
       unregisterWS: (conn) =>
-        Ref.update(wsRef, (set) => {
-          set.delete(conn);
-          return set;
+        Effect.sync(() => {
+          wsConns.delete(conn);
         }),
 
       getActiveCount: () =>
-        Effect.all({
-          sse: Ref.get(sseRef).pipe(Effect.map((s) => s.size)),
-          ws: Ref.get(wsRef).pipe(Effect.map((s) => s.size)),
-        }),
+        Effect.sync(() => ({
+          sse: sseConns.size,
+          ws: wsConns.size,
+        })),
 
-      isShuttingDown: () => Ref.get(shuttingDownRef),
+      isShuttingDown: () => Effect.sync(() => shuttingDown),
     };
 
     return service;

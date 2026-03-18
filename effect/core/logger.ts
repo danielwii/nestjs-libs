@@ -58,6 +58,7 @@ export const ProdLoggerLayer = Logger.replace(Logger.defaultLogger, Logger.jsonL
  */
 export const AppLoggerLayer = Layer.unwrapEffect(
   Effect.sync(() => {
+    // why: Logger Layer 先于 Config Layer 构建，无法 yield* Config
     const isProd = process.env.NODE_ENV === 'production';
     return isProd ? ProdLoggerLayer : DevLoggerLayer;
   }),

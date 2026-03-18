@@ -1,4 +1,5 @@
 import { f } from '@app/utils/logging';
+
 /**
  * syncFromDB — 核心同步逻辑
  *
@@ -89,10 +90,14 @@ const serializeValue = (value: unknown): string | null => {
   return typeof value === 'string' ? value : JSON.stringify(value);
 };
 
-/** 将 DB 原始值按 format 解析 */
+/** 将 DB 原始值按 format 解析 — JSON.parse 失败返回 null 而非 throw */
 const parseDbValue = (value: string, format: string): unknown => {
   if (format === 'string') return value;
-  return JSON.parse(value);
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null; // 无效 JSON，后续 validateDbValue 会跳过
+  }
 };
 
 /** 验证 DB 值是否合法 */
