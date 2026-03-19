@@ -1,4 +1,4 @@
-import { getAppLogger } from '@app/effect/core';
+import { getAppLogger } from '@app/utils/app-logger';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { onelineStack } from '@app/utils/error';
 
@@ -46,6 +46,19 @@ export class LogtapeNestLogger implements LoggerService {
       const span = trace.getSpan(context.active());
       if (!span) return undefined;
       return (span as unknown as { name?: string }).name;
+    }),
+    // RequestContext 中除已知字段外的额外 string 值，自动追加到日志 context tag
+    contextTags: lazy(() => {
+      const entries = RequestContext.entries();
+      if (!entries) return undefined;
+      const KNOWN_KEYS = new Set(['traceId', 'userId', 'spanName']);
+      const tags: string[] = [];
+      for (const [key, value] of Object.entries(entries)) {
+        if (!KNOWN_KEYS.has(key) && typeof value === 'string' && value.length > 0) {
+          tags.push(value);
+        }
+      }
+      return tags.length > 0 ? tags : undefined;
     }),
   });
 

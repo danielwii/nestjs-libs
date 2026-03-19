@@ -31,7 +31,7 @@ import { SysEnv } from '@app/env';
 import { ApiFetcher } from '@app/utils/fetch';
 
 import { EMBEDDING_MODELS } from '../types/embedding.types';
-import { getModel } from '../types/model.types';
+import { getModel, parseModelSpec, type LLMModelSpec } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
@@ -120,8 +120,8 @@ export type WebSource = {
 interface BaseParams {
   /** 业务标识，用于日志中区分调用方（如 'subconscious', 'signal-extractor'） */
   id: string;
-  /** LLM Model Key，如 'openrouter:grok-4.1-fast' */
-  model: LLMModelKey;
+  /** LLM Model Spec，如 'openrouter:grok-4.1-fast' 或 'openrouter:grok-4.1-fast?reason=low' */
+  model: LLMModelSpec;
   /** System prompt */
   system?: string;
   /** 消息列表 */
@@ -212,6 +212,24 @@ interface GenerateTextResult {
 // ═══════════════════════════════════════════════════════════════════════════
 // Provider Options
 // ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * 从 LLMModelSpec 解析出 base key + 合并 thinking
+ *
+ * spec 里的 `?reason=low` 作为默认值，调用方显式传 `thinking` 时覆盖。
+ */
+function resolveSpec(modelSpec: LLMModelSpec, callerThinking: ThinkingEffort): {
+  key: LLMModelKey;
+  thinking: ThinkingEffort;
+} {
+  const parsed = parseModelSpec(modelSpec);
+  // 调用方显式传了非 'none' 的 thinking → 用调用方的
+  // 调用方用默认 'none' 且 spec 有 reason → 用 spec 的
+  const thinking = callerThinking !== 'none'
+    ? callerThinking
+    : (parsed.thinking ?? 'none');
+  return { key: parsed.key, thinking };
+}
 
 /**
  * 根据 Provider 和 thinking 强度生成 providerOptions
@@ -402,12 +420,12 @@ export class LLM {
   static async generateObject<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
     const startTime = Date.now();
     const {
-      model: modelKey,
+      model: modelSpec,
       id,
       schema,
       system,
       messages,
-      thinking = 'none',
+      thinking: callerThinking = 'none',
       providerSort,
       temperature,
       maxOutputTokens,
@@ -416,6 +434,7 @@ export class LLM {
       telemetry = DEFAULT_TELEMETRY,
     } = params;
 
+    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
     LLM.logStart(id, 'generateObject', modelKey, thinking);
     LLM.logInputSummary(id, schema, messages, system);
 
@@ -466,11 +485,11 @@ export class LLM {
   static async generateText(params: GenerateTextParams): Promise<GenerateTextResult> {
     const startTime = Date.now();
     const {
-      model: modelKey,
+      model: modelSpec,
       id,
       system,
       messages,
-      thinking = 'none',
+      thinking: callerThinking = 'none',
       providerSort,
       temperature,
       maxOutputTokens,
@@ -481,6 +500,7 @@ export class LLM {
       modelIdSuffix,
     } = params;
 
+    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
     LLM.logStart(id, 'generateText', modelKey, thinking);
 
     const languageModel = createModel(modelKey, modelIdSuffix);
@@ -561,12 +581,12 @@ export class LLM {
   ) {
     const startTime = Date.now();
     const {
-      model: modelKey,
+      model: modelSpec,
       id,
       schema,
       system,
       messages,
-      thinking = 'none',
+      thinking: callerThinking = 'none',
       providerSort,
       temperature,
       maxOutputTokens,
@@ -577,6 +597,7 @@ export class LLM {
       stopWhen,
     } = params;
 
+    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
     LLM.logStart(id, 'streamObject', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
@@ -652,11 +673,11 @@ export class LLM {
   static streamText(params: BaseParams) {
     const startTime = Date.now();
     const {
-      model: modelKey,
+      model: modelSpec,
       id,
       system,
       messages,
-      thinking = 'none',
+      thinking: callerThinking = 'none',
       providerSort,
       temperature,
       maxOutputTokens,
@@ -665,6 +686,7 @@ export class LLM {
       telemetry = DEFAULT_TELEMETRY,
     } = params;
 
+    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
     LLM.logStart(id, 'streamText', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
@@ -747,12 +769,12 @@ export class LLM {
   ): Promise<GenerateObjectResult<T>> {
     const startTime = Date.now();
     const {
-      model: modelKey,
+      model: modelSpec,
       id,
       schema,
       system,
       messages,
-      thinking = 'none',
+      thinking: callerThinking = 'none',
       providerSort,
       temperature,
       maxOutputTokens,
@@ -764,6 +786,7 @@ export class LLM {
       parallelToolCalls = true,
     } = params;
 
+    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
     LLM.logStart(id, 'generateObjectViaTool', modelKey, thinking);
     LLM.logInputSummary(id, schema, messages, system);
 
@@ -832,14 +855,9 @@ export class LLM {
       // safeParse 验证：fail fast，不兜底修复
       const parseResult = schema.safeParse(preprocessed);
       if (!parseResult.success) {
-        // 打印原始值帮助诊断 coerce 失败原因
-        const stringFields = Object.entries(rawInput as Record<string, unknown>)
-          .filter(([, v]) => typeof v === 'string' && v.length > 10)
-          .map(([k, v]) => `${k}=${JSON.stringify((v as string).slice(0, 120))}`)
-          .join(', ');
-        if (stringFields) {
-          LLM.logger.warning`[LLM:coerce-debug] id=${id} string fields in raw input: ${stringFields}`;
-        }
+        // 完整打印原始 tool call 输出——这是诊断 validation 失败的关键证据
+        LLM.logger.warning`[LLM:validation-failed] id=${id} rawInput=${JSON.stringify(rawInput)}`;
+        LLM.logger.warning`[LLM:validation-failed] id=${id} preprocessed=${JSON.stringify(preprocessed)}`;
 
         const issues = parseResult.error.issues
           .slice(0, 5)
@@ -912,12 +930,12 @@ export class LLM {
   ): AsyncGenerator<ToolStreamEvent<T>> {
     const startTime = Date.now();
     const {
-      model: modelKey,
+      model: modelSpec,
       id,
       schema,
       system,
       messages,
-      thinking = 'none',
+      thinking: callerThinking = 'none',
       providerSort,
       temperature,
       maxOutputTokens,
@@ -928,6 +946,7 @@ export class LLM {
       toolDescription = 'Extract structured data from the input',
     } = params;
 
+    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
     LLM.logStart(id, 'streamObjectViaTool', modelKey, thinking);
 
     const languageModel = createModel(modelKey);
@@ -1235,8 +1254,9 @@ export class LLM {
    *
    * 用于需要直接使用 AI SDK 的场景
    */
-  static model(key: LLMModelKey): LanguageModel {
-    return createModel(key);
+  static model(key: LLMModelSpec): LanguageModel {
+    const { key: baseKey } = parseModelSpec(key);
+    return createModel(baseKey);
   }
 }
 
@@ -1297,12 +1317,14 @@ function extractWebSources(sources: AiSdkSource[] | undefined): WebSource[] {
  * 4. parse 失败（截断）→ tryParsePartialJson 补全括号后再试
  * 5. 全部失败 → 保持原样，交给 safeParse 报错
  */
-function coerceStringifiedObjects(input: unknown): unknown {
+export function coerceStringifiedObjects(input: unknown): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
 
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+    if (value === 'null') {
+      result[key] = null;
+    } else if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
       // 修复欧洲小数：0,5 → 0.5（仅在数字之间替换，不影响 JSON 逗号分隔符）
       const fixed = value.replace(/(\d),(\d)/g, '$1.$2');
       try {

@@ -81,10 +81,16 @@ function createDevFormatter() {
 
     // Build context tag from record properties (set by lazy() in LogtapeNestLogger)
     const parts: string[] = [];
-    const { traceId, userId, spanName } = record.properties;
+    const { traceId, userId, spanName, contextTags } = record.properties;
     if (traceId && typeof traceId === 'string') parts.push(traceId);
     if (spanName && typeof spanName === 'string') parts.push(spanName);
     if (userId && typeof userId === 'string' && userId.trim().length > 0) parts.push(userId);
+    // 额外 context tags（来自 RequestContext 的非标准字段）
+    if (Array.isArray(contextTags)) {
+      for (const tag of contextTags) {
+        if (typeof tag === 'string') parts.push(tag);
+      }
+    }
 
     if (parts.length === 0) return base;
 

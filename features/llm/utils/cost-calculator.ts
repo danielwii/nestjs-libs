@@ -69,8 +69,8 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // MoonshotAI Kimi（OpenRouter 最低价 provider：SiliconFlow；Venice 约 $0.75/$3.75）
   'moonshotai/kimi-k2.5': { input: 0.23, output: 3.0 },
 
-  // Z.ai GLM（OpenRouter 最低价 provider：SiliconFlow；其他约 $0.95-1/$3.15-3.20）
-  'z-ai/glm-5': { input: 0.3, output: 2.55 },
+  // Z.ai GLM - 不考虑使用
+  // 'z-ai/glm-5': { input: 0.3, output: 2.55 },
 
   // MiniMax（Inceptron $1.10，其他 provider $1.20）
   'minimax/minimax-m2.5': { input: 0.3, output: 1.1 },
@@ -138,8 +138,9 @@ function calculateCostFromKey(
         modelId = `moonshotai/${modelName}`;
       } else if (modelName.startsWith('deepseek')) {
         modelId = `deepseek/${modelName}`;
-      } else if (modelName.startsWith('glm')) {
-        modelId = `z-ai/${modelName}`;
+      // GLM - 不考虑使用
+      // } else if (modelName.startsWith('glm')) {
+      //   modelId = `z-ai/${modelName}`;
       } else if (modelName.startsWith('minimax')) {
         modelId = `minimax/${modelName}`;
       } else {

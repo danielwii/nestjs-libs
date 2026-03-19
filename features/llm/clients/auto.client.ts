@@ -30,7 +30,7 @@ import { google, openrouter, vertex } from './llm.clients';
 
 import { generateText as aiGenerateText, streamText as aiStreamText, Output } from 'ai';
 
-import type { LLMModelKey, LLMProviderType } from '../types/model.types';
+import type { LLMModelKey, LLMModelSpec, LLMProviderType } from '../types/model.types';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import type { GenerateTextResult, LanguageModel, ModelMessage, StreamTextResult, TelemetrySettings } from 'ai';
 import type { z } from 'zod';
@@ -48,8 +48,8 @@ import type { z } from 'zod';
  * model('google:gemini-2.5-flash')      // → 使用 google 客户端
  * ```
  */
-export function model(key: LLMModelKey, modelIdSuffix?: string): LanguageModel {
-  const config = getModel(key);
+export function model(key: LLMModelKey | LLMModelSpec, modelIdSuffix?: string): LanguageModel {
+  const config = getModel(key as LLMModelSpec);
   const modelId = modelIdSuffix ? `${config.modelId}${modelIdSuffix}` : config.modelId;
   const provider = config.provider as LLMProviderType;
 

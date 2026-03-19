@@ -248,26 +248,9 @@ export interface LLMModelRegistry {
    */
   'openrouter:kimi-k2.5': ModelConfig<'openrouter'>;
   'openrouter:moonshotai/kimi-k2.5': ModelConfig<'openrouter'>;
-  /**
-   * GLM 5 - Z.ai 开源旗舰模型
-   *
-   * 定价参考（2026.02）：Input $0.30/M, Output $2.55/M, Context 205K
-   *
-   * 复杂系统设计、长时程 Agent 工作流，Programming #3、Science #6、Roleplay #7
-   *
-   * Provider 定价（选型时注意）：
-   * | Provider | Input | Output |
-   * |----------|-------|--------|
-   * | SiliconFlow | $0.30 | $2.55 | ← 最低价
-   * | AtlasCloud | $0.95 | $3.15 |
-   * | Friendli / GMICloud / Parasail / Venice | $1 | $3.20 | ← 贵 3x
-   *
-   * 建议：providerSort: 'price' 优先 SiliconFlow
-   *
-   * @see https://openrouter.ai/z-ai/glm-5
-   */
-  'openrouter:glm-5': ModelConfig<'openrouter'>;
-  'openrouter:z-ai/glm-5': ModelConfig<'openrouter'>;
+  // GLM 5 - 不考虑使用（Z.ai，质量不够稳定）
+  // 'openrouter:glm-5': ModelConfig<'openrouter'>;
+  // 'openrouter:z-ai/glm-5': ModelConfig<'openrouter'>;
   /**
    * MiniMax M2.5 - Programming #1, Technology #1
    *
@@ -328,6 +311,67 @@ export interface LLMModelRegistry {
 export type LLMModelKey = keyof LLMModelRegistry;
 
 /**
+ * Thinking effort 级别（与 llm.class.ts 中的 ThinkingEffort 保持一致）
+ *
+ * 在 model.types.ts 中重新定义以避免循环依赖（model.types → llm.class → model.types）
+ */
+type ThinkingEffortLevel = 'none' | 'low' | 'medium' | 'high';
+
+/**
+ * Model Spec — 携带运行时参数的 Model Key
+ *
+ * 格式：`provider:model` 或 `provider:model?param=value&...`
+ * 使用 URL query string 语法，用 URLSearchParams 解析。
+ *
+ * 参数嵌入 model key 的好处：
+ * - 在 env.ts 中配置模型时同时指定参数，无需改业务代码
+ * - 换模型时参数跟着走（Grok 需要 reason，Gemini 不需要）
+ * - 调用方仍可通过显式参数覆盖
+ *
+ * 支持的参数：
+ * - reason: thinking effort（none/low/medium/high）
+ *
+ * @example
+ * 'openrouter:grok-4.1-fast?reason=low'  // Grok + low reasoning
+ * 'openrouter:gemini-3-flash-preview'     // Gemini, no params
+ */
+export type LLMModelSpec = LLMModelKey | `${LLMModelKey}?${string}`;
+
+/**
+ * parseModelSpec 的返回结果
+ */
+export interface ParsedModelSpec {
+  key: LLMModelKey;
+  thinking: ThinkingEffortLevel | undefined;
+}
+
+const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']);
+
+/**
+ * 解析 LLMModelSpec 为 base key + 参数
+ *
+ * @example
+ * parseModelSpec('openrouter:grok-4.1-fast?reason=low')
+ * // → { key: 'openrouter:grok-4.1-fast', thinking: 'low' }
+ *
+ * parseModelSpec('openrouter:gemini-3-flash-preview')
+ * // → { key: 'openrouter:gemini-3-flash-preview', thinking: undefined }
+ */
+export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
+  const qIdx = spec.indexOf('?');
+  if (qIdx === -1) {
+    return { key: spec as LLMModelKey, thinking: undefined };
+  }
+  const key = spec.slice(0, qIdx) as LLMModelKey;
+  const params = new URLSearchParams(spec.slice(qIdx + 1));
+  const reason = params.get('reason');
+  const thinking = reason && VALID_THINKING_EFFORTS.has(reason)
+    ? (reason as ThinkingEffortLevel)
+    : undefined;
+  return { key, thinking };
+}
+
+/**
  * 从 Registry 推导的 Provider 联合类型
  * 会自动包含所有注册的 Provider
  */
@@ -373,9 +417,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Grok 3 Mini
   ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
   ['openrouter:x-ai/grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
-  // Grok 4.1 Fast (reasoningRequired: reasoning 无法关闭)
-  ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast', reasoningRequired: true }],
-  ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast', reasoningRequired: true }],
+  // Grok 4.1 Fast（reasoning 可通过 thinking 参数控制）
+  ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
+  ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
   // Step 3.5 Flash (免费 MoE 196B/11B, reasoningRequired)
   [
     'openrouter:stepfun/step-3.5-flash:free',
@@ -387,9 +431,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Kimi K2.5
   ['openrouter:kimi-k2.5', { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.5' }],
   ['openrouter:moonshotai/kimi-k2.5', { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.5' }],
-  // GLM 5
-  ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
-  ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
+  // GLM 5 - 不考虑使用
+  // ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
+  // ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
   // MiniMax M2.5 (reasoningRequired: 400 "Reasoning is mandatory")
   ['openrouter:minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5', reasoningRequired: true }],
   [
@@ -445,7 +489,8 @@ const logger = getAppLogger('features', 'LLMModel');
  * - 开发环境：model 不存在时直接报错（fail fast）
  * - 生产环境：model 不存在时 warning + fallback 到 DEFAULT_LLM_MODEL
  */
-export function getModel(key: LLMModelKey): ModelConfig {
+export function getModel(spec: LLMModelSpec): ModelConfig {
+  const { key } = parseModelSpec(spec);
   const config = modelRegistry.get(key);
   if (config) {
     return config;
@@ -481,8 +526,8 @@ export function getModel(key: LLMModelKey): ModelConfig {
  * @example
  * getModelId('openrouter:claude-3.5-sonnet') // → 'anthropic/claude-3.5-sonnet'
  */
-export function getModelId(key: LLMModelKey): string {
-  return getModel(key).modelId;
+export function getModelId(spec: LLMModelSpec): string {
+  return getModel(spec).modelId;
 }
 
 /**
@@ -491,15 +536,18 @@ export function getModelId(key: LLMModelKey): string {
  * @example
  * getProvider('openrouter:gemini-2.5-flash') // → 'openrouter'
  */
-export function getProvider(key: LLMModelKey): LLMProviderType {
-  return getModel(key).provider as LLMProviderType;
+export function getProvider(spec: LLMModelSpec): LLMProviderType {
+  return getModel(spec).provider as LLMProviderType;
 }
 
 /**
  * 检查 Model 是否已注册
  */
 export function isModelRegistered(key: string): key is LLMModelKey {
-  return modelRegistry.has(key);
+  // 支持 LLMModelSpec 格式（strip query string）
+  const qIdx = key.indexOf('?');
+  const baseKey = qIdx === -1 ? key : key.slice(0, qIdx);
+  return modelRegistry.has(baseKey);
 }
 
 /**
@@ -576,8 +624,10 @@ export function validateModelKey(modelKey: string): { valid: boolean; error?: st
     };
   }
 
-  // 检查 Provider 是否配置了 API Key
-  const config = modelRegistry.get(modelKey);
+  // 检查 Provider 是否配置了 API Key（strip query string）
+  const qIdx = modelKey.indexOf('?');
+  const baseKey = qIdx === -1 ? modelKey : modelKey.slice(0, qIdx);
+  const config = modelRegistry.get(baseKey);
   if (config) {
     const provider = config.provider;
     if (!isProviderConfigured(provider)) {
