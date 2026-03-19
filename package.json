@@ -87,7 +87,6 @@
     "@types/express-session": "^1.18.2",
     "@types/jest": "^30.0.0",
     "@types/json-schema": "^7.0.15",
-    "@types/koa": "^3.0.2",
     "@types/luxon": "^3.7.1",
     "@types/morgan": "^1.9.10",
     "@types/number-to-words": "^1.2.3",
