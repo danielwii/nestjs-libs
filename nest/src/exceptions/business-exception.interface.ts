@@ -1,6 +1,10 @@
 /**
  * 业务异常接口
  * 用于 AnyExceptionFilter 处理，避免直接依赖具体实现
+ *
+ * @deprecated Use OopsError base class instead. This interface is kept for backward compatibility
+ * with consumers that haven't migrated to Oops V2 yet.
+ * @see OopsError
  */
 export interface IBusinessException extends Error {
   /**
