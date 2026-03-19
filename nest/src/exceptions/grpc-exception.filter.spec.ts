@@ -1,4 +1,7 @@
 import { GrpcExceptionFilter } from './grpc-exception.filter';
+import { Oops } from './oops';
+
+import './oops-factories';
 
 import { Metadata, status } from '@grpc/grpc-js';
 import { describe, expect, it } from 'bun:test';
@@ -123,6 +126,64 @@ describe('GrpcExceptionFilter', () => {
       } catch (error: unknown) {
         const grpcError = error as { code: number };
         expect(grpcError.code).toBe(status.INVALID_ARGUMENT);
+      }
+    });
+  });
+
+  describe('Oops V2 instances', () => {
+    it('Oops (422) should return OK with metadata', async () => {
+      const { host, sentMetadata } = mockGrpcHost();
+      const exception = Oops.Validation('bad input', 'field missing');
+
+      const result$ = filter.catch(exception, host);
+      const response = await firstValueFrom(result$);
+
+      expect(response).toEqual({});
+      expect(sentMetadata).toHaveLength(1);
+    });
+
+    it('Oops.Block (401) should throw UNAUTHENTICATED', async () => {
+      const { host } = mockGrpcHost();
+      const exception = Oops.Block.Unauthorized('expired token');
+
+      const result$ = filter.catch(exception, host);
+
+      try {
+        await firstValueFrom(result$);
+        expect(true).toBe(false);
+      } catch (error: unknown) {
+        const grpcError = error as { code: number };
+        expect(grpcError.code).toBe(status.UNAUTHENTICATED);
+      }
+    });
+
+    it('Oops.Block (404) should throw NOT_FOUND', async () => {
+      const { host } = mockGrpcHost();
+      const exception = Oops.Block.NotFound('User', 'u_123');
+
+      const result$ = filter.catch(exception, host);
+
+      try {
+        await firstValueFrom(result$);
+        expect(true).toBe(false);
+      } catch (error: unknown) {
+        const grpcError = error as { code: number };
+        expect(grpcError.code).toBe(status.NOT_FOUND);
+      }
+    });
+
+    it('Oops.Panic (500) should throw INTERNAL', async () => {
+      const { host } = mockGrpcHost();
+      const exception = Oops.Panic.Database('query failed');
+
+      const result$ = filter.catch(exception, host);
+
+      try {
+        await firstValueFrom(result$);
+        expect(true).toBe(false);
+      } catch (error: unknown) {
+        const grpcError = error as { code: number };
+        expect(grpcError.code).toBe(status.INTERNAL);
       }
     });
   });

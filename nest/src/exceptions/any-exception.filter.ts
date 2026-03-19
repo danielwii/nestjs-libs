@@ -13,9 +13,11 @@ import { ThrottlerException } from '@nestjs/throttler';
 import { SysEnv } from '@app/env';
 import { ApiRes } from '@app/nest/common/response';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
+import { getAppLogger } from '@app/utils/app-logger';
 import { getErrorMessage, getErrorName, getErrorStatus, getResponseMessage } from '@app/utils/error';
 
-import { getAppLogger } from '@app/utils/app-logger';
+import { OopsError } from './oops-error';
+
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { GraphQLError } from 'graphql';
 import * as _ from 'radash';
@@ -95,6 +97,12 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
 
     if (isGraphqlRequest) {
+      // OopsError V2: instanceof 检测（优先）
+      if (exception instanceof OopsError) {
+        return this.handleGraphqlBusinessException(exception, request, host);
+      }
+
+      // Legacy: duck-typing 检测（向后兼容）
       if (this.isBusinessException(exception)) {
         return this.handleGraphqlBusinessException(exception, request, host);
       }
@@ -113,7 +121,12 @@ export class AnyExceptionFilter implements ExceptionFilter {
     // GraphQL 分支已 throw/return，后续代码仅 HTTP 请求执行，response 是完整的 Express Response
     const response = rawResponse as Response;
 
-    // 处理 OopsException（BusinessException / FatalException）
+    // OopsError V2: instanceof 检测（优先）
+    if (exception instanceof OopsError) {
+      return this.handleBusinessException(exception, request, response, host);
+    }
+
+    // Legacy: duck-typing 检测（向后兼容）
     if (this.isBusinessException(exception)) {
       return this.handleBusinessException(exception, request, response, host);
     }
@@ -328,14 +341,18 @@ export class AnyExceptionFilter implements ExceptionFilter {
     const isFatal = exception.httpStatus >= 500;
 
     if (isFatal) {
-      // FatalException: error 日志 + Sentry
+      // Panic / FatalException: error 日志 + Sentry
       this.captureExceptionBySentry(exception, host);
       this.logger
-        .error`(${request?.user?.uid})[${request?.ip}] FatalException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
-    } else {
-      // BusinessException: warn 日志，不触发 Sentry
+        .error`(${request?.user?.uid})[${request?.ip}] Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+    } else if (exception.httpStatus !== 422 && exception instanceof OopsError) {
+      // Block (4xx non-422)
       this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .warning`(${request?.user?.uid})[${request?.ip}] Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+    } else {
+      // Oops (422) / legacy BusinessException
+      this.logger
+        .warning`(${request?.user?.uid})[${request?.ip}] Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     }
 
     // 获取翻译后的错误消息
@@ -357,14 +374,18 @@ export class AnyExceptionFilter implements ExceptionFilter {
     const isFatal = exception.httpStatus >= 500;
 
     if (isFatal) {
-      // FatalException: error 日志 + Sentry
+      // Panic / FatalException: error 日志 + Sentry
       this.captureExceptionBySentry(exception, host);
       this.logger
-        .error`(${request?.user?.uid})[${request?.ip}] GraphQL FatalException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
-    } else {
-      // BusinessException: warn 日志，不触发 Sentry
+        .error`(${request?.user?.uid})[${request?.ip}] GraphQL Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+    } else if (exception.httpStatus !== 422 && exception instanceof OopsError) {
+      // Block (4xx non-422)
       this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] GraphQL BusinessException ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .warning`(${request?.user?.uid})[${request?.ip}] GraphQL Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+    } else {
+      // Oops (422) / legacy BusinessException
+      this.logger
+        .warning`(${request?.user?.uid})[${request?.ip}] GraphQL Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     }
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);

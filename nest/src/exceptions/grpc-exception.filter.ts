@@ -1,9 +1,12 @@
 import { Catch } from '@nestjs/common';
 
+import { getAppLogger } from '@app/utils/app-logger';
+
 import { OOPS_ERROR_METADATA_KEY } from './error-codes';
+import { Oops } from './oops';
+import { OopsError } from './oops-error';
 
 import { Metadata as GrpcMetadata, status } from '@grpc/grpc-js';
-import { getAppLogger } from '@app/utils/app-logger';
 import * as Sentry from '@sentry/nestjs';
 import { Observable, of, throwError } from 'rxjs';
 import { ZodError } from 'zod';
@@ -61,7 +64,12 @@ export class GrpcExceptionFilter implements ExceptionFilter {
   constructor(private readonly provider: string) {}
 
   catch(exception: unknown, host: ArgumentsHost): Observable<unknown> {
-    // OopsException 转换为结构化 gRPC 错误
+    // OopsError V2: instanceof 检测（优先）
+    if (exception instanceof OopsError) {
+      return this.handleOopsErrorV2(exception, host);
+    }
+
+    // Legacy: duck-typing 检测（向后兼容）
     if (this.isOopsException(exception)) {
       return this.handleOopsException(exception, host);
     }
@@ -119,6 +127,57 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     this.logger.warning`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`;
 
     // host.getArgByIndex(2) = gRPC call 对象，NestJS 适配层传递 [request, metadata, call]
+    const call = host.getArgByIndex(2);
+    if (call?.sendMetadata) {
+      const metadata = new GrpcMetadata();
+      metadata.set(OOPS_ERROR_METADATA_KEY, Buffer.from(details, 'utf-8'));
+      call.sendMetadata(metadata);
+    }
+
+    return of({});
+  }
+
+  /**
+   * OopsError V2 处理
+   *
+   * - Panic (500): gRPC INTERNAL + Sentry
+   * - Block (4xx): 映射到具体 gRPC status（客户端错误，不用 OK pattern）
+   * - Oops (422): gRPC OK + metadata（业务拒绝，Istio 不计为错误）
+   */
+  private handleOopsErrorV2(exception: OopsError, host: ArgumentsHost): Observable<unknown> {
+    const grpcError: GrpcError = {
+      httpStatus: exception.httpStatus,
+      errorCode: exception.errorCode,
+      businessCode: exception.oopsCode,
+      userMessage: exception.userMessage,
+      internalDetails: exception.internalDetails,
+      provider: exception.provider ?? this.provider,
+    };
+
+    const details = JSON.stringify(grpcError);
+
+    if (exception.isFatal()) {
+      // Panic: gRPC INTERNAL + Sentry
+      this.logger
+        .error`[${exception.getCombinedCode()}] Oops.Panic ${exception.userMessage} | ${exception.internalDetails} ${exception}`;
+      Sentry.captureException(exception);
+
+      const grpcStatus = this.httpStatusToGrpcStatus(exception.httpStatus);
+      return throwError(() => ({ code: grpcStatus, details }));
+    }
+
+    if (exception instanceof Oops.Block) {
+      // Block: 映射到具体 gRPC status，不用 OK pattern
+      this.logger
+        .warning`[${exception.getCombinedCode()}] Oops.Block(${exception.httpStatus}) ${exception.userMessage} | ${exception.internalDetails}`;
+
+      const grpcStatus = this.httpStatusToGrpcStatus(exception.httpStatus);
+      return throwError(() => ({ code: grpcStatus, details }));
+    }
+
+    // Oops (422): OK pattern + metadata
+    this.logger.warning`[${exception.getCombinedCode()}] Oops ${exception.userMessage} | ${exception.internalDetails}`;
+
     const call = host.getArgByIndex(2);
     if (call?.sendMetadata) {
       const metadata = new GrpcMetadata();
