@@ -24,11 +24,18 @@ import * as _ from 'radash';
 import { ZodError } from 'zod';
 
 import type { IdentityRequest } from '../types/identity.interface';
-import type { IBusinessException } from './business-exception.interface';
 import type { II18nService } from '@app/nest/common/i18n.interface';
 import type { ErrorCodeValue } from '@app/nest/exceptions/error-codes';
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext, INestApplication } from '@nestjs/common';
 import type { Response } from 'express';
+
+/** OopsError 或兼容旧 OopsLike 的鸭子类型 */
+type OopsLike = {
+  readonly httpStatus: number;
+  readonly userMessage: string;
+  getCombinedCode(): string;
+  getInternalDetails(): string;
+};
 
 /**
  * ⚠️  ErrorCodes 迁移说明（针对其他项目）
@@ -305,7 +312,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
   /**
    * 判断是否为 BusinessException
    */
-  private isBusinessException(exception: unknown): exception is IBusinessException {
+  private isBusinessException(exception: unknown): exception is OopsLike {
     return (
       typeof exception === 'object' &&
       exception !== null &&
@@ -333,7 +340,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * - httpStatus >= 500: FatalException，error 日志，触发 Sentry
    */
   private async handleBusinessException(
-    exception: IBusinessException,
+    exception: OopsLike,
     request: IdentityRequest | undefined,
     response: Response,
     host: ArgumentsHost,
@@ -367,7 +374,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
   }
 
   private async handleGraphqlBusinessException(
-    exception: IBusinessException,
+    exception: OopsLike,
     request: IdentityRequest | undefined,
     host: ArgumentsHost,
   ): Promise<never> {
@@ -453,7 +460,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * - 不做任何语言判断、规范化、fallback
    * - 所有语言逻辑交给 i18nService.translateErrorMessage 统一处理
    */
-  private async getTranslatedMessage(exception: IBusinessException, request?: IdentityRequest): Promise<string> {
+  private async getTranslatedMessage(exception: OopsLike, request?: IdentityRequest): Promise<string> {
     try {
       const i18nService = this.getI18nService();
       if (!i18nService) {
