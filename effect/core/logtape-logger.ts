@@ -9,6 +9,7 @@
  * 兼容 NestJS 旧名（verbose/log/warn）。
  */
 
+import { devFormatter, prodFormatter } from '@app/utils/log-formatter';
 import { r } from '@app/utils/logging';
 
 import { getAppLogger } from './app-logger';
@@ -16,22 +17,6 @@ import { getAppLogger } from './app-logger';
 import { configure, getConsoleSink } from '@logtape/logtape';
 import { context, trace } from '@opentelemetry/api';
 import { Cause, Effect, Layer, Logger, LogLevel } from 'effect';
-
-// ==================== ANSI Colors ====================
-
-const ansi = {
-  reset: '\x1b[0m',
-  dim: '\x1b[2m',
-  bold: '\x1b[1m',
-  cyan: '\x1b[36m',
-  // Level colors
-  trace: '\x1b[2m', // dim
-  debug: '\x1b[34m', // blue
-  info: '\x1b[32m', // green
-  warning: '\x1b[33m', // yellow
-  error: '\x1b[31m', // red
-  fatal: '\x1b[35m', // magenta
-} as const;
 
 // ==================== Effect Logger → LogTape Bridge ====================
 
@@ -101,108 +86,7 @@ const logtapeLogger = Logger.make(({ logLevel, message, cause, annotations, span
   }
 });
 
-// ==================== Dev Formatter ====================
-
-/** `2026-03-16 15:00:00.022+09:00` */
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts);
-  const pad2 = (n: number) => String(n).padStart(2, '0');
-  const pad3 = (n: number) => String(n).padStart(3, '0');
-
-  const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
-
-  const offset = -d.getTimezoneOffset();
-  const sign = offset >= 0 ? '+' : '-';
-  const abs = Math.abs(offset);
-  const tz = `${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
-
-  return `${date} ${time}${tz}`;
-}
-
-/** Level label → ANSI colored full uppercase */
-function colorLevel(level: string): string {
-  const upper = level.toUpperCase().padEnd(7); // 'WARNING' is longest (7)
-  const color = (ansi as Record<string, string>)[level] ?? ansi.info;
-  return `${ansi.bold}${color}${upper}${ansi.reset}`;
-}
-
-/**
- * Dev formatter — 直接控制布局，无 regex hack
- *
- * `2026-03-16 15:00:00.022+09:00 INFO    [spanName|traceId|userId] unee-mcp·Prisma: message`
- */
-function devFormatter(record: {
-  readonly timestamp: number;
-  readonly level: string;
-  readonly category: readonly string[];
-  readonly message: readonly unknown[];
-  readonly rawMessage: string | TemplateStringsArray;
-  readonly properties: Record<string, unknown>;
-}): string {
-  const timestamp = `${ansi.dim}${formatTimestamp(record.timestamp)}${ansi.reset}`;
-  const level = colorLevel(record.level);
-  const category = `${ansi.dim}${record.category.join('·')}:${ansi.reset}`;
-
-  // Context tag: [spanName|traceId|userId]
-  const contextParts: string[] = [];
-  const { traceId, userId, spanName } = record.properties;
-  if (spanName && typeof spanName === 'string') contextParts.push(spanName);
-  if (traceId && typeof traceId === 'string') contextParts.push(traceId);
-  if (userId && typeof userId === 'string' && userId.trim().length > 0) contextParts.push(userId);
-  const contextTag = contextParts.length > 0 ? `${ansi.cyan}[${contextParts.join('|')}]${ansi.reset} ` : '';
-
-  // Message: non-string values through r() for type-aware rendering
-  // Error objects: error/fatal → with stack trace, warning → message only
-  const isErrorLevel = record.level === 'error' || record.level === 'fatal';
-  const renderValue = (p: unknown): string => {
-    if (typeof p === 'string') return p;
-    if (p instanceof Error) {
-      return isErrorLevel ? r(p) : p.message;
-    }
-    return r(p);
-  };
-  const raw = Array.isArray(record.message) ? record.message.map(renderValue).join('') : String(record.message);
-  const levelColor = (ansi as Record<string, string>)[record.level] ?? '';
-  const message =
-    levelColor.length > 0 ? `${levelColor}${raw.replaceAll(ansi.reset, ansi.reset + levelColor)}${ansi.reset}` : raw;
-
-  return `${timestamp} ${level} ${contextTag}${category} ${message}`;
-}
-
 // ==================== LogTape Configuration ====================
-
-/**
- * Prod formatter — JSON lines for log aggregation (Loki/CloudWatch)
- *
- * 自定义而非 getJsonLinesFormatter，因为 LogTape 的 rendered message 会双重引号。
- */
-function prodFormatter(record: {
-  readonly timestamp: number;
-  readonly level: string;
-  readonly category: readonly string[];
-  readonly message: readonly unknown[];
-  readonly rawMessage: string | TemplateStringsArray;
-  readonly properties: Record<string, unknown>;
-}): string {
-  const message = Array.isArray(record.message)
-    ? record.message.map((p) => (typeof p === 'string' ? p : String(p))).join('')
-    : String(record.message);
-
-  const entry: Record<string, unknown> = {
-    '@timestamp': new Date(record.timestamp).toISOString(),
-    level: record.level.toUpperCase(),
-    message,
-    logger: record.category.join('.'),
-  };
-
-  // Flatten properties (module, traceId, userId, spanName)
-  for (const [k, v] of Object.entries(record.properties)) {
-    if (v !== undefined && v !== null) entry[k] = v;
-  }
-
-  return JSON.stringify(entry);
-}
 
 /** NestJS 旧名 → LogTape 标准名 */
 const nestAliases: Record<string, string> = { verbose: 'trace', log: 'info', warn: 'warning' };
