@@ -11,15 +11,14 @@ import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { VisitorInterceptor } from '@app/nest/interceptors/visitor.interceptor';
 import { configureLogging, LogtapeNestLogger } from '@app/nest/logging';
 import { otelTraceMiddleware } from '@app/nest/middleware/otel-trace.middleware';
+import { getAppLogger } from '@app/utils/app-logger';
 import { maskSecret } from '@app/utils/security';
 
 import os from 'node:os';
 
-import { getAppLogger } from '@app/utils/app-logger';
 import compression from 'compression';
 import { RedisStore } from 'connect-redis';
 import cookieParser from 'cookie-parser';
-import dedent from 'dedent';
 import { json } from 'express';
 import session from 'express-session';
 import { graphqlUploadExpress } from 'graphql-upload-ts';
@@ -101,26 +100,26 @@ export async function simpleBootstrap(
           ? '预发布环境(测试数据)'
           : '开发环境(测试数据)';
 
-      bootstrapLogger.info`${dedent`🦋 [Server] API Server started successfully
-          ┌─ 环境配置 ─────────────────────────────────────────────
-          │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'} - ${runtimeModeDesc}
-          │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}
-          │ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}
-          ├─ 应用信息 ─────────────────────────────────────────────
-          │ App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}
-          │ Host: ${os.hostname()}
-          │ Node Name: ${SysEnv.NODE_NAME}
-          │ Bind: ${bindAddress}
-          │ Port: ${SysEnv.PORT}
-          │ PID: ${process.pid}
-          ├─ 运行时信息 ───────────────────────────────────────────
-          │ Platform: ${process.platform}
-          │ Runtime: ${runtimeVersions}
-          │ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})
-          │ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
-          │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
-          └─ Startup Time: ${Date.now() - now}ms
-        `}`;
+      // Banner: 每行独立 tagged template，保留参数类型信息（number=黄, string=cyan）
+      bootstrapLogger.info`🦋 [Server] API Server started successfully`;
+      bootstrapLogger.info`┌─ 环境配置 ─────────────────────────────────────────────`;
+      bootstrapLogger.info`│ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'} - ${runtimeModeDesc}`;
+      bootstrapLogger.info`│ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}`;
+      bootstrapLogger.info`│ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}`;
+      bootstrapLogger.info`├─ 应用信息 ─────────────────────────────────────────────`;
+      bootstrapLogger.info`│ App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}`;
+      bootstrapLogger.info`│ Host: ${os.hostname()}`;
+      bootstrapLogger.info`│ Node Name: ${SysEnv.NODE_NAME}`;
+      bootstrapLogger.info`│ Bind: ${bindAddress}`;
+      bootstrapLogger.info`│ Port: ${SysEnv.PORT}`;
+      bootstrapLogger.info`│ PID: ${process.pid}`;
+      bootstrapLogger.info`├─ 运行时信息 ───────────────────────────────────────────`;
+      bootstrapLogger.info`│ Platform: ${process.platform}`;
+      bootstrapLogger.info`│ Runtime: ${runtimeVersions}`;
+      bootstrapLogger.info`│ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})`;
+      bootstrapLogger.info`│ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})`;
+      bootstrapLogger.info`│ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}`;
+      bootstrapLogger.info`└─ Startup Time: ${Date.now() - now}ms`;
     });
   return app;
 }
@@ -366,26 +365,25 @@ export async function bootstrap(
         'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
       const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
 
-      bootstrapLogger.info`${dedent`🦋 [Server] API Server started successfully
-          ┌─ 环境配置 ─────────────────────────────────────────────
-          │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV} - ${runtimeModeDesc}
-          │ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}
-          │ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}
-          ├─ 应用信息 ─────────────────────────────────────────────
-          │ App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}
-          │ Host: ${os.hostname()}
-          │ Node Name: ${SysEnv.NODE_NAME}
-          │ Bind: ${bindAddress}
-          │ Port: ${port}
-          │ PID: ${process.pid}
-          ├─ 运行时信息 ───────────────────────────────────────────
-          │ Platform: ${process.platform}
-          │ Runtime: ${runtimeVersions}
-          │ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})
-          │ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})
-          │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
-          └─ Startup Time: ${Date.now() - now}ms
-        `}`;
+      bootstrapLogger.info`🦋 [Server] API Server started successfully`;
+      bootstrapLogger.info`┌─ 环境配置 ─────────────────────────────────────────────`;
+      bootstrapLogger.info`│ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'} - ${runtimeModeDesc}`;
+      bootstrapLogger.info`│ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}`;
+      bootstrapLogger.info`│ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}`;
+      bootstrapLogger.info`├─ 应用信息 ─────────────────────────────────────────────`;
+      bootstrapLogger.info`│ App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}`;
+      bootstrapLogger.info`│ Host: ${os.hostname()}`;
+      bootstrapLogger.info`│ Node Name: ${SysEnv.NODE_NAME}`;
+      bootstrapLogger.info`│ Bind: ${bindAddress}`;
+      bootstrapLogger.info`│ Port: ${port}`;
+      bootstrapLogger.info`│ PID: ${process.pid}`;
+      bootstrapLogger.info`├─ 运行时信息 ───────────────────────────────────────────`;
+      bootstrapLogger.info`│ Platform: ${process.platform}`;
+      bootstrapLogger.info`│ Runtime: ${runtimeVersions}`;
+      bootstrapLogger.info`│ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})`;
+      bootstrapLogger.info`│ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})`;
+      bootstrapLogger.info`│ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}`;
+      bootstrapLogger.info`└─ Startup Time: ${Date.now() - now}ms`;
     });
 
   return app;

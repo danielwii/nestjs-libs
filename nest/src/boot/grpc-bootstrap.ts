@@ -10,14 +10,13 @@ import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { configureLogging, LogtapeNestLogger } from '@app/nest/logging';
+import { getAppLogger } from '@app/utils/app-logger';
 
 import { addGrpcHealthService } from './grpc-health';
 
 import fs from 'node:fs';
 import os from 'node:os';
 
-import { getAppLogger } from '@app/utils/app-logger';
-import dedent from 'dedent';
 import { DateTime } from 'luxon';
 import { ServerReflection, ServerReflectionService } from 'nice-grpc-server-reflection';
 
@@ -285,24 +284,23 @@ export async function grpcBootstrap(
         'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
       const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
 
-      bootstrapLogger.info`${dedent`🦋 [Server] gRPC Server started successfully
-          ┌─ 环境配置 ─────────────────────────────────────────────
-          │ Node Runtime (NODE_ENV): ${process.env.NODE_ENV}
-          │ Business Env (ENV): ${SysEnv.environment.env} → isProd=${SysEnv.environment.isProd}
-          │ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}
-          ├─ 应用信息 ─────────────────────────────────────────────
-          │ App Version: ${options.packageJson?.name ?? 'unknown'}-v${options.packageJson?.version ?? 'unknown'}
-          │ Host: ${os.hostname()}
-          │ gRPC Port: ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}
-          │ HTTP Port: ${httpPort} (health check)
-          │ Service Token: ${process.env.GRPC_SERVICE_TOKEN ? 'configured' : 'not configured'}
-          │ PID: ${process.pid}
-          ├─ 运行时信息 ───────────────────────────────────────────
-          │ Platform: ${process.platform}
-          │ Runtime: ${runtimeVersions}
-          │ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}
-          └─ Startup Time: ${Date.now() - now}ms
-        `}`;
+      bootstrapLogger.info`🦋 [Server] gRPC Server started successfully`;
+      bootstrapLogger.info`┌─ 环境配置 ─────────────────────────────────────────────`;
+      bootstrapLogger.info`│ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'}`;
+      bootstrapLogger.info`│ Business Env (ENV): ${SysEnv.environment.env} → isProd=${SysEnv.environment.isProd}`;
+      bootstrapLogger.info`│ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}`;
+      bootstrapLogger.info`├─ 应用信息 ─────────────────────────────────────────────`;
+      bootstrapLogger.info`│ App Version: ${options.packageJson?.name ?? 'unknown'}-v${options.packageJson?.version ?? 'unknown'}`;
+      bootstrapLogger.info`│ Host: ${os.hostname()}`;
+      bootstrapLogger.info`│ gRPC Port: ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}`;
+      bootstrapLogger.info`│ HTTP Port: ${httpPort} (health check)`;
+      bootstrapLogger.info`│ Service Token: ${process.env.GRPC_SERVICE_TOKEN ? 'configured' : 'not configured'}`;
+      bootstrapLogger.info`│ PID: ${process.pid}`;
+      bootstrapLogger.info`├─ 运行时信息 ───────────────────────────────────────────`;
+      bootstrapLogger.info`│ Platform: ${process.platform}`;
+      bootstrapLogger.info`│ Runtime: ${runtimeVersions}`;
+      bootstrapLogger.info`│ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}`;
+      bootstrapLogger.info`└─ Startup Time: ${Date.now() - now}ms`;
     });
 
   return app;
