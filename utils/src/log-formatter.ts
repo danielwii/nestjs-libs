@@ -88,17 +88,33 @@ export function devFormatter(record: LogRecord): string {
   }
   const contextTag = contextParts.length > 0 ? `${ansi.cyan}[${contextParts.join('|')}]${ansi.reset} ` : '';
 
-  // Message: non-string values through r() for type-aware rendering
-  // Error objects: error/fatal → with stack trace, warning → message only
+  // Message rendering:
+  // Tagged template `logger.info\`port ${3700}\`` → message = ["port ", 3700]
+  // rawMessage is TemplateStringsArray for tagged templates, string for plain calls
+  // Interpolated values (odd indices) go through r() for type-aware coloring
+  // Static parts (even indices) are plain text — no coloring
   const isErrorLevel = record.level === 'error' || record.level === 'fatal';
-  const renderValue = (p: unknown): string => {
+  const isTaggedTemplate = Array.isArray(record.rawMessage);
+  const renderPart = (p: unknown, index: number): string => {
+    // Static template parts (even indices in tagged template) — no coloring
+    if (isTaggedTemplate && index % 2 === 0) {
+      return typeof p === 'string' ? p : String(p);
+    }
+    // Interpolated values (tagged template) — type-aware coloring via r()
+    if (isTaggedTemplate) {
+      if (p instanceof Error) {
+        return isErrorLevel ? r(p) : p.message;
+      }
+      return r(p);
+    }
+    // Plain string call — no coloring for strings, r() for objects/errors
     if (typeof p === 'string') return p;
     if (p instanceof Error) {
       return isErrorLevel ? r(p) : p.message;
     }
     return r(p);
   };
-  const raw = Array.isArray(record.message) ? record.message.map(renderValue).join('') : String(record.message);
+  const raw = Array.isArray(record.message) ? record.message.map(renderPart).join('') : String(record.message);
   const levelColor = (ansi as Record<string, string>)[record.level] ?? '';
   const message =
     levelColor.length > 0 ? `${levelColor}${raw.replaceAll(ansi.reset, ansi.reset + levelColor)}${ansi.reset}` : raw;
