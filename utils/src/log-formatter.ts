@@ -89,25 +89,36 @@ export function devFormatter(record: LogRecord): string {
   const contextTag = contextParts.length > 0 ? `${ansi.cyan}[${contextParts.join('|')}]${ansi.reset} ` : '';
 
   // Message rendering:
-  // Tagged template `logger.info\`port ${3700}\`` → message = ["port ", 3700]
-  // rawMessage is TemplateStringsArray for tagged templates, string for plain calls
-  // Interpolated values (odd indices) go through r() for type-aware coloring
+  // Tagged template `logger.info\`port ${3700}\`` → rawMessage = ["port ", ""], message = ["port ", 3700, ""]
+  // Interpolated values (odd indices) go through r() for type-aware coloring (number=yellow, string=cyan)
   // Static parts (even indices) are plain text — no coloring
+  //
+  // Special case: `logger.info\`${msg}\`` (NestJS wrapper pattern)
+  // → rawMessage = ["", ""], message = ["", msg, ""]
+  // Single string interpolation = pre-rendered message, skip value coloring
   const isErrorLevel = record.level === 'error' || record.level === 'fatal';
   const isTaggedTemplate = Array.isArray(record.rawMessage);
+  // Detect NestJS wrapper: tagged template with single string interpolation (rawMessage has 2 empty parts)
+  const isSingleStringWrap =
+    isTaggedTemplate &&
+    Array.isArray(record.rawMessage) &&
+    record.rawMessage.length === 2 &&
+    record.message.length === 3 &&
+    typeof record.message[1] === 'string';
+  const colorInterpolations = isTaggedTemplate && !isSingleStringWrap;
   const renderPart = (p: unknown, index: number): string => {
     // Static template parts (even indices in tagged template) — no coloring
     if (isTaggedTemplate && index % 2 === 0) {
       return typeof p === 'string' ? p : String(p);
     }
-    // Interpolated values (tagged template) — type-aware coloring via r()
-    if (isTaggedTemplate) {
+    // Interpolated values with multiple params — type-aware coloring via r()
+    if (colorInterpolations) {
       if (p instanceof Error) {
         return isErrorLevel ? r(p) : p.message;
       }
       return r(p);
     }
-    // Plain string call — no coloring for strings, r() for objects/errors
+    // Single-wrap or plain call — no coloring for strings, r() for objects/errors
     if (typeof p === 'string') return p;
     if (p instanceof Error) {
       return isErrorLevel ? r(p) : p.message;
