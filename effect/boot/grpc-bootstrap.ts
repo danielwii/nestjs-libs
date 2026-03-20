@@ -54,7 +54,7 @@ export interface GrpcHealthConfig {
   servingStatus: { SERVING: string; NOT_SERVING: string };
 }
 
-export interface GrpcBootstrapConfig {
+export interface GrpcBootstrapConfig<LOut = never, LE = never, LIn = never> {
   /**
    * descriptor_set.bin 路径
    * 用于 gRPC reflection
@@ -81,7 +81,7 @@ export interface GrpcBootstrapConfig {
   setup?: Effect.Effect<void, any, any>;
 
   /** 应用 Layer（infrastructure 等） */
-  layers?: Layer.Layer<any, any, any>;
+  layers?: Layer.Layer<LOut, LE, LIn>;
 
   /** 是否启用 gRPC reflection，默认 true */
   reflection?: boolean;
@@ -118,7 +118,7 @@ function extractServiceNames(descriptorSetPath: string): string[] {
 
 // ==================== Bootstrap ====================
 
-export function grpcBootstrap(config: GrpcBootstrapConfig): void {
+export function grpcBootstrap<LOut = never, LE = never, LIn = never>(config: GrpcBootstrapConfig<LOut, LE, LIn>): void {
   const enableReflection = config.reflection !== false;
 
   const appLive = config.layers

@@ -116,7 +116,7 @@ import { Config, Effect, Layer, Option } from 'effect';
  * });
  * ```
  */
-export function mcpBootstrap(config: {
+export function mcpBootstrap<LOut = never, LE = never, LIn = never>(config: {
   /** 初始化逻辑（注册 tools/resources/prompts） */
   setup: Effect.Effect<any, any, any>;
   /** HTTP 模式：启动 server 后立即返回（不阻塞），bootstrap 自动阻塞等待 SIGTERM */
@@ -124,7 +124,7 @@ export function mcpBootstrap(config: {
   /** stdio 模式：运行 stdio handler，阻塞直到结束 */
   stdio: Effect.Effect<any, any, any>;
   /** 应用 Layer（infrastructure + MCP server 等） */
-  layers?: Layer.Layer<any, any, any>;
+  layers?: Layer.Layer<LOut, LE, LIn>;
   /** transport env var 名，默认 "MCP_TRANSPORT" */
   transportEnvVar?: string;
 }): void {
