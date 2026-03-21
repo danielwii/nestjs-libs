@@ -51,8 +51,7 @@ import {
 } from 'ai';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
-import type { LLMModelSpec } from '../types/model.types';
-import type { LLMModelKey } from '../types/model.types';
+import type { LLMModelKey, LLMModelSpec } from '../types/model.types';
 /**
  * 仅对已知会包裹 markdown 代码块的模型启用 extractJsonMiddleware。
  *
@@ -144,6 +143,8 @@ interface BaseParams {
   abortSignal?: AbortSignal;
   /** 超时时间（毫秒），未传 abortSignal 时生效，默认 60000 */
   timeout?: number;
+  /** 最大重试次数（覆盖 spec 和 env 默认值） */
+  maxRetries?: number;
   /** Telemetry 配置 */
   telemetry?: TelemetrySettings;
 }
@@ -219,18 +220,52 @@ interface GenerateTextResult {
  *
  * spec 里的 `?reason=low` 作为默认值，调用方显式传 `thinking` 时覆盖。
  */
+/** resolveSpec 返回值 */
+interface ResolvedSpec {
+  key: LLMModelKey;
+  thinking: ThinkingEffort;
+  maxRetries: number;
+  timeout: number;
+  fallbackModels: LLMModelKey[];
+}
+
+const specLogger = getAppLogger('features', 'LLM', 'spec');
+
+/**
+ * 从 LLMModelSpec 解析出完整运行时参数
+ *
+ * 优先级：caller 显式参数 > spec 参数 > env 默认值
+ */
 function resolveSpec(
   modelSpec: LLMModelSpec,
   callerThinking: ThinkingEffort,
-): {
-  key: LLMModelKey;
-  thinking: ThinkingEffort;
-} {
+  callerMaxRetries: number | undefined,
+  callerTimeout: number | undefined,
+): ResolvedSpec {
   const parsed = parseModelSpec(modelSpec);
   // 调用方显式传了非 'none' 的 thinking → 用调用方的
   // 调用方用默认 'none' 且 spec 有 reason → 用 spec 的
   const thinking = callerThinking !== 'none' ? callerThinking : (parsed.thinking ?? 'none');
-  return { key: parsed.key, thinking };
+  const maxRetries = callerMaxRetries ?? parsed.maxRetries ?? SysEnv.AI_LLM_MAX_RETRIES;
+  const timeout = callerTimeout ?? parsed.timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;
+  const fallbackModels = parsed.fallbackModels;
+
+  // 有非默认参数时打印生效值，方便排查
+  const hasSpecParams =
+    parsed.thinking !== undefined ||
+    parsed.maxRetries !== undefined ||
+    parsed.timeout !== undefined ||
+    fallbackModels.length > 0;
+  if (hasSpecParams) {
+    const parts: string[] = [];
+    if (thinking !== 'none') parts.push(`thinking=${thinking}`);
+    parts.push(`retry=${maxRetries}`);
+    parts.push(`timeout=${timeout}ms`);
+    if (fallbackModels.length > 0) parts.push(`fallback=[${fallbackModels.join(',')}]`);
+    specLogger.info`[resolveSpec] ${parsed.key} → ${parts.join(', ')}`;
+  }
+
+  return { key: parsed.key, thinking, maxRetries, timeout, fallbackModels };
 }
 
 /**
@@ -313,6 +348,54 @@ function createManagedSignal(
       }
     },
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Retry & Fallback
+// ═══════════════════════════════════════════════════════════════════════════
+
+const fallbackLogger = getAppLogger('features', 'LLM', 'fallback');
+
+/** 判断错误是否值得 fallback（429/5xx/timeout），非 retryable 的直接抛 */
+function isRetryableError(error: unknown): boolean {
+  if (APICallError.isInstance(error)) {
+    const status = error.statusCode;
+    return status === 429 || (status !== undefined && status >= 500);
+  }
+  if (error instanceof DOMException && error.name === 'TimeoutError') return true;
+  if (error instanceof Error && error.message.includes('timed out')) return true;
+  return false;
+}
+
+/**
+ * 带 fallback 的执行器（仅用于 generate* 等 async 方法）
+ *
+ * 主模型重试耗尽后，依次尝试 fallback 模型。
+ * 每个 fallback 模型同样使用 spec 的 retry/timeout 配置。
+ */
+async function withFallback<T>(
+  id: string,
+  method: string,
+  spec: ResolvedSpec,
+  execute: (modelKey: LLMModelKey) => Promise<T>,
+): Promise<T> {
+  const allModels = [spec.key, ...spec.fallbackModels];
+  let lastError: unknown;
+  for (const [i, modelKey] of allModels.entries()) {
+    try {
+      return await execute(modelKey);
+    } catch (error) {
+      lastError = error;
+      const isLast = i === allModels.length - 1;
+      if (isLast || !isRetryableError(error)) {
+        throw error;
+      }
+      const nextModel = allModels.at(i + 1);
+      const msg = error instanceof Error ? error.message : String(error);
+      fallbackLogger.warning`[LLM:fallback] id=${id}, method=${method}, model=${modelKey} failed: ${msg}. Trying ${nextModel ?? 'none'}`;
+    }
+  }
+  throw lastError;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -420,7 +503,6 @@ export class LLM {
    * ```
    */
   static async generateObject<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
-    const startTime = Date.now();
     const {
       model: modelSpec,
       id,
@@ -432,45 +514,51 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      timeout,
+      timeout: callerTimeout,
+      maxRetries: callerMaxRetries,
       telemetry = DEFAULT_TELEMETRY,
     } = params;
 
-    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
-    LLM.logStart(id, 'generateObject', modelKey, thinking);
-    LLM.logInputSummary(id, schema, messages, system);
+    const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
 
-    const languageModel = createModel(modelKey);
-    const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
+    return withFallback(id, 'generateObject', spec, async (modelKey) => {
+      const startTime = Date.now();
+      LLM.logStart(id, 'generateObject', modelKey, spec.thinking);
+      LLM.logInputSummary(id, schema, messages, system);
 
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+      const languageModel = createModel(modelKey);
+      const provider = parseProvider(modelKey);
+      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
 
-    try {
-      const result = await generateText({
-        model: languageModel,
-        output: Output.object({ schema }),
-        system,
-        messages,
-        providerOptions,
-        temperature,
-        maxOutputTokens,
-        abortSignal: signal,
-        experimental_telemetry: telemetry,
-      });
+      const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
-      cleanup();
-      LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage);
+      try {
+        const result = await generateText({
+          model: languageModel,
+          output: Output.object({ schema }),
+          system,
+          messages,
+          providerOptions,
+          temperature,
+          maxOutputTokens,
+          maxRetries: spec.maxRetries,
+          abortSignal: signal,
+          experimental_telemetry: telemetry,
+        });
 
-      return {
-        object: result.output,
-        usage: result.usage,
-      };
-    } catch (error) {
-      cleanup();
-      LLM.logError(id, 'generateObject', modelKey, error);
-      throw error;
-    }
+        cleanup();
+        LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage);
+
+        return {
+          object: result.output,
+          usage: result.usage,
+        };
+      } catch (error) {
+        cleanup();
+        LLM.logError(id, 'generateObject', modelKey, error);
+        throw error;
+      }
+    });
   }
 
   /**
@@ -485,7 +573,6 @@ export class LLM {
    * ```
    */
   static async generateText(params: GenerateTextParams): Promise<GenerateTextResult> {
-    const startTime = Date.now();
     const {
       model: modelSpec,
       id,
@@ -496,53 +583,59 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      timeout,
+      timeout: callerTimeout,
+      maxRetries: callerMaxRetries,
       telemetry = DEFAULT_TELEMETRY,
       tools,
       modelIdSuffix,
     } = params;
 
-    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
-    LLM.logStart(id, 'generateText', modelKey, thinking);
+    const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
 
-    const languageModel = createModel(modelKey, modelIdSuffix);
-    const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
+    return withFallback(id, 'generateText', spec, async (modelKey) => {
+      const startTime = Date.now();
+      LLM.logStart(id, 'generateText', modelKey, spec.thinking);
 
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+      const languageModel = createModel(modelKey, modelIdSuffix);
+      const provider = parseProvider(modelKey);
+      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
 
-    try {
-      const result = await generateText({
-        model: languageModel,
-        system,
-        messages,
-        tools,
-        providerOptions,
-        temperature,
-        maxOutputTokens,
-        abortSignal: signal,
-        experimental_telemetry: telemetry,
-      });
+      const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
-      cleanup();
+      try {
+        const result = await generateText({
+          model: languageModel,
+          system,
+          messages,
+          tools,
+          providerOptions,
+          temperature,
+          maxOutputTokens,
+          maxRetries: spec.maxRetries,
+          abortSignal: signal,
+          experimental_telemetry: telemetry,
+        });
 
-      const sourcesCount = result.sources.length;
-      if (sourcesCount > 0) {
-        LLM.logger.debug`[LLM:sources] id=${id}, sources=${sourcesCount}`;
+        cleanup();
+
+        const sourcesCount = result.sources.length;
+        if (sourcesCount > 0) {
+          LLM.logger.debug`[LLM:sources] id=${id}, sources=${sourcesCount}`;
+        }
+
+        LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
+
+        return {
+          text: result.text,
+          usage: result.usage,
+          sources: extractWebSources(result.sources),
+        };
+      } catch (error) {
+        cleanup();
+        LLM.logError(id, 'generateText', modelKey, error);
+        throw error;
       }
-
-      LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
-
-      return {
-        text: result.text,
-        usage: result.usage,
-        sources: extractWebSources(result.sources),
-      };
-    } catch (error) {
-      cleanup();
-      LLM.logError(id, 'generateText', modelKey, error);
-      throw error;
-    }
+    });
   }
 
   /**
@@ -593,14 +686,16 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      timeout,
+      timeout: callerTimeout,
+      maxRetries: callerMaxRetries,
       telemetry = DEFAULT_TELEMETRY,
       tools,
       stopWhen,
     } = params;
 
-    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
-    LLM.logStart(id, 'streamObject', modelKey, thinking);
+    const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const { key: modelKey } = spec;
+    LLM.logStart(id, 'streamObject', modelKey, spec.thinking);
 
     const languageModel = createModel(modelKey);
     const model: LanguageModel = MODELS_NEEDING_EXTRACT_JSON.has(modelKey)
@@ -620,9 +715,9 @@ export class LLM {
       : languageModel;
 
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
 
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+    const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
     let ttftLogged = false;
 
@@ -636,6 +731,7 @@ export class LLM {
       providerOptions,
       temperature,
       maxOutputTokens,
+      maxRetries: spec.maxRetries,
       abortSignal: signal,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
@@ -684,18 +780,20 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      timeout,
+      timeout: callerTimeout,
+      maxRetries: callerMaxRetries,
       telemetry = DEFAULT_TELEMETRY,
     } = params;
 
-    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
-    LLM.logStart(id, 'streamText', modelKey, thinking);
+    const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const { key: modelKey } = spec;
+    LLM.logStart(id, 'streamText', modelKey, spec.thinking);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
 
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+    const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
     let ttftLogged = false;
 
@@ -706,6 +804,7 @@ export class LLM {
       providerOptions,
       temperature,
       maxOutputTokens,
+      maxRetries: spec.maxRetries,
       abortSignal: signal,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {
@@ -769,7 +868,6 @@ export class LLM {
       parallelToolCalls?: boolean;
     },
   ): Promise<GenerateObjectResult<T>> {
-    const startTime = Date.now();
     const {
       model: modelSpec,
       id,
@@ -781,115 +879,121 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      timeout,
+      timeout: callerTimeout,
+      maxRetries: callerMaxRetries,
       telemetry = DEFAULT_TELEMETRY,
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
       parallelToolCalls = true,
     } = params;
 
-    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
-    LLM.logStart(id, 'generateObjectViaTool', modelKey, thinking);
-    LLM.logInputSummary(id, schema, messages, system);
+    const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
 
-    const languageModel = createModel(modelKey);
-    const provider = parseProvider(modelKey);
-    const baseProviderOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
+    return withFallback(id, 'generateObjectViaTool', spec, async (modelKey) => {
+      const startTime = Date.now();
+      LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking);
+      LLM.logInputSummary(id, schema, messages, system);
 
-    // OpenRouter 支持 parallelToolCalls 参数控制并行 tool call
-    const providerOptions =
-      provider === 'openrouter'
-        ? {
-            ...baseProviderOptions,
-            openrouter: {
-              ...((baseProviderOptions as Record<string, unknown>).openrouter as Record<string, unknown> | undefined),
-              parallelToolCalls,
-            },
-          }
-        : baseProviderOptions;
+      const languageModel = createModel(modelKey);
+      const provider = parseProvider(modelKey);
+      const baseProviderOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
 
-    // 创建 Tool，将 Schema 作为 inputSchema
-    const tools = {
-      [toolName]: tool({
-        description: toolDescription,
-        inputSchema: schema,
-      }),
-    };
-
-    // 强制使用指定的 Tool
-    const toolChoice = { type: 'tool' as const, toolName };
-
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
-
-    try {
-      const result = await generateText({
-        model: languageModel,
-        system,
-        messages,
-        tools,
-        toolChoice,
-        providerOptions,
-        temperature,
-        maxOutputTokens,
-        abortSignal: signal,
-        experimental_telemetry: telemetry,
-      });
-
-      cleanup();
-      LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
-
-      // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
-      const toolCall = result.toolCalls.at(0);
-      if (!toolCall || !('input' in toolCall)) {
-        throw new Error('No tool call returned from LLM');
-      }
-
-      if (!parallelToolCalls && result.toolCalls.length > 1) {
-        LLM.logger
-          .warning`[LLM:warn] id=${id} generateObjectViaTool returned ${result.toolCalls.length} tool calls (expected 1), using first`;
-      }
-
-      // 预处理：部分模型（如 Grok）将嵌套对象序列化为 JSON 字符串
-      // 在验证前尝试还原，无法还原的保持原样交给 safeParse 报错
-      const rawInput = toolCall.input;
-      const preprocessed = coerceStringifiedObjects(rawInput);
-
-      // safeParse 验证：fail fast，不兜底修复
-      const parseResult = schema.safeParse(preprocessed);
-      if (!parseResult.success) {
-        // 完整打印原始 tool call 输出——这是诊断 validation 失败的关键证据
-        LLM.logger.warning`[LLM:validation-failed] id=${id} rawInput=${JSON.stringify(rawInput)}`;
-        LLM.logger.warning`[LLM:validation-failed] id=${id} preprocessed=${JSON.stringify(preprocessed)}`;
-
-        const issues = parseResult.error.issues
-          .slice(0, 5)
-          .map((i) => {
-            // 从原始输入中提取失败字段的实际值
-            let actual: unknown = preprocessed;
-            for (const seg of i.path) {
-              if (actual != null && typeof actual === 'object') {
-                actual = (actual as Record<string, unknown>)[String(seg)];
-              } else {
-                actual = undefined;
-                break;
-              }
+      // OpenRouter 支持 parallelToolCalls 参数控制并行 tool call
+      const providerOptions =
+        provider === 'openrouter'
+          ? {
+              ...baseProviderOptions,
+              openrouter: {
+                ...((baseProviderOptions as Record<string, unknown>).openrouter as Record<string, unknown> | undefined),
+                parallelToolCalls,
+              },
             }
-            const actualStr = actual === undefined ? '' : ` (got ${JSON.stringify(actual)})`;
-            return `${i.path.join('.')}: ${i.message}${actualStr}`;
-          })
-          .join('; ');
-        throw new Error(`[LLM:validation] id=${id} Tool call output validation failed: ${issues}`);
-      }
+          : baseProviderOptions;
 
-      return {
-        object: parseResult.data,
-        usage: result.usage,
+      // 创建 Tool，将 Schema 作为 inputSchema
+      const tools = {
+        [toolName]: tool({
+          description: toolDescription,
+          inputSchema: schema,
+        }),
       };
-    } catch (error) {
-      cleanup();
-      LLM.logError(id, 'generateObjectViaTool', modelKey, error);
-      throw error;
-    }
+
+      // 强制使用指定的 Tool
+      const toolChoice = { type: 'tool' as const, toolName };
+
+      const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
+
+      try {
+        const result = await generateText({
+          model: languageModel,
+          system,
+          messages,
+          tools,
+          toolChoice,
+          providerOptions,
+          temperature,
+          maxOutputTokens,
+          maxRetries: spec.maxRetries,
+          abortSignal: signal,
+          experimental_telemetry: telemetry,
+        });
+
+        cleanup();
+        LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
+
+        // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
+        const toolCall = result.toolCalls.at(0);
+        if (!toolCall || !('input' in toolCall)) {
+          throw new Error('No tool call returned from LLM');
+        }
+
+        if (!parallelToolCalls && result.toolCalls.length > 1) {
+          LLM.logger
+            .warning`[LLM:warn] id=${id} generateObjectViaTool returned ${result.toolCalls.length} tool calls (expected 1), using first`;
+        }
+
+        // 预处理：部分模型（如 Grok）将嵌套对象序列化为 JSON 字符串
+        // 在验证前尝试还原，无法还原的保持原样交给 safeParse 报错
+        const rawInput = toolCall.input;
+        const preprocessed = coerceStringifiedObjects(rawInput);
+
+        // safeParse 验证：fail fast，不兜底修复
+        const parseResult = schema.safeParse(preprocessed);
+        if (!parseResult.success) {
+          // 完整打印原始 tool call 输出——这是诊断 validation 失败的关键证据
+          LLM.logger.warning`[LLM:validation-failed] id=${id} rawInput=${JSON.stringify(rawInput)}`;
+          LLM.logger.warning`[LLM:validation-failed] id=${id} preprocessed=${JSON.stringify(preprocessed)}`;
+
+          const issues = parseResult.error.issues
+            .slice(0, 5)
+            .map((i) => {
+              // 从原始输入中提取失败字段的实际值
+              let actual: unknown = preprocessed;
+              for (const seg of i.path) {
+                if (actual != null && typeof actual === 'object') {
+                  actual = (actual as Record<string, unknown>)[String(seg)];
+                } else {
+                  actual = undefined;
+                  break;
+                }
+              }
+              const actualStr = actual === undefined ? '' : ` (got ${JSON.stringify(actual)})`;
+              return `${i.path.join('.')}: ${i.message}${actualStr}`;
+            })
+            .join('; ');
+          throw new Error(`[LLM:validation] id=${id} Tool call output validation failed: ${issues}`);
+        }
+
+        return {
+          object: parseResult.data,
+          usage: result.usage,
+        };
+      } catch (error) {
+        cleanup();
+        LLM.logError(id, 'generateObjectViaTool', modelKey, error);
+        throw error;
+      }
+    });
   }
 
   /**
@@ -942,18 +1046,20 @@ export class LLM {
       temperature,
       maxOutputTokens,
       abortSignal,
-      timeout,
+      timeout: callerTimeout,
+      maxRetries: callerMaxRetries,
       telemetry = DEFAULT_TELEMETRY,
       toolName = 'extract',
       toolDescription = 'Extract structured data from the input',
     } = params;
 
-    const { key: modelKey, thinking } = resolveSpec(modelSpec, callerThinking);
-    LLM.logStart(id, 'streamObjectViaTool', modelKey, thinking);
+    const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const { key: modelKey } = spec;
+    LLM.logStart(id, 'streamObjectViaTool', modelKey, spec.thinking);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, thinking, modelKey, providerSort);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
 
     // 创建 Tool，将 Schema 作为 inputSchema
     const tools = {
@@ -966,7 +1072,7 @@ export class LLM {
     // 强制使用指定的 Tool
     const toolChoice = { type: 'tool' as const, toolName };
 
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+    const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
     const result = streamText({
       model: languageModel,
@@ -977,6 +1083,7 @@ export class LLM {
       providerOptions,
       temperature,
       maxOutputTokens,
+      maxRetries: spec.maxRetries,
       abortSignal: signal,
       experimental_telemetry: telemetry,
       onError: ({ error }) => {

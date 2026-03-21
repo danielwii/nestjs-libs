@@ -1,3 +1,4 @@
+import { getAppLogger } from '@app/utils/app-logger';
 import { errorStack } from '@app/utils/error';
 
 import { NODE_ENV } from './env';
@@ -7,7 +8,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { config } from '@dotenvx/dotenvx';
-import { getAppLogger } from '@app/utils/app-logger';
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, validateSync } from 'class-validator';
 import JSON5 from 'json5';
@@ -231,6 +231,13 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsNumber()
   @Min(1_000)
   AI_LLM_TIMEOUT_MS: number = 60_000;
+
+  /** 默认 LLM 调用最大重试次数（429/5xx 自动重试，exponential backoff） */
+  @DatabaseField('number', '默认 LLM 最大重试次数')
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  AI_LLM_MAX_RETRIES: number = 2;
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
   @IsString() @IsOptional() DATABASE_URL?: string;

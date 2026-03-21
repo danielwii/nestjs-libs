@@ -23,7 +23,6 @@
  */
 
 import { getLLMModelFields, SysEnv } from '@app/env';
-
 import { getAppLogger } from '@app/utils/app-logger';
 
 /**
@@ -343,6 +342,12 @@ export type LLMModelSpec = LLMModelKey | `${LLMModelKey}?${string}`;
 export interface ParsedModelSpec {
   key: LLMModelKey;
   thinking: ThinkingEffortLevel | undefined;
+  /** 最大重试次数（覆盖 AI_LLM_MAX_RETRIES） */
+  maxRetries: number | undefined;
+  /** 超时毫秒（覆盖 AI_LLM_TIMEOUT_MS） */
+  timeout: number | undefined;
+  /** 降级模型链，主模型失败后依次尝试 */
+  fallbackModels: LLMModelKey[];
 }
 
 const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']);
@@ -360,15 +365,68 @@ const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']
 export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
   const qIdx = spec.indexOf('?');
   if (qIdx === -1) {
-    return { key: spec as LLMModelKey, thinking: undefined };
+    return {
+      key: spec as LLMModelKey,
+      thinking: undefined,
+      maxRetries: undefined,
+      timeout: undefined,
+      fallbackModels: [],
+    };
   }
   const key = spec.slice(0, qIdx) as LLMModelKey;
   const params = new URLSearchParams(spec.slice(qIdx + 1));
+
+  // reason → thinking effort（无效值 warning + 忽略，不阻断）
   const reason = params.get('reason');
-  const thinking = reason && VALID_THINKING_EFFORTS.has(reason)
-    ? (reason as ThinkingEffortLevel)
-    : undefined;
-  return { key, thinking };
+  let thinking: ThinkingEffortLevel | undefined;
+  if (reason !== null) {
+    if (VALID_THINKING_EFFORTS.has(reason)) {
+      thinking = reason as ThinkingEffortLevel;
+    } else {
+      logger.warning`[parseModelSpec] Invalid reason "${reason}" in "${spec}", ignoring. Valid: ${[...VALID_THINKING_EFFORTS].join(', ')}`;
+    }
+  }
+
+  // retry → maxRetries（无效值 warning + 忽略）
+  const retryRaw = params.get('retry');
+  let maxRetries: number | undefined;
+  if (retryRaw !== null) {
+    const n = Number(retryRaw);
+    if (/^\d+$/.test(retryRaw) && n >= 0) {
+      maxRetries = n;
+    } else {
+      logger.warning`[parseModelSpec] Invalid retry "${retryRaw}" in "${spec}", ignoring. Must be non-negative integer.`;
+    }
+  }
+
+  // timeout → timeout ms（无效值 warning + 忽略）
+  const timeoutRaw = params.get('timeout');
+  let timeout: number | undefined;
+  if (timeoutRaw !== null) {
+    const n = Number(timeoutRaw);
+    if (/^\d+$/.test(timeoutRaw) && n >= 1000) {
+      timeout = n;
+    } else {
+      logger.warning`[parseModelSpec] Invalid timeout "${timeoutRaw}" in "${spec}", ignoring. Must be ≥ 1000ms.`;
+    }
+  }
+
+  // fallback → fallback model chain（未注册的 warning + 跳过）
+  const fallbackRaw = params.get('fallback');
+  const fallbackModels: LLMModelKey[] = [];
+  if (fallbackRaw) {
+    for (const fb of fallbackRaw.split(',')) {
+      const trimmed = fb.trim();
+      if (!trimmed) continue;
+      if (!modelRegistry.has(trimmed)) {
+        logger.warning`[parseModelSpec] Fallback model "${trimmed}" in "${spec}" not registered, skipping.`;
+        continue;
+      }
+      fallbackModels.push(trimmed as LLMModelKey);
+    }
+  }
+
+  return { key, thinking, maxRetries, timeout, fallbackModels };
 }
 
 /**
@@ -541,12 +599,18 @@ export function getProvider(spec: LLMModelSpec): LLMProviderType {
 }
 
 /**
- * 检查 Model 是否已注册
+ * 检查 Model Key 是否已注册（严格匹配，不接受带参数的 spec）
  */
 export function isModelRegistered(key: string): key is LLMModelKey {
-  // 支持 LLMModelSpec 格式（strip query string）
-  const qIdx = key.indexOf('?');
-  const baseKey = qIdx === -1 ? key : key.slice(0, qIdx);
+  return modelRegistry.has(key);
+}
+
+/**
+ * 检查 Model Spec 是否有效（支持 `provider:model?param=value` 格式）
+ */
+export function isModelSpecValid(spec: string): spec is LLMModelSpec {
+  const qIdx = spec.indexOf('?');
+  const baseKey = qIdx === -1 ? spec : spec.slice(0, qIdx);
   return modelRegistry.has(baseKey);
 }
 
@@ -616,8 +680,8 @@ export interface LLMConfigurationValidationResult {
  * 验证单个 Model Key
  */
 export function validateModelKey(modelKey: string): { valid: boolean; error?: string } {
-  // 检查 Model 是否已注册
-  if (!isModelRegistered(modelKey)) {
+  // 检查 Model 是否已注册（支持 spec 格式）
+  if (!isModelSpecValid(modelKey)) {
     return {
       valid: false,
       error: `Model "${modelKey}" is not registered. Available: ${getRegisteredModels().join(', ')}`,

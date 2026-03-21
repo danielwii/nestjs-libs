@@ -6,16 +6,14 @@
  * - 验证时读取运行时 Registry
  * - 项目层注册新 Model 后自动生效
  */
-import { isModelRegistered } from '../types/model.types';
+import { isModelRegistered, isModelSpecValid } from '../types/model.types';
 
 import { z } from 'zod';
 
-import type { LLMModelKey } from '../types/model.types';
+import type { LLMModelKey, LLMModelSpec } from '../types/model.types';
 
 /**
- * 动态 Model Schema
- *
- * 验证值是否为已注册的 Model Key
+ * 严格 Model Key Schema — 不接受带参数的 spec
  */
 export const LLMModelKeySchema = z.custom<LLMModelKey>(
   (val): val is LLMModelKey => {
@@ -28,7 +26,20 @@ export const LLMModelKeySchema = z.custom<LLMModelKey>(
 );
 
 /**
- * 创建 Model Schema 的工厂函数（如需自定义错误消息）
+ * Model Spec Schema — 接受 `provider:model` 或 `provider:model?reason=low`
+ */
+export const LLMModelSpecSchema = z.custom<LLMModelSpec>(
+  (val): val is LLMModelSpec => {
+    if (typeof val !== 'string') return false;
+    return isModelSpecValid(val);
+  },
+  {
+    message: 'Invalid LLM model spec',
+  },
+);
+
+/**
+ * 创建 Model Key Schema 的工厂函数（如需自定义错误消息）
  */
 export function createModelKeySchema(options?: { message?: string }) {
   return z.custom<LLMModelKey>(
@@ -38,6 +49,21 @@ export function createModelKeySchema(options?: { message?: string }) {
     },
     {
       message: options?.message ?? 'Invalid LLM model key',
+    },
+  );
+}
+
+/**
+ * 创建 Model Spec Schema 的工厂函数（如需自定义错误消息）
+ */
+export function createModelSpecSchema(options?: { message?: string }) {
+  return z.custom<LLMModelSpec>(
+    (val): val is LLMModelSpec => {
+      if (typeof val !== 'string') return false;
+      return isModelSpecValid(val);
+    },
+    {
+      message: options?.message ?? 'Invalid LLM model spec',
     },
   );
 }
