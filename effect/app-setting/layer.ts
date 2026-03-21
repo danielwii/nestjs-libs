@@ -1,4 +1,5 @@
 import { f } from '@app/utils/logging';
+
 /**
  * makeAppSettingsLive — AppSettings Layer 工厂
  *
@@ -50,7 +51,11 @@ const SyncWriteEnabled = Schema.Config(
  * // 提供给 Layer 组合
  * ```
  */
-export const makeAppSettingsLive = (fields: Record<string, DatabaseFieldDef>, prismaClient: AppSettingClient) =>
+export const makeAppSettingsLive = (
+  fields: Record<string, DatabaseFieldDef>,
+  prismaClient: AppSettingClient,
+  options?: { scope?: string },
+) =>
   Layer.scoped(
     AppSettings,
     Effect.gen(function* () {
@@ -65,7 +70,7 @@ export const makeAppSettingsLive = (fields: Record<string, DatabaseFieldDef>, pr
       const ref = yield* Ref.make(initialValues);
 
       // sync Effect（内部 tryPromise 可能抛 UnknownException）
-      const doSync = syncFromDB(prismaClient, fields, ref, syncWriteEnabled);
+      const doSync = syncFromDB(prismaClient, fields, ref, syncWriteEnabled, options);
 
       // 首次 sync（fail fast — 启动时 DB 不可达直接崩溃）
       yield* doSync;

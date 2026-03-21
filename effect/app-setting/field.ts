@@ -22,41 +22,52 @@ export interface DatabaseFieldDef<A = unknown> {
   readonly format: FieldFormat;
   readonly defaultValue: A | undefined;
   readonly description?: string;
+  /** 是否为项目级 scoped 字段（写入项目 scope 而非 'shared'） */
+  readonly scoped?: boolean;
 }
 
 // ==================== 便捷工厂 ====================
 
-export const dbString = (defaultValue?: string, description?: string): DatabaseFieldDef<string> => ({
-  schema: Schema.String,
-  format: 'string',
-  defaultValue,
-  description,
-});
+interface DatabaseFieldOptions {
+  readonly description?: string;
+  readonly scoped?: boolean;
+}
 
-export const dbNumber = (defaultValue: number, description?: string): DatabaseFieldDef<number> => ({
-  schema: Schema.NumberFromString,
-  format: 'number',
-  defaultValue,
-  description,
-});
+/** 第二参数可以是 string（description）或 options object */
+type DescriptionOrOptions = string | DatabaseFieldOptions;
 
-export const dbBoolean = (defaultValue: boolean, description?: string): DatabaseFieldDef<boolean> => ({
-  schema: Schema.transform(Schema.String, Schema.Boolean, {
-    decode: (s) => s === 'true' || s === '1',
-    encode: (b) => (b ? 'true' : 'false'),
-  }),
-  format: 'boolean',
-  defaultValue,
-  description,
-});
+const resolveOptions = (descOrOpts?: DescriptionOrOptions): { description?: string; scoped?: boolean } =>
+  typeof descOrOpts === 'string' ? { description: descOrOpts } : (descOrOpts ?? {});
+
+export const dbString = (defaultValue?: string, descOrOpts?: DescriptionOrOptions): DatabaseFieldDef<string> => {
+  const { description, scoped } = resolveOptions(descOrOpts);
+  return { schema: Schema.String, format: 'string', defaultValue, description, scoped };
+};
+
+export const dbNumber = (defaultValue: number, descOrOpts?: DescriptionOrOptions): DatabaseFieldDef<number> => {
+  const { description, scoped } = resolveOptions(descOrOpts);
+  return { schema: Schema.NumberFromString, format: 'number', defaultValue, description, scoped };
+};
+
+export const dbBoolean = (defaultValue: boolean, descOrOpts?: DescriptionOrOptions): DatabaseFieldDef<boolean> => {
+  const { description, scoped } = resolveOptions(descOrOpts);
+  return {
+    schema: Schema.transform(Schema.String, Schema.Boolean, {
+      decode: (s) => s === 'true' || s === '1',
+      encode: (b) => (b ? 'true' : 'false'),
+    }),
+    format: 'boolean',
+    defaultValue,
+    description,
+    scoped,
+  };
+};
 
 export const dbJson = <A>(
   schema: Schema.Schema<A, string>,
   defaultValue: A,
-  description?: string,
-): DatabaseFieldDef<A> => ({
-  schema,
-  format: 'json',
-  defaultValue,
-  description,
-});
+  descOrOpts?: DescriptionOrOptions,
+): DatabaseFieldDef<A> => {
+  const { description, scoped } = resolveOptions(descOrOpts);
+  return { schema, format: 'json', defaultValue, description, scoped };
+};

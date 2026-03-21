@@ -62,6 +62,7 @@ const isConfigureDebugEnabled = () => process.env.CONFIGURE_DEBUG === 'true';
 const DatabaseFieldSymbol = Symbol('DatabaseField');
 const DatabaseFieldFormatSymbol = Symbol('DatabaseFieldFormat');
 const DatabaseFieldDescriptionSymbol = Symbol('DatabaseFieldDescription');
+const DatabaseFieldScopedSymbol = Symbol('DatabaseFieldScoped');
 
 // ==================== LLM Model Field ====================
 
@@ -99,21 +100,33 @@ export function getLLMModelFields(): string[] {
   return Array.from(llmModelFields);
 }
 /**
- * 标记字段是否需要同步到数据库, 用于配置项的动态更新, 默认为空的字段需要赋值为 undefined 才能进行同步
+ * 标记字段是否需要同步到数据库, 用于配置项的动态更新
+ *
  * @param format 字段格式
- * @param description 字段描述
- * @constructor
+ * @param descriptionOrOptions 描述字符串 或 { description?, scoped? } 选项
+ *
+ * scoped 字段写入项目 scope（需要 AppConfigure 传 scope），否则写入 'shared'
  */
 export const DatabaseField =
-  (format: 'string' | 'number' | 'boolean' | 'json' = 'string', description?: string) =>
+  (
+    format: 'string' | 'number' | 'boolean' | 'json' = 'string',
+    descriptionOrOptions?: string | { description?: string; scoped?: boolean },
+  ) =>
   (target: object, propertyKey: string) => {
+    const description =
+      typeof descriptionOrOptions === 'string' ? descriptionOrOptions : descriptionOrOptions?.description;
+    const scoped = typeof descriptionOrOptions === 'object' ? descriptionOrOptions.scoped === true : false;
+
     if (isConfigureDebugEnabled()) {
-      dbFieldLogger.debug`found ${propertyKey}:${format}${description ? ` (${description})` : ''}`;
+      dbFieldLogger.debug`found ${propertyKey}:${format}${description ? ` (${description})` : ''}${scoped ? ' [scoped]' : ''}`;
     }
     Reflect.defineMetadata(DatabaseFieldSymbol, true, target, propertyKey);
     Reflect.defineMetadata(DatabaseFieldFormatSymbol, format, target, propertyKey);
     if (description) {
       Reflect.defineMetadata(DatabaseFieldDescriptionSymbol, description, target, propertyKey);
+    }
+    if (scoped) {
+      Reflect.defineMetadata(DatabaseFieldScopedSymbol, true, target, propertyKey);
     }
     if (format === 'boolean') {
       Transform(booleanTransformFn)(target, propertyKey);
@@ -373,6 +386,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
 export interface ISysAppSettingRecord {
   key: string;
+  scope: string;
   value: string | null;
   defaultValue: string | null;
   format: string;
@@ -382,19 +396,26 @@ export interface ISysAppSettingRecord {
 
 export interface ISysAppSettingClient {
   sysAppSetting: {
-    findMany(): Promise<ISysAppSettingRecord[]>;
+    findMany(args?: { where?: { scope?: { in: string[] } } }): Promise<ISysAppSettingRecord[]>;
     updateMany(args: {
-      where: { key: { in: string[] } };
+      where: { key: { in: string[] }; scope?: string };
       data: { deprecatedAt: Date | null };
     }): Promise<{ count: number }>;
     createMany(args: {
-      data: Array<{ key: string; defaultValue: string | null; format: string; description?: string | null }>;
+      data: Array<{
+        key: string;
+        scope: string;
+        defaultValue: string | null;
+        format: string;
+        description?: string | null;
+      }>;
       skipDuplicates?: boolean;
     }): Promise<{ count: number }>;
-    findUnique(args: { where: { key: string } }): Promise<ISysAppSettingRecord | null>;
+    findUnique(args: { where: { scope_key: { scope: string; key: string } } }): Promise<ISysAppSettingRecord | null>;
     create(args: {
       data: {
         key: string;
+        scope: string;
         value: string | null;
         defaultValue: string | null;
         format: string;
@@ -402,7 +423,7 @@ export interface ISysAppSettingClient {
       };
     }): Promise<ISysAppSettingRecord>;
     update(args: {
-      where: { key: string };
+      where: { scope_key: { scope: string; key: string } };
       data: { defaultValue?: string | null; description?: string | null; deprecatedAt?: Date | null };
     }): Promise<ISysAppSettingRecord>;
   };
@@ -418,6 +439,15 @@ export interface AppConfigureOptions {
    * - 使用 createNoDBConfigure() 工厂函数创建
    */
   noDB?: boolean;
+
+  /**
+   * 项目 scope 标识
+   *
+   * 多项目共享 sys_app_settings 表时，用于隔离 orphan 检测和 scoped 字段。
+   * @DatabaseField 默认写入 scope='shared'，{ scoped: true } 写入此 scope。
+   * 未设置时所有操作仅在 'shared' scope 内。
+   */
+  scope?: string;
 }
 
 export class AppConfigure<T extends AbstractEnvironmentVariables> {
@@ -549,13 +579,21 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       this.logger.debug`${'#sync skipped (noDB mode)'}`;
       return;
     }
-    await AppConfigure.syncFromDB(prisma, this.originalVars, this.vars);
+    await AppConfigure.syncFromDB(prisma, this.originalVars, this.vars, { scope: this.options.scope });
   }
 
-  static async syncFromDB<T extends object>(prisma: ISysAppSettingClient, originalEnvs: T, activeEnvs: T) {
+  static async syncFromDB<T extends object>(
+    prisma: ISysAppSettingClient,
+    originalEnvs: T,
+    activeEnvs: T,
+    options?: { scope?: string },
+  ) {
     // 注意：使用 activeEnvs 来查找装饰器元数据
     // 原因：originalEnvs 是通过 structuredClone 创建的普通对象，丢失了类原型链
     // 而 activeEnvs 是通过 plainToInstance 创建的类实例，保留了原型链和装饰器元数据
+    const projectScope = options?.scope;
+    const SHARED = 'shared';
+
     const envClass = (activeEnvs as { constructor: new () => T }).constructor as new () => T;
     const validateDbValue = (
       field: string,
@@ -590,17 +628,32 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, activeEnvs, field);
         const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, activeEnvs, field);
         const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, activeEnvs, field);
+        const isScoped = Reflect.getMetadata(DatabaseFieldScopedSymbol, activeEnvs, field) === true;
 
         return {
           field,
           isDatabaseField,
+          isScoped,
           format,
           description,
-          defaultValue: (originalEnvs as Record<string, unknown>)[field], // 用于写 DB (Env Value)
-          value: (activeEnvs as Record<string, unknown>)[field], // 用于读 DB (可能已经被污染，但这里我们只用它来做 log)
+          defaultValue: (originalEnvs as Record<string, unknown>)[field],
+          value: (activeEnvs as Record<string, unknown>)[field],
         };
       })
       .filter(({ isDatabaseField }) => !!isDatabaseField);
+
+    /** 决定字段的写入 scope：scoped 字段写项目 scope，否则写 shared。无 projectScope 时 fallback 到 shared */
+    const resolveWriteScope = (isScoped: boolean): string => {
+      if (isScoped && projectScope) return projectScope;
+      if (isScoped && !projectScope) {
+        logger.warning`#syncFromDB scoped field used without project scope, falling back to "${SHARED}"`;
+      }
+      return SHARED;
+    };
+
+    const sharedFields = fields.filter((f) => !f.isScoped);
+    const scopedFields = fields.filter((f) => f.isScoped);
+
     const syncWriteEnabledRaw = (activeEnvs as Record<string, unknown>).APP_CONFIG_SYNC_WRITE_ENABLED;
     const syncWriteEnabled =
       syncWriteEnabledRaw === true || syncWriteEnabledRaw === 'true' || syncWriteEnabledRaw === '1';
@@ -609,26 +662,32 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
     const logger = getAppLogger('AppConfigure');
 
-    // 仅在有变更时才打印详细日志，避免每次同步都输出大量重复信息
     logger.debug`#syncFromDB... reload app settings from db.`;
     logger.debug`${
       syncWriteEnabled
-        ? '#syncFromDB mode=read-write, DB values + metadata sync are enabled'
-        : '#syncFromDB mode=read-only, DB values will be applied to runtime, metadata writes are disabled'
+        ? `#syncFromDB mode=read-write scope=${projectScope ?? '(none)'}`
+        : `#syncFromDB mode=read-only scope=${projectScope ?? '(none)'}`
     }`;
     logger.debug`#syncFromDB managed keys (${managedFieldNames.length}): ${managedFieldNames.join(', ') || '(none)'}`;
-    const appSettings = (await prisma.sysAppSetting.findMany()).map(({ value, format, ...rest }) =>
-      /**/
-      ({ ...rest, value: format !== 'string' && value != null ? JSON.parse(value) : value, format }),
+
+    // 拉取相关 scope 的行：shared + 项目 scope（如有）
+    const scopesToRead = projectScope ? [SHARED, projectScope] : [SHARED];
+    const appSettings = (await prisma.sysAppSetting.findMany({ where: { scope: { in: scopesToRead } } })).map(
+      ({ value, format, ...rest }) => ({
+        ...rest,
+        value: format !== 'string' && value != null ? JSON.parse(value) : value,
+        format,
+      }),
     ) as Array<{
       key: string;
+      scope: string;
       defaultValue: unknown;
       format: string;
       description?: string;
       value: unknown;
       deprecatedAt?: Date | null;
     }>;
-    const fieldNamesInDB = new Set(appSettings.map((s) => s.key));
+
     const stats = {
       runtimeOverridesApplied: 0,
       runtimeOverridesUnchanged: 0,
@@ -642,27 +701,41 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     };
 
     if (syncWriteEnabled) {
-      const fieldNamesInCode = new Set(fields.map((f) => f.field));
+      // =====================================================
+      // Orphan 检测：按 scope 隔离，只标记自己管理的行
+      // =====================================================
 
-      // =====================================================
-      // 软删除：标记数据库中存在但代码中已删除的配置为 deprecated
-      // 设计意图：
-      // - 不物理删除，保留历史数据和配置值
-      // - 便于审计和回滚（如果配置被误删除）
-      // - 定期清理可由 DBA 或定时任务执行
-      // =====================================================
-      const orphanSettings = appSettings.filter((s) => !fieldNamesInCode.has(s.key) && !s.deprecatedAt);
-      if (orphanSettings.length > 0) {
-        stats.metadataDeprecatedMarked += orphanSettings.length;
-        logger.info`#syncFromDB 标记 ${orphanSettings.length} 个废弃配置: ${orphanSettings.map((s) => s.key).join(', ')}`;
+      // 1. shared scope: 只看 shared 行 vs sharedFields
+      const sharedFieldNames = new Set(sharedFields.map((f) => f.field));
+      const sharedRows = appSettings.filter((s) => s.scope === SHARED);
+      const sharedOrphans = sharedRows.filter((s) => !sharedFieldNames.has(s.key) && !s.deprecatedAt);
+      if (sharedOrphans.length > 0) {
+        stats.metadataDeprecatedMarked += sharedOrphans.length;
+        logger.info`#syncFromDB 标记 ${sharedOrphans.length} 个废弃配置 (shared): ${sharedOrphans.map((s) => s.key).join(', ')}`;
         await prisma.sysAppSetting.updateMany({
-          where: { key: { in: orphanSettings.map((s) => s.key) } },
+          where: { key: { in: sharedOrphans.map((s) => s.key) }, scope: SHARED },
           data: { deprecatedAt: new Date() },
         });
       }
 
-      // 恢复：如果配置被重新添加到代码中，清除 deprecatedAt 标记
-      const restoredSettings = appSettings.filter((s) => fieldNamesInCode.has(s.key) && Boolean(s.deprecatedAt));
+      // 2. project scope: 只看项目行 vs scopedFields
+      if (projectScope) {
+        const scopedFieldNames = new Set(scopedFields.map((f) => f.field));
+        const projectRows = appSettings.filter((s) => s.scope === projectScope);
+        const projectOrphans = projectRows.filter((s) => !scopedFieldNames.has(s.key) && !s.deprecatedAt);
+        if (projectOrphans.length > 0) {
+          stats.metadataDeprecatedMarked += projectOrphans.length;
+          logger.info`#syncFromDB 标记 ${projectOrphans.length} 个废弃配置 (${projectScope}): ${projectOrphans.map((s) => s.key).join(', ')}`;
+          await prisma.sysAppSetting.updateMany({
+            where: { key: { in: projectOrphans.map((s) => s.key) }, scope: projectScope },
+            data: { deprecatedAt: new Date() },
+          });
+        }
+      }
+
+      // 恢复：被重新添加到代码中的配置（分 scope 检查）
+      const allFieldNames = new Set(fields.map((f) => f.field));
+      const restoredSettings = appSettings.filter((s) => allFieldNames.has(s.key) && Boolean(s.deprecatedAt));
       if (restoredSettings.length > 0) {
         stats.metadataRestored += restoredSettings.length;
         logger.info`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`;
@@ -672,13 +745,16 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         });
       }
 
-      // 如何 appSettings 中不存在，则用当前的值更新
-      const nonExistsFields = fields.filter(({ field }) => !fieldNamesInDB.has(field));
+      // 创建不存在的配置字段
+      const nonExistsFields = fields.filter(({ field, isScoped }) => {
+        const writeScope = resolveWriteScope(isScoped);
+        return !appSettings.some((s) => s.key === field && s.scope === writeScope);
+      });
       if (nonExistsFields.length > 0) {
         stats.metadataCreated += nonExistsFields.length;
         logger.info`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`;
         await prisma.sysAppSetting.createMany({
-          data: nonExistsFields.map(({ field, format, description, defaultValue }) => {
+          data: nonExistsFields.map(({ field, format, description, defaultValue, isScoped }) => {
             const defaultVal =
               defaultValue !== undefined
                 ? typeof defaultValue === 'string'
@@ -686,40 +762,45 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
                   : JSON.stringify(defaultValue)
                 : null;
 
-            const newVar = {
+            const scope = resolveWriteScope(isScoped);
+            logger.info`#syncFromDB 创建配置: ${field} scope=${scope} (默认值: ${defaultVal})`;
+            return {
               key: field,
-              value: null, // 新记录初始值为空，由 Env 决定
+              scope,
+              value: null,
               defaultValue: defaultVal,
               format: format as string,
               description: description as string | null,
             };
-            logger.info`#syncFromDB 创建配置: ${field} (默认值: ${defaultVal})`;
-            return newVar;
           }),
           skipDuplicates: true,
         });
       }
     }
 
-    // 如何 appSettings 中存在，则用当前的值更新 envs
-    const existsFields = fields.filter(({ field }) => fieldNamesInDB.has(field));
+    // 读取 DB value 覆盖 runtime：resolve scoped > shared > code default
+    for (const { field, value, defaultValue, description, format, isScoped } of fields) {
+      const writeScope = resolveWriteScope(isScoped);
 
-    for (const { field, value, defaultValue, description, format } of existsFields) {
-      const appSetting = appSettings.find((setting) => setting.key === field);
-      if (!appSetting) {
-        logger.warning`#syncFromDB appSetting not found for ${field}`;
+      // scoped 字段优先读项目行，fallback 到 shared
+      const scopedRow = projectScope ? appSettings.find((s) => s.key === field && s.scope === projectScope) : undefined;
+      const sharedRow = appSettings.find((s) => s.key === field && s.scope === SHARED);
+      const effectiveRow = isScoped ? (scopedRow ?? sharedRow) : sharedRow;
+
+      if (!effectiveRow) {
+        stats.runtimeMissingDBValue += 1;
         continue;
       }
 
-      // 更新环境变量值 (用 DB Value覆盖内存里的 activeEnvs)
-      if (appSetting.value != null) {
-        const validation = validateDbValue(field, appSetting.value);
+      // 更新环境变量值
+      if (effectiveRow.value != null) {
+        const validation = validateDbValue(field, effectiveRow.value);
         if (!validation.ok) {
           stats.runtimeInvalidDBValue += 1;
-          logger.warning`#syncFromDB skip invalid DB value ${{ field, value: appSetting.value, reason: validation.reason }}`;
+          logger.warning`#syncFromDB skip invalid DB value ${{ field, value: effectiveRow.value, reason: validation.reason }}`;
         } else if (!_.isEqual(value, validation.value)) {
           stats.runtimeOverridesApplied += 1;
-          logger.info`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${validation.value}"`;
+          logger.info`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${validation.value}" (scope=${effectiveRow.scope})`;
           (activeEnvs as Record<string, unknown>)[field] = validation.value;
         } else {
           stats.runtimeOverridesUnchanged += 1;
@@ -732,7 +813,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         continue;
       }
 
-      // 检查并更新默认值和描述 (始终以 originalEnvs 为准)
+      // 检查并更新默认值和描述（写入该字段的 writeScope）
+      const metaRow = appSettings.find((s) => s.key === field && s.scope === writeScope);
+      if (!metaRow) continue;
+
       const updates: { defaultValue?: string; description?: string } = {};
       const valueToStore =
         defaultValue !== undefined
@@ -741,46 +825,40 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             : JSON.stringify(defaultValue)
           : null;
 
-      // 如果默认值不一样，需要更新
-      if (appSetting.defaultValue !== valueToStore && valueToStore !== null) {
+      if (metaRow.defaultValue !== valueToStore && valueToStore !== null) {
         updates.defaultValue = valueToStore;
       }
-
-      // 如果描述存在并且与数据库中的不同，需要更新
-      if (description && description !== appSetting.description) {
+      if (description && description !== metaRow.description) {
         updates.description = description;
       }
 
-      // 执行更新
       if (!_.isEmpty(updates)) {
         stats.metadataUpdated += 1;
-        logger.info`#syncFromDB 更新元数据: ${field} ${updates}`;
+        logger.info`#syncFromDB 更新元数据: ${field} scope=${writeScope} ${updates}`;
         try {
-          // 首先检查记录是否存在
           const existingRecord = await prisma.sysAppSetting.findUnique({
-            where: { key: field },
+            where: { scope_key: { scope: writeScope, key: field } },
           });
 
           if (!existingRecord) {
-            logger.warning`#syncFromDB record not found for update: ${field}`;
-            // 记录不存在，创建新记录
+            logger.warning`#syncFromDB record not found for update: ${field} scope=${writeScope}`;
             await prisma.sysAppSetting.create({
               data: {
                 key: field,
-                value: null, // 新记录初始值为空
+                scope: writeScope,
+                value: null,
                 defaultValue: updates.defaultValue ?? null,
                 format: format as string,
                 description: updates.description ?? null,
               },
             });
-            logger.info`#syncFromDB created record for ${field} since it didn't exist`;
+            logger.info`#syncFromDB created record for ${field} scope=${writeScope}`;
           } else {
-            // 记录存在，执行更新
             await prisma.sysAppSetting.update({
-              where: { key: field },
+              where: { scope_key: { scope: writeScope, key: field } },
               data: updates,
             });
-            logger.info`#syncFromDB successfully updated metadata for ${field}`;
+            logger.info`#syncFromDB updated metadata for ${field} scope=${writeScope}`;
           }
         } catch (error: unknown) {
           stats.metadataUpdateFailed += 1;
@@ -789,7 +867,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
     }
 
-    logger.info`#syncFromDB summary mode=${syncMode} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`;
+    logger.info`#syncFromDB summary mode=${syncMode} scope=${projectScope ?? SHARED} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`;
   }
 }
 
