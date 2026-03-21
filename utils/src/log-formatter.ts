@@ -98,12 +98,13 @@ export function devFormatter(record: LogRecord): string {
   // Single string interpolation = pre-rendered message, skip value coloring
   const isErrorLevel = record.level === 'error' || record.level === 'fatal';
   const isTaggedTemplate = Array.isArray(record.rawMessage);
-  // Detect NestJS wrapper: tagged template with single string interpolation (rawMessage has 2 empty parts)
+  // Detect NestJS wrapper: `logger.info\`${msg}\`` → rawMessage = ['', ''], both parts empty
+  // Normal single-interpolation like `logger.info\`│ Bind: ${addr}\`` → rawMessage = ['│ Bind: ', ''], has non-empty static part
   const isSingleStringWrap =
     isTaggedTemplate &&
     Array.isArray(record.rawMessage) &&
     record.rawMessage.length === 2 &&
-    record.message.length === 3 &&
+    (record.rawMessage as readonly string[]).every((s) => s.trim() === '') &&
     typeof record.message[1] === 'string';
   const colorInterpolations = isTaggedTemplate && !isSingleStringWrap;
   const renderPart = (p: unknown, index: number): string => {
