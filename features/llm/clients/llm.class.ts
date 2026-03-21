@@ -28,16 +28,16 @@
  */
 
 import { SysEnv } from '@app/env';
+import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
 import { EMBEDDING_MODELS } from '../types/embedding.types';
-import { getModel, parseModelSpec, type LLMModelSpec } from '../types/model.types';
+import { getModel, parseModelSpec } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
-import { getAppLogger } from '@app/utils/app-logger';
 import * as Sentry from '@sentry/nestjs';
 import {
   APICallError,
@@ -51,6 +51,7 @@ import {
 } from 'ai';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
+import type { LLMModelSpec } from '../types/model.types';
 import type { LLMModelKey } from '../types/model.types';
 /**
  * 仅对已知会包裹 markdown 代码块的模型启用 extractJsonMiddleware。
@@ -218,16 +219,17 @@ interface GenerateTextResult {
  *
  * spec 里的 `?reason=low` 作为默认值，调用方显式传 `thinking` 时覆盖。
  */
-function resolveSpec(modelSpec: LLMModelSpec, callerThinking: ThinkingEffort): {
+function resolveSpec(
+  modelSpec: LLMModelSpec,
+  callerThinking: ThinkingEffort,
+): {
   key: LLMModelKey;
   thinking: ThinkingEffort;
 } {
   const parsed = parseModelSpec(modelSpec);
   // 调用方显式传了非 'none' 的 thinking → 用调用方的
   // 调用方用默认 'none' 且 spec 有 reason → 用 spec 的
-  const thinking = callerThinking !== 'none'
-    ? callerThinking
-    : (parsed.thinking ?? 'none');
+  const thinking = callerThinking !== 'none' ? callerThinking : (parsed.thinking ?? 'none');
   return { key: parsed.key, thinking };
 }
 
@@ -1101,7 +1103,7 @@ export class LLM {
             model: modelId,
             input: [text],
             normalized: true,
-            ...(modelMeta && modelMeta.dimensions ? { dimensions: modelMeta.dimensions } : {}),
+            ...(modelMeta.dimensions ? { dimensions: modelMeta.dimensions } : {}),
           };
           if (task) body.task = task;
 
@@ -1229,7 +1231,7 @@ export class LLM {
           cleanup();
 
           const embedding = result.embedding.values;
-          if (!embedding || embedding.length === 0) {
+          if (embedding.length === 0) {
             throw new Error(`[LLM:embedding] id=${id} Gemini returned empty embedding`);
           }
 

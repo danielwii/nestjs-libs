@@ -102,7 +102,7 @@ export const healthHandlers = (handlers: any) =>
         ).pipe(
           Effect.timeout(Duration.seconds(5)),
           Effect.catchAll(() => Effect.succeed([] as HealthIndicatorResult[])),
-          Effect.map((r) => r ?? []),
+          Effect.map((r) => r),
         );
 
         if (results.length === 0) {
