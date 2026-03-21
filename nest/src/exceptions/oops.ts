@@ -10,6 +10,8 @@ interface OopsConfig {
   userMessage: string;
   internalDetails?: string;
   provider?: string;
+  /** 原始错误，保留完整错误链用于调试 */
+  cause?: unknown;
 }
 
 interface BlockConfig extends OopsConfig {
@@ -22,6 +24,8 @@ interface PanicConfig {
   userMessage: string;
   internalDetails?: string;
   provider?: string;
+  /** 原始错误，保留完整错误链用于调试 */
+  cause?: unknown;
 }
 
 // ==================== Oops (422) ====================
@@ -41,7 +45,7 @@ class Oops extends OopsError {
   override readonly provider?: string;
 
   constructor(config: OopsConfig) {
-    super(config.internalDetails ?? config.userMessage);
+    super(config.internalDetails ?? config.userMessage, { cause: config.cause });
     this.errorCode = config.errorCode;
     this.oopsCode = config.oopsCode;
     this.userMessage = config.userMessage;
@@ -68,7 +72,7 @@ namespace Oops {
     override readonly provider?: string;
 
     constructor(config: BlockConfig) {
-      super(config.internalDetails ?? config.userMessage);
+      super(config.internalDetails ?? config.userMessage, { cause: config.cause });
       this.httpStatus = config.httpStatus;
       this.errorCode = config.errorCode;
       this.oopsCode = config.oopsCode;
@@ -93,7 +97,7 @@ namespace Oops {
     override readonly provider?: string;
 
     constructor(config: PanicConfig) {
-      super(config.internalDetails ?? config.userMessage);
+      super(config.internalDetails ?? config.userMessage, { cause: config.cause });
       this.errorCode = config.errorCode;
       this.oopsCode = config.oopsCode ?? '';
       this.userMessage = config.userMessage;

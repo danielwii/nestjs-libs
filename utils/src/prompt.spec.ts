@@ -104,7 +104,7 @@ describe('Prompt', () => {
       <language priority="critical">Use "中文" as the default response language. Switch to another language if the user explicitly requests it.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
-      Now:2024-01-15 Monday 10:30 in the morning
+      Now:2024-01-15 Monday 10:30 in the morning (UTC)
     `);
   });
 });
@@ -177,7 +177,7 @@ describe('PromptBuilder', () => {
       <language priority="critical">Use "zh-Hans" as the default response language. Switch to another language if the user explicitly requests it.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
-      Now:2024-01-15 Monday 10:30 in the morning
+      Now:2024-01-15 Monday 10:30 in the morning (UTC)
     `);
   });
 
@@ -185,21 +185,21 @@ describe('PromptBuilder', () => {
     const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
 
     const result = prompt.render({ timezone: '+8', sensitivity: TimeSensitivity.Minute });
-    expect(result).toContain('Now:2024-01-15 Monday 18:30 in the evening');
+    expect(result).toContain('Now:2024-01-15 Monday 18:30 in the evening (UTC+8)');
   });
 
   it('应该正确处理新格式时区 "+08:00"', () => {
     const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
 
     const result = prompt.render({ timezone: '+08:00', sensitivity: TimeSensitivity.Minute });
-    expect(result).toContain('Now:2024-01-15 Monday 18:30 in the evening');
+    expect(result).toContain('Now:2024-01-15 Monday 18:30 in the evening (UTC+8)');
   });
 
   it('应该正确处理 IANA 格式时区 "Asia/Tokyo"', () => {
     const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
 
     const result = prompt.render({ timezone: 'Asia/Tokyo', sensitivity: TimeSensitivity.Minute });
-    expect(result).toContain('Now:2024-01-15 Monday 19:30 in the evening');
+    expect(result).toContain('Now:2024-01-15 Monday 19:30 in the evening (Asia/Tokyo)');
   });
 
   it('缺少 role 应抛出错误', () => {

@@ -41,13 +41,10 @@
  * ```
  */
 
-import { normalizeTimezone } from './datetime';
-import { TimeSensitivity } from './prompt';
-import { estimateTokens } from './tokenizer';
-
 import { getAppLogger } from '@app/utils/app-logger';
-import { format } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz';
+
+import { formatLocalDateTime, TimeSensitivity } from './prompt';
+import { estimateTokens } from './tokenizer';
 
 // ==================== Types ====================
 
@@ -207,11 +204,7 @@ export class Prompt {
     const contextXml = renderedSections.length > 0 ? `<context>\n${renderedSections.join('\n')}\n</context>` : '';
 
     // 3. Final Composition
-    const base = new Date();
-    const normalizedTimezone = normalizeTimezone(timezone);
-    const timestamp = normalizedTimezone
-      ? formatInTimeZone(base, normalizedTimezone, sensitivity)
-      : format(base, sensitivity);
+    const timestamp = formatLocalDateTime(undefined, sensitivity, timezone);
 
     const epiloguePart = this.data.epilogue ? `<epilogue priority="critical">${this.data.epilogue}</epilogue>` : '';
 

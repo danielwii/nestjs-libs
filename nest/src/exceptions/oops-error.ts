@@ -32,8 +32,8 @@ export abstract class OopsError extends Error {
   /** 服务提供者标识（用于追踪远程服务错误来源） */
   readonly provider?: string;
 
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = this.constructor.name;
   }
 
