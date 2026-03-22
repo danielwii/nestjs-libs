@@ -5,6 +5,7 @@ import { SysEnv } from '@app/env';
 import { validateLLMConfiguration } from '@app/features/llm';
 import { BootModule } from '@app/nest/boot/boot.module';
 import { runApp } from '@app/nest/boot/lifecycle';
+import { doMigration } from '@app/nest/common/migration';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
@@ -149,6 +150,9 @@ export async function bootstrap(
   llmValidation.warnings.forEach((w: string) => {
     bootstrapLogger.warning`[LLM] ${w}`;
   });
+
+  // DB migration（PRISMA_MIGRATION=true 时执行，必须在 Nest 初始化之前）
+  doMigration();
 
   await configureLogging(logLevel);
   const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule), {
