@@ -26,7 +26,7 @@ export function createEslintConfig({ rootDir, tsconfigPath = './tsconfig.json', 
   return defineConfig(
     {
       ignores: [
-        'eslint.config.mjs',
+        '**/*.mjs',
         'dist/*',
         'build/*',
         '**/*.js',

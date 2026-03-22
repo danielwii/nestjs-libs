@@ -4,7 +4,7 @@
   "description": "Shadcn-style CLI for nestjs-libs",
   "type": "module",
   "scripts": {
-    "lint": "eslint \"{nest,utils,env,features,effect}/**/*.ts\" --fix",
+    "lint": "eslint . --fix",
     "format": "prettier --write \"{nest,utils,env,features,effect}/**/*.ts\"",
     "test": "bun test",
     "test:cov": "bun test --coverage",

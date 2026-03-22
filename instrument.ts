@@ -37,12 +37,9 @@
 // ==================== Env Loading ====================
 // 必须最先执行：加载 .env 文件到 process.env
 // 在所有 Schema.Config / getLogger 之前
-import { config as dotenvConfig } from '@dotenvx/dotenvx';
-dotenvConfig({ path: '.env.local', override: false, ignore: ['MISSING_ENV_FILE'] });
-dotenvConfig({ path: '.env', override: false, ignore: ['MISSING_ENV_FILE'] });
-
 import { configureLogging } from '@app/nest/logging';
 
+import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
 import { diag } from '@opentelemetry/api';
 import { getStringFromEnv } from '@opentelemetry/core';
@@ -51,6 +48,9 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 
 import type { SpanExporter } from '@opentelemetry/sdk-trace-base';
+
+dotenvConfig({ path: '.env.local', override: false, ignore: ['MISSING_ENV_FILE'] });
+dotenvConfig({ path: '.env', override: false, ignore: ['MISSING_ENV_FILE'] });
 
 // ==================== LogTape ====================
 // 必须在所有应用模块 import 前完成，确保模块顶层代码（如 env validation）的日志可见
@@ -124,7 +124,7 @@ function createLangfuseProcessor(): unknown | null {
 
   const publicKey = getStringFromEnv('LANGFUSE_PUBLIC_KEY');
   const secretKey = getStringFromEnv('LANGFUSE_SECRET_KEY');
-  const baseUrl = getStringFromEnv('LANGFUSE_BASE_URL') || getStringFromEnv('LANGFUSE_BASEURL');
+  const baseUrl = getStringFromEnv('LANGFUSE_BASE_URL') ?? getStringFromEnv('LANGFUSE_BASEURL');
   if (!publicKey || !secretKey || !baseUrl) {
     langfuseLogger.warning`${'missing credentials'}`;
     return null;
@@ -134,19 +134,17 @@ function createLangfuseProcessor(): unknown | null {
   langfuseLogger.info`${`enabled host=${baseUrl} env=${environmentTag}`}`;
 
   // Only export AI-related spans (scope='ai')
-  const shouldExportSpan = ({
-    otelSpan,
-  }: {
-    otelSpan: {
+
+  const shouldExportSpan = ({ otelSpan }: { otelSpan: Record<string, unknown> }) => {
+    const span = otelSpan as {
       instrumentationScope?: { name?: string };
       name?: string;
       spanContext?: () => { traceId?: string };
       _spanContext?: { traceId?: string };
     };
-  }) => {
-    const scope = typeof otelSpan?.instrumentationScope?.name === 'string' ? otelSpan.instrumentationScope.name : '';
-    const spanName = otelSpan?.name || 'unknown';
-    const traceId = otelSpan?.spanContext?.()?.traceId ?? otelSpan?._spanContext?.traceId ?? '';
+    const scope = typeof span.instrumentationScope?.name === 'string' ? span.instrumentationScope.name : '';
+    const spanName = span.name ?? 'unknown';
+    const traceId = span.spanContext?.()?.traceId ?? span._spanContext?.traceId ?? ''; // eslint-disable-line @typescript-eslint/no-unnecessary-condition -- runtime shape varies
     const shouldExport = scope === 'ai';
     if (shouldExport) {
       otelLogger.debug`${`[${traceId}] span name=${spanName} scope=${scope} export=true`}`;
@@ -195,8 +193,8 @@ function initializeSentry() {
         logentry?: { formatted?: string; message?: string };
         exception?: { values?: Array<{ type?: string; value?: string }> };
       }) {
-        const message = event?.message || event?.logentry?.formatted || event?.logentry?.message;
-        const exceptionValues = event?.exception?.values ?? [];
+        const message = event.message ?? event.logentry?.formatted ?? event.logentry?.message;
+        const exceptionValues = event.exception?.values ?? [];
         const exceptionTexts = exceptionValues.map((v) => [v.type, v.value].filter(Boolean).join(':')).filter(Boolean);
 
         const haystack = [message, ...exceptionTexts].filter(Boolean).join('\n');
@@ -246,7 +244,7 @@ function bootstrapTracing() {
     instrumentations.push(
       new HttpInstrumentation({
         ignoreIncomingRequestHook: (req) => {
-          const url = req.url || '';
+          const url = req.url ?? '';
           return url === '/' || url === '/health' || url.startsWith('/health');
         },
       }),
