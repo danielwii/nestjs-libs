@@ -72,7 +72,7 @@ describe('Oops.Panic factory methods (500)', () => {
   it('Panic.Config()', () => {
     const err = Oops.Panic.Config('missing API key');
     expect(err).toBeInstanceOf(Oops.Panic);
-    expect(err.userMessage).toBe('系统维护中，请稍后重试');
+    expect(err.userMessage).toBe('服务配置异常，请联系管理员');
   });
 });
 

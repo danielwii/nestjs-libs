@@ -161,11 +161,11 @@ Oops.Panic.ExternalService = function (service: string, details?: string): Oops.
   });
 };
 
-/** 配置/初始化错误 — "系统维护中" */
+/** 配置/初始化错误 — 环境变量缺失或配置不合法 */
 Oops.Panic.Config = function (details: string): Oops.Panic {
   return new Oops.Panic({
     errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
-    userMessage: '系统维护中，请稍后重试',
+    userMessage: '服务配置异常，请联系管理员',
     internalDetails: `Configuration error: ${details}`,
   });
 };
