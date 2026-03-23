@@ -80,6 +80,17 @@ Oops.Block.Conflict = function (details: string): Oops.Block {
   });
 };
 
+/** 通用限流 — 429 */
+Oops.Block.RateLimited = function (resource: string, retryAfterMs?: number): Oops.Block {
+  return new Oops.Block({
+    httpStatus: 429,
+    errorCode: ErrorCodes.CLIENT_RATE_LIMITED,
+    oopsCode: 'GN07',
+    userMessage: '请求过于频繁，请稍后再试',
+    internalDetails: `Rate limited: ${resource}${retryAfterMs ? ` (retry after ${retryAfterMs}ms)` : ''}`,
+  });
+};
+
 // ==================== Oops.Block (4xx) — AI/LLM ====================
 
 /** AI 模型限流 — 429 */
@@ -186,6 +197,7 @@ declare module './oops' {
       function Forbidden(resource?: string): Oops.Block;
       function NotFound(resource: string, id?: string): Oops.Block;
       function Conflict(details: string): Oops.Block;
+      function RateLimited(resource: string, retryAfterMs?: number): Oops.Block;
       function AIModelRateLimited(model: string, options?: { cause?: unknown }): Oops.Block;
     }
 
