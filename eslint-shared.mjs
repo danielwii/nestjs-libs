@@ -60,12 +60,19 @@ export function createEslintConfig({ rootDir, tsconfigPath = './tsconfig.json', 
         '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
         '@typescript-eslint/ban-ts-comment': ['error', { 'ts-ignore': 'allow-with-description', 'ts-expect-error': 'allow-with-description' }],
 
+        // ====== Deprecation（渐进迁移，不阻断） ======
+        '@typescript-eslint/no-deprecated': 'warn',
+
         // ====== Code Style ======
         '@typescript-eslint/consistent-type-imports': 'error',
         '@typescript-eslint/prefer-nullish-coalescing': ['warn', { ignoreConditionalTests: true, ignoreMixedLogicalExpressions: true }],
         '@typescript-eslint/prefer-optional-chain': 'warn',
         '@typescript-eslint/no-unnecessary-condition': 'warn',
         'prefer-const': 'warn',
+
+        // ====== LogTape ======
+        // LogTape 使用 tagged template literal 调用（如 logger.info`msg`）
+        '@typescript-eslint/no-unused-expressions': ['error', { allowTaggedTemplates: true }],
 
         // ====== Relaxed (NestJS / Effect compat) ======
         '@typescript-eslint/no-unnecessary-type-parameters': 'off',

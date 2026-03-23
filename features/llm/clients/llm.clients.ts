@@ -78,7 +78,6 @@ let _openai: ReturnType<typeof createOpenAI> | null = null;
  */
 function getOpenRouter() {
   if (!_openrouter) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_OPENROUTER_API_KEY is not configured');
@@ -136,7 +135,6 @@ export const OPENROUTER_DEFAULTS = {
  */
 function getGoogle() {
   if (!_google) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_GOOGLE_API_KEY is not configured');
@@ -191,7 +189,6 @@ export function getGoogleProvider() {
  */
 function getVertex() {
   if (!_vertex) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_GOOGLE_VERTEX_API_KEY is not configured');
@@ -223,7 +220,6 @@ export const vertex = (modelId: string): LanguageModel => getVertex()(modelId);
  * 检查 LLM 客户端配置状态
  */
 export function getLLMClientStatus() {
-  /* eslint-disable @typescript-eslint/no-deprecated -- 旧名字兼容检查 */
   return {
     openrouter: {
       configured: !!(SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY),
@@ -237,7 +233,7 @@ export function getLLMClientStatus() {
       configured: !!(SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY),
       initialized: !!_vertex,
     },
-    /* eslint-enable @typescript-eslint/no-deprecated */
+
     proxy: {
       enabled: SysEnv.APP_PROXY_ENABLED ?? false,
       host: SysEnv.APP_PROXY_ENABLED ? `${SysEnv.APP_PROXY_HOST}:${SysEnv.APP_PROXY_PORT}` : null,
@@ -268,7 +264,6 @@ export function resetLLMClients() {
  */
 export function getOpenAI() {
   if (!_openai) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_OPENAI_API_KEY ?? SysEnv.OPENAI_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_OPENAI_API_KEY is not configured');

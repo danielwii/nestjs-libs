@@ -591,7 +591,6 @@ export class LLM {
    * ```
    */
   static safeGenerateObject<T>(params: GenerateObjectParams<T>): ResultAsync<GenerateObjectResult<T>, OopsError> {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- transitional: wraps deprecated method, will become the primary API
     return ResultAsync.fromPromise(LLM.generateObject(params), (error: unknown) =>
       LLM.classifyError(error, params.model),
     );
@@ -603,7 +602,6 @@ export class LLM {
   static safeGenerateObjectViaTool<T>(
     params: GenerateObjectParams<T> & { toolName?: string; toolDescription?: string },
   ): ResultAsync<GenerateObjectResult<T>, OopsError> {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- transitional: wraps deprecated method
     return ResultAsync.fromPromise(LLM.generateObjectViaTool(params), (error: unknown) =>
       LLM.classifyError(error, params.model),
     );
