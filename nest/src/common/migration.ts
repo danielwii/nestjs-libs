@@ -45,8 +45,12 @@ function hasPendingMigrations(configArg: string): boolean {
     }
     // 退出码 0 但没有 up to date 文案 → 保守起见当作有 pending
     return true;
-  } catch {
-    // 退出码 1 → 有 pending migration 或连接错误，都需要尝试 deploy
+  } catch (error: unknown) {
+    // 退出码 1 → 有 pending migration 或连接/解析错误
+    if (error instanceof Error && 'stderr' in error) {
+      const stderr = String((error as { stderr: unknown }).stderr);
+      if (stderr) logger.warning`🚉 migrate status stderr: ${stderr}`;
+    }
     return true;
   }
 }
@@ -55,7 +59,8 @@ function hasPendingMigrations(configArg: string): boolean {
  * 自动执行 Prisma migration（PRISMA_MIGRATION=true 时）
  *
  * 在 NestFactory.create 之前调用，确保 DB schema 与代码一致。
- * 使用 Prisma CLI，通过 prisma.config.ts 的 directUrl 直连 PG（绕过 PgBouncer）。
+ * prisma.config.ts 的 datasource.url 优先读 DIRECT_DATABASE_URL（直连 PG），
+ * fallback 到 DATABASE_URL。检测到 PgBouncer 时强制要求 DIRECT_DATABASE_URL。
  *
  * 优化：schema up to date 时跳过 deploy，避免 advisory lock 竞争。
  */
@@ -66,9 +71,14 @@ export function doMigration() {
   }
 
   // PgBouncer transaction mode 不支持 advisory lock，migration 必须直连 PG
-  if (!process.env.DIRECT_DATABASE_URL) {
+  // 检测 DATABASE_URL 是否经过 PgBouncer（端口 6432 或 hostname 含 pgbouncer）
+  const dbUrl = process.env.DATABASE_URL ?? '';
+  const isPgBouncer = dbUrl.includes(':6432') || dbUrl.toLowerCase().includes('pgbouncer');
+  if (isPgBouncer && !process.env.DIRECT_DATABASE_URL) {
     throw Oops.Panic.Config(
-      'PRISMA_MIGRATION=true requires DIRECT_DATABASE_URL (direct PG connection bypassing PgBouncer)',
+      'DATABASE_URL points to PgBouncer but DIRECT_DATABASE_URL is not set. ' +
+        'PgBouncer transaction mode does not support advisory locks required by prisma migrate. ' +
+        'Set DIRECT_DATABASE_URL to a direct PostgreSQL connection.',
     );
   }
 
