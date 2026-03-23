@@ -18,7 +18,7 @@
     ]
   },
   "dependencies": {
-    "@dotenvx/dotenvx": "^1.57.0",
+    "@dotenvx/dotenvx": "^1.57.2",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dedent": "^1.7.2",
@@ -38,7 +38,7 @@
     "@effect/platform-bun": "^0.89.0",
     "@effect/schema": "^0.75.5",
     "@effect/sql": "^0.51.0",
-    "@effect/sql-pg": "^0.52.0",
+    "@effect/sql-pg": "^0.52.1",
     "@logtape/logtape": "^2.0.4",
     "@nestjs/common": "^11.1.17",
     "@nestjs/core": "^11.1.17",

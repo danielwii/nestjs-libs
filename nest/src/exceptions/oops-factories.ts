@@ -80,6 +80,66 @@ Oops.Block.Conflict = function (details: string): Oops.Block {
   });
 };
 
+// ==================== Oops.Block (4xx) — AI/LLM ====================
+
+/** AI 模型限流 — 429 */
+Oops.Block.AIModelRateLimited = function (model: string, options?: { cause?: unknown }): Oops.Block {
+  return new Oops.Block({
+    httpStatus: 429,
+    errorCode: ErrorCodes.EXTERNAL_API_QUOTA,
+    oopsCode: 'AI02',
+    userMessage: 'AI 服务繁忙，请稍后重试',
+    internalDetails: `AI model rate limited: ${model}`,
+    provider: model,
+    cause: options?.cause,
+  });
+};
+
+// ==================== Oops.Panic (500) — AI/LLM ====================
+
+/** AI 模型调用失败（网络、API 错误等） */
+Oops.Panic.AIModelError = function (model: string, error: string, options?: { cause?: unknown }): Oops.Panic {
+  return new Oops.Panic({
+    errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
+    oopsCode: 'AI01',
+    userMessage: '服务暂时不可用，请稍后重试',
+    internalDetails: `AI model error (${model}): ${error}`,
+    provider: model,
+    cause: options?.cause,
+  });
+};
+
+const AI_FINISH_REASON_MESSAGES: Record<string, string> = {
+  'content-filter': '内容被安全过滤器拦截，请调整表达后重试',
+  length: '回复超出长度限制，请简化问题后重试',
+  error: '回复生成失败，请稍后重试',
+};
+
+/**
+ * AI 结构化输出生成失败
+ *
+ * 调用成功但未生成有效的结构化对象。finishReason 来自 Vercel AI SDK：
+ * - content-filter: 安全过滤器拦截
+ * - length: 输出超出 token 限制
+ * - error: 模型内部错误
+ * - other/undefined: 未知原因
+ */
+Oops.Panic.AIObjectGenerationFailed = function (
+  model: string,
+  finishReason: string,
+  partialText?: string,
+  options?: { cause?: unknown },
+): Oops.Panic {
+  return new Oops.Panic({
+    errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
+    oopsCode: 'AI04',
+    userMessage: AI_FINISH_REASON_MESSAGES[finishReason] ?? `回复生成失败（${finishReason}）`,
+    internalDetails: `AI object generation failed [${model}] reason=${finishReason}${partialText ? ` partial=${partialText}` : ''}`,
+    provider: model,
+    cause: options?.cause,
+  });
+};
+
 // ==================== Oops.Panic (500) Factories ====================
 
 /** 数据库致命错误 — "系统繁忙" */
@@ -126,6 +186,7 @@ declare module './oops' {
       function Forbidden(resource?: string): Oops.Block;
       function NotFound(resource: string, id?: string): Oops.Block;
       function Conflict(details: string): Oops.Block;
+      function AIModelRateLimited(model: string, options?: { cause?: unknown }): Oops.Block;
     }
 
     // Panic (500) factory methods
@@ -133,6 +194,13 @@ declare module './oops' {
       function Database(operation: string): Oops.Panic;
       function ExternalService(service: string, details?: string): Oops.Panic;
       function Config(details: string): Oops.Panic;
+      function AIModelError(model: string, error: string, options?: { cause?: unknown }): Oops.Panic;
+      function AIObjectGenerationFailed(
+        model: string,
+        finishReason: string,
+        partialText?: string,
+        options?: { cause?: unknown },
+      ): Oops.Panic;
     }
   }
 }

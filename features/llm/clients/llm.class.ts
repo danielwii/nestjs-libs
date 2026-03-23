@@ -28,6 +28,7 @@
  */
 
 import { SysEnv } from '@app/env';
+import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
@@ -44,11 +45,13 @@ import {
   embed,
   extractJsonMiddleware,
   generateText,
+  NoObjectGeneratedError,
   Output,
   streamText,
   tool,
   wrapLanguageModel,
 } from 'ai';
+import { ResultAsync } from 'neverthrow';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
 import type { LLMModelKey, LLMModelSpec } from '../types/model.types';
@@ -62,6 +65,7 @@ import type { LLMModelKey, LLMModelSpec } from '../types/model.types';
  * @see https://ai-sdk.dev/docs/reference/ai-sdk-core/extract-json-middleware
  */
 import type { ProviderType } from './options.helpers';
+import type { OopsError } from '@app/nest/exceptions/oops-error';
 import type { LanguageModel, ModelMessage, StopCondition, TelemetrySettings, ToolSet } from 'ai';
 import type { z } from 'zod';
 
@@ -491,16 +495,28 @@ export class LLM {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * 结构化对象生成
+   * 结构化对象生成（Promise 版，throws on error）
    *
-   * @example
+   * @deprecated 使用 `safeGenerateObject`（返回 ResultAsync）替代。
+   *
+   * 迁移：
    * ```typescript
-   * const { object } = await LLM.generateObject({
-   *   model: 'openrouter:grok-4.1-fast',
-   *   schema: z.object({ name: z.string() }),
-   *   messages: [{ role: 'user', content: 'Extract name from: John Doe' }],
-   * });
+   * // before
+   * const { object } = await LLM.generateObject({...});
+   *
+   * // after — 链式传播（推荐）
+   * return LLM.safeGenerateObject({...}).map(({ object }) => object);
+   *
+   * // after — 降级
+   * const value = await LLM.safeGenerateObject({...}).unwrapOr(fallback);
+   *
+   * // after — 边界处转 throw
+   * const result = await LLM.safeGenerateObject({...});
+   * result.match(v => v, e => { throw e; });
    * ```
+   *
+   * 最终目标：删除此方法，`safeGenerateObject` rename 为 `generateObject`。
+   * @see neverthrow-result-pattern skill
    */
   static async generateObject<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
     const {
@@ -559,6 +575,79 @@ export class LLM {
         throw error;
       }
     });
+  }
+
+  /**
+   * generateObject 的 Result 包装版
+   *
+   * 返回 ResultAsync<T, OopsError>，调用方可 `.unwrapOr(fallback)` 降级。
+   * 错误自动分类为 Oops 业务异常（rate limit / API error / object generation failed）。
+   *
+   * @example
+   * ```typescript
+   * const result = await LLM.safeGenerateObject({ ... })
+   *   .orTee(e => logger.warn(e.getInternalDetails()));
+   * return result.unwrapOr(fallback);
+   * ```
+   */
+  static safeGenerateObject<T>(params: GenerateObjectParams<T>): ResultAsync<GenerateObjectResult<T>, OopsError> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- transitional: wraps deprecated method, will become the primary API
+    return ResultAsync.fromPromise(LLM.generateObject(params), (error) => LLM.classifyError(error, params.model));
+  }
+
+  /**
+   * generateObjectViaTool 的 Result 包装版
+   */
+  static safeGenerateObjectViaTool<T>(
+    params: GenerateObjectParams<T> & { toolName?: string; toolDescription?: string },
+  ): ResultAsync<GenerateObjectResult<T>, OopsError> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- transitional: wraps deprecated method
+    return ResultAsync.fromPromise(LLM.generateObjectViaTool(params), (error) =>
+      LLM.classifyError(error, params.model),
+    );
+  }
+
+  /**
+   * 将 unknown 错误分类为 OopsError
+   *
+   * AI SDK 错误 → 结构化业务异常：
+   * - APICallError 429 → Oops.Block.AIModelRateLimited
+   * - APICallError other → Oops.Panic.AIModelError
+   * - NoObjectGeneratedError → Oops.Panic.AIObjectGenerationFailed
+   * - Timeout → Oops.Panic.AIModelError
+   * - 其他 → Oops.Panic.ExternalService
+   */
+  static classifyError(error: unknown, modelSpec: LLMModelKey | LLMModelSpec): OopsError {
+    const model = modelSpec.split('?').at(0) ?? 'unknown';
+
+    if (error instanceof Oops || error instanceof Oops.Block || error instanceof Oops.Panic) {
+      return error;
+    }
+
+    if (!(error instanceof Error)) {
+      return Oops.Panic.ExternalService(model, `Non-Error thrown: ${String(error)}`);
+    }
+
+    // Timeout
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+      return Oops.Panic.AIModelError(model, `Timeout: ${error.message}`, { cause: error });
+    }
+
+    // API 调用错误（网络、限流、服务端）
+    if (APICallError.isInstance(error)) {
+      if (error.statusCode === 429) {
+        return Oops.Block.AIModelRateLimited(model, { cause: error });
+      }
+      return Oops.Panic.AIModelError(model, error.message, { cause: error });
+    }
+
+    // 结构化输出生成失败（调用成功但输出不可用）
+    if (NoObjectGeneratedError.isInstance(error)) {
+      return Oops.Panic.AIObjectGenerationFailed(model, error.finishReason ?? 'unknown', error.text, { cause: error });
+    }
+
+    // Fallback
+    return Oops.Panic.ExternalService(model, error.message);
   }
 
   /**
@@ -831,7 +920,10 @@ export class LLM {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * 通过 Tool Calling 生成结构化对象（非流式）
+   * 通过 Tool Calling 生成结构化对象（Promise 版，throws on error）
+   *
+   * @deprecated 使用 `safeGenerateObjectViaTool`（返回 ResultAsync）替代。
+   * 迁移方式同 `generateObject`，参见其 JSDoc。
    *
    * 与 generateObject 的区别：
    * - generateObject: 使用 Structured Output 模式（Output.object）
@@ -840,17 +932,6 @@ export class LLM {
    * Tool Calling 模式优势：
    * - 某些模型（如 Gemini 3 Flash）在 Tool Calling 上表现更好
    * - Schema 复杂时结构更稳定
-   *
-   * @example
-   * ```typescript
-   * const { object, usage } = await LLM.generateObjectViaTool({
-   *   model: 'openrouter:gemini-3-flash-preview',
-   *   schema: MySchema,
-   *   toolName: 'analyze',
-   *   toolDescription: '分析用户输入',
-   *   messages,
-   * });
-   * ```
    */
   static async generateObjectViaTool<T>(
     params: GenerateObjectParams<T> & {
