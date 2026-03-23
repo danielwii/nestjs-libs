@@ -8,7 +8,7 @@
  * Trace 元数据（整个 trace 共享）
  */
 export interface TraceMetadata {
-  /** Trace 名称（如 'agentic.v5', 'agentic.v5a'） */
+  /** Trace 名称（如 'agentic.v5', 'diary-generate'） */
   name?: string;
   /** 用户 ID */
   userId?: string;
@@ -16,6 +16,10 @@ export interface TraceMetadata {
   sessionId?: string;
   /** 标签（用于 Langfuse UI 过滤） */
   tags?: string[];
+  /** Trace 级别的输入（显示在 trace 概览页） */
+  input?: unknown;
+  /** Trace 级别的输出（显示在 trace 概览页） */
+  output?: unknown;
 }
 
 /**

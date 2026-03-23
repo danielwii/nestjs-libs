@@ -46,6 +46,14 @@ export class LangfuseContract {
     if (meta.tags?.length) {
       span.setAttribute('ai.telemetry.metadata.tags', meta.tags);
     }
+    if (meta.input !== undefined) {
+      const serialized = safeSerialize(meta.input);
+      if (serialized) span.setAttribute('langfuse.trace.input', serialized);
+    }
+    if (meta.output !== undefined) {
+      const serialized = safeSerializeOutput(meta.output);
+      if (serialized) span.setAttribute('langfuse.trace.output', serialized);
+    }
   }
 
   /**
@@ -75,6 +83,14 @@ export class LangfuseContract {
     if (meta.type) {
       span.setAttribute('langfuse.observation.type', meta.type);
     }
+  }
+
+  /**
+   * 设置 Trace 输出（通常在完成时设置）
+   */
+  static setTraceOutput(span: Span, output: unknown): void {
+    const serialized = safeSerializeOutput(output);
+    if (serialized) span.setAttribute('langfuse.trace.output', serialized);
   }
 
   /**
