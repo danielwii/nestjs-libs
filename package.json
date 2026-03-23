@@ -50,7 +50,7 @@
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "@opentelemetry/api": "^1.9.0",
     "@sentry/nestjs": "^10.45.0",
-    "ai": "^6.0.134",
+    "ai": "^6.0.135",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
@@ -102,7 +102,7 @@
     "nice-grpc": "^2.1.14",
     "prettier": "^3.8.1",
     "ts-morph": "^27.0.2",
-    "typescript": "5.9.3",
+    "typescript": "^6.0.2",
     "typescript-eslint": "^8.57.1"
   }
 }
