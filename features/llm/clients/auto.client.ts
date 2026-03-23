@@ -24,9 +24,12 @@
  * ```
  */
 import { SysEnv } from '@app/env';
+import { Oops } from '@app/nest/exceptions/oops';
 
 import { getModel } from '../types/model.types';
 import { google, openrouter, vertex } from './llm.clients';
+
+import '@app/nest/exceptions/oops-factories';
 
 import { generateText as aiGenerateText, streamText as aiStreamText, Output } from 'ai';
 
@@ -61,7 +64,7 @@ export function model(key: LLMModelSpec, modelIdSuffix?: string): LanguageModel 
     case 'vertex':
       return vertex(modelId);
     default:
-      throw new Error(`Unknown provider: ${provider as string} for model: ${key}`);
+      throw Oops.Panic.Config(`Unknown provider: ${provider as string} for model: ${key}`);
   }
 }
 
@@ -89,7 +92,7 @@ export function parseProvider(key: string): LLMProviderType {
   // 否则解析 provider:model 格式
   const colonIndex = key.indexOf(':');
   if (colonIndex === -1) {
-    throw new Error(`Invalid model key format: ${key}, expected "provider:model" or provider name`);
+    throw Oops.Validation(`Invalid model key format: ${key}, expected "provider:model" or provider name`);
   }
   return key.slice(0, colonIndex) as LLMProviderType;
 }

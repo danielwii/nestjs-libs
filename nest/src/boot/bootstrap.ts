@@ -7,6 +7,10 @@ import { BootModule } from '@app/nest/boot/boot.module';
 import { runApp } from '@app/nest/boot/lifecycle';
 import { doMigration } from '@app/nest/common/migration';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
+import { Oops } from '@app/nest/exceptions/oops';
+
+import '@app/nest/exceptions/oops-factories';
+
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { VisitorInterceptor } from '@app/nest/interceptors/visitor.interceptor';
@@ -145,7 +149,7 @@ export async function bootstrap(
   // LLM 配置验证（自动验证所有 @LLMModelField 标记的字段）
   const llmValidation = validateLLMConfiguration();
   if (!llmValidation.valid) {
-    throw new Error(`LLM configuration invalid: ${llmValidation.errors.join(', ')}`);
+    throw Oops.Panic.Config(`LLM configuration invalid: ${llmValidation.errors.join(', ')}`);
   }
   llmValidation.warnings.forEach((w: string) => {
     bootstrapLogger.warning`[LLM] ${w}`;
@@ -204,7 +208,7 @@ export async function bootstrap(
   }
 
   if (SysEnv.SESSION_SECRET) {
-    if (!SysEnv.INFRA_REDIS_URL) throw new Error('INFRA_REDIS_URL is not set and required for session storage');
+    if (!SysEnv.INFRA_REDIS_URL) throw Oops.Panic.Config('INFRA_REDIS_URL is not set and required for session storage');
     const client = new Redis(SysEnv.INFRA_REDIS_URL, { maxRetriesPerRequest: 3 });
     bootstrapLogger.info`[Config] Session enabled with secret: "${maskSecret(SysEnv.SESSION_SECRET)}"`;
 

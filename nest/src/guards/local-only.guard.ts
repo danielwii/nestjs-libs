@@ -22,7 +22,11 @@
  * ```
  */
 
-import { ForbiddenException, Injectable, UseGuards } from '@nestjs/common';
+import { Injectable, UseGuards } from '@nestjs/common';
+
+import { Oops } from '@app/nest/exceptions/oops';
+
+import '@app/nest/exceptions/oops-factories';
 
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
@@ -39,7 +43,7 @@ export class LocalOnlyGuard implements CanActivate {
     const ip = req.ip ?? req.socket.remoteAddress;
 
     if (!ip || !LOCALHOST_IPS.has(ip)) {
-      throw new ForbiddenException('This endpoint is only accessible from localhost');
+      throw Oops.Block.Forbidden(`This endpoint is only accessible from localhost (ip=${ip})`);
     }
 
     return true;

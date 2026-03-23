@@ -44,7 +44,10 @@
  */
 
 import { SysEnv } from '@app/env';
+import { Oops } from '@app/nest/exceptions/oops';
 import { ApiFetcher } from '@app/utils/fetch';
+
+import '@app/nest/exceptions/oops-factories';
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
@@ -78,7 +81,7 @@ function getOpenRouter() {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY;
     if (!apiKey) {
-      throw new Error('AI_OPENROUTER_API_KEY is not configured in SysEnv');
+      throw Oops.Panic.Config('AI_OPENROUTER_API_KEY is not configured');
     }
     _openrouter = createOpenRouter({
       apiKey,
@@ -136,7 +139,7 @@ function getGoogle() {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) {
-      throw new Error('AI_GOOGLE_API_KEY is not configured in SysEnv');
+      throw Oops.Panic.Config('AI_GOOGLE_API_KEY is not configured');
     }
     _google = createGoogleGenerativeAI({
       apiKey,
@@ -191,7 +194,7 @@ function getVertex() {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY;
     if (!apiKey) {
-      throw new Error('AI_GOOGLE_VERTEX_API_KEY is not configured in SysEnv');
+      throw Oops.Panic.Config('AI_GOOGLE_VERTEX_API_KEY is not configured');
     }
     _vertex = createVertex({
       apiKey,
@@ -268,7 +271,7 @@ export function getOpenAI() {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- 旧名字兼容，其他项目迁移后删除
     const apiKey = SysEnv.AI_OPENAI_API_KEY ?? SysEnv.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error('AI_OPENAI_API_KEY is not configured in SysEnv');
+      throw Oops.Panic.Config('AI_OPENAI_API_KEY is not configured');
     }
     _openai = createOpenAI({
       apiKey,

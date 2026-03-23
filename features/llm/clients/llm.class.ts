@@ -1027,7 +1027,9 @@ export class LLM {
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
         const toolCall = result.toolCalls.at(0);
         if (!toolCall || !('input' in toolCall)) {
-          throw new Error('No tool call returned from LLM');
+          throw Oops.Panic.AIObjectGenerationFailed(modelKey, 'no-tool-call', undefined, {
+            cause: new Error('No tool call returned from LLM'),
+          });
         }
 
         if (!parallelToolCalls && result.toolCalls.length > 1) {
@@ -1064,7 +1066,7 @@ export class LLM {
               return `${i.path.join('.')}: ${i.message}${actualStr}`;
             })
             .join('; ');
-          throw new Error(`[LLM:validation] id=${id} Tool call output validation failed: ${issues}`);
+          throw Oops.Panic.AIObjectGenerationFailed(modelKey, 'validation-failed', issues);
         }
 
         return {
@@ -1247,7 +1249,7 @@ export class LLM {
     const { id, model: modelKey, text, task, abortSignal, timeout } = params;
 
     if (!text || text.trim().length === 0) {
-      throw new Error(`[LLM:embedding] id=${id} empty text (type=${typeof text}, length=${text.length})`);
+      throw Oops.Validation('Embedding input text is empty', `id=${id} type=${typeof text} length=${text.length}`);
     }
 
     const taskPart = task ? `, task=${task}` : '';
@@ -1282,7 +1284,7 @@ export class LLM {
       case 'jina': {
         const apiKey = process.env.JINA_API_KEY;
         if (!apiKey) {
-          throw new Error('JINA_API_KEY 环境变量未设置');
+          throw Oops.Panic.Config('JINA_API_KEY is not configured');
         }
 
         const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
@@ -1309,7 +1311,7 @@ export class LLM {
 
           if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Jina API error: ${response.status} - ${errorText}`);
+            throw Oops.Panic.ExternalService('jina', `API error: ${response.status} - ${errorText}`);
           }
 
           const result = (await response.json()) as {
@@ -1321,7 +1323,7 @@ export class LLM {
 
           const embedding = result.data[0]?.embedding;
           if (!embedding) {
-            throw new Error(`[LLM:embedding] id=${id} Jina returned empty embedding`);
+            throw Oops.Panic.ExternalService('jina', `Returned empty embedding (id=${id})`);
           }
 
           const totalTokens = result.usage.total_tokens ?? result.usage.prompt_tokens ?? 0;
@@ -1337,7 +1339,7 @@ export class LLM {
       case 'voyage': {
         const apiKey = process.env.VOYAGE_API_KEY;
         if (!apiKey) {
-          throw new Error('VOYAGE_API_KEY 环境变量未设置');
+          throw Oops.Panic.Config('VOYAGE_API_KEY is not configured');
         }
 
         const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
@@ -1354,7 +1356,7 @@ export class LLM {
 
           if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Voyage API error: ${response.status} - ${errorText}`);
+            throw Oops.Panic.ExternalService('voyage', `API error: ${response.status} - ${errorText}`);
           }
 
           const result = (await response.json()) as {
@@ -1366,7 +1368,7 @@ export class LLM {
 
           const embedding = result.data[0]?.embedding;
           if (!embedding) {
-            throw new Error(`[LLM:embedding] id=${id} Voyage returned empty embedding`);
+            throw Oops.Panic.ExternalService('voyage', `Returned empty embedding (id=${id})`);
           }
 
           const usage: TokenUsage = { inputTokens: result.usage.total_tokens ?? 0, outputTokens: 0 };
@@ -1381,7 +1383,7 @@ export class LLM {
       case 'gemini': {
         const apiKey = SysEnv.AI_GOOGLE_API_KEY;
         if (!apiKey) {
-          throw new Error('AI_GOOGLE_API_KEY 环境变量未设置');
+          throw Oops.Panic.Config('AI_GOOGLE_API_KEY is not configured (embedding)');
         }
 
         const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
@@ -1411,7 +1413,7 @@ export class LLM {
 
           if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+            throw Oops.Panic.ExternalService('gemini', `API error: ${response.status} - ${errorText}`);
           }
 
           const result = (await response.json()) as {
@@ -1422,7 +1424,7 @@ export class LLM {
 
           const embedding = result.embedding.values;
           if (embedding.length === 0) {
-            throw new Error(`[LLM:embedding] id=${id} Gemini returned empty embedding`);
+            throw Oops.Panic.ExternalService('gemini', `Returned empty embedding (id=${id})`);
           }
 
           // Gemini embedContent 不返回 token usage
