@@ -11,11 +11,10 @@ import '@app/nest/exceptions/oops-factories';
 import { ContextBag } from './context-bag';
 
 import type { ContextRecipe, RecipeCatalogDescription } from './context-recipe';
-import type { CatalogDescription, ContextSlot } from './context-slot.types';
+import type { AnyContextSlot, CatalogDescription, ContextSlot } from './context-slot.types';
 
 export class SlotCatalog {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly slots = new Map<string, ContextSlot<any, any>>();
+  private readonly slots = new Map<string, AnyContextSlot>();
   private readonly recipes: ContextRecipe[] = [];
 
   /**
@@ -28,8 +27,8 @@ export class SlotCatalog {
    * @param recipes  要注册的 recipe 列表
    * @param extras   不在任何 recipe 中但需要注册的 slot（如动态注入的 WebPerceptionSlot）
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  static fromRecipes(recipes: readonly ContextRecipe[], extras?: readonly ContextSlot<any, any>[]): SlotCatalog {
+
+  static fromRecipes(recipes: readonly ContextRecipe[], extras?: readonly AnyContextSlot[]): SlotCatalog {
     const catalog = new SlotCatalog();
     const seen = new Set<string>();
 
@@ -65,22 +64,19 @@ export class SlotCatalog {
     if (this.slots.has(slot.id)) {
       throw Oops.Panic.Config(`SlotCatalog: duplicate slot id "${slot.id}"`);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.slots.set(slot.id, slot as ContextSlot<any, any>);
+
+    this.slots.set(slot.id, slot as AnyContextSlot);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  get(id: string): ContextSlot<any, any> | undefined {
+  get(id: string): AnyContextSlot | undefined {
     return this.slots.get(id);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  list(): ContextSlot<any, any>[] {
+  list(): AnyContextSlot[] {
     return [...this.slots.values()];
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  listByCategory(category: string): ContextSlot<any, any>[] {
+  listByCategory(category: string): AnyContextSlot[] {
     return [...this.slots.values()].filter((s) => s.category === category);
   }
 

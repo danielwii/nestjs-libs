@@ -65,7 +65,7 @@ export function forSource<TSource>() {
 export function applyProjections<TSource>(
   bag: ContextBag,
   source: TSource,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 异构泛型 slot 数组
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SlotProjection 的 TData 各不相同，异构数组需要擦除
   projections: readonly SlotProjection<TSource, any>[],
 ): number {
   let filled = 0;

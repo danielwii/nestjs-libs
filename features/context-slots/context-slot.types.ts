@@ -153,13 +153,22 @@ export interface BagInspection {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * 类型擦除后的 ContextSlot。
+ *
+ * 异构泛型集合（Map/Array 存不同 T 的 slot）必须擦除类型参数。
+ * TypeScript 没有 existential types，any 是唯一出路。
+ * 集中定义在此，所有容器/接口引用此别名，避免分散 eslint-disable。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 异构泛型集合的类型擦除点
+export type AnyContextSlot = ContextSlot<any, any>;
+
+/**
  * Layout 中引用 slot 的方式。
  *
  * 优先使用 slot 对象引用（编译期安全 — 重命名 slot ID 时 layout 自动跟随）。
  * 保留 string 是为了库层向后兼容（外部消费者可能只有 slot ID）。
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type SlotRef = ContextSlot<any, any> | string;
+export type SlotRef = AnyContextSlot | string;
 
 /** 将 SlotRef 解析为 slot ID 字符串 */
 export function resolveSlotRef(ref: SlotRef): string {

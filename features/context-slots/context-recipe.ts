@@ -53,7 +53,7 @@
 import { resolveSlotRef } from './context-slot.types';
 
 import type { ContextBag } from './context-bag';
-import type { CompiledBlock, CompileOptions, ContextLayer, ContextSlot, LayoutConfig } from './context-slot.types';
+import type { AnyContextSlot, CompiledBlock, CompileOptions, ContextLayer, LayoutConfig } from './context-slot.types';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ContextRecipe
@@ -66,11 +66,9 @@ export interface ContextRecipe {
   /** 期望的 slot 集合 */
   readonly slots: {
     /** 必须 fill 的 slot（未 fill → 验证警告） */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly required: ReadonlyArray<ContextSlot<any, any>>;
+    readonly required: ReadonlyArray<AnyContextSlot>;
     /** 条件 fill 的 slot（未 fill 是正常的） */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readonly optional: ReadonlyArray<ContextSlot<any, any>>;
+    readonly optional: ReadonlyArray<AnyContextSlot>;
   };
   /** 编译选项 */
   readonly preset: CompileOptions;

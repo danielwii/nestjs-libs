@@ -17,6 +17,7 @@
  */
 
 import type {
+  AnyContextSlot,
   BagInspection,
   CollectedTool,
   CollectToolsOptions,
@@ -29,12 +30,11 @@ import type {
  * 内部存储条目。
  *
  * ── 类型擦除点 ──
- * slot 存为 ContextSlot<any, any>（故意的类型擦除，T + K 都擦除）。
+ * slot 存为 AnyContextSlot（故意的类型擦除，T + K 都擦除）。
  * 安全不变量：同一 id 的 slot 和 data 始终配对（fill 是唯一写入路径）。
  */
 interface Entry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly slot: ContextSlot<any, any>;
+  readonly slot: AnyContextSlot;
   readonly data: unknown;
 }
 
