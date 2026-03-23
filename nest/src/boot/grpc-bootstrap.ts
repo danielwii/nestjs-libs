@@ -17,6 +17,7 @@ import { addGrpcHealthService } from './grpc-health';
 import fs from 'node:fs';
 import os from 'node:os';
 
+import * as protoLoader from '@grpc/proto-loader';
 import { DateTime } from 'luxon';
 import { ServerReflection, ServerReflectionService } from 'nice-grpc-server-reflection';
 
@@ -121,8 +122,6 @@ function callToAsyncIterable<T>(call: {
  * 使用 @grpc/proto-loader 解析，从 PackageDefinition 中提取 service 路径
  */
 function extractServiceNames(protoset: Buffer): string[] {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/consistent-type-imports
-  const protoLoader: typeof import('@grpc/proto-loader') = require('@grpc/proto-loader');
   const pkg = protoLoader.loadFileDescriptorSetFromBuffer(protoset);
   const serviceNames = new Set<string>();
   for (const key of Object.keys(pkg)) {

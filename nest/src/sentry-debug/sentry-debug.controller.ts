@@ -40,7 +40,7 @@ export class SentryDebugController {
   testSentry(): { success: boolean; message: string } {
     let Sentry: { captureException: (error: unknown) => void };
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency
       Sentry = require('@sentry/nestjs');
     } catch {
       return { success: false, message: '@sentry/nestjs not installed' };

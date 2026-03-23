@@ -69,9 +69,10 @@ process.emit = ((event: string, ...args: unknown[]) => {
 }) as typeof process.emit;
 
 // ==================== Optional dependencies ====================
+// require() + try/catch 是可选依赖的正确模式：包可能未安装，import() 会报类型错误
 let GrpcInstrumentation: (new () => unknown) | null = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency
   GrpcInstrumentation = require('@opentelemetry/instrumentation-grpc').GrpcInstrumentation;
 } catch {
   // gRPC instrumentation not installed, skip
@@ -79,7 +80,7 @@ try {
 
 let LangfuseSpanProcessor: (new (opts: unknown) => unknown) | null = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency
   LangfuseSpanProcessor = require('@langfuse/otel').LangfuseSpanProcessor;
 } catch {
   // Langfuse not installed, skip
@@ -163,7 +164,7 @@ function initializeSentry() {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency, import() exposes strict type mismatch
     const Sentry = require('@sentry/nestjs');
     const release = process.env.SENTRY_RELEASE ?? process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA;
     const environment = process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV;

@@ -10,9 +10,12 @@
  * 使用方式：在 grpcBootstrap 的 onLoadPackageDefinition 回调中调用。
  */
 
+import { getAppLogger } from '@app/utils/app-logger';
+
 import fs from 'node:fs';
 
-import { getAppLogger } from '@app/utils/app-logger';
+import * as grpc from '@grpc/grpc-js';
+import * as protoLoader from '@grpc/proto-loader';
 
 import type { sendUnaryData, Server, ServerUnaryCall } from '@grpc/grpc-js';
 
@@ -33,12 +36,6 @@ export function addGrpcHealthService(
   isShuttingDown: () => boolean,
 ): void {
   try {
-    // 动态 require，与 addDescriptorSetReflection 同模式
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/consistent-type-imports
-    const protoLoader: typeof import('@grpc/proto-loader') = require('@grpc/proto-loader');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/consistent-type-imports
-    const grpc: typeof import('@grpc/grpc-js') = require('@grpc/grpc-js');
-
     const protoset = fs.readFileSync(descriptorSetPath);
     const packageDef = protoLoader.loadFileDescriptorSetFromBuffer(protoset);
     const grpcObject = grpc.loadPackageDefinition(packageDef);

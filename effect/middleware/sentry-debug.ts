@@ -23,11 +23,11 @@ import { Effect } from 'effect';
 export const testSentry = Effect.sync(() => {
   let Sentry: { captureException: (error: unknown) => void };
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency, not installed at compile time
     Sentry = require('@sentry/bun');
   } catch {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency, not installed at compile time
       Sentry = require('@sentry/node');
     } catch {
       return { success: false as const, message: '@sentry/bun or @sentry/node not installed' };

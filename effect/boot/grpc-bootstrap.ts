@@ -39,6 +39,7 @@ import http from 'node:http';
 import os from 'node:os';
 
 import { BunRuntime } from '@effect/platform-bun';
+import * as protoLoader from '@grpc/proto-loader';
 import { Effect, Layer } from 'effect';
 import { createServer } from 'nice-grpc';
 import { ServerReflection, ServerReflectionService } from 'nice-grpc-server-reflection';
@@ -94,8 +95,6 @@ const bunVersion = 'Bun' in globalThis ? (globalThis as unknown as { Bun: { vers
 const runtimeInfo = bunVersion ? `Node ${process.version} / Bun ${bunVersion}` : `Node ${process.version}`;
 
 function extractServiceNames(descriptorSetPath: string): string[] {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/consistent-type-imports
-  const protoLoader: typeof import('@grpc/proto-loader') = require('@grpc/proto-loader');
   const protoset = fs.readFileSync(descriptorSetPath);
   const pkg = protoLoader.loadFileDescriptorSetFromBuffer(protoset);
   const serviceNames = new Set<string>();
