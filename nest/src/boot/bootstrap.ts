@@ -1,9 +1,12 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { Transport } from '@nestjs/microservices';
 
 import { SysEnv } from '@app/env';
 import { validateLLMConfiguration } from '@app/features/llm';
 import { BootModule } from '@app/nest/boot/boot.module';
+import { addDescriptorSetReflection } from '@app/nest/boot/grpc-bootstrap';
+import { addGrpcHealthService } from '@app/nest/boot/grpc-health';
 import { runApp } from '@app/nest/boot/lifecycle';
 import { doMigration } from '@app/nest/common/migration';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
@@ -33,8 +36,11 @@ import { DateTime } from 'luxon';
 import morgan from 'morgan';
 import responseTime from 'response-time';
 
+import type { Server } from '@grpc/grpc-js';
+import type { PackageDefinition } from '@grpc/proto-loader';
 import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type } from '@nestjs/common';
 import type { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
+import type { MicroserviceOptions } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -59,6 +65,17 @@ export interface BootstrapOptions {
   packageJson?: {
     name: string;
     version: string;
+  };
+  /** 可选 gRPC 微服务配置，与 grpcBootstrap 对齐。port 从 SysEnv.GRPC_PORT 读取 */
+  grpc?: {
+    package: string | string[];
+    protoPath: string | string[];
+    /** 预编译 FileDescriptorSet 路径（启用 reflection + health） */
+    descriptorSetPath?: string;
+    /** proto-loader 选项 */
+    loader?: object;
+    /** 是否启用 gRPC reflection，默认 true */
+    reflection?: boolean;
   };
 }
 
@@ -326,6 +343,43 @@ export async function bootstrap(
   const port = SysEnv.PORT;
 
   if (onInit) await onInit(app);
+
+  // gRPC 微服务（可选），与 grpcBootstrap 对齐
+  let grpcPort: number | undefined;
+  if (options?.grpc) {
+    grpcPort = SysEnv.GRPC_PORT;
+    const enableReflection = options.grpc.reflection !== false;
+
+    let grpcShuttingDown = false;
+    process.on('SIGTERM', () => {
+      grpcShuttingDown = true;
+    });
+
+    app.connectMicroservice<MicroserviceOptions>(
+      {
+        transport: Transport.GRPC,
+        options: {
+          package: options.grpc.package,
+          protoPath: options.grpc.protoPath,
+          url: `0.0.0.0:${grpcPort}`,
+          loader: options.grpc.loader,
+          gracefulShutdown: true,
+          onLoadPackageDefinition: options.grpc.descriptorSetPath
+            ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
+                const dsPath = options.grpc?.descriptorSetPath;
+                if (!dsPath) return;
+                if (enableReflection) addDescriptorSetReflection(server, dsPath);
+                addGrpcHealthService(server, dsPath, () => grpcShuttingDown);
+              }
+            : undefined,
+        },
+      },
+      { inheritAppConfig: true },
+    );
+
+    await app.startAllMicroservices();
+    bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}`;
+  }
 
   await runApp(app)
     .listen(port)

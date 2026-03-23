@@ -139,7 +139,7 @@ function extractServiceNames(protoset: Buffer): string[] {
  * 将预编译 descriptor set 注册为 gRPC reflection service
  * 使用 nice-grpc-server-reflection 直接服务原始字节，绕过 protobufjs roundtrip bug
  */
-function addDescriptorSetReflection(server: Pick<Server, 'addService'>, descriptorSetPath: string): void {
+export function addDescriptorSetReflection(server: Pick<Server, 'addService'>, descriptorSetPath: string): void {
   const protoset = fs.readFileSync(descriptorSetPath);
   const serviceNames = extractServiceNames(protoset);
   const impl = ServerReflection(protoset, serviceNames);
