@@ -41,7 +41,10 @@
  * ```
  */
 
+import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
+
+import '@app/nest/exceptions/oops-factories';
 
 import { formatLocalDateTime, TimeSensitivity } from './prompt';
 import { estimateTokens } from './tokenizer';
@@ -430,10 +433,10 @@ export class PromptBuilder {
    */
   build(): Prompt {
     if (!this._role) {
-      throw new Error('PromptBuilder: role is required');
+      throw Oops.Validation('PromptBuilder: role is required');
     }
     if (!this._objective) {
-      throw new Error('PromptBuilder: objective is required');
+      throw Oops.Validation('PromptBuilder: objective is required');
     }
 
     const data: PromptData = {

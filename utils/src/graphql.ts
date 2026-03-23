@@ -1,5 +1,9 @@
 import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/graphql';
 
+import { Oops } from '@app/nest/exceptions/oops';
+
+import '@app/nest/exceptions/oops-factories';
+
 import { plainToInstance } from 'class-transformer';
 import { Allow } from 'class-validator';
 
@@ -210,7 +214,7 @@ export class CursorUtils {
 
       // 验证所有组件都存在
       if (!resourceType || !timestampMs || !id) {
-        throw new Error('Invalid cursor format');
+        throw Oops.Validation('Invalid cursor format', `cursor="${cursor}"`);
       }
 
       return {
@@ -218,9 +222,9 @@ export class CursorUtils {
         timestamp: new Date(parseInt(timestampMs, 10)),
         id,
       };
-    } catch {
-      // 包装错误信息，便于调试
-      throw new Error(`Invalid cursor: ${cursor}`);
+    } catch (error) {
+      if (error instanceof Oops) throw error;
+      throw Oops.Validation('Invalid cursor', `cursor="${cursor}"`);
     }
   }
 

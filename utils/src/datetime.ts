@@ -7,6 +7,10 @@
  * - 保持向后兼容性，不破坏现有业务逻辑
  */
 
+import { Oops } from '@app/nest/exceptions/oops';
+
+import '@app/nest/exceptions/oops-factories';
+
 /**
  * 标准化偏移格式为 formatInTimeZone 兼容格式
  *
@@ -100,17 +104,18 @@ export function formatDateToYmd(date: Date | null | undefined): string | null {
 
 export function parseYmdToUtcDate(value: string): Date {
   const match = YMD_REGEX.exec(value);
-  if (!match) throw new Error('Invalid YMD format');
+  if (!match) throw Oops.Validation('Invalid YMD format', `value="${value}"`);
 
   const [, yearStr, monthStr, dayStr] = match;
-  if (!yearStr || !monthStr || !dayStr) throw new Error('Invalid YMD format');
+  if (!yearStr || !monthStr || !dayStr)
+    throw Oops.Validation('Invalid YMD format', `parsed: y=${yearStr} m=${monthStr} d=${dayStr}`);
 
   const year = Number.parseInt(yearStr, 10);
   const month = Number.parseInt(monthStr, 10);
   const day = Number.parseInt(dayStr, 10);
   const date = new Date(Date.UTC(year, month - 1, day));
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
-    throw new Error('Invalid YMD calendar date');
+    throw Oops.Validation('Invalid YMD calendar date', `value="${value}" resolved=${year}-${month}-${day}`);
   }
   return date;
 }

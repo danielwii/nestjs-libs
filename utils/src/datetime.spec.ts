@@ -209,11 +209,21 @@ describe('timezone.helper', () => {
       });
 
       it('无效格式应抛出错误', () => {
-        expect(() => parseYmdToUtcDate('invalid')).toThrow('Invalid YMD format');
+        expect(() => parseYmdToUtcDate('invalid')).toThrow();
+        try {
+          parseYmdToUtcDate('invalid');
+        } catch (e: unknown) {
+          expect((e as { userMessage: string }).userMessage).toBe('Invalid YMD format');
+        }
       });
 
       it('无效日期应抛出错误', () => {
-        expect(() => parseYmdToUtcDate('2023-02-30')).toThrow('Invalid YMD calendar date');
+        expect(() => parseYmdToUtcDate('2023-02-30')).toThrow();
+        try {
+          parseYmdToUtcDate('2023-02-30');
+        } catch (e: unknown) {
+          expect((e as { userMessage: string }).userMessage).toBe('Invalid YMD calendar date');
+        }
       });
     });
 

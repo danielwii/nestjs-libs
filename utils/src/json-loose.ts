@@ -1,3 +1,7 @@
+import { Oops } from '@app/nest/exceptions/oops';
+
+import '@app/nest/exceptions/oops-factories';
+
 import JSON5 from 'json5';
 
 // Strip common markdown code fences and whitespace
@@ -116,5 +120,5 @@ export function parseJsonLoose<T = unknown>(raw: string): T {
   }
 
   const detail = errors.length ? ` attempts=${errors.join(' | ').slice(0, 256)}` : '';
-  throw new Error(`Failed to parse valid JSON from model output.${detail}`);
+  throw Oops.Panic.AIObjectGenerationFailed('unknown', 'json-parse-failed', detail.slice(0, 256));
 }

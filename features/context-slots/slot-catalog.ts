@@ -4,6 +4,10 @@
  * "系统知道自己知道什么" — 所有上下文注册到 catalog = 全貌可见 = 对抗熵增。
  */
 
+import { Oops } from '@app/nest/exceptions/oops';
+
+import '@app/nest/exceptions/oops-factories';
+
 import { ContextBag } from './context-bag';
 
 import type { ContextRecipe, RecipeCatalogDescription } from './context-recipe';
@@ -59,7 +63,7 @@ export class SlotCatalog {
 
   register<T, K extends string>(slot: ContextSlot<T, K>): void {
     if (this.slots.has(slot.id)) {
-      throw new Error(`SlotCatalog: duplicate slot id "${slot.id}"`);
+      throw Oops.Panic.Config(`SlotCatalog: duplicate slot id "${slot.id}"`);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.slots.set(slot.id, slot as ContextSlot<any, any>);
@@ -121,11 +125,11 @@ export class SlotCatalog {
    */
   registerRecipe(recipe: ContextRecipe): void {
     if (this.recipes.some((r) => r.id === recipe.id)) {
-      throw new Error(`SlotCatalog: duplicate recipe id "${recipe.id}"`);
+      throw Oops.Panic.Config(`SlotCatalog: duplicate recipe id "${recipe.id}"`);
     }
     for (const slot of [...recipe.slots.required, ...recipe.slots.optional]) {
       if (!this.get(slot.id)) {
-        throw new Error(`Recipe "${recipe.id}" references unregistered slot "${slot.id}"`);
+        throw Oops.Panic.Config(`Recipe "${recipe.id}" references unregistered slot "${slot.id}"`);
       }
     }
     this.recipes.push(recipe);
