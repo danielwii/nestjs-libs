@@ -39,7 +39,7 @@ import responseTime from 'response-time';
 import type { Server } from '@grpc/grpc-js';
 import type { PackageDefinition } from '@grpc/proto-loader';
 import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type } from '@nestjs/common';
-import type { CorsOptions, CorsOptionsDelegate } from '@nestjs/common/interfaces/external/cors-options.interface';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
@@ -136,13 +136,29 @@ export async function bootstrap(
     不要配置 Origin:* 和 Credentials: true，CORS 规定无法同时使用
     增加 Vary: Origin 头来区分不同来源的缓存
    */
-  const corsOptions: CorsOptions | CorsOptionsDelegate<unknown> = {
-    credentials: true,
-    origin: true, // reflect from req.header('Origin') TODO dynamic from a function with whitelist
-    // allowedHeaders: '*',
-    // methods: '*',
+  const isLocalhost = (origin: string) => /^https?:\/\/localhost(:\d+)?$/.test(origin);
+  const allowedDomains = SysEnv.APP_WEB_DOMAINS?.split(',')
+    .map((d) => d.trim())
+    .filter(Boolean);
+
+  const corsOrigin = (requestOrigin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // 无 Origin 头（如服务端调用、curl）→ 放行
+    if (!requestOrigin) { callback(null, true); return; }
+    // dev 环境 localhost 任意端口放行
+    if (process.env.NODE_ENV !== 'production' && isLocalhost(requestOrigin)) { callback(null, true); return; }
+    // 白名单匹配（支持 https://app.example.com 或 app.example.com 两种配置格式）
+    if (allowedDomains?.length) {
+      const allowed = allowedDomains.some(
+        (domain) => requestOrigin === domain || requestOrigin === `https://${domain}`,
+      );
+      callback(null, allowed); return;
+    }
+    // 未配置 APP_WEB_DOMAINS → 禁止跨域
+    callback(null, false);
   };
-  bootstrapLogger.info`[Config] CORS enabled with options: ${JSON.stringify(corsOptions)}`;
+
+  const corsOptions: CorsOptions = { credentials: true, origin: corsOrigin };
+  bootstrapLogger.info`[Config] CORS enabled: allowedDomains=${allowedDomains?.join(', ') ?? 'none (dev=localhost only)'}`;
   app.enableCors(corsOptions);
 
   // see https://expressjs.com/en/guide/behind-proxies.html

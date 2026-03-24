@@ -26,3 +26,6 @@ yarn-error.log*
 .claude/
 .serena/
 git-town.toml
+
+# Local testing
+example/

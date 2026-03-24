@@ -205,6 +205,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   @IsString() @IsOptional() SESSION_SECRET?: string;
 
+  /** CORS 允许的前端域名（逗号分隔），未设置时禁止所有跨域请求 */
+  @IsString() @IsOptional() APP_WEB_DOMAINS?: string;
+
   @IsString() @IsOptional() SERVICE_NAME?: string;
   @IsString() @IsOptional() TRACING_EXPORTER_URL?: string;
 
