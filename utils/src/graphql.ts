@@ -265,44 +265,4 @@ export class CursorUtils {
       };
     }
   }
-
-  /**
-   * 计算分页信息
-   *
-   * @param totalCount - 总记录数
-   * @param pageSize - 每页大小
-   * @param currentItems - 当前页项目数
-   * @param hasMore - 是否有更多记录
-   * @returns 包含总页数和当前页的分页信息
-   */
-  /**
-   * 计算分页信息
-   *
-   * @param totalCount - 总记录数
-   * @param pageSize - 每页大小
-   * @param currentItems - 当前页项目数 [待确认：未使用]
-   * @param hasMore - 是否有更多记录 [待确认：未使用]
-   * @returns 包含总页数和当前页的分页信息
-   *
-   * TODO: [功能完善] 实现当前页码计算
-   *   问题：纯游标分页难以确定当前页码
-   *   方案：需要记录已遍历的记录数或使用混合分页
-   *   优先级：P2 - 前端分页器需要此信息
-   */
-  static calculatePageInfo(
-    totalCount: number,
-    pageSize: number,
-    _currentItems: number,
-    _hasMore: boolean,
-  ): { totalPages: number; currentPage?: number } {
-    const totalPages = Math.ceil(totalCount / pageSize);
-
-    // 当前页码计算需要额外的偏移量信息
-    // 在纯游标分页中，当前页码概念相对模糊
-
-    return {
-      totalPages,
-      currentPage: undefined, // 需要根据具体实现计算
-    };
-  }
 }
