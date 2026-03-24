@@ -600,9 +600,18 @@ export class LLM {
    * generateObjectViaTool 的 Result 包装版
    */
   static safeGenerateObjectViaTool<T>(
-    params: GenerateObjectParams<T> & { toolName?: string; toolDescription?: string },
+    params: GenerateObjectParams<T> & { toolName?: string; toolDescription?: string; parallelToolCalls?: boolean },
   ): ResultAsync<GenerateObjectResult<T>, OopsError> {
     return ResultAsync.fromPromise(LLM.generateObjectViaTool(params), (error: unknown) =>
+      LLM.classifyError(error, params.model),
+    );
+  }
+
+  /**
+   * generateText 的 Result 包装版
+   */
+  static safeGenerateText(params: GenerateTextParams): ResultAsync<GenerateTextResult, OopsError> {
+    return ResultAsync.fromPromise(LLM.generateText(params), (error: unknown) =>
       LLM.classifyError(error, params.model),
     );
   }
