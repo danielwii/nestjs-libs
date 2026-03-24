@@ -1,8 +1,8 @@
 import { SysEnv } from '@app/env';
+import { getAppLogger } from '@app/utils/app-logger';
 
 import os from 'node:os';
 
-import { getAppLogger } from '@app/utils/app-logger';
 import * as Sentry from '@sentry/nestjs';
 import * as _ from 'radash';
 
@@ -126,22 +126,55 @@ export const runApp = <App extends INestApplication>(app: App) => {
   process.on('beforeExit', (reason) => {
     logger[reason ? 'error' : 'info']`(${os.hostname}) App will exit cause: ${reason}`;
   });
-  let sigintReceived = false;
-  process.on('SIGINT', (signals) => {
-    if (sigintReceived) return;
-    sigintReceived = true;
-    logger.info`(${os.hostname}) Received SIGINT. ${signals} (${process.pid})`;
-    app
-      .close()
+  // 统一的 shutdown 守卫：防止 SIGINT/SIGUSR1/SIGTERM 重复触发 graceful shutdown
+  let shuttingDown = false;
+
+  /** 优雅关闭：停止接收连接 → 等待 in-flight 请求 → app.close() → exit */
+  const gracefulShutdown = (signal: string, exitCode: number) => {
+    if (shuttingDown) {
+      logger.warning`(${os.hostname}) ${signal} ignored, shutdown already in progress (${process.pid})`;
+      return;
+    }
+    shuttingDown = true;
+
+    logger.info`(${os.hostname}) Received ${signal}. Starting graceful shutdown... (${process.pid})`;
+
+    const server = app.getHttpServer();
+    const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
+
+    server.close(() => {
+      logger.info`(${os.hostname}) HTTP server closed, all connections drained`;
+    });
+
+    const waitForConnections = new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        logger.warning`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`;
+        resolve();
+      }, IN_FLIGHT_TIMEOUT_MS);
+
+      server.on('close', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    waitForConnections
+      .then(() => app.close())
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        logger.warning`(${os.hostname}) exit by SIGINT: ${message}`;
+        logger.warning`(${os.hostname}) exit by ${signal}: ${message}`;
       })
       .finally(() => {
-        logger.info`(${os.hostname}) SIGINT shutdown complete`;
-        process.exit(0);
+        logger.info`(${os.hostname}) ${signal} shutdown complete`;
+        process.exit(exitCode);
       });
-  });
+  };
+
+  process.on('SIGINT', () => { gracefulShutdown('SIGINT', 0); });
+  // SIGUSR1: memory-watchdog sidecar 触发的优雅重启（exit code 42 区分于 SIGTERM）
+  process.on('SIGUSR1', () => { gracefulShutdown('SIGUSR1', 42); });
+  process.on('SIGTERM', () => { gracefulShutdown('SIGTERM', 0); });
+
   process.on('SIGHUP', () => {
     logger.warning`Process SIGHUP (可能是终端关闭)，强制退出...`;
     process.exit(1);
@@ -154,79 +187,6 @@ export const runApp = <App extends INestApplication>(app: App) => {
     logger[reason ? 'error' : 'info']`(${os.hostname}) App exit cause: ${reason} (${process.pid})`;
     // sometimes the process will not exit, so we force exit it
     setTimeout(() => process.exit(0), 5e3);
-  });
-  // SIGUSR1: memory-watchdog sidecar 触发的优雅重启（exit code 42 区分于 SIGTERM）
-  process.on('SIGUSR1', () => {
-    logger.warning`(${os.hostname}) Received SIGUSR1 (memory-watchdog triggered shutdown) (${process.pid})`;
-    logger.info`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`;
-
-    const server = app.getHttpServer();
-    const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
-
-    server.close(() => {
-      logger.info`(${os.hostname}) HTTP server closed, all connections drained`;
-    });
-
-    const waitForConnections = new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        logger.warning`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`;
-        resolve();
-      }, IN_FLIGHT_TIMEOUT_MS);
-
-      server.on('close', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
-
-    waitForConnections
-      .then(() => app.close())
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warning`(${os.hostname}) exit by SIGUSR1: ${message}`;
-      })
-      .finally(() => {
-        logger.info`(${os.hostname}) Memory-watchdog shutdown complete`;
-        process.exit(42);
-      });
-  });
-
-  process.on('SIGTERM', (signals) => {
-    logger.info`(${os.hostname}) Received SIGTERM. ${signals} (${process.pid})`;
-    logger.info`(${os.hostname}) Starting graceful shutdown, waiting for in-flight requests...`;
-
-    const server = app.getHttpServer();
-    const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
-
-    // 停止接收新连接，但保持现有连接
-    server.close(() => {
-      logger.info`(${os.hostname}) HTTP server closed, all connections drained`;
-    });
-
-    // 等待进行中的请求完成（最多 30s）
-    const waitForConnections = new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        logger.warning`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`;
-        resolve();
-      }, IN_FLIGHT_TIMEOUT_MS);
-
-      server.on('close', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
-
-    waitForConnections
-      .then(() => app.close())
-      .catch((error: unknown) => {
-        // SIGTERM 关闭时连接已断开是预期行为，不是异常
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warning`(${os.hostname}) exit by SIGTERM: ${message}`;
-      })
-      .finally(() => {
-        logger.info`(${os.hostname}) Graceful shutdown complete`;
-        process.exit(0);
-      });
   });
 
   return app;

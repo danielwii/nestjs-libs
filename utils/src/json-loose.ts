@@ -75,9 +75,32 @@ export function extractFirstJsonObject(input: string): string | null {
   const text = stripFences(input);
   const start = text.indexOf('{');
   if (start < 0) return null;
+
   let depth = 0;
+  let inString = false;
+  let escaped = false;
+
   for (let i = start; i < text.length; i++) {
     const ch = text.charAt(i);
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    // 字符串内的 { } 不参与括号匹配
+    if (inString) continue;
+
     if (ch === '{') depth++;
     if (ch === '}') {
       depth--;

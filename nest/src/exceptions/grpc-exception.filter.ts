@@ -222,6 +222,10 @@ export class GrpcExceptionFilter implements ExceptionFilter {
 
   private httpStatusToGrpcStatus(httpStatus: number): number {
     // HTTP → gRPC status 映射
+    //
+    // 关键区分：
+    // - 400 INVALID_ARGUMENT: 请求参数本身有问题（格式错、缺字段），修改参数才能成功
+    // - 422 FAILED_PRECONDITION: 请求合法但当前条件不满足（设备不在线、余额不足），换个时机/条件可能成功
     if (httpStatus >= 500) return status.INTERNAL;
     if (httpStatus === 400) return status.INVALID_ARGUMENT;
     if (httpStatus === 401) return status.UNAUTHENTICATED;
