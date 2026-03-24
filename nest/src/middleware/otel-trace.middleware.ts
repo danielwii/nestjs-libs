@@ -3,7 +3,7 @@
  *
  * 替代 @opentelemetry/instrumentation-http 的 HttpInstrumentation。
  * HttpInstrumentation 通过 context.bind(req/res) patch EventEmitter 方法，
- * 在 Bun/JSC 下导致每个请求的闭包链无法被 GC，造成内存泄漏。
+ * 在 Apollo + Bun/JSC 场景下放大内存泄漏问题（Apollo 本身的闭包链 + EventEmitter patch 叠加）。
  * see: https://github.com/open-telemetry/opentelemetry-js/issues/5514
  *
  * 本 middleware 只做两件事：

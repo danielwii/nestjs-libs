@@ -79,73 +79,6 @@ export interface BootstrapOptions {
   };
 }
 
-export async function simpleBootstrap(
-  AppModule: IEntryNestModule,
-  onInit?: (app: INestApplication) => Promise<void>,
-  options?: BootstrapOptions,
-) {
-  const now = Date.now();
-  await configureLogging();
-  const app = await NestFactory.create<NestExpressApplication>(wrapWithBootModule(AppModule), {
-    logger: new LogtapeNestLogger(),
-  });
-  if (onInit) await onInit(app);
-  await runApp(app)
-    .listen(SysEnv.PORT)
-    .then(() => {
-      const server = app.getHttpServer();
-      const address = server.address();
-      const bindAddress = address
-        ? typeof address === 'string'
-          ? address
-          : `${address.address}:${address.port}`
-        : 'unknown';
-
-      const startTime = DateTime.utc();
-      const nodeVersion = process.version;
-      const bunVersion =
-        'Bun' in globalThis ? (globalThis as unknown as { Bun: { version: string } }).Bun.version : null;
-      const runtimeVersions = bunVersion ? `Node ${nodeVersion} / Bun ${bunVersion}` : `Node ${nodeVersion}`;
-
-      const runtimeModeDesc =
-        process.env.NODE_ENV === 'production'
-          ? '生产模式(代码优化)'
-          : process.env.NODE_ENV === 'development'
-            ? '开发模式(热重载)'
-            : process.env.NODE_ENV === 'test'
-              ? '测试模式'
-              : '未知模式';
-
-      const businessEnvDesc = SysEnv.environment.isProd
-        ? '生产环境(真实数据)'
-        : SysEnv.environment.env === 'stg'
-          ? '预发布环境(测试数据)'
-          : '开发环境(测试数据)';
-
-      // Banner: 每行独立 tagged template，保留参数类型信息（number=黄, string=cyan）
-      bootstrapLogger.info`🦋 [Server] API Server started successfully`;
-      bootstrapLogger.info`┌─ 环境配置 ─────────────────────────────────────────────`;
-      bootstrapLogger.info`│ Node Runtime (NODE_ENV): ${process.env.NODE_ENV ?? 'N/A'} - ${runtimeModeDesc}`;
-      bootstrapLogger.info`│ Business Env (ENV): ${SysEnv.environment.env} - ${businessEnvDesc} → isProd=${SysEnv.environment.isProd}`;
-      bootstrapLogger.info`│ Doppler Env: ${SysEnv.DOPPLER_ENVIRONMENT ?? 'N/A'}`;
-      bootstrapLogger.info`├─ 应用信息 ─────────────────────────────────────────────`;
-      bootstrapLogger.info`│ App Version: ${options?.packageJson?.name ?? 'unknown'}-v${options?.packageJson?.version ?? 'unknown'}`;
-      bootstrapLogger.info`│ Host: ${os.hostname()}`;
-      bootstrapLogger.info`│ Node Name: ${SysEnv.NODE_NAME}`;
-      bootstrapLogger.info`│ Bind: ${bindAddress}`;
-      bootstrapLogger.info`│ Port: ${SysEnv.PORT}`;
-      bootstrapLogger.info`│ PID: ${process.pid}`;
-      bootstrapLogger.info`├─ 运行时信息 ───────────────────────────────────────────`;
-      bootstrapLogger.info`│ Platform: ${process.platform}`;
-      bootstrapLogger.info`│ Runtime: ${runtimeVersions}`;
-      bootstrapLogger.info`│ SysEnv.TZ Time: ${startTime.setZone(SysEnv.TZ).toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone(SysEnv.TZ).zoneName})`;
-      bootstrapLogger.info`│ Local Time: ${startTime.setZone('local').toFormat('yyyy-MM-dd EEEE HH:mm:ss')} (${startTime.setZone('local').zoneName})`;
-      bootstrapLogger.info`│ UTC Time: ${startTime.toFormat('yyyy-MM-dd EEEE HH:mm:ss')}`;
-      bootstrapLogger.info`└─ Startup Time: ${Date.now() - now}ms`;
-    });
-  return app;
-}
-
 export async function bootstrap(
   AppModule: IEntryNestModule,
   onInit?: (app: INestApplication) => Promise<void>,
@@ -217,10 +150,11 @@ export async function bootstrap(
   // app.set('trust proxy', true);
   app.set('trust proxy', 1);
 
-  // OTel tracing middleware — 仅在 HttpInstrumentation 禁用时使用
-  // 替代 HttpInstrumentation，只创建 span + context.with()，不 patch EventEmitter
-  if (process.env.OTEL_HTTP_INSTRUMENTATION === 'false') {
-    bootstrapLogger.info`[Config] OTel HTTP instrumentation disabled, using lightweight otelTraceMiddleware`;
+  // OTel tracing middleware — Sentry 未接管 OTel 时使用
+  // Sentry 模式：Sentry httpIntegration 自动创建 span + context
+  // Dev 模式：otelTraceMiddleware 手动创建 span + context.with()，不 patch EventEmitter
+  if (!process.env.SENTRY_DSN) {
+    bootstrapLogger.info`[Config] OTel HTTP tracing via lightweight otelTraceMiddleware (no Sentry)`;
     app.use(otelTraceMiddleware);
   }
 

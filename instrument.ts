@@ -10,12 +10,13 @@
  * - LogTape 日志初始化（必须在所有模块 import 前完成）
  * - gRPC 请求自动 tracing + traceparent 传播
  * - 可选：Langfuse span 导出（AI 相关 span）
- * - 可选：Sentry 错误追踪
+ * - 可选：Sentry 错误追踪 + OTel 接管
  *
- * HTTP tracing 说明：
- * - 不使用 HttpInstrumentation（会 patch EventEmitter，在 Bun/JSC 下导致内存泄漏）
- * - HTTP 请求的 traceId 由 bootstrap.ts 中的轻量 middleware 手动创建
- * - 该 middleware 只创建 span + context.with()，不调用 context.bind(req/res)
+ * OTel 策略（二选一，由 SENTRY_DSN 决定）：
+ * - Sentry 模式（SENTRY_DSN 已设置）：Sentry 接管 OTel（TracerProvider/ContextManager/Propagator/Sampler），
+ *   Langfuse 作为额外 SpanProcessor 挂载，HTTP tracing 由 Sentry httpIntegration 处理
+ * - Dev 模式（SENTRY_DSN 未设置）：最小化 NodeSDK，仅生成 traceId，
+ *   HTTP tracing 由 bootstrap.ts 中的 otelTraceMiddleware 处理
  *
  * gRPC Trace 传播机制：
  * - 客户端通过 gRPC metadata 传递 traceparent header
@@ -27,7 +28,7 @@
  * - OTEL_LOG_LEVEL: OpenTelemetry 日志级别（设为 NONE 禁用）
  * - LANGFUSE_ENABLED: 启用 Langfuse（需要 @langfuse/otel）
  * - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL: Langfuse 配置
- * - SENTRY_DSN: Sentry DSN（启用错误追踪）
+ * - SENTRY_DSN: Sentry DSN（启用 Sentry 接管 OTel + 错误追踪）
  *
  * 注意事项：
  * - 必须在 NestJS 启动前加载（使用 --preload）
@@ -43,7 +44,6 @@ import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
 import { diag } from '@opentelemetry/api';
 import { getStringFromEnv } from '@opentelemetry/core';
-import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 
@@ -156,38 +156,51 @@ function createLangfuseProcessor(): unknown | null {
   return new LangfuseSpanProcessor({ publicKey, secretKey, baseUrl, shouldExportSpan });
 }
 
-function initializeSentry() {
-  const dsn = process.env.SENTRY_DSN;
-  if (!dsn) {
-    sentryLogger.debug`${'skipped (SENTRY_DSN not set)'}`;
-    return;
-  }
+// ==================== Sentry 模式：Sentry 接管 OTel ====================
 
+/** gRPC instrumentation 注册到 Sentry 管理的全局 TracerProvider */
+function registerGrpcInstrumentation() {
+  if (!GrpcInstrumentation) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency
+    const { registerInstrumentations } = require('@opentelemetry/instrumentation');
+    registerInstrumentations({ instrumentations: [new GrpcInstrumentation()] });
+    otelLogger.info`${'gRPC instrumentation registered'}`;
+  } catch {
+    otelLogger.warning`${'failed to register gRPC instrumentation'}`;
+  }
+}
+
+const noisyPatterns = [
+  /MISSING_ENV_FILE/i,
+  /injecting env/i,
+  /#shutdownTracing/,
+  /TimeoutNegativeWarning/,
+  /DeprecationWarning/,
+  /^[DI] \d{4}-\d{2}-\d{2}T.+\| v\d+\.\d+\.\d+ \d+ \|/, // @grpc/grpc-js debug/info logs written to stderr
+];
+
+function bootstrapWithSentry(langfuseProcessor: unknown | null) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency, import() exposes strict type mismatch
     const Sentry = require('@sentry/nestjs');
+    const dsn = process.env.SENTRY_DSN;
     const release = process.env.SENTRY_RELEASE ?? process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA;
     const environment = process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV;
     const serverName = process.env.APP_NAME ?? process.env.SENTRY_SERVER_NAME ?? process.env.SERVICE_NAME;
-    sentryLogger.info`${`enabled server=${serverName ?? 'unknown'} env=${environment}`}`;
 
-    const noisyPatterns = [
-      /MISSING_ENV_FILE/i,
-      /injecting env/i,
-      /#shutdownTracing/,
-      /TimeoutNegativeWarning/,
-      /DeprecationWarning/,
-    ];
-
+    // Sentry 接管 OTel：不设 skipOpenTelemetrySetup，由 Sentry 管理
+    // TracerProvider / ContextManager / Propagator / Sampler
     Sentry.init({
-      enabled: process.env.NODE_ENV === 'production',
       dsn,
       sendDefaultPii: true,
       release,
       environment,
       serverName,
       tracesSampleRate: process.env.NODE_ENV === 'development' ? 1.0 : 0.1,
-      skipOpenTelemetrySetup: true,
+      // Langfuse 等额外 SpanProcessor 挂载到 Sentry 管理的 OTel provider
+      // see: https://github.com/getsentry/sentry-javascript/issues/14826
+      openTelemetrySpanProcessors: (langfuseProcessor ? [langfuseProcessor] : []) as never[],
       ignoreTransactions: [/^GET \/$/, /^GET \/health$/, /^GET \/api$/, /^handle.*Cron$/],
       beforeSend(event: {
         message?: string;
@@ -212,45 +225,32 @@ function initializeSentry() {
         Sentry.captureConsoleIntegration({ levels: ['error'] }),
       ],
     });
+
+    registerGrpcInstrumentation();
+
+    sentryLogger.info`${`enabled server=${serverName ?? 'unknown'} env=${environment}`}`;
+
+    // CLI 需要在 process.exit() 前调用此方法确保 spans 发送到 Langfuse
+    (globalThis as Record<string, unknown>).__otelFlush = () => Sentry.close(5000);
   } catch (error) {
     sentryLogger.error`${`init failed: ${error instanceof Error ? error.message : String(error)}`}`;
+    // Sentry 不可用时回退到 dev 模式
+    bootstrapMinimalOtel(langfuseProcessor);
   }
 }
 
-// ==================== Bootstrap ====================
+// ==================== Dev 模式：最小化 NodeSDK ====================
 
-function bootstrapTracing() {
-  configureDiagLogLevel();
-
-  const langfuseProcessor = createLangfuseProcessor();
+function bootstrapMinimalOtel(langfuseProcessor: unknown | null) {
   const spanProcessors: unknown[] = [];
-
   if (langfuseProcessor) spanProcessors.push(langfuseProcessor);
-
-  // Add minimal exporter if no exporters configured (enables traceId in logs)
   if (spanProcessors.length === 0) {
     otelLogger.debug`${'dev mode (minimal exporter)'}`;
     spanProcessors.push(new SimpleSpanProcessor(new MinimalSpanExporter()));
   }
 
-  // OTEL_HTTP_INSTRUMENTATION=false 可禁用 HttpInstrumentation
-  // HttpInstrumentation 的 context.bind(req/res) 会 patch EventEmitter 方法，
-  // 疑似在 Bun/JSC 下导致闭包链无法 GC，造成内存泄漏。
-  // see: https://github.com/open-telemetry/opentelemetry-js/issues/5514
-  // 禁用后，HTTP traceId 由 bootstrap.ts 中的 otelTraceMiddleware 手动创建。
-  const httpEnabled = (process.env.OTEL_HTTP_INSTRUMENTATION ?? 'true') !== 'false';
   const instrumentations: unknown[] = [];
   if (GrpcInstrumentation) instrumentations.push(new GrpcInstrumentation());
-  if (httpEnabled) {
-    instrumentations.push(
-      new HttpInstrumentation({
-        ignoreIncomingRequestHook: (req) => {
-          const url = req.url ?? '';
-          return url === '/' || url === '/health' || url.startsWith('/health');
-        },
-      }),
-    );
-  }
 
   const sdk = new NodeSDK({
     spanProcessors: spanProcessors as never[],
@@ -261,7 +261,7 @@ function bootstrapTracing() {
 
   try {
     sdk.start();
-    otelLogger.info`${`started (gRPC${httpEnabled ? ' + HTTP' : ''} instrumentation)`}`;
+    otelLogger.info`${`started (dev mode${GrpcInstrumentation ? ' + gRPC' : ''})`}`;
   } catch (error) {
     otelLogger.error`${`failed: ${error instanceof Error ? error.message : String(error)}`}`;
     return;
@@ -276,21 +276,25 @@ function bootstrapTracing() {
     }
   };
 
-  process.on('SIGTERM', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
   process.once('beforeExit', () => void shutdown());
 
-  // Expose flush function globally for CLI usage
   // CLI 需要在 process.exit() 前调用此方法确保 spans 发送到 Langfuse
-  (globalThis as Record<string, unknown>).__otelFlush = async () => {
-    try {
-      await sdk.shutdown();
-      otelLogger.debug`${'flush complete'}`;
-    } catch (error) {
-      otelLogger.error`${`flush failed: ${error instanceof Error ? error.message : String(error)}`}`;
-    }
-  };
+  (globalThis as Record<string, unknown>).__otelFlush = shutdown;
+}
 
-  initializeSentry();
+// ==================== Bootstrap ====================
+
+function bootstrapTracing() {
+  configureDiagLogLevel();
+  const langfuseProcessor = createLangfuseProcessor();
+
+  if (process.env.SENTRY_DSN) {
+    bootstrapWithSentry(langfuseProcessor);
+  } else {
+    sentryLogger.debug`${'skipped (SENTRY_DSN not set)'}`;
+    bootstrapMinimalOtel(langfuseProcessor);
+  }
 }
 
 bootstrapTracing();
