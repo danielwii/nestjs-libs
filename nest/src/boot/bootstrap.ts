@@ -51,7 +51,7 @@ type IEntryNestModule = Type<unknown> | DynamicModule | ForwardReference | Promi
 /**
  * 包装用户的 AppModule，自动注入 BootModule
  */
-function wrapWithBootModule(AppModule: IEntryNestModule): Type<unknown> {
+export function wrapWithBootModule(AppModule: IEntryNestModule): Type<unknown> {
   @Module({
     imports: [BootModule, AppModule as Type<unknown>],
   })
@@ -143,15 +143,22 @@ export async function bootstrap(
 
   const corsOrigin = (requestOrigin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     // 无 Origin 头（如服务端调用、curl）→ 放行
-    if (!requestOrigin) { callback(null, true); return; }
+    if (!requestOrigin) {
+      callback(null, true);
+      return;
+    }
     // dev 环境 localhost 任意端口放行
-    if (process.env.NODE_ENV !== 'production' && isLocalhost(requestOrigin)) { callback(null, true); return; }
+    if (process.env.NODE_ENV !== 'production' && isLocalhost(requestOrigin)) {
+      callback(null, true);
+      return;
+    }
     // 白名单匹配（支持 https://app.example.com 或 app.example.com 两种配置格式）
     if (allowedDomains?.length) {
       const allowed = allowedDomains.some(
         (domain) => requestOrigin === domain || requestOrigin === `https://${domain}`,
       );
-      callback(null, allowed); return;
+      callback(null, allowed);
+      return;
     }
     // 未配置 APP_WEB_DOMAINS → 禁止跨域
     callback(null, false);
