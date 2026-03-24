@@ -1,4 +1,4 @@
-// HealthModule 已通过 bootstrap/grpcBootstrap 自动注入，不再对外导出避免重复注入
+// HealthModule 已通过 bootstrap 自动注入，不再对外导出避免重复注入
 
 // Health Registry（各 Module 注入并注册 indicator）
 export { HealthRegistry } from './health-registry';
