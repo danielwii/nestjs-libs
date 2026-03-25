@@ -140,6 +140,7 @@ function createLangfuseProcessor(): unknown | null {
     const span = otelSpan as {
       instrumentationScope?: { name?: string };
       name?: string;
+      attributes?: Record<string, unknown>;
       spanContext?: () => { traceId?: string };
       _spanContext?: { traceId?: string };
     };
@@ -148,7 +149,9 @@ function createLangfuseProcessor(): unknown | null {
     const traceId = span.spanContext?.()?.traceId ?? span._spanContext?.traceId ?? ''; // eslint-disable-line @typescript-eslint/no-unnecessary-condition -- runtime shape varies
     const shouldExport = scope === 'ai';
     if (shouldExport) {
-      otelLogger.debug`${`[${traceId}] span name=${spanName} scope=${scope} export=true`}`;
+      const hasTraceInput = !!span.attributes?.['langfuse.trace.input'];
+      const hasTraceName = !!span.attributes?.['langfuse.trace.name'];
+      langfuseLogger.debug`${`[${traceId}] export span=${spanName} hasTraceInput=${hasTraceInput} hasTraceName=${hasTraceName}`}`;
     }
     return shouldExport;
   };
