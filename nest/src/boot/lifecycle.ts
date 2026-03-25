@@ -136,44 +136,65 @@ export const runApp = <App extends INestApplication>(app: App) => {
       return;
     }
     shuttingDown = true;
+    const shutdownStart = Date.now();
+    const elapsed = () => Date.now() - shutdownStart;
 
     logger.info`(${os.hostname}) Received ${signal}. Starting graceful shutdown... (${process.pid})`;
 
     const server = app.getHttpServer();
     const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
 
+    // 获取当前连接数用于诊断
+    server.getConnections?.((err: Error | null, count: number) => {
+      if (!err) logger.info`(${os.hostname}) #shutdown.connections active=${count} at +${elapsed()}ms`;
+    });
+
     server.close(() => {
-      logger.info`(${os.hostname}) HTTP server closed, all connections drained`;
+      logger.info`(${os.hostname}) #shutdown.http_closed all connections drained at +${elapsed()}ms`;
     });
 
     const waitForConnections = new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        logger.warning`(${os.hostname}) In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown`;
+        server.getConnections?.((err: Error | null, count: number) => {
+          if (!err)
+            logger.warning`(${os.hostname}) #shutdown.timeout remaining=${count} connections at +${elapsed()}ms`;
+        });
+        logger.warning`(${os.hostname}) #shutdown.timeout In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown at +${elapsed()}ms`;
         resolve();
       }, IN_FLIGHT_TIMEOUT_MS);
 
       server.on('close', () => {
         clearTimeout(timeout);
+        logger.info`(${os.hostname}) #shutdown.drained server closed naturally at +${elapsed()}ms`;
         resolve();
       });
     });
 
     waitForConnections
-      .then(() => app.close())
+      .then(() => {
+        logger.info`(${os.hostname}) #shutdown.app_close starting app.close() at +${elapsed()}ms`;
+        return app.close();
+      })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        logger.warning`(${os.hostname}) exit by ${signal}: ${message}`;
+        logger.warning`(${os.hostname}) #shutdown.error ${signal}: ${message} at +${elapsed()}ms`;
       })
       .finally(() => {
-        logger.info`(${os.hostname}) ${signal} shutdown complete`;
+        logger.info`(${os.hostname}) #shutdown.exit ${signal} complete at +${elapsed()}ms exitCode=${exitCode}`;
         process.exit(exitCode);
       });
   };
 
-  process.on('SIGINT', () => { gracefulShutdown('SIGINT', 0); });
+  process.on('SIGINT', () => {
+    gracefulShutdown('SIGINT', 0);
+  });
   // SIGUSR1: memory-watchdog sidecar 触发的优雅重启（exit code 42 区分于 SIGTERM）
-  process.on('SIGUSR1', () => { gracefulShutdown('SIGUSR1', 42); });
-  process.on('SIGTERM', () => { gracefulShutdown('SIGTERM', 0); });
+  process.on('SIGUSR1', () => {
+    gracefulShutdown('SIGUSR1', 42);
+  });
+  process.on('SIGTERM', () => {
+    gracefulShutdown('SIGTERM', 0);
+  });
 
   process.on('SIGHUP', () => {
     logger.warning`Process SIGHUP (可能是终端关闭)，强制退出...`;
