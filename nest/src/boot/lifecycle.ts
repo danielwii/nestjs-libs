@@ -129,71 +129,109 @@ export const runApp = <App extends INestApplication>(app: App) => {
   // 统一的 shutdown 守卫：防止 SIGINT/SIGUSR1/SIGTERM 重复触发 graceful shutdown
   let shuttingDown = false;
 
-  /** 优雅关闭：停止接收连接 → 等待 in-flight 请求 → app.close() → exit */
-  const gracefulShutdown = (signal: string, exitCode: number) => {
+  /** 优雅关闭：标记下线 → 排空等待 → 停止接收 + 等待 in-flight → 销毁依赖 → exit */
+  const gracefulShutdown = async (signal: string, exitCode: number) => {
     if (shuttingDown) {
       logger.warning`(${os.hostname}) ${signal} ignored, shutdown already in progress (${process.pid})`;
       return;
     }
     shuttingDown = true;
     const shutdownStart = Date.now();
-    const elapsed = () => Date.now() - shutdownStart;
+    const elapsed = () => `${Date.now() - shutdownStart}ms`;
 
-    logger.info`(${os.hostname}) Received ${signal}. Starting graceful shutdown... (${process.pid})`;
+    // --- Phase 1: 标记下线 ---
+    const isShuttingDown = (app as any).__isShuttingDown as { value: boolean } | undefined;
+    if (isShuttingDown) isShuttingDown.value = true;
+    logger.info`(${os.hostname}) [${signal}] Phase 1: marked as shutting down (${process.pid}) at +${elapsed()}`;
 
-    const server = app.getHttpServer();
+    // --- Phase 2: 排空等待 — 让 K8s/LB 传播端点变更 ---
+    const DRAIN_DELAY_MS = SysEnv.DRAIN_DELAY_MS;
+    logger.info`(${os.hostname}) [${signal}] Phase 2: drain delay ${DRAIN_DELAY_MS}ms at +${elapsed()}`;
+    await new Promise((r) => setTimeout(r, DRAIN_DELAY_MS));
+    logger.info`(${os.hostname}) [${signal}] Phase 2: drain delay complete at +${elapsed()}`;
+
+    // --- Phase 3: 停止接收 + 等待 in-flight ---
     const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
+    logger.info`(${os.hostname}) [${signal}] Phase 3: stopping servers, timeout=${IN_FLIGHT_TIMEOUT_MS}ms at +${elapsed()}`;
 
-    // 获取当前连接数用于诊断
-    server.getConnections?.((err: Error | null, count: number) => {
-      if (!err) logger.info`(${os.hostname}) #shutdown.connections active=${count} at +${elapsed()}ms`;
+    const httpServer = app.getHttpServer();
+
+    httpServer.getConnections?.((err: Error | null, count: number) => {
+      if (!err) logger.info`(${os.hostname}) [${signal}] Phase 3: HTTP connections=${count} at +${elapsed()}`;
     });
 
-    server.close(() => {
-      logger.info`(${os.hostname}) #shutdown.http_closed all connections drained at +${elapsed()}ms`;
+    // HTTP: 停止接收新连接
+    httpServer.close(() => {
+      logger.info`(${os.hostname}) [${signal}] Phase 3: HTTP server closed at +${elapsed()}`;
     });
 
-    const waitForConnections = new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        server.getConnections?.((err: Error | null, count: number) => {
-          if (!err)
-            logger.warning`(${os.hostname}) #shutdown.timeout remaining=${count} connections at +${elapsed()}ms`;
+    // gRPC: tryShutdown
+    const grpcMicroservice = (app as any).__grpcMicroservice as any | undefined;
+    const grpcDrainPromise = new Promise<void>((resolve) => {
+      // NestJS microservice wraps the transport strategy in .server, which wraps the grpc.Server in .server
+      const grpcServer = grpcMicroservice?.server?.server;
+      if (grpcServer?.tryShutdown) {
+        logger.info`(${os.hostname}) [${signal}] Phase 3: gRPC tryShutdown started at +${elapsed()}`;
+        grpcServer.tryShutdown(() => {
+          logger.info`(${os.hostname}) [${signal}] Phase 3: gRPC tryShutdown complete at +${elapsed()}`;
+          resolve();
         });
-        logger.warning`(${os.hostname}) #shutdown.timeout In-flight timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing shutdown at +${elapsed()}ms`;
+      } else {
+        logger.info`(${os.hostname}) [${signal}] Phase 3: no gRPC server, skipping gRPC drain`;
+        resolve();
+      }
+    });
+
+    // HTTP: 等待连接排空
+    const httpDrainPromise = new Promise<void>((resolve) => {
+      httpServer.on('close', () => {
+        logger.info`(${os.hostname}) [${signal}] Phase 3: HTTP drained at +${elapsed()}`;
+        resolve();
+      });
+    });
+
+    // 总超时
+    const timeoutPromise = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        logger.warning`(${os.hostname}) [${signal}] Phase 3: timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing at +${elapsed()}`;
+        const grpcServer = grpcMicroservice?.server?.server;
+        if (grpcServer?.forceShutdown) {
+          logger.warning`(${os.hostname}) [${signal}] Phase 3: gRPC forceShutdown at +${elapsed()}`;
+          grpcServer.forceShutdown();
+        }
         resolve();
       }, IN_FLIGHT_TIMEOUT_MS);
-
-      server.on('close', () => {
-        clearTimeout(timeout);
-        logger.info`(${os.hostname}) #shutdown.drained server closed naturally at +${elapsed()}ms`;
-        resolve();
-      });
     });
 
-    waitForConnections
-      .then(() => {
-        logger.info`(${os.hostname}) #shutdown.app_close starting app.close() at +${elapsed()}ms`;
-        return app.close();
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warning`(${os.hostname}) #shutdown.error ${signal}: ${message} at +${elapsed()}ms`;
-      })
-      .finally(() => {
-        logger.info`(${os.hostname}) #shutdown.exit ${signal} complete at +${elapsed()}ms exitCode=${exitCode}`;
-        process.exit(exitCode);
-      });
+    await Promise.race([
+      Promise.all([httpDrainPromise, grpcDrainPromise]),
+      timeoutPromise,
+    ]);
+    logger.info`(${os.hostname}) [${signal}] Phase 3: all servers drained at +${elapsed()}`;
+
+    // --- Phase 4: 销毁依赖 ---
+    logger.info`(${os.hostname}) [${signal}] Phase 4: app.close() at +${elapsed()}`;
+    try {
+      await app.close();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warning`(${os.hostname}) [${signal}] Phase 4: app.close() error: ${message} at +${elapsed()}`;
+    }
+
+    // --- Phase 5: 退出 ---
+    logger.info`(${os.hostname}) [${signal}] Phase 5: exit at +${elapsed()} exitCode=${exitCode}`;
+    process.exit(exitCode);
   };
 
   process.on('SIGINT', () => {
-    gracefulShutdown('SIGINT', 0);
+    gracefulShutdown('SIGINT', 0).catch((e) => { logger.error`shutdown error: ${e}`; process.exit(1); });
   });
   // SIGUSR1: memory-watchdog sidecar 触发的优雅重启（exit code 42 区分于 SIGTERM）
   process.on('SIGUSR1', () => {
-    gracefulShutdown('SIGUSR1', 42);
+    gracefulShutdown('SIGUSR1', 42).catch((e) => { logger.error`shutdown error: ${e}`; process.exit(1); });
   });
   process.on('SIGTERM', () => {
-    gracefulShutdown('SIGTERM', 0);
+    gracefulShutdown('SIGTERM', 0).catch((e) => { logger.error`shutdown error: ${e}`; process.exit(1); });
   });
 
   process.on('SIGHUP', () => {
