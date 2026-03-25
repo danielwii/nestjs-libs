@@ -474,6 +474,9 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
   public readonly vars: T;
   public readonly originalVars: T; // 添加原始副本
 
+  /** sys 自动推断：EnvsClass === AbstractEnvironmentVariables 时为 SysEnv */
+  private readonly sys: boolean;
+
   /**
    * Order of precedence:
    * process.env
@@ -481,15 +484,19 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
    * .env.local (Not checked when NODE_ENV is test.)
    * .env.$(NODE_ENV)
    * .env
-   * @param EnvsClass
-   * @param sys - 是否为系统级配置（SysEnv）
-   * @param options - 配置选项
+   * @param EnvsClass - 环境变量类
+   * @param options - 配置选项（scope 默认从 APP_NAME 环境变量获取）
    */
   constructor(
     readonly EnvsClass: new () => T,
-    private readonly sys = false,
     private readonly options: AppConfigureOptions = {},
   ) {
+    // sys 自动推断：基类 = 系统配置，子类 = 应用配置
+    this.sys = EnvsClass === (AbstractEnvironmentVariables as unknown);
+    // scope 默认从 APP_NAME 环境变量获取，无需手动传
+    if (!options.scope && process.env.APP_NAME) {
+      options.scope = process.env.APP_NAME;
+    }
     const envFilePath = (() => {
       switch (process.env.NODE_ENV) {
         case NODE_ENV.Test:
@@ -908,7 +915,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
  * ```
  */
 export function createNoDBConfigure<T extends AbstractEnvironmentVariables>(EnvsClass: new () => T): AppConfigure<T> {
-  return new AppConfigure(EnvsClass, false, { noDB: true });
+  return new AppConfigure(EnvsClass, { noDB: true });
 }
 
-export const SysEnv = new AppConfigure(AbstractEnvironmentVariables, true).vars;
+export const SysEnv = new AppConfigure(AbstractEnvironmentVariables).vars;

@@ -463,7 +463,7 @@ describe('AppConfigure', () => {
       const ORIGINAL_DEBUG = process.env.CONFIGURE_DEBUG;
       process.env.CONFIGURE_DEBUG = 'true';
       try {
-        const appConfig = new AppConfigure(AbstractEnvironmentVariables, true);
+        const appConfig = new AppConfigure(AbstractEnvironmentVariables);
         expect(appConfig.vars).toBeDefined();
       } finally {
         process.env.CONFIGURE_DEBUG = ORIGINAL_DEBUG;
@@ -855,7 +855,7 @@ describe('AppConfigure', () => {
         KEY: string = 'default';
       }
 
-      const appConfig = new AppConfigure(TestEnvs, false, { scope: 'test-project' });
+      const appConfig = new AppConfigure(TestEnvs, { scope: 'test-project' });
       const originalSyncFromDB = AppConfigure.syncFromDB;
       const staticSpy = mock(async () => {});
       (AppConfigure as any).syncFromDB = staticSpy;
