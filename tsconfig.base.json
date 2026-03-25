@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "_comment": "Shared base tsconfig for all consumer projects. Extend this and override paths/exclude only.",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "preserve",
+    "moduleDetection": "force",
+    "allowJs": true,
+    "noEmit": true,
+
+    "strict": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    "ignoreDeprecations": "6.0",
+    "baseUrl": "./"
+  }
+}
