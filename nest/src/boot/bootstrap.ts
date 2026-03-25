@@ -8,6 +8,7 @@ import { BootModule } from '@app/nest/boot/boot.module';
 import { addDescriptorSetReflection } from '@app/nest/boot/grpc-bootstrap';
 import { addGrpcHealthService } from '@app/nest/boot/grpc-health';
 import { runApp } from '@app/nest/boot/lifecycle';
+import { setGrpcMicroserviceRef, shutdownState } from '@app/nest/boot/shutdown-state';
 import { doMigration } from '@app/nest/common/migration';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
@@ -337,10 +338,7 @@ export async function bootstrap(
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
 
-    const isShuttingDown = { value: false };
-    (app as any).__isShuttingDown = isShuttingDown;
-
-    const _grpcMs = app.connectMicroservice<MicroserviceOptions>(
+    const grpcMs = app.connectMicroservice<MicroserviceOptions>(
       {
         transport: Transport.GRPC,
         options: {
@@ -354,14 +352,14 @@ export async function bootstrap(
                 const dsPath = options.grpc?.descriptorSetPath;
                 if (!dsPath) return;
                 if (enableReflection) addDescriptorSetReflection(server, dsPath);
-                addGrpcHealthService(server, dsPath, () => isShuttingDown.value);
+                addGrpcHealthService(server, dsPath, () => shutdownState.value);
               }
             : undefined,
         },
       },
       { inheritAppConfig: true },
     );
-    (app as any).__grpcMicroservice = _grpcMs;
+    setGrpcMicroserviceRef(grpcMs);
 
     await app.startAllMicroservices();
     bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}`;
