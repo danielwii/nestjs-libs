@@ -303,6 +303,21 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    */
   @Type(() => Number) @IsNumber() @IsOptional() IN_FLIGHT_TIMEOUT_MS: number = 60_000;
 
+  /**
+   * 优雅关闭时的排空延迟（毫秒）
+   *
+   * 设计意图：
+   * - 收到 shutdown 信号后，先标记 readiness=503 / gRPC=NOT_SERVING
+   * - 然后等待此时间，让 K8s / LB 传播端点变更，停止路由新流量
+   * - 之后才开始关闭服务器和等待 in-flight 请求
+   *
+   * SIGTERM 场景：preStop(10s) 已提前执行，排空延迟可用较短值
+   * SIGUSR1 场景：无 preStop，需要完整排空延迟
+   *
+   * 默认 10s，覆盖 K8s readiness probe 周期(3s) + endpoint 传播延迟
+   */
+  @Type(() => Number) @IsNumber() @IsOptional() DRAIN_DELAY_MS: number = 10_000;
+
   get environment() {
     const env = this.ENV ?? this.DOPPLER_ENVIRONMENT ?? 'dev';
     const isProd = env === 'prd';
