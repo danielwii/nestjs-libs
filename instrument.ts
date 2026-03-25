@@ -200,7 +200,7 @@ function bootstrapWithSentry(langfuseProcessor: unknown | null) {
       release,
       environment,
       serverName,
-      tracesSampleRate: process.env.NODE_ENV === 'development' ? 1.0 : 0.1,
+      tracesSampleRate: 1.0,
       // Langfuse 等额外 SpanProcessor 挂载到 Sentry 管理的 OTel provider
       // see: https://github.com/getsentry/sentry-javascript/issues/14826
       openTelemetrySpanProcessors: (langfuseProcessor ? [langfuseProcessor] : []) as never[],
