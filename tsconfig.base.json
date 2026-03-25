@@ -13,6 +13,7 @@
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
 
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,

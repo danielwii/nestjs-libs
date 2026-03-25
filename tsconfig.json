@@ -1,18 +1,6 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ESNext"],
-    "target": "ESNext",
-    "module": "preserve",
-    "moduleDetection": "force",
-    "allowJs": true,
-    "noEmit": true,
-    "strict": true,
-    "strictBindCallApply": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitReturns": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
     "paths": {
       "@app/utils/*": ["./utils/src/*"],
       "@app/utils": ["./utils/src/index.ts"],
@@ -23,16 +11,8 @@
       "@app/effect/*": ["./effect/*"],
       "@app/features/*": ["./features/*"],
       "@/*": ["./*"]
-    },
-    // 数组/Record 索引访问返回 T | undefined，强制处理越界
-    // 规避方式：.at(0) / charAt(i) / Partial<Record> / 显式标注，禁止用 ! 断言绕过
-    "noUncheckedIndexedAccess": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true
+    }
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "dist"],
-  "$schema": "https://json.schemastore.org/tsconfig",
-  "_comment": "Base TypeScript config - merge with project-specific settings"
+  "exclude": ["node_modules", "dist"]
 }
