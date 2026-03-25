@@ -337,12 +337,10 @@ export async function bootstrap(
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
 
-    let grpcShuttingDown = false;
-    process.on('SIGTERM', () => {
-      grpcShuttingDown = true;
-    });
+    const isShuttingDown = { value: false };
+    (app as any).__isShuttingDown = isShuttingDown;
 
-    app.connectMicroservice<MicroserviceOptions>(
+    const _grpcMs = app.connectMicroservice<MicroserviceOptions>(
       {
         transport: Transport.GRPC,
         options: {
@@ -356,13 +354,14 @@ export async function bootstrap(
                 const dsPath = options.grpc?.descriptorSetPath;
                 if (!dsPath) return;
                 if (enableReflection) addDescriptorSetReflection(server, dsPath);
-                addGrpcHealthService(server, dsPath, () => grpcShuttingDown);
+                addGrpcHealthService(server, dsPath, () => isShuttingDown.value);
               }
             : undefined,
         },
       },
       { inheritAppConfig: true },
     );
+    (app as any).__grpcMicroservice = _grpcMs;
 
     await app.startAllMicroservices();
     bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}`;
