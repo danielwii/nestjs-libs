@@ -168,7 +168,9 @@ export async function bootstrap(
   app.useGlobalInterceptors(new LoggerInterceptor());
 
   // --- ShutdownHooks ---
-  app.enableShutdownHooks();
+  // 不调 app.enableShutdownHooks()：NestJS 内部会监听 SIGTERM 直接调 app.close()，
+  // 与 lifecycle.ts 的 5-phase gracefulShutdown 竞争，导致 drain delay 被跳过。
+  // lifecycle.ts 的 gracefulShutdown 全权控制 shutdown，Phase 4 手动调 app.close()。
 
   // --- api 专属：HTTP middleware ---
   if (isApi) {
