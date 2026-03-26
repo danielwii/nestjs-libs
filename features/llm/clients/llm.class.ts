@@ -1203,7 +1203,8 @@ export class LLM {
         yield { type: 'start', toolCallId: event.id };
       } else if (event.type === 'tool-input-delta') {
         // 增量 JSON 参数
-        jsonBuffer += event.delta;
+        const delta: string = event.delta;
+        jsonBuffer += delta;
 
         // 尝试解析部分 JSON
         const partial = tryParsePartialJson<T>(jsonBuffer);
