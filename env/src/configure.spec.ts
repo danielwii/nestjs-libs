@@ -38,8 +38,10 @@ describe('AppConfigure', () => {
       };
 
       // 2. 执行同步
-      // 现在传递两个副本
-      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+      // 现在传递两个副本（需要 scope 才能触发写入）
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any, {
+        scope: 'test-project',
+      });
 
       // 3. 验证结果
       expect(mockPrisma.sysAppSetting.createMany).toHaveBeenCalled();
@@ -88,7 +90,6 @@ describe('AppConfigure', () => {
     it('should handle deprecation and restoration', async () => {
       class Envs {
         @DatabaseField('string') FIELD1: string = 'v1';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -98,7 +99,14 @@ describe('AppConfigure', () => {
           findMany: mock(() =>
             Promise.resolve([
               { key: 'FIELD1', scope: 'shared', value: 'val', format: 'string' },
-              { key: 'ORPHAN', scope: 'shared', value: 'old', format: 'string', deprecatedAt: null },
+              {
+                key: 'ORPHAN',
+                scope: 'shared',
+                value: 'old',
+                format: 'string',
+                deprecatedAt: null,
+                createdBy: 'test-project',
+              },
             ]),
           ),
           updateMany: mock(() => Promise.resolve({ count: 1 })),
@@ -108,7 +116,9 @@ describe('AppConfigure', () => {
         },
       };
 
-      await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any);
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any, {
+        scope: 'test-project',
+      });
 
       // Verify updateMany was called to deprecate ORPHAN
       const deprecateCall = (mockPrisma.sysAppSetting.updateMany.mock.calls as any[][])[0]![0];
@@ -323,7 +333,6 @@ describe('AppConfigure', () => {
       class Envs {
         @DatabaseField('string', 'New Description')
         FIELD: string = 'new_default';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -349,7 +358,9 @@ describe('AppConfigure', () => {
         },
       };
 
-      await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any);
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any, {
+        scope: 'test-project',
+      });
 
       expect(mockPrisma.sysAppSetting.update).toHaveBeenCalled();
       const updateData = (mockPrisma.sysAppSetting.update.mock.calls as any[][])[0]![0].data;
@@ -357,11 +368,10 @@ describe('AppConfigure', () => {
       expect(updateData.description).toBe('New Description');
     });
 
-    it('should skip all DB writes when APP_CONFIG_SYNC_WRITE_ENABLED is false', async () => {
+    it('should skip all DB writes when no projectScope is provided', async () => {
       class Envs {
         @DatabaseField('string', 'New Description')
         FIELD: string = 'new_default';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
       }
       const original = new Envs();
       const active = new Envs();
@@ -396,6 +406,7 @@ describe('AppConfigure', () => {
         },
       };
 
+      // no scope = no writes
       await AppConfigure.syncFromDB(mockPrisma as unknown as any, original as any, active as any);
 
       // 读路径仍生效
@@ -566,6 +577,7 @@ describe('AppConfigure', () => {
           format: string;
           description: string | null;
           deprecatedAt: Date | null;
+          createdBy: string | null;
         }>
       >,
     ) {
@@ -593,7 +605,6 @@ describe('AppConfigure', () => {
         class TestEnvs {
           @DatabaseField('string', { description: 'scoped field', scoped: true })
           SCOPED_FIELD: string = 'val';
-          APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
         }
         const envs = new TestEnvs();
         expect(envs.SCOPED_FIELD).toBe('val');
@@ -615,7 +626,6 @@ describe('AppConfigure', () => {
       class Envs {
         @DatabaseField('string', 'desc')
         FIELD: string = 'val';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -627,6 +637,7 @@ describe('AppConfigure', () => {
       const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0]![0].data[0];
       expect(createData.scope).toBe('shared');
       expect(createData.key).toBe('FIELD');
+      expect(createData.createdBy).toBe('my-project');
     });
 
     // ─── Cycle 4: Scoped 字段写入 projectName ──────────────────────────────
@@ -635,7 +646,6 @@ describe('AppConfigure', () => {
       class Envs {
         @DatabaseField('string', { description: 'scoped', scoped: true })
         MY_FIELD: string = 'val';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -646,6 +656,7 @@ describe('AppConfigure', () => {
       expect(mockPrisma.sysAppSetting.createMany).toHaveBeenCalled();
       const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0]![0].data[0];
       expect(createData.scope).toBe('ai-persona');
+      expect(createData.createdBy).toBe('ai-persona');
     });
 
     // ─── Cycle 5: 读取优先级 scoped > shared > code default ────────────────
@@ -718,7 +729,6 @@ describe('AppConfigure', () => {
     it('should not deprecate other project scope rows', async () => {
       class Envs {
         @DatabaseField('string') FIELD1: string = 'v1';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -742,13 +752,19 @@ describe('AppConfigure', () => {
     it('should deprecate orphans only in shared scope for shared fields', async () => {
       class Envs {
         @DatabaseField('string') FIELD1: string = 'v1';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
       const mockPrisma = buildScopedMock([
         { key: 'FIELD1', scope: 'shared', value: 'val', format: 'string' },
-        { key: 'ORPHAN_SHARED', scope: 'shared', value: 'old', format: 'string', deprecatedAt: null },
+        {
+          key: 'ORPHAN_SHARED',
+          scope: 'shared',
+          value: 'old',
+          format: 'string',
+          deprecatedAt: null,
+          createdBy: 'my-project',
+        },
       ]);
 
       await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'my-project' });
@@ -764,7 +780,6 @@ describe('AppConfigure', () => {
       class Envs {
         @DatabaseField('string', { description: 'scoped', scoped: true })
         SCOPED_FIELD: string = 'v1';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -783,40 +798,35 @@ describe('AppConfigure', () => {
 
     // ─── Cycle 7: 向后兼容（无 scope = legacy） ──────────────────────────────
 
-    it('should work in legacy mode when no scope is provided', async () => {
+    it('should skip writes in legacy mode when no scope is provided', async () => {
       class Envs {
         @DatabaseField('string') FIELD: string = 'val';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
       const mockPrisma = buildScopedMock([]);
 
-      // 不传 options（legacy）
+      // 不传 options（legacy）→ no projectScope → no writes
       await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any);
 
-      expect(mockPrisma.sysAppSetting.createMany).toHaveBeenCalled();
-      const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0]![0].data[0];
-      expect(createData.scope).toBe('shared');
+      expect(mockPrisma.sysAppSetting.createMany).not.toHaveBeenCalled();
     });
 
     // ─── Cycle 9: Scoped 字段无 scope 时 fallback ─────────────────────────
 
-    it('should fallback scoped field to shared when no project scope provided', async () => {
+    it('should not write scoped fields when no project scope provided', async () => {
       class Envs {
         @DatabaseField('string', { description: 'model', scoped: true })
         MY_MODEL: string = 'default';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
       const mockPrisma = buildScopedMock([]);
 
-      // 不传 scope，scoped 字段 fallback 到 shared
+      // 不传 scope → no projectScope → no writes
       await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any);
 
-      const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0]![0].data[0];
-      expect(createData.scope).toBe('shared');
+      expect(mockPrisma.sysAppSetting.createMany).not.toHaveBeenCalled();
     });
 
     // ─── Cycle 10: 元数据更新用复合键 ──────────────────────────────────────
@@ -825,7 +835,6 @@ describe('AppConfigure', () => {
       class Envs {
         @DatabaseField('string', 'New Desc')
         FIELD: string = 'new_default';
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -879,8 +888,6 @@ describe('AppConfigure', () => {
 
         @DatabaseField('string', { description: 'project-only', scoped: true })
         SCOPED_KEY: string = 'scoped-default';
-
-        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
       const original = new Envs();
       const active = new Envs();
@@ -893,7 +900,9 @@ describe('AppConfigure', () => {
       const shared = createData.find((d: any) => d.key === 'SHARED_KEY');
       const scoped = createData.find((d: any) => d.key === 'SCOPED_KEY');
       expect(shared.scope).toBe('shared');
+      expect(shared.createdBy).toBe('ai-persona');
       expect(scoped.scope).toBe('ai-persona');
+      expect(scoped.createdBy).toBe('ai-persona');
     });
 
     it('should read scoped value for scoped field and shared value for shared field', async () => {
@@ -918,6 +927,65 @@ describe('AppConfigure', () => {
 
       expect((active as any).SHARED_KEY).toBe('shared-db');
       expect((active as any).SCOPED_KEY).toBe('project-scoped-db');
+    });
+
+    // ─── createdBy 归属过滤 ─────────────────────────────────────────────
+
+    it('should only deprecate shared orphans with matching createdBy', async () => {
+      class Envs {
+        @DatabaseField('string') FIELD1: string = 'v1';
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        { key: 'FIELD1', scope: 'shared', value: 'val', format: 'string', createdBy: 'my-project' },
+        {
+          key: 'MY_ORPHAN',
+          scope: 'shared',
+          value: 'old',
+          format: 'string',
+          deprecatedAt: null,
+          createdBy: 'my-project',
+        },
+        {
+          key: 'OTHER_ORPHAN',
+          scope: 'shared',
+          value: 'old',
+          format: 'string',
+          deprecatedAt: null,
+          createdBy: 'other-service',
+        },
+        { key: 'LEGACY_ORPHAN', scope: 'shared', value: 'old', format: 'string', deprecatedAt: null, createdBy: null },
+      ]);
+
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'my-project' });
+
+      const calls = mockPrisma.sysAppSetting.updateMany.mock.calls as any[][];
+      const deprecateCall = calls.find((c) => c[0]?.data?.deprecatedAt);
+      expect(deprecateCall).toBeDefined();
+      // Only MY_ORPHAN should be deprecated (createdBy matches)
+      expect(deprecateCall![0].where.key.in).toContain('MY_ORPHAN');
+      expect(deprecateCall![0].where.key.in).not.toContain('OTHER_ORPHAN');
+      expect(deprecateCall![0].where.key.in).not.toContain('LEGACY_ORPHAN');
+    });
+
+    it('should include createdBy when creating fields', async () => {
+      class Envs {
+        @DatabaseField('string', 'desc')
+        SHARED_FIELD: string = 'val';
+        @DatabaseField('string', { description: 'scoped', scoped: true })
+        SCOPED_FIELD: string = 'val';
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([]);
+
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'my-app' });
+
+      const createData = (mockPrisma.sysAppSetting.createMany.mock.calls as any[][])[0]![0].data as any[];
+      for (const row of createData) {
+        expect(row.createdBy).toBe('my-app');
+      }
     });
   });
 });

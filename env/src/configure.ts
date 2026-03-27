@@ -260,9 +260,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
-  // 关键约束：此开关只能由实例本地环境变量控制，严禁加 @DatabaseField。
-  // 原因：它用于决定当前实例是否有权写 sysAppSetting，若存入 DB 会破坏读写隔离并引入竞态。
-  // 运行约定：默认 false，仅配置主管理实例显式设为 true。
+  // 历史遗留：此开关已被 scope 隔离 + createdBy 归属机制取代。
+  // 有 projectScope 时服务自动获得写权限，无需手动开启。
+  // 保留字段定义仅为避免环境变量校验报错。
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
   @DatabaseField('number', 'Prisma 事务超时时间（毫秒）') @IsNumber() PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
 
@@ -410,6 +410,7 @@ export interface ISysAppSettingRecord {
   format: string;
   description?: string | null;
   deprecatedAt?: Date | null;
+  createdBy?: string | null;
 }
 
 export interface ISysAppSettingClient {
@@ -426,6 +427,7 @@ export interface ISysAppSettingClient {
         defaultValue: string | null;
         format: string;
         description?: string | null;
+        createdBy?: string | null;
       }>;
       skipDuplicates?: boolean;
     }): Promise<{ count: number }>;
@@ -679,20 +681,15 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const sharedFields = fields.filter((f) => !f.isScoped);
     const scopedFields = fields.filter((f) => f.isScoped);
 
-    const syncWriteEnabledRaw = (activeEnvs as Record<string, unknown>).APP_CONFIG_SYNC_WRITE_ENABLED;
-    const syncWriteEnabled =
-      syncWriteEnabledRaw === true || syncWriteEnabledRaw === 'true' || syncWriteEnabledRaw === '1';
-    const syncMode = syncWriteEnabled ? 'read-write' : 'read-only';
+    // 有 projectScope 就能写 — scope 隔离 + createdBy 归属保障安全
+    const writeEnabled = !!projectScope;
+    const syncMode = writeEnabled ? 'read-write' : 'read-only';
     const managedFieldNames = fields.map((f) => f.field).sort((a, b) => a.localeCompare(b));
 
     const logger = getAppLogger('AppConfigure');
 
     logger.debug`#syncFromDB... reload app settings from db.`;
-    logger.debug`${
-      syncWriteEnabled
-        ? `#syncFromDB mode=read-write scope=${projectScope ?? '(none)'}`
-        : `#syncFromDB mode=read-only scope=${projectScope ?? '(none)'}`
-    }`;
+    logger.debug`${`#syncFromDB mode=${syncMode} scope=${projectScope ?? '(none)'}`}`;
     logger.debug`#syncFromDB managed keys (${managedFieldNames.length}): ${managedFieldNames.join(', ') || '(none)'}`;
 
     // 拉取相关 scope 的行：shared + 项目 scope（如有）
@@ -711,6 +708,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       description?: string;
       value: unknown;
       deprecatedAt?: Date | null;
+      createdBy?: string | null;
     }>;
 
     const stats = {
@@ -725,7 +723,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       metadataUpdateFailed: 0,
     };
 
-    if (syncWriteEnabled) {
+    if (writeEnabled) {
       // =====================================================
       // Orphan 检测：按 scope 隔离，只标记自己管理的行
       // =====================================================
@@ -733,7 +731,9 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 1. shared scope: 只看 shared 行 vs sharedFields
       const sharedFieldNames = new Set(sharedFields.map((f) => f.field));
       const sharedRows = appSettings.filter((s) => s.scope === SHARED);
-      const sharedOrphans = sharedRows.filter((s) => !sharedFieldNames.has(s.key) && !s.deprecatedAt);
+      const sharedOrphans = sharedRows.filter(
+        (s) => !sharedFieldNames.has(s.key) && !s.deprecatedAt && s.createdBy === projectScope,
+      );
       if (sharedOrphans.length > 0) {
         stats.metadataDeprecatedMarked += sharedOrphans.length;
         logger.info`#syncFromDB 标记 ${sharedOrphans.length} 个废弃配置 (shared): ${sharedOrphans.map((s) => s.key).join(', ')}`;
@@ -796,6 +796,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
               defaultValue: defaultVal,
               format: format as string,
               description: description as string | null,
+              createdBy: projectScope ?? null,
             };
           }),
           skipDuplicates: true,
@@ -834,7 +835,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         stats.runtimeMissingDBValue += 1;
       }
 
-      if (!syncWriteEnabled) {
+      if (!writeEnabled) {
         continue;
       }
 
