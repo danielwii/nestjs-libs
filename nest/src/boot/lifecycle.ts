@@ -1,6 +1,8 @@
 import { SysEnv } from '@app/env';
 import { grpcMicroserviceRef, shutdownState } from '@app/nest/boot/shutdown-state';
+import { ConnectionManagerService } from '@app/nest/connection/connection-manager.service';
 import { getAppLogger } from '@app/utils/app-logger';
+import { getErrorMessage } from '@app/utils/error';
 
 import os from 'node:os';
 
@@ -155,11 +157,25 @@ export const runApp = <App extends INestApplication>(app: App) => {
       logger.info`(${os.hostname}) [${signal}] Phase 2: drain delay skipped (${signal}) at +${elapsed()}`;
     }
 
+    // --- Phase 2.5: 通知 SSE/WS 客户端断开 ---
+    // 必须在 Phase 3 drain 之前执行，否则 SSE 客户端不知道该断开，HTTP drain 永远超时
+    try {
+      const connectionManager = app.get(ConnectionManagerService);
+      const { sse, ws } = connectionManager.getActiveConnectionCount();
+      logger.info`(${os.hostname}) [${signal}] Phase 2.5: notifying clients sse=${sse} ws=${ws} at +${elapsed()}`;
+      await connectionManager.notifyAndCloseAll();
+      logger.info`(${os.hostname}) [${signal}] Phase 2.5: client notifications complete at +${elapsed()}`;
+    } catch (e) {
+      logger.warning`(${os.hostname}) [${signal}] Phase 2.5: failed: ${getErrorMessage(e)}`;
+    }
+
     // --- Phase 3: 停止接收 + 等待 in-flight ---
     const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
     logger.info`(${os.hostname}) [${signal}] Phase 3: stopping servers, timeout=${IN_FLIGHT_TIMEOUT_MS}ms at +${elapsed()}`;
 
     const httpServer = app.getHttpServer();
+    let httpDrained = false;
+    let grpcDrained = false;
 
     httpServer.getConnections?.((err: Error | null, count: number) => {
       if (!err) logger.info`(${os.hostname}) [${signal}] Phase 3: HTTP connections=${count} at +${elapsed()}`;
@@ -181,10 +197,12 @@ export const runApp = <App extends INestApplication>(app: App) => {
       if (grpcServer?.tryShutdown) {
         logger.info`(${os.hostname}) [${signal}] Phase 3: gRPC tryShutdown started at +${elapsed()}`;
         grpcServer.tryShutdown(() => {
+          grpcDrained = true;
           logger.info`(${os.hostname}) [${signal}] Phase 3: gRPC tryShutdown complete at +${elapsed()}`;
           resolve();
         });
       } else {
+        grpcDrained = true;
         logger.info`(${os.hostname}) [${signal}] Phase 3: no gRPC server, skipping gRPC drain`;
         resolve();
       }
@@ -193,15 +211,17 @@ export const runApp = <App extends INestApplication>(app: App) => {
     // HTTP: 等待连接排空
     const httpDrainPromise = new Promise<void>((resolve) => {
       httpServer.on('close', () => {
+        httpDrained = true;
         logger.info`(${os.hostname}) [${signal}] Phase 3: HTTP drained at +${elapsed()}`;
         resolve();
       });
     });
 
-    // 总超时
+    // 总超时 — drain 先完成则清理 timer，避免空转
+    let phase3Timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        logger.warning`(${os.hostname}) [${signal}] Phase 3: timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing at +${elapsed()}`;
+      phase3Timer = setTimeout(() => {
+        logger.warning`(${os.hostname}) [${signal}] Phase 3: timeout (${IN_FLIGHT_TIMEOUT_MS}ms), forcing at +${elapsed()} httpDrained=${httpDrained} grpcDrained=${grpcDrained}`;
         if (grpcServer?.forceShutdown) {
           logger.warning`(${os.hostname}) [${signal}] Phase 3: gRPC forceShutdown at +${elapsed()}`;
           grpcServer.forceShutdown();
@@ -211,7 +231,8 @@ export const runApp = <App extends INestApplication>(app: App) => {
     });
 
     await Promise.race([Promise.all([httpDrainPromise, grpcDrainPromise]), timeoutPromise]);
-    logger.info`(${os.hostname}) [${signal}] Phase 3: all servers drained at +${elapsed()}`;
+    clearTimeout(phase3Timer);
+    logger.info`(${os.hostname}) [${signal}] Phase 3: servers stopped at +${elapsed()} httpDrained=${httpDrained} grpcDrained=${grpcDrained}`;
 
     // --- Phase 4: 销毁依赖 ---
     logger.info`(${os.hostname}) [${signal}] Phase 4: app.close() at +${elapsed()}`;

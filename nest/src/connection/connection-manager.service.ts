@@ -222,36 +222,62 @@ export class ConnectionManagerService implements BeforeApplicationShutdown {
   }
 
   /**
-   * 应用关闭前钩子
+   * 主动通知所有客户端并关闭连接。
    *
-   * 设计意图：
-   * - 在 NestJS 开始关闭流程前通知所有客户端
-   * - 使用 beforeApplicationShutdown 而非 onApplicationShutdown
-   *   因为前者在关闭流程更早执行，给客户端更多重连时间
+   * 由 lifecycle.ts Phase 2.5 在 drain 等待之前调用，确保 SSE 客户端
+   * 在 Phase 3 等待 HTTP 连接排空之前已收到断开通知。
+   * 如果 lifecycle.ts 没有调用（如测试环境），beforeApplicationShutdown 兜底。
+   */
+  async notifyAndCloseAll(): Promise<void> {
+    if (this.isShuttingDown) {
+      this.logger
+        .info`#notifyAndCloseAll already shutting down, skip (sse=${this.sseConnections.size} ws=${this.wsConnections.size})`;
+      return;
+    }
+    this.isShuttingDown = true;
+    await this.doNotifyAndClose('notifyAndCloseAll');
+  }
+
+  /**
+   * 应用关闭前钩子（NestJS lifecycle，Phase 4 app.close() 时触发）
+   *
+   * 如果 lifecycle.ts 已在 Phase 2.5 调用过 notifyAndCloseAll()，此处跳过。
+   * 否则作为兜底执行通知。
    */
   async beforeApplicationShutdown(signal?: string): Promise<void> {
+    if (this.isShuttingDown) {
+      this.logger
+        .info`#beforeApplicationShutdown already handled (signal=${signal ?? 'none'}, sse=${this.sseConnections.size} ws=${this.wsConnections.size})`;
+      return;
+    }
     this.isShuttingDown = true;
+    this.logger
+      .warning`#beforeApplicationShutdown fallback path — lifecycle.ts did not call notifyAndCloseAll (signal=${signal ?? 'none'})`;
+    await this.doNotifyAndClose('beforeApplicationShutdown');
+  }
+
+  private async doNotifyAndClose(caller: string): Promise<void> {
     const sseCount = this.sseConnections.size;
     const wsCount = this.wsConnections.size;
 
-    this.logger
-      .info`#beforeApplicationShutdown signal=${signal ?? 'unknown'} sseConnections=${sseCount} wsConnections=${wsCount}`;
+    this.logger.info`#${caller} sseConnections=${sseCount} wsConnections=${wsCount}`;
 
     // 并行关闭 SSE 和 WebSocket 连接
     const tasks: Promise<void>[] = [];
 
     if (sseCount > 0) {
-      this.logger.info`#beforeApplicationShutdown 开始通知 ${sseCount} 个 SSE 连接...`;
+      this.logger.info`#${caller} 开始通知 ${sseCount} 个 SSE 连接...`;
       tasks.push(this.notifyAllSSEConnections());
     }
 
     if (wsCount > 0) {
-      this.logger.info`#beforeApplicationShutdown 开始关闭 ${wsCount} 个 WebSocket 连接...`;
+      this.logger.info`#${caller} 开始关闭 ${wsCount} 个 WebSocket 连接...`;
       tasks.push(this.closeAllWSConnections());
     }
 
     await Promise.allSettled(tasks);
-    this.logger.info`#beforeApplicationShutdown 所有连接关闭完成`;
+    this.logger
+      .info`#${caller} 所有连接关闭完成 (remaining sse=${this.sseConnections.size} ws=${this.wsConnections.size})`;
   }
 
   /**
