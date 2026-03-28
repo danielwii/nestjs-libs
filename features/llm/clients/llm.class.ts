@@ -371,6 +371,14 @@ function isRetryableError(error: unknown): boolean {
   return false;
 }
 
+/** Fallback attempt metadata, passed to execute callbacks for logging */
+interface FallbackAttempt {
+  /** 1-based attempt number */
+  attempt: number;
+  /** total number of models in the chain */
+  total: number;
+}
+
 /**
  * 带 fallback 的执行器（仅用于 generate* 等 async 方法）
  *
@@ -381,17 +389,26 @@ async function withFallback<T>(
   id: string,
   method: string,
   spec: ResolvedSpec,
-  execute: (modelKey: LLMModelKey) => Promise<T>,
+  execute: (modelKey: LLMModelKey, fb: FallbackAttempt) => Promise<T>,
 ): Promise<T> {
   const allModels = [spec.key, ...spec.fallbackModels];
+  const total = allModels.length;
   let lastError: unknown;
   for (const [i, modelKey] of allModels.entries()) {
+    const fb: FallbackAttempt = { attempt: i + 1, total };
     try {
-      return await execute(modelKey);
+      const result = await execute(modelKey, fb);
+      if (i > 0) {
+        fallbackLogger.info`[LLM:fallback-ok] id=${id}, method=${method}, succeeded=${modelKey}, attempt=${i + 1}/${total}, tried=[${allModels.slice(0, i + 1).join(',')}]`;
+      }
+      return result;
     } catch (error) {
       lastError = error;
       const isLast = i === allModels.length - 1;
       if (isLast || !isRetryableError(error)) {
+        if (total > 1) {
+          fallbackLogger.error`[LLM:fallback-exhausted] id=${id}, method=${method}, attempt=${i + 1}/${total}, tried=[${allModels.slice(0, i + 1).join(',')}]`;
+        }
         throw error;
       }
       const nextModel = allModels.at(i + 1);
@@ -413,9 +430,16 @@ export class LLM {
   // Logging Helpers
   // ─────────────────────────────────────────────────────────────────────────
 
-  private static logStart(id: string, method: string, modelKey: string, thinking?: ThinkingEffort): void {
+  private static logStart(
+    id: string,
+    method: string,
+    modelKey: string,
+    thinking?: ThinkingEffort,
+    fb?: FallbackAttempt,
+  ): void {
     const thinkingPart = thinking && thinking !== 'none' ? `, thinking=${thinking}` : '';
-    LLM.logger.info`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}`;
+    const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
+    LLM.logger.info`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}${fbPart}`;
   }
 
   /**
@@ -443,15 +467,23 @@ export class LLM {
     LLM.logger.debug`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${systemPart}`;
   }
 
-  private static logEnd(id: string, method: string, modelKey: string, startTime: number, usage: TokenUsage): void {
+  private static logEnd(
+    id: string,
+    method: string,
+    modelKey: string,
+    startTime: number,
+    usage: TokenUsage,
+    fb?: FallbackAttempt,
+  ): void {
     const duration = Date.now() - startTime;
     const inputTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
     const outputTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
     const totalTokens = inputTokens + outputTokens;
     const cost = getCostFromUsage(usage, modelKey);
     const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}` : '';
+    const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
     LLM.logger
-      .info`[LLM:end] id=${id}, method=${method}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}`;
+      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}`;
   }
 
   private static logTTFT(id: string, startTime: number): void {
@@ -537,9 +569,9 @@ export class LLM {
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
 
-    return withFallback(id, 'generateObject', spec, async (modelKey) => {
+    return withFallback(id, 'generateObject', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateObject', modelKey, spec.thinking);
+      LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb);
       LLM.logInputSummary(id, schema, messages, system);
 
       const languageModel = createModel(modelKey);
@@ -563,7 +595,7 @@ export class LLM {
         });
 
         cleanup();
-        LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage);
+        LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage, fb);
 
         return {
           object: result.output,
@@ -690,9 +722,9 @@ export class LLM {
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
 
-    return withFallback(id, 'generateText', spec, async (modelKey) => {
+    return withFallback(id, 'generateText', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateText', modelKey, spec.thinking);
+      LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb);
 
       const languageModel = createModel(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
@@ -721,7 +753,7 @@ export class LLM {
           LLM.logger.debug`[LLM:sources] id=${id}, sources=${sourcesCount}`;
         }
 
-        LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage);
+        LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage, fb);
 
         return {
           text: result.text,
@@ -979,9 +1011,9 @@ export class LLM {
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
 
-    return withFallback(id, 'generateObjectViaTool', spec, async (modelKey) => {
+    return withFallback(id, 'generateObjectViaTool', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking);
+      LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking, fb);
       LLM.logInputSummary(id, schema, messages, system);
 
       const languageModel = createModel(modelKey);
@@ -1029,7 +1061,7 @@ export class LLM {
         });
 
         cleanup();
-        LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage);
+        LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage, fb);
 
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
         const toolCall = result.toolCalls.at(0);
