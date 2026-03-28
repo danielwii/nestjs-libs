@@ -49,7 +49,9 @@ import {
   Output,
   streamText,
   tool,
+  jsonSchema as wrapJsonSchema,
   wrapLanguageModel,
+  zodSchema,
 } from 'ai';
 import { ResultAsync } from 'neverthrow';
 
@@ -67,6 +69,7 @@ import type { LLMModelKey, LLMModelSpec } from '../types/model.types';
 import type { ProviderType } from './options.helpers';
 import type { OopsError } from '@app/nest/exceptions/oops-error';
 import type { LanguageModel, ModelMessage, StopCondition, TelemetrySettings, ToolSet } from 'ai';
+import type * as NodeFs from 'node:fs';
 import type { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -443,6 +446,104 @@ export class LLM {
   }
 
   /**
+   * CLI 模式下自动保存 LLM 完整请求到文件
+   *
+   * 包含重放所需的一切：system prompt、messages、完整 JSON Schema、model。
+   * 任何项目都能用 `LLM.replayFromFile()` 重放，不需要项目代码。
+   *
+   * 保存路径：/tmp/llm-{id}.request.json
+   */
+  private static captureRequest(
+    id: string,
+    method: string,
+    modelKey: string,
+    schema: z.ZodType,
+    messages: Message[],
+    system?: string,
+    extra?: Record<string, unknown>,
+  ): void {
+    if (!SysEnv.isCliMode) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fs = require('node:fs') as typeof NodeFs;
+      const jsonSchemaObj = zodSchema(schema).jsonSchema;
+      const path = `/tmp/llm-${id}.request.json`;
+      fs.writeFileSync(
+        path,
+        JSON.stringify(
+          {
+            id,
+            method,
+            model: modelKey,
+            system,
+            messages,
+            jsonSchema: jsonSchemaObj,
+            ...extra,
+            capturedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
+      LLM.logger.info`[LLM:capture] ${path}`;
+    } catch {
+      // capture 失败不影响主流程
+    }
+  }
+
+  /**
+   * 从 capture 文件重放 LLM 请求
+   *
+   * 跨项目通用：读文件 → 用 jsonSchema 包装 → 调 LLM → 返回结果。
+   * 不依赖任何项目代码，不需要 Zod schema。
+   */
+  static async replayFromFile(filePath: string): Promise<{ output: unknown; usage: unknown }> {
+     
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('node:fs') as typeof NodeFs;
+
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
+    const { id, method, model: modelKey, system, messages, jsonSchema: schemaObj, toolName, toolDescription } = data;
+
+    LLM.logger.info`[LLM:replay] id=${id as string}, method=${method as string}, model=${modelKey as string}`;
+
+    const schema = wrapJsonSchema(schemaObj as Record<string, unknown>);
+    const languageModel = createModel(modelKey as LLMModelKey);
+    const startTime = Date.now();
+
+    if (method === 'generateObjectViaTool') {
+      const tName = (toolName ?? 'extract') as string;
+      const tools = {
+        [tName]: tool({
+          description: (toolDescription ?? 'Extract structured data') as string,
+          inputSchema: schema,
+        }),
+      };
+      const result = await generateText({
+        model: languageModel,
+        system: system as string,
+        messages: messages as Message[],
+        tools,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        toolChoice: { type: 'tool' as const, toolName: tName } as any,
+      });
+
+      const duration = Date.now() - startTime;
+      const cost = getCostFromUsage(result.usage, modelKey as string);
+      LLM.logger
+        .info`[LLM:replay:end] duration=${duration}ms, tokens=${result.usage.totalTokens ?? '-'}, cost=${cost !== null ? `$${cost.toFixed(6)}` : 'N/A'}`;
+
+      const toolCall = result.toolCalls.at(0);
+      if (!toolCall || !('input' in toolCall)) {
+        throw new Error('No tool call returned from LLM replay');
+      }
+      return { output: toolCall.input, usage: { ...result.usage, cost } };
+    }
+
+    throw new Error(`Unsupported method for replay: ${method as string}`);
+  }
+
+  /**
    * Schema keys + messages 摘要日志
    *
    * 帮助排查"空 schema"等结构性问题，不需要开 Proxyman。
@@ -573,6 +674,7 @@ export class LLM {
       const startTime = Date.now();
       LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb);
       LLM.logInputSummary(id, schema, messages, system);
+      LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, system);
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
@@ -1021,6 +1123,10 @@ export class LLM {
       const startTime = Date.now();
       LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking, fb);
       LLM.logInputSummary(id, schema, messages, system);
+      LLM.captureRequest(id, 'generateObjectViaTool', modelKey, schema, messages, system, {
+        toolName,
+        toolDescription,
+      });
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
