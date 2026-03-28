@@ -825,6 +825,9 @@ export class LLM {
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
     const { key: modelKey } = spec;
+    if (spec.fallbackModels.length > 0) {
+      fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObject — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
+    }
     LLM.logStart(id, 'streamObject', modelKey, spec.thinking);
 
     const languageModel = createModel(modelKey);
@@ -917,6 +920,9 @@ export class LLM {
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
     const { key: modelKey } = spec;
+    if (spec.fallbackModels.length > 0) {
+      fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamText — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
+    }
     LLM.logStart(id, 'streamText', modelKey, spec.thinking);
 
     const languageModel = createModel(modelKey);
@@ -1179,6 +1185,9 @@ export class LLM {
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
     const { key: modelKey } = spec;
+    if (spec.fallbackModels.length > 0) {
+      fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObjectViaTool — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
+    }
     LLM.logStart(id, 'streamObjectViaTool', modelKey, spec.thinking);
 
     const languageModel = createModel(modelKey);
