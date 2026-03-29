@@ -510,7 +510,26 @@ export class LLM {
     const languageModel = createModel(modelKey as LLMModelKey);
     const startTime = Date.now();
 
-    if (method === 'generateObjectViaTool') {
+    let output: unknown;
+    let usage: unknown;
+
+    if (method === 'generateObject' || method === 'streamObject') {
+      // streamObject/generateObject 都走 Output.object（replay 不需要流式）
+      const result = await generateText({
+        model: languageModel,
+        output: Output.object({ schema }),
+        system: system as string,
+        messages: messages as Message[],
+      });
+
+      const duration = Date.now() - startTime;
+      const cost = getCostFromUsage(result.usage, modelKey as string);
+      LLM.logger
+        .info`[LLM:replay:end] duration=${duration}ms, tokens=${result.usage.totalTokens ?? '-'}, cost=${cost !== null ? `$${cost.toFixed(6)}` : 'N/A'}`;
+
+      output = result.output;
+      usage = { ...result.usage, cost };
+    } else if (method === 'generateObjectViaTool' || method === 'streamObjectViaTool') {
       const tName = (toolName ?? 'extract') as string;
       const tools = {
         [tName]: tool({
@@ -536,10 +555,13 @@ export class LLM {
       if (!toolCall || !('input' in toolCall)) {
         throw new Error('No tool call returned from LLM replay');
       }
-      return { output: toolCall.input, usage: { ...result.usage, cost } };
+      output = toolCall.input;
+      usage = { ...result.usage, cost };
+    } else {
+      throw new Error(`Unsupported method for replay: ${method as string}`);
     }
 
-    throw new Error(`Unsupported method for replay: ${method as string}`);
+    return { output, usage };
   }
 
   /**
