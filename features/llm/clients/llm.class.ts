@@ -498,7 +498,6 @@ export class LLM {
    * 不依赖任何项目代码，不需要 Zod schema。
    */
   static async replayFromFile(filePath: string): Promise<{ output: unknown; usage: unknown }> {
-     
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('node:fs') as typeof NodeFs;
 
@@ -931,6 +930,8 @@ export class LLM {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObject — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
     LLM.logStart(id, 'streamObject', modelKey, spec.thinking);
+    LLM.logInputSummary(id, schema, messages, system);
+    LLM.captureRequest(id, 'streamObject', modelKey, schema, messages, system);
 
     const languageModel = createModel(modelKey);
     const model: LanguageModel = MODELS_NEEDING_EXTRACT_JSON.has(modelKey)
