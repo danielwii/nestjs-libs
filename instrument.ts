@@ -200,11 +200,28 @@ function bootstrapWithSentry(langfuseProcessor: unknown | null) {
       release,
       environment,
       serverName,
-      tracesSampleRate: 1.0,
+      // SENTRY_TRACES_SAMPLE_RATE: 0~1, 默认开发环境 1.0
+      tracesSampler: ({ name, parentSampled }: { name?: string; parentSampled?: boolean }) => {
+        // 保持已有 trace 的连续性
+        if (parentSampled !== undefined) return parentSampled;
+
+        const txName = name ?? '';
+        // HTTP health: GET /health, /health/ready, /health/topology
+        if (/^GET \/health(\/|$)/.test(txName)) return 0;
+        // 首页 / API 根
+        if (/^GET \/(api)?$/.test(txName)) return 0;
+        // gRPC health
+        if (/grpc\.health\.v1\.Health/.test(txName)) return 0;
+        // Cron jobs
+        if (/^handle.*Cron$/.test(txName)) return 0;
+
+        const rate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE);
+        const defaultRate = environment === 'production' ? 0.05 : 1.0;
+        return Number.isFinite(rate) ? Math.max(0, Math.min(1, rate)) : defaultRate;
+      },
       // Langfuse 等额外 SpanProcessor 挂载到 Sentry 管理的 OTel provider
       // see: https://github.com/getsentry/sentry-javascript/issues/14826
       openTelemetrySpanProcessors: (langfuseProcessor ? [langfuseProcessor] : []) as never[],
-      ignoreTransactions: [/^GET \/$/, /^GET \/health$/, /^GET \/api$/, /^handle.*Cron$/],
       beforeSend(event: {
         message?: string;
         logentry?: { formatted?: string; message?: string };
