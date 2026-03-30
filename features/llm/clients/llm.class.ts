@@ -630,6 +630,13 @@ export class LLM {
     const extra = providerData ? ` providerData=${JSON.stringify(providerData)}` : '';
     LLM.logger.error`[LLM:error] id=${id}, method=${method}, model=${modelKey}: ${message}${extra} ${error}`;
 
+    // Log raw model output for object generation failures — empty/invalid responses are hard to debug otherwise
+    if (NoObjectGeneratedError.isInstance(error)) {
+      const rawText = error.text;
+      LLM.logger
+        .warn`[LLM:no-object] id=${id}, finishReason=${error.finishReason ?? 'unknown'}, rawText=${rawText !== undefined ? JSON.stringify(rawText) : '(missing)'}`;
+    }
+
     Sentry.withScope((scope) => {
       scope.setTag('llm.id', id);
       scope.setTag('llm.method', method);

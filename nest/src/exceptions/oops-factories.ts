@@ -145,7 +145,7 @@ Oops.Panic.AIObjectGenerationFailed = function (
     errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
     oopsCode: 'AI04',
     userMessage: AI_FINISH_REASON_MESSAGES[finishReason] ?? `回复生成失败（${finishReason}）`,
-    internalDetails: `AI object generation failed [${model}] reason=${finishReason}${partialText ? ` partial=${partialText}` : ''}`,
+    internalDetails: `AI object generation failed [${model}] reason=${finishReason}${partialText !== undefined ? ` partial=${partialText || '(empty)'}` : ''}`,
     provider: model,
     cause: options?.cause,
   });
