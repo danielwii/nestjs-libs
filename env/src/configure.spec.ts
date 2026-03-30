@@ -247,8 +247,8 @@ describe('AppConfigure', () => {
     it('should skip overriding activeEnvs when DB value is invalid', async () => {
       class NumberEnvs {
         @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
-        @Min(1000)
-        AI_LLM_TIMEOUT_MS: number = 60_000;
+        @Min(30_000)
+        AI_LLM_TIMEOUT_MS: number = 120_000;
         APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
 
@@ -278,7 +278,7 @@ describe('AppConfigure', () => {
       await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
 
       // 不应被非法 DB 值覆盖
-      expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(60_000);
+      expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(120_000);
     });
 
     it('should work when originalEnvs is created via structuredClone (loses prototype chain)', async () => {

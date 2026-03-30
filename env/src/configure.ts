@@ -245,8 +245,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
   @Type(() => Number)
   @IsNumber()
-  @Min(1_000)
-  AI_LLM_TIMEOUT_MS: number = 60_000;
+  @Min(30_000)
+  AI_LLM_TIMEOUT_MS: number = 120_000;
 
   /** 默认 LLM 调用最大重试次数（429/5xx 自动重试，exponential backoff） */
   @DatabaseField('number', '默认 LLM 最大重试次数')
