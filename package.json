@@ -18,7 +18,7 @@
     ]
   },
   "dependencies": {
-    "@dotenvx/dotenvx": "^1.57.2",
+    "@dotenvx/dotenvx": "^1.59.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dedent": "^1.7.2",
@@ -179,10 +179,10 @@
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@jest/globals": "^30.3.0",
     "@opentelemetry/sdk-node": "^0.214.0",
-    "@sentry/nestjs": "^10.45.0",
+    "@sentry/nestjs": "^10.46.0",
     "@opentelemetry/sdk-trace-base": "^2.6.1",
     "@opentelemetry/sdk-trace-node": "^2.6.1",
-    "ai": "^6.0.138",
+    "ai": "^6.0.141",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
