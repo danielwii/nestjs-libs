@@ -363,12 +363,15 @@ function createManagedSignal(
 
 const fallbackLogger = getAppLogger('features', 'LLM', 'fallback');
 
-/** 判断错误是否值得 fallback（429/5xx/timeout），非 retryable 的直接抛 */
-function isRetryableError(error: unknown): boolean {
+/** 判断错误是否值得 fallback（429/5xx/timeout/生成失败），非 retryable 的直接抛 */
+export function isRetryableError(error: unknown): boolean {
   if (APICallError.isInstance(error)) {
     const status = error.statusCode;
     return status === 429 || (status !== undefined && status >= 500);
   }
+  // NoObjectGeneratedError：模型生成了文本但无法解析为合法 JSON。
+  // HTTP 层面是 200 OK，但实际上是模型能力或格式问题，应 fallback 到其他模型重试。
+  if (NoObjectGeneratedError.isInstance(error)) return true;
   if (error instanceof DOMException && error.name === 'TimeoutError') return true;
   if (error instanceof Error && error.message.includes('timed out')) return true;
   return false;
