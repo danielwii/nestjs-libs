@@ -3,6 +3,10 @@ import { getAppLogger } from '@app/utils/app-logger';
 const proxyUrl =
   process.env.APP_PROXY_ENABLED === 'true' ? `${process.env.APP_PROXY_HOST}:${process.env.APP_PROXY_PORT}` : '';
 
+// Bun-specific: verbose: true 打印完整 HTTP 头和 TLS 细节到 stderr，用于诊断 LLM provider 断连
+// 默认关闭，生产环境按需通过 LLM_FETCH_VERBOSE=true 开启
+const verboseEnabled = process.env.LLM_FETCH_VERBOSE === 'true';
+
 /**
  * 支持代理的 fetch 包装
  *
@@ -31,6 +35,7 @@ export class ApiFetcher {
     const response = await fetch(url as string, {
       ...options,
       ...(proxyUrl ? { proxy: proxyUrl } : {}),
+      ...(verboseEnabled ? { verbose: true } : {}),
     });
 
     // OpenRouter Grok: 过滤 reasoning.encrypted（加密 reasoning blob 无用且浪费 tokens）
