@@ -1467,9 +1467,9 @@ export class LLM {
       }
 
       case 'jina': {
-        const apiKey = process.env.JINA_API_KEY;
+        const apiKey = SysEnv.AI_JINA_API_KEY ?? SysEnv.JINA_API_KEY;
         if (!apiKey) {
-          throw Oops.Panic.Config('JINA_API_KEY is not configured');
+          throw Oops.Panic.Config('AI_JINA_API_KEY is not configured');
         }
 
         const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
@@ -1522,9 +1522,9 @@ export class LLM {
       }
 
       case 'voyage': {
-        const apiKey = process.env.VOYAGE_API_KEY;
+        const apiKey = SysEnv.AI_VOYAGE_API_KEY ?? SysEnv.VOYAGE_API_KEY;
         if (!apiKey) {
-          throw Oops.Panic.Config('VOYAGE_API_KEY is not configured');
+          throw Oops.Panic.Config('AI_VOYAGE_API_KEY is not configured');
         }
 
         const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);

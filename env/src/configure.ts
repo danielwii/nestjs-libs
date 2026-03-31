@@ -17,7 +17,6 @@ import type { TransformFnParams } from 'class-transformer';
 
 const transformLogger = getAppLogger('Transform');
 const configureLogger = getAppLogger('Configure');
-const dbFieldLogger = getAppLogger('DatabaseField');
 
 export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
   // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
@@ -43,21 +42,6 @@ export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
 };
 
 type HostSetVariables = {};
-
-/**
- * Configure 模块调试日志开关
- *
- * 设计意图：
- * - 默认关闭，减少启动时的日志噪音（DatabaseField found、env 文件路径、配置项值等）
- * - 开发调试配置问题时可通过 CONFIGURE_DEBUG=true 开启
- * - 错误和警告日志不受此开关影响，始终输出
- *
- * 使用场景：
- * - 排查环境变量加载顺序问题
- * - 确认 DatabaseField 字段是否正确注册
- * - 调试配置验证失败的原因
- */
-const isConfigureDebugEnabled = () => process.env.CONFIGURE_DEBUG === 'true';
 
 const DatabaseFieldSymbol = Symbol('DatabaseField');
 const DatabaseFieldFormatSymbol = Symbol('DatabaseFieldFormat');
@@ -87,9 +71,6 @@ const llmModelFields = new Set<string>();
 export function LLMModelField(): PropertyDecorator {
   return (_target, propertyKey) => {
     llmModelFields.add(propertyKey as string);
-    if (isConfigureDebugEnabled()) {
-      configureLogger.debug`${`[LLMModelField] registered: ${String(propertyKey)}`}`;
-    }
   };
 }
 
@@ -117,9 +98,6 @@ export const DatabaseField =
       typeof descriptionOrOptions === 'string' ? descriptionOrOptions : descriptionOrOptions?.description;
     const scoped = typeof descriptionOrOptions === 'object' ? descriptionOrOptions.scoped === true : false;
 
-    if (isConfigureDebugEnabled()) {
-      dbFieldLogger.debug`found ${propertyKey}:${format}${description ? ` (${description})` : ''}${scoped ? ' [scoped]' : ''}`;
-    }
     Reflect.defineMetadata(DatabaseFieldSymbol, true, target, propertyKey);
     Reflect.defineMetadata(DatabaseFieldFormatSymbol, format, target, propertyKey);
     if (description) {
@@ -228,6 +206,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   /** Vertex AI Express Mode API Key (格式: AQ.xxx) */
   @IsString() @IsOptional() AI_GOOGLE_VERTEX_API_KEY?: string;
   @IsString() @IsOptional() AI_OPENAI_API_KEY?: string;
+  @IsString() @IsOptional() AI_JINA_API_KEY?: string;
+  @IsString() @IsOptional() AI_VOYAGE_API_KEY?: string;
 
   // ── 旧名字兼容（其他项目迁移前保留）──
   /** @deprecated use AI_OPENROUTER_API_KEY */
@@ -238,6 +218,10 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() GOOGLE_VERTEX_API_KEY?: string;
   /** @deprecated use AI_OPENAI_API_KEY */
   @IsString() @IsOptional() OPENAI_API_KEY?: string;
+  /** @deprecated use AI_JINA_API_KEY */
+  @IsString() @IsOptional() JINA_API_KEY?: string;
+  /** @deprecated use AI_VOYAGE_API_KEY */
+  @IsString() @IsOptional() VOYAGE_API_KEY?: string;
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境）。值须为已注册的 LLMModelKey（如 'openrouter:gemini-2.5-flash'） */
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string;
 
@@ -254,6 +238,13 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsNumber()
   @Min(0)
   AI_LLM_MAX_RETRIES: number = 2;
+
+  /** LLM fetch 详细日志（Bun verbose=true，打印 HTTP headers + TLS 到 stderr），用于诊断 provider 断连 */
+  @DatabaseField('boolean', 'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）')
+  @IsBoolean()
+  @IsOptional()
+  @Transform(booleanTransformFn)
+  LLM_FETCH_VERBOSE: boolean = false;
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
   @IsString() @IsOptional() DATABASE_URL?: string;
@@ -473,11 +464,22 @@ export interface AppConfigureOptions {
 export class AppConfigure<T extends AbstractEnvironmentVariables> {
   private readonly logger = getAppLogger(this.constructor.name);
 
+  /** 敏感字段 redact：匹配命名规范或精确名称，日志输出替换为 *** */
+  private static isSensitive(key: string): boolean {
+    return /(_KEY|_SECRET|_TOKEN|_DSN|_PASSWORD)$/.test(key) || key === 'DATABASE_URL';
+  }
+
   public readonly vars: T;
   public readonly originalVars: T; // 添加原始副本
 
   /** sys 自动推断：EnvsClass === AbstractEnvironmentVariables 时为 SysEnv */
   private readonly sys: boolean;
+
+  /**
+   * 记录每个 key 的来源：'host'（K8s/系统环境变量）或 .env 文件路径
+   * 用于启动日志区分 process.env vs .env 文件来源，帮助发现配置覆盖问题
+   */
+  private readonly envSourceMap: Map<string, string>;
 
   /**
    * Order of precedence:
@@ -512,21 +514,33 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
     })();
 
-    if (this.sys && isConfigureDebugEnabled()) this.logger.info`load env from paths: ${envFilePath}`;
+    // 在加载任何 .env 文件前，记录已有的 key（来自 K8s/系统 host 环境）
+    const sourceMap = new Map<string, string>();
+    for (const key of Object.keys(process.env)) {
+      sourceMap.set(key, 'host');
+    }
+
+    if (this.sys) this.logger.info`load env from paths: ${envFilePath}`;
     envFilePath.forEach((env) => {
       // 使用 process.env.PWD 而不是 process.cwd() 的原因：
       // 1. process.cwd() 在 monorepo 项目中可能会指向子目录（如 .mastra/output）
       // 2. process.env.PWD 会保持原始的工作目录，即项目根目录
       // 3. 这样可以确保 .env 文件从正确的项目根目录加载，而不是从构建输出目录加载
       const fullPath = path.resolve(process.env.PWD ?? '', env);
-      if (this.sys && isConfigureDebugEnabled()) this.logger.info`envFilePath: ${fullPath}`;
+      if (this.sys) this.logger.info`envFilePath: ${fullPath}`;
       // dotenvx 对于缺失文件会输出一条 “injecting env (0)” 的噪音日志（即使配置了 ignore MISSING_ENV_FILE）。
       // 这里主动跳过不存在的文件，保持启动/测试输出干净。
       if (!fs.existsSync(fullPath)) {
         return;
       }
+      // override: false → host env 优先；加载后 diff 出新增 key 记录来源文件
+      const beforeKeys = new Set(Object.keys(process.env));
       config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
+      for (const key of Object.keys(process.env)) {
+        if (!beforeKeys.has(key)) sourceMap.set(key, env);
+      }
     });
+    this.envSourceMap = sourceMap;
     this.vars = this.validate();
     this.originalVars = structuredClone(this.vars); // 创建副本
   }
@@ -555,44 +569,44 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         throw new Error(errors.map((e) => e.property).join(', '));
       }
 
-      // 配置项输出（仅在 CONFIGURE_DEBUG=true 时启用）
-      if (isConfigureDebugEnabled()) {
-        if (this.sys) {
-          // display all envs not includes _ENABLE and not starts with APP_
-          Object.entries(validatedConfig as object).forEach(([key, value]) => {
-            if (
-              key.includes('_ENABLE') ||
-              key.startsWith('APP_') ||
-              !AbstractEnvironmentVariables.allFields.includes(key) ||
-              ['logger'].includes(key)
-            )
-              return;
-            const isDatabaseField = Reflect.getMetadata(
-              DatabaseFieldSymbol,
-              AbstractEnvironmentVariables.prototype,
-              key,
-            );
-            this.logger.info`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`;
-          });
-        }
+      // 配置项输出：启动时固定打印，source 标注来源（host/文件路径/default）
+      const src = (key: string) => this.envSourceMap.get(key) ?? 'default';
 
+      if (this.sys) {
         Object.entries(validatedConfig as object).forEach(([key, value]) => {
-          if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return; // exclude sys envs
+          if (
+            key.includes('_ENABLE') ||
+            key.startsWith('APP_') ||
+            !AbstractEnvironmentVariables.allFields.includes(key) ||
+            ['logger'].includes(key)
+          )
+            return;
           const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
-          if (key.includes('_ENABLE'))
-            this.logger.info`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`;
-        });
-        Object.entries(validatedConfig as object).forEach(([key, value]) => {
-          if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return; // exclude sys envs
-          const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
-          if (key.startsWith('APP_'))
-            this.logger.info`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}${{ key, value }}`;
+          const display = AppConfigure.isSensitive(key) ? '***' : value;
+          this.logger.info`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}[${src(key)}] ${{ key, value: display }}`;
         });
       }
+
+      Object.entries(validatedConfig as object).forEach(([key, value]) => {
+        if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return;
+        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
+        if (key.includes('_ENABLE')) {
+          const display = AppConfigure.isSensitive(key) ? '***' : value;
+          this.logger
+            .info`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}[${src(key)}] ${{ key, value: display }}`;
+        }
+      });
+      Object.entries(validatedConfig as object).forEach(([key, value]) => {
+        if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return;
+        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
+        if (key.startsWith('APP_')) {
+          const display = AppConfigure.isSensitive(key) ? '***' : value;
+          this.logger
+            .info`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}[${src(key)}] ${{ key, value: display }}`;
+        }
+      });
     }
-    if (isConfigureDebugEnabled()) {
-      configureLogger.debug`[${this.sys ? 'SYS' : 'App'}] Configure validated`;
-    }
+    configureLogger.debug`[${this.sys ? 'SYS' : 'App'}] Configure validated`;
     return validatedConfig;
   }
 
