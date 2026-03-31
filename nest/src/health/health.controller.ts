@@ -1,8 +1,9 @@
 import { Controller, Get, HttpStatus, Res, ServiceUnavailableException } from '@nestjs/common';
 
-import { HealthRegistry } from './health-registry';
-
+import { shutdownState } from '@app/nest/boot/shutdown-state';
 import { getAppLogger } from '@app/utils/app-logger';
+
+import { HealthRegistry } from './health-registry';
 
 import type { HealthIndicatorResult } from './health-indicator';
 import type { OnApplicationShutdown } from '@nestjs/common';
@@ -45,7 +46,9 @@ export class HealthController implements OnApplicationShutdown {
    */
   @Get('ready')
   async ready(): Promise<{ status: string; checks: Record<string, HealthIndicatorResult> }> {
-    if (this.isShuttingDown) {
+    // shutdownState.value 在 Phase 1（SIGTERM 到达时）立即置 true，确保 K8s 尽早摘流量
+    // this.isShuttingDown 在 Phase 4（app.close()）才置 true，单独依赖会导致 drain 期间漏流量
+    if (this.isShuttingDown || shutdownState.value) {
       throw new ServiceUnavailableException('Shutting down');
     }
 
