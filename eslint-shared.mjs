@@ -14,8 +14,6 @@ import { defineConfig } from 'eslint/config';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-import { effectLogPlugin, effectLogRecommendedRules } from './eslint-plugin-effect-log.mjs';
-
 /**
  * @param {object} options
  * @param {string} options.rootDir - 项目根目录（传 import.meta.dirname）
@@ -50,9 +48,6 @@ export function createEslintConfig({ rootDir, tsconfigPath = './tsconfig.json', 
       },
     },
     {
-      plugins: {
-        'effect-log': effectLogPlugin,
-      },
       rules: {
         // ====== Type Safety ======
         '@typescript-eslint/no-explicit-any': 'error',
@@ -74,7 +69,7 @@ export function createEslintConfig({ rootDir, tsconfigPath = './tsconfig.json', 
         // LogTape 使用 tagged template literal 调用（如 logger.info`msg`）
         '@typescript-eslint/no-unused-expressions': ['error', { allowTaggedTemplates: true }],
 
-        // ====== Relaxed (NestJS / Effect compat) ======
+        // ====== Relaxed (NestJS compat) ======
         '@typescript-eslint/no-unnecessary-type-parameters': 'off',
         '@typescript-eslint/require-await': 'off',
         '@typescript-eslint/no-empty-object-type': 'off',
@@ -83,9 +78,6 @@ export function createEslintConfig({ rootDir, tsconfigPath = './tsconfig.json', 
         '@typescript-eslint/unbound-method': ['error', { ignoreStatic: true }],
         '@typescript-eslint/no-redundant-type-constituents': 'off',
         '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
-
-        // ====== Effect + LogTape ======
-        ...effectLogRecommendedRules,
 
         // ====== Unsafe (逐步收紧) ======
         '@typescript-eslint/no-unsafe-argument': 'warn',

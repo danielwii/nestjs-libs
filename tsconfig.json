@@ -22,6 +22,7 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "types": ["bun"],
 
     "paths": {
       "@app/utils/*": ["./utils/src/*"],
@@ -29,8 +30,6 @@
       "@app/nest/*": ["./nest/src/*"],
       "@app/env": ["./env/src/index.ts"],
       "@app/env/*": ["./env/src/*"],
-      "@app/effect": ["./effect/index.ts"],
-      "@app/effect/*": ["./effect/*"],
       "@app/features/*": ["./features/*"],
       "@/*": ["./*"]
     }

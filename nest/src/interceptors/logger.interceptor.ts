@@ -1,9 +1,8 @@
 import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { RequestContext } from '@app/nest/trace/request-context';
-import { METADATA_KEYS } from '@app/utils/annotation';
-
 import { getAppLogger } from '@app/utils/app-logger';
+
 import { context, trace } from '@opentelemetry/api';
 import * as _ from 'radash';
 import { catchError, finalize } from 'rxjs';
@@ -124,13 +123,11 @@ export class LoggerInterceptor implements NestInterceptor {
       // session: req.session,
     };
 
-    // !!TIPS!! @metinseylan/nestjs-opentelemetry make handler name null
-    const named = Reflect.getMetadata(METADATA_KEYS.NAMED, ctx.getHandler()) as string | undefined;
     const uid = req.user?.uid;
     // handler.name 在 OpenTelemetry 插件下可能为空字符串或被覆盖
 
-    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- boolean OR：name 为空字符串时也应 fallback
-    const TAG = `(${uid ?? 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || named || 'anonymous'}`;
+     
+    const TAG = `(${uid ?? 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || 'anonymous'}`;
 
     // 健康检查路径，跳过日志记录
 

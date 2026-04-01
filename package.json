@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "lint": "eslint . --fix",
-    "format": "prettier --write \"{nest,utils,env,features,effect}/**/*.ts\"",
+    "format": "prettier --write \"{nest,utils,env,features}/**/*.ts\"",
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
@@ -34,9 +34,6 @@
     "@ai-sdk/google-vertex": "^4.0.95",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/provider-utils": "^4.0.21",
-    "@effect/opentelemetry": "^0.63.0",
-    "@effect/platform": "^0.96.0",
-    "@effect/platform-bun": "^0.89.0",
     "@logtape/logtape": "^2.0.5",
     "@nestjs/common": "^11.1.17",
     "@nestjs/core": "^11.1.17",
@@ -53,7 +50,6 @@
     "compression": "^1.8.1",
     "connect-redis": "^9.0.0",
     "cookie-parser": "^1.4.7",
-    "effect": "^3.21.0",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "graphql": "^16.13.2",
@@ -84,18 +80,6 @@
       "optional": true
     },
     "ai": {
-      "optional": true
-    },
-    "effect": {
-      "optional": true
-    },
-    "@effect/opentelemetry": {
-      "optional": true
-    },
-    "@effect/platform": {
-      "optional": true
-    },
-    "@effect/platform-bun": {
       "optional": true
     },
     "@nestjs/graphql": {
@@ -161,10 +145,6 @@
     "@ai-sdk/google-vertex": "^4.0.97",
     "@ai-sdk/openai": "^3.0.49",
     "@ai-sdk/provider-utils": "^4.0.21",
-    "@effect/opentelemetry": "^0.63.0",
-    "@effect/platform": "^0.96.0",
-    "@effect/platform-bun": "^0.89.0",
-    "@effect/rpc": "^0.75.0",
     "@eslint/js": "^10.0.1",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
@@ -188,7 +168,6 @@
     "compression": "^1.8.1",
     "connect-redis": "^9.0.0",
     "cookie-parser": "^1.4.7",
-    "effect": "^3.21.0",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "graphql": "^16.13.2",

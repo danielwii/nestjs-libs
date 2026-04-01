@@ -4,7 +4,7 @@
  * Dev:  `2026-03-16 15:00:00.022+09:00 INFO    [spanName|traceId|userId] app·Module: message`
  * Prod: JSON lines for log aggregation (Loki/CloudWatch)
  *
- * Used by both NestJS (nest/logging/configure.ts) and Effect (effect/core/logtape-logger.ts).
+ * Used by NestJS logging (nest/logging/configure.ts).
  */
 
 import { r } from './logging';
