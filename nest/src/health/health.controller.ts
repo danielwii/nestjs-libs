@@ -1,4 +1,4 @@
-import { Controller, Get, HttpStatus, Res, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 
 import { shutdownState } from '@app/nest/boot/shutdown-state';
 import { getAppLogger } from '@app/utils/app-logger';
@@ -23,7 +23,8 @@ import type { Response } from 'express';
  * - /health/ready 不检查下游 gRPC — 避免级联故障
  * - /health/topology 不用于 K8s 探针，503 供监控工具告警
  * - topology 三档：ok（全通 200）/ degraded（部分不通 503）/ down（全挂 503）
- * - topology 503 不走 exception 流程，直接 res.status().json() — 避免全局 ExceptionFilter 误报 ERROR
+ * - /health/ready 和 /health/topology 的 503 不走 exception 流程，直接 res.status().json()
+ *   避免全局 AnyExceptionFilter 把预期的 503（shutdown / 降级）误报为 ERROR 并发送 Sentry
  */
 
 @Controller('health')
@@ -43,18 +44,23 @@ export class HealthController implements OnApplicationShutdown {
 
   /**
    * Readiness 探针 — 检查自身依赖（DB、Redis），shutdown 时返回 503
+   *
+   * 不走 exception 流程，直接设 status code 返回。
+   * 避免 AnyExceptionFilter 把 shutdown 503 当 fatal error 发送 Sentry。
    */
   @Get('ready')
-  async ready(): Promise<{ status: string; checks: Record<string, HealthIndicatorResult> }> {
+  async ready(@Res() res: Response): Promise<void> {
     // shutdownState.value 在 Phase 1（SIGTERM 到达时）立即置 true，确保 K8s 尽早摘流量
     // this.isShuttingDown 在 Phase 4（app.close()）才置 true，单独依赖会导致 drain 期间漏流量
     if (this.isShuttingDown || shutdownState.value) {
-      throw new ServiceUnavailableException('Shutting down');
+      res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ status: 'shutting_down' });
+      return;
     }
 
     const indicators = this.registry.getByType('readiness');
     if (indicators.length === 0) {
-      return { status: 'ready', checks: {} };
+      res.status(HttpStatus.OK).json({ status: 'ready', checks: {} });
+      return;
     }
 
     const results = await Promise.all(indicators.map((i) => i.check()));
@@ -65,10 +71,11 @@ export class HealthController implements OnApplicationShutdown {
 
     const allHealthy = results.every((r) => r.healthy);
     if (!allHealthy) {
-      throw new ServiceUnavailableException({ status: 'not_ready', checks });
+      res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ status: 'not_ready', checks });
+      return;
     }
 
-    return { status: 'ready', checks };
+    res.status(HttpStatus.OK).json({ status: 'ready', checks });
   }
 
   /**
