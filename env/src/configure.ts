@@ -684,10 +684,11 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       .filter(({ isDatabaseField }) => !!isDatabaseField);
 
     /** 决定字段的写入 scope：scoped 字段写项目 scope，否则写 shared。无 projectScope 时 fallback 到 shared */
-    const resolveWriteScope = (isScoped: boolean): string => {
+    const scopedWithoutProject: string[] = [];
+    const resolveWriteScope = (field: string, isScoped: boolean): string => {
       if (isScoped && projectScope) return projectScope;
       if (isScoped && !projectScope) {
-        logger.warning`#syncFromDB scoped field used without project scope, falling back to "${SHARED}"`;
+        scopedWithoutProject.push(field);
       }
       return SHARED;
     };
@@ -786,7 +787,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
       // 创建不存在的配置字段
       const nonExistsFields = fields.filter(({ field, isScoped }) => {
-        const writeScope = resolveWriteScope(isScoped);
+        const writeScope = resolveWriteScope(field, isScoped);
         return !appSettings.some((s) => s.key === field && s.scope === writeScope);
       });
       if (nonExistsFields.length > 0) {
@@ -801,7 +802,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
                   : JSON.stringify(defaultValue)
                 : null;
 
-            const scope = resolveWriteScope(isScoped);
+            const scope = resolveWriteScope(field, isScoped);
             logger.info`#syncFromDB 创建配置: ${field} scope=${scope} (默认值: ${defaultVal})`;
             return {
               key: field,
@@ -820,7 +821,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
     // 读取 DB value 覆盖 runtime：resolve scoped > shared > code default
     for (const { field, value, defaultValue, description, format, isScoped } of fields) {
-      const writeScope = resolveWriteScope(isScoped);
+      const writeScope = resolveWriteScope(field, isScoped);
 
       // scoped 字段优先读项目行，fallback 到 shared
       const scopedRow = projectScope ? appSettings.find((s) => s.key === field && s.scope === projectScope) : undefined;
@@ -905,6 +906,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
           logger.error`#syncFromDB failed to update metadata for ${field}: ${error instanceof Error ? error.message : String(error)} ${errorStack(error) ?? ''}`;
         }
       }
+    }
+
+    if (scopedWithoutProject.length > 0) {
+      logger.warning`#syncFromDB scoped fields used without project scope, falling back to "${SHARED}": ${scopedWithoutProject.join(', ')}`;
     }
 
     logger.info`#syncFromDB summary mode=${syncMode} scope=${projectScope ?? SHARED} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`;
