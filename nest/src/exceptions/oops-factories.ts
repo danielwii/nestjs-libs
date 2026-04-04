@@ -154,30 +154,33 @@ Oops.Panic.AIObjectGenerationFailed = function (
 // ==================== Oops.Panic (500) Factories ====================
 
 /** 数据库致命错误 — "系统繁忙" */
-Oops.Panic.Database = function (operation: string): Oops.Panic {
+Oops.Panic.Database = function (operation: string, options?: { cause?: unknown }): Oops.Panic {
   return new Oops.Panic({
     errorCode: ErrorCodes.SYSTEM_DATABASE_ERROR,
     userMessage: '系统繁忙，请稍后重试',
     internalDetails: `Database operation failed: ${operation}`,
+    cause: options?.cause,
   });
 };
 
 /** 外部服务不可达 — "服务暂时不可用" */
-Oops.Panic.ExternalService = function (service: string, details?: string): Oops.Panic {
+Oops.Panic.ExternalService = function (service: string, details?: string, options?: { cause?: unknown }): Oops.Panic {
   return new Oops.Panic({
     errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
     userMessage: '服务暂时不可用，请稍后重试',
     internalDetails: `External service error: ${service}${details ? `, ${details}` : ''}`,
     provider: service,
+    cause: options?.cause,
   });
 };
 
 /** 配置/初始化错误 — 环境变量缺失或配置不合法 */
-Oops.Panic.Config = function (details: string): Oops.Panic {
+Oops.Panic.Config = function (details: string, options?: { cause?: unknown }): Oops.Panic {
   return new Oops.Panic({
     errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
     userMessage: '服务配置异常，请联系管理员',
     internalDetails: `Configuration error: ${details}`,
+    cause: options?.cause,
   });
 };
 
@@ -203,9 +206,9 @@ declare module './oops' {
 
     // Panic (500) factory methods
     namespace Panic {
-      function Database(operation: string): Oops.Panic;
-      function ExternalService(service: string, details?: string): Oops.Panic;
-      function Config(details: string): Oops.Panic;
+      function Database(operation: string, options?: { cause?: unknown }): Oops.Panic;
+      function ExternalService(service: string, details?: string, options?: { cause?: unknown }): Oops.Panic;
+      function Config(details: string, options?: { cause?: unknown }): Oops.Panic;
       function AIModelError(model: string, error: string, options?: { cause?: unknown }): Oops.Panic;
       function AIObjectGenerationFailed(
         model: string,

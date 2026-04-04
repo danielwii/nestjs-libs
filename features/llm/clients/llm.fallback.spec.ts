@@ -10,11 +10,16 @@
 
 import 'reflect-metadata';
 
+import { Oops } from '@app/nest/exceptions/oops';
+
 import { parseModelSpec } from '../types/model.types';
-import { isRetryableError } from './llm.class';
+import { isRetryableError, LLM } from './llm.class';
 
 import { APICallError, NoObjectGeneratedError } from 'ai';
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
+import { z } from 'zod';
+
+import type { OopsError } from '@app/nest/exceptions/oops-error';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 假设一：parseModelSpec 能否正确解析 mood-analyzer 的 spec
@@ -122,5 +127,71 @@ describe('isRetryableError: timeout errors', () => {
 
   it('should NOT be retryable for generic Error', () => {
     expect(isRetryableError(new Error('something went wrong'))).toBe(false);
+  });
+});
+
+describe('LLM safe API architecture', () => {
+  const originalGenerateTextCore = (LLM as any).generateTextCore;
+  const originalGenerateObjectCore = (LLM as any).generateObjectCore;
+
+  const baseTextParams = {
+    id: 'llm-test',
+    model: 'vertex:gemini-2.5-flash-lite' as const,
+    messages: [{ role: 'user' as const, content: 'hello' }],
+  };
+
+  const baseObjectParams = {
+    ...baseTextParams,
+    schema: z.object({ ok: z.boolean() }),
+  };
+
+  afterEach(() => {
+    (LLM as any).generateTextCore = originalGenerateTextCore;
+    (LLM as any).generateObjectCore = originalGenerateObjectCore;
+  });
+
+  it('safeGenerateText returns Err(OopsError) instead of rejecting for expected failures', async () => {
+    const expected = Oops.Panic.ExternalService('vertex:gemini-2.5-flash-lite', 'timeout', {
+      cause: new Error('timeout'),
+    });
+    (LLM as any).generateTextCore = async () => {
+      throw expected;
+    };
+
+    const result = await LLM.safeGenerateText(baseTextParams);
+
+    expect(result.isErr()).toBe(true);
+    const error = result._unsafeUnwrapErr();
+    expect(error).toBe(expected);
+  });
+
+  it('generateText remains a boundary adapter that throws the same OopsError', async () => {
+    const expected = Oops.Panic.ExternalService('vertex:gemini-2.5-flash-lite', 'timeout', {
+      cause: new Error('timeout'),
+    });
+    (LLM as any).generateTextCore = async () => {
+      throw expected;
+    };
+
+    await expect(LLM.generateText(baseTextParams)).rejects.toBe(expected);
+  });
+
+  it('safeGenerateObject keeps the actual failed fallback model instead of reclassifying by original spec', async () => {
+    const raw = new Error('fallback provider down');
+    const actualFailure = LLM.classifyError(raw, 'openrouter:gemini-2.5-flash-lite');
+    (LLM as any).generateObjectCore = async () => {
+      throw actualFailure;
+    };
+
+    const result = await LLM.safeGenerateObject({
+      ...baseObjectParams,
+      model: 'vertex:gemini-2.5-flash-lite?fallback=openrouter:gemini-2.5-flash-lite',
+    });
+
+    expect(result.isErr()).toBe(true);
+    const error = result._unsafeUnwrapErr() as OopsError;
+    expect(error).toBe(actualFailure);
+    expect(error.provider).toBe('openrouter:gemini-2.5-flash-lite');
+    expect(error.cause).toBe(raw);
   });
 });

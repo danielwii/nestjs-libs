@@ -365,6 +365,11 @@ const fallbackLogger = getAppLogger('features', 'LLM', 'fallback');
 
 /** 判断错误是否值得 fallback（429/5xx/timeout/生成失败），非 retryable 的直接抛 */
 export function isRetryableError(error: unknown): boolean {
+  if (error instanceof Oops || error instanceof Oops.Block || error instanceof Oops.Panic) {
+    const cause = error.cause;
+    if (cause !== undefined) return isRetryableError(cause);
+    return error instanceof Oops.Block && error.httpStatus === 429;
+  }
   if (APICallError.isInstance(error)) {
     const status = error.statusCode;
     return status === 429 || (status !== undefined && status >= 500);
@@ -654,6 +659,10 @@ export class LLM {
     });
   }
 
+  private static toResult<T>(promise: Promise<T>, modelSpec: LLMModelKey | LLMModelSpec): ResultAsync<T, OopsError> {
+    return ResultAsync.fromPromise(promise, (error: unknown) => LLM.classifyError(error, modelSpec));
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Generation Methods
   // ─────────────────────────────────────────────────────────────────────────
@@ -682,7 +691,7 @@ export class LLM {
    * 最终目标：删除此方法，`safeGenerateObject` rename 为 `generateObject`。
    * @see neverthrow-result-pattern skill
    */
-  static async generateObject<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
+  private static async generateObjectCore<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
     const {
       model: modelSpec,
       id,
@@ -736,8 +745,9 @@ export class LLM {
         };
       } catch (error) {
         cleanup();
-        LLM.logError(id, 'generateObject', modelKey, error);
-        throw error;
+        const classified = LLM.classifyError(error, modelKey);
+        LLM.logError(id, 'generateObject', modelKey, classified);
+        throw classified;
       }
     });
   }
@@ -756,8 +766,22 @@ export class LLM {
    * ```
    */
   static safeGenerateObject<T>(params: GenerateObjectParams<T>): ResultAsync<GenerateObjectResult<T>, OopsError> {
-    return ResultAsync.fromPromise(LLM.generateObject(params), (error: unknown) =>
-      LLM.classifyError(error, params.model),
+    return LLM.toResult(LLM.generateObjectCore(params), params.model);
+  }
+
+  /**
+   * 结构化对象生成（边界适配层）
+   *
+   * 内部实现统一走 `safeGenerateObject`，这里只在边界处将 Err(OopsError) 转为 throw。
+   *
+   * @deprecated 使用 `safeGenerateObject`（返回 ResultAsync）替代。
+   */
+  static async generateObject<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
+    return (await LLM.safeGenerateObject(params)).match(
+      (value) => value,
+      (error) => {
+        throw error;
+      },
     );
   }
 
@@ -767,8 +791,28 @@ export class LLM {
   static safeGenerateObjectViaTool<T>(
     params: GenerateObjectParams<T> & { toolName?: string; toolDescription?: string; parallelToolCalls?: boolean },
   ): ResultAsync<GenerateObjectResult<T>, OopsError> {
-    return ResultAsync.fromPromise(LLM.generateObjectViaTool(params), (error: unknown) =>
-      LLM.classifyError(error, params.model),
+    return LLM.toResult(LLM.generateObjectViaToolCore(params), params.model);
+  }
+
+  /**
+   * 通过 Tool Calling 生成结构化对象（边界适配层）
+   *
+   * 内部实现统一走 `safeGenerateObjectViaTool`，这里只在边界处将 Err(OopsError) 转为 throw。
+   *
+   * @deprecated 使用 `safeGenerateObjectViaTool`（返回 ResultAsync）替代。
+   */
+  static async generateObjectViaTool<T>(
+    params: GenerateObjectParams<T> & {
+      toolName?: string;
+      toolDescription?: string;
+      parallelToolCalls?: boolean;
+    },
+  ): Promise<GenerateObjectResult<T>> {
+    return (await LLM.safeGenerateObjectViaTool(params)).match(
+      (value) => value,
+      (error) => {
+        throw error;
+      },
     );
   }
 
@@ -776,8 +820,20 @@ export class LLM {
    * generateText 的 Result 包装版
    */
   static safeGenerateText(params: GenerateTextParams): ResultAsync<GenerateTextResult, OopsError> {
-    return ResultAsync.fromPromise(LLM.generateText(params), (error: unknown) =>
-      LLM.classifyError(error, params.model),
+    return LLM.toResult(LLM.generateTextCore(params), params.model);
+  }
+
+  /**
+   * 文本生成（边界适配层）
+   *
+   * 内部实现统一走 `safeGenerateText`，这里只在边界处将 Err(OopsError) 转为 throw。
+   */
+  static async generateText(params: GenerateTextParams): Promise<GenerateTextResult> {
+    return (await LLM.safeGenerateText(params)).match(
+      (value) => value,
+      (error) => {
+        throw error;
+      },
     );
   }
 
@@ -799,7 +855,7 @@ export class LLM {
     }
 
     if (!(error instanceof Error)) {
-      return Oops.Panic.ExternalService(model, `Non-Error thrown: ${String(error)}`);
+      return Oops.Panic.ExternalService(model, `Non-Error thrown: ${String(error)}`, { cause: error });
     }
 
     // Timeout
@@ -821,7 +877,7 @@ export class LLM {
     }
 
     // Fallback
-    return Oops.Panic.ExternalService(model, error.message);
+    return Oops.Panic.ExternalService(model, error.message, { cause: error });
   }
 
   /**
@@ -835,7 +891,7 @@ export class LLM {
    * });
    * ```
    */
-  static async generateText(params: GenerateTextParams): Promise<GenerateTextResult> {
+  private static async generateTextCore(params: GenerateTextParams): Promise<GenerateTextResult> {
     const {
       model: modelSpec,
       id,
@@ -895,8 +951,9 @@ export class LLM {
         };
       } catch (error) {
         cleanup();
-        LLM.logError(id, 'generateText', modelKey, error);
-        throw error;
+        const classified = LLM.classifyError(error, modelKey);
+        LLM.logError(id, 'generateText', modelKey, classified);
+        throw classified;
       }
     });
   }
@@ -1115,7 +1172,7 @@ export class LLM {
    * - 某些模型（如 Gemini 3 Flash）在 Tool Calling 上表现更好
    * - Schema 复杂时结构更稳定
    */
-  static async generateObjectViaTool<T>(
+  private static async generateObjectViaToolCore<T>(
     params: GenerateObjectParams<T> & {
       /** Tool 名称 */
       toolName?: string;
@@ -1259,8 +1316,9 @@ export class LLM {
         };
       } catch (error) {
         cleanup();
-        LLM.logError(id, 'generateObjectViaTool', modelKey, error);
-        throw error;
+        const classified = LLM.classifyError(error, modelKey);
+        LLM.logError(id, 'generateObjectViaTool', modelKey, classified);
+        throw classified;
       }
     });
   }

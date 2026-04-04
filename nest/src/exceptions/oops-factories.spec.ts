@@ -62,6 +62,12 @@ describe('Oops.Panic factory methods (500)', () => {
     expect(err.userMessage).toBe('系统繁忙，请稍后重试');
   });
 
+  it('Panic.Database() should preserve cause', () => {
+    const cause = new Error('db down');
+    const err = Oops.Panic.Database('query timeout', { cause });
+    expect(err.cause).toBe(cause);
+  });
+
   it('Panic.ExternalService()', () => {
     const err = Oops.Panic.ExternalService('Redis', 'connection refused');
     expect(err).toBeInstanceOf(Oops.Panic);
@@ -69,10 +75,22 @@ describe('Oops.Panic factory methods (500)', () => {
     expect(err.userMessage).toBe('服务暂时不可用，请稍后重试');
   });
 
+  it('Panic.ExternalService() should preserve cause', () => {
+    const cause = new Error('connection refused');
+    const err = Oops.Panic.ExternalService('Redis', 'connection refused', { cause });
+    expect(err.cause).toBe(cause);
+  });
+
   it('Panic.Config()', () => {
     const err = Oops.Panic.Config('missing API key');
     expect(err).toBeInstanceOf(Oops.Panic);
     expect(err.userMessage).toBe('服务配置异常，请联系管理员');
+  });
+
+  it('Panic.Config() should preserve cause', () => {
+    const cause = new Error('missing API key');
+    const err = Oops.Panic.Config('missing API key', { cause });
+    expect(err.cause).toBe(cause);
   });
 });
 
