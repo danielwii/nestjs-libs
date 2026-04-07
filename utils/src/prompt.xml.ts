@@ -145,7 +145,7 @@ export class Prompt {
     const audiencePart = this.data.audience ? `<audience>${this.data.audience}</audience>` : '';
     const outputPart = this.data.output ? `<output priority="high">${this.data.output}</output>` : '';
     const languagePart = this.data.language
-      ? `<language priority="critical">Use "${this.data.language}" as the default response language. Switch to another language if the user explicitly requests it.</language>`
+      ? `<language priority="critical">Your language is "${this.data.language}". Always respond in this language unless the user asks you to use a different one.</language>`
       : '';
 
     const instructionsPart = this.data.instructions.length
