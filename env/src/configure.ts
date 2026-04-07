@@ -811,7 +811,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
               defaultValue: defaultVal,
               format: format as string,
               description: description as string | null,
-              createdBy: projectScope ?? null,
+              createdBy: projectScope,
             };
           }),
           skipDuplicates: true,
