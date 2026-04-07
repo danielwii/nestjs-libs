@@ -159,20 +159,7 @@ function createLangfuseProcessor(): unknown | null {
   return new LangfuseSpanProcessor({ publicKey, secretKey, baseUrl, shouldExportSpan });
 }
 
-// ==================== Sentry 模式：Sentry 接管 OTel ====================
-
-/** gRPC instrumentation 注册到 Sentry 管理的全局 TracerProvider */
-function registerGrpcInstrumentation() {
-  if (!GrpcInstrumentation) return;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency
-    const { registerInstrumentations } = require('@opentelemetry/instrumentation');
-    registerInstrumentations({ instrumentations: [new GrpcInstrumentation()] });
-    otelLogger.info`${'gRPC instrumentation registered'}`;
-  } catch {
-    otelLogger.warning`${'failed to register gRPC instrumentation'}`;
-  }
-}
+// ==================== Sentry 错误追踪（独立于 OTel） ====================
 
 const noisyPatterns = [
   /MISSING_ENV_FILE/i,
@@ -183,7 +170,14 @@ const noisyPatterns = [
   /^[DI] \d{4}-\d{2}-\d{2}T.+\| v\d+\.\d+\.\d+ \d+ \|/, // @grpc/grpc-js debug/info logs written to stderr
 ];
 
-function bootstrapWithSentry(langfuseProcessor: unknown | null) {
+/**
+ * Sentry 仅负责错误追踪，不接管 OTel。
+ *
+ * 之前 Sentry 接管 OTel（TracerProvider/Sampler），导致 tracesSampler 的采样率（prod 5%）
+ * 同时影响 Langfuse——95% 的 span 在创建时就被丢弃，Langfuse 收不到 trace 元数据。
+ * 现在 Sentry 和 OTel/Langfuse 彻底分离，各管各的。
+ */
+function bootstrapSentry() {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency, import() exposes strict type mismatch
     const Sentry = require('@sentry/nestjs');
@@ -192,36 +186,16 @@ function bootstrapWithSentry(langfuseProcessor: unknown | null) {
     const environment = process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV;
     const serverName = process.env.APP_NAME ?? process.env.SENTRY_SERVER_NAME ?? process.env.SERVICE_NAME;
 
-    // Sentry 接管 OTel：不设 skipOpenTelemetrySetup，由 Sentry 管理
-    // TracerProvider / ContextManager / Propagator / Sampler
     Sentry.init({
       dsn,
       sendDefaultPii: true,
       release,
       environment,
       serverName,
-      // SENTRY_TRACES_SAMPLE_RATE: 0~1, 默认开发环境 1.0
-      tracesSampler: ({ name, parentSampled }: { name?: string; parentSampled?: boolean }) => {
-        // 保持已有 trace 的连续性
-        if (parentSampled !== undefined) return parentSampled;
-
-        const txName = name ?? '';
-        // HTTP health: GET /health, /health/ready, /health/topology
-        if (/^GET \/health(\/|$)/.test(txName)) return 0;
-        // 首页 / API 根
-        if (/^GET \/(api)?$/.test(txName)) return 0;
-        // gRPC health
-        if (/grpc\.health\.v1\.Health/.test(txName)) return 0;
-        // Cron jobs
-        if (/^handle.*Cron$/.test(txName)) return 0;
-
-        const rate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE);
-        const defaultRate = environment === 'production' ? 0.05 : 1.0;
-        return Number.isFinite(rate) ? Math.max(0, Math.min(1, rate)) : defaultRate;
-      },
-      // Langfuse 等额外 SpanProcessor 挂载到 Sentry 管理的 OTel provider
-      // see: https://github.com/getsentry/sentry-javascript/issues/14826
-      openTelemetrySpanProcessors: (langfuseProcessor ? [langfuseProcessor] : []) as never[],
+      // Sentry 不接管 OTel：TracerProvider/ContextManager/Propagator 由独立 NodeSDK 管理
+      skipOpenTelemetrySetup: true,
+      // 不做 performance monitoring，只做错误追踪
+      tracesSampleRate: 0,
       beforeSend(event: {
         message?: string;
         logentry?: { formatted?: string; message?: string };
@@ -239,30 +213,26 @@ function bootstrapWithSentry(langfuseProcessor: unknown | null) {
       },
       // Bun 未实现 util.getSystemErrorMap()，导致 @sentry/node-core 的 SystemError integration 崩溃
       // see: https://github.com/oven-sh/bun/issues/22872
-      // 该 integration 仅为系统错误附加 errno/path 上下文，禁用不影响错误捕获
       integrations: (defaults: Array<{ name: string }>) => defaults.filter((i) => i.name !== 'NodeSystemError'),
     });
 
-    registerGrpcInstrumentation();
-
-    sentryLogger.info`${`enabled server=${serverName ?? 'unknown'} env=${environment}`}`;
-
-    // CLI 需要在 process.exit() 前调用此方法确保 spans 发送到 Langfuse
-    (globalThis as Record<string, unknown>).__otelFlush = () => Sentry.close(5000);
+    sentryLogger.info`${`enabled (errors only) server=${serverName ?? 'unknown'} env=${environment}`}`;
   } catch (error) {
     sentryLogger.error`${`init failed: ${error instanceof Error ? error.message : String(error)}`}`;
-    // Sentry 不可用时回退到 dev 模式
-    bootstrapMinimalOtel(langfuseProcessor);
   }
 }
 
-// ==================== Dev 模式：最小化 NodeSDK ====================
+// ==================== OTel：独立 NodeSDK（Langfuse + gRPC） ====================
 
-function bootstrapMinimalOtel(langfuseProcessor: unknown | null) {
+/**
+ * 独立的 OTel pipeline，不受 Sentry 采样率影响。
+ * 所有 span 100% recording → shouldExportSpan 只导出 scope='ai' 给 Langfuse。
+ */
+function bootstrapOtel(langfuseProcessor: unknown | null) {
   const spanProcessors: unknown[] = [];
   if (langfuseProcessor) spanProcessors.push(langfuseProcessor);
   if (spanProcessors.length === 0) {
-    otelLogger.debug`${'dev mode (minimal exporter)'}`;
+    otelLogger.debug`${'no processors, using minimal exporter'}`;
     spanProcessors.push(new SimpleSpanProcessor(new MinimalSpanExporter()));
   }
 
@@ -278,7 +248,7 @@ function bootstrapMinimalOtel(langfuseProcessor: unknown | null) {
 
   try {
     sdk.start();
-    otelLogger.info`${`started (dev mode${GrpcInstrumentation ? ' + gRPC' : ''})`}`;
+    otelLogger.info`${`started${GrpcInstrumentation ? ' + gRPC' : ''}${langfuseProcessor ? ' + Langfuse' : ''}`}`;
   } catch (error) {
     otelLogger.error`${`failed: ${error instanceof Error ? error.message : String(error)}`}`;
     return;
@@ -304,14 +274,17 @@ function bootstrapMinimalOtel(langfuseProcessor: unknown | null) {
 
 function bootstrapTracing() {
   configureDiagLogLevel();
-  const langfuseProcessor = createLangfuseProcessor();
 
+  // Sentry：仅错误追踪，不接管 OTel
   if (process.env.SENTRY_DSN) {
-    bootstrapWithSentry(langfuseProcessor);
+    bootstrapSentry();
   } else {
     sentryLogger.debug`${'skipped (SENTRY_DSN not set)'}`;
-    bootstrapMinimalOtel(langfuseProcessor);
   }
+
+  // OTel：独立 pipeline，Langfuse 100% 采样
+  const langfuseProcessor = createLangfuseProcessor();
+  bootstrapOtel(langfuseProcessor);
 }
 
 bootstrapTracing();
