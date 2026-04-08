@@ -26,6 +26,22 @@ import { getLLMModelFields, SysEnv } from '@app/env';
 import { getAppLogger } from '@app/utils/app-logger';
 
 /**
+ * Vertex 特有概念，通过 `X-Vertex-AI-LLM-Shared-Request-Type` header 传递。
+ * 具体哪些模型支持以 Google 官方文档为准（运行时由 `supportedTiers` 标注 + 降级）。
+ *
+ * - `standard`: 共享配额池（默认）
+ * - `flex`: 低优先级 / 低价，请求可能排队
+ * - `priority`: 独立配额桶，价格溢价
+ *
+ * @see https://docs.cloud.google.com/vertex-ai/generative-ai/docs/flex-paygo
+ * @see https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo
+ */
+export type VertexTier = 'standard' | 'flex' | 'priority';
+
+/** 模块级单例，避免 `supportedTiers` 缺省时每次调用都分配新数组 */
+export const DEFAULT_SUPPORTED_TIERS: readonly VertexTier[] = ['standard'];
+
+/**
  * Model 配置接口
  */
 export interface ModelConfig<P extends string = string> {
@@ -42,6 +58,16 @@ export interface ModelConfig<P extends string = string> {
    * 例：MiniMax M2.5（400 "Reasoning is mandatory"）、Grok 4.1 Fast（参数无效）
    */
   reasoningRequired?: boolean;
+  /**
+   * 该模型支持的 Vertex tier 列表（仅 vertex provider 相关）
+   *
+   * - 未填 = 默认只支持 `standard`
+   * - 其他 provider 应留空
+   * - 以 Google 官方 Flex/Priority PayGo 文档列表为准
+   *
+   * 运行时传入不支持的 tier 不会抛异常，只 warn + 降级到 standard。
+   */
+  supportedTiers?: readonly VertexTier[];
 }
 
 /**
@@ -348,9 +374,12 @@ export interface ParsedModelSpec {
   timeout: number | undefined;
   /** 降级模型链，主模型失败后依次尝试 */
   fallbackModels: LLMModelKey[];
+  /** Vertex AI tier（仅 vertex provider 生效） */
+  tier: VertexTier | undefined;
 }
 
 const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']);
+const VALID_VERTEX_TIERS = new Set<string>(['standard', 'flex', 'priority']);
 
 /**
  * 解析 LLMModelSpec 为 base key + 参数
@@ -371,6 +400,7 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
       maxRetries: undefined,
       timeout: undefined,
       fallbackModels: [],
+      tier: undefined,
     };
   }
   const key = spec.slice(0, qIdx) as LLMModelKey;
@@ -426,7 +456,18 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
     }
   }
 
-  return { key, thinking, maxRetries, timeout, fallbackModels };
+  // tier → Vertex AI tier（无效值 warning + 忽略）
+  const tierRaw = params.get('tier');
+  let tier: VertexTier | undefined;
+  if (tierRaw !== null) {
+    if (VALID_VERTEX_TIERS.has(tierRaw)) {
+      tier = tierRaw as VertexTier;
+    } else {
+      logger.warning`[parseModelSpec] Invalid tier "${tierRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_TIERS].join(', ')}`;
+    }
+  }
+
+  return { key, thinking, maxRetries, timeout, fallbackModels, tier };
 }
 
 /**
@@ -517,11 +558,33 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['google:gemini-3.1-flash-lite-preview', { provider: 'google', modelId: 'gemini-3.1-flash-lite-preview' }],
 
   // Vertex AI 模型 (Express Mode)
-  ['vertex:gemini-2.5-flash', { provider: 'vertex', modelId: 'gemini-2.5-flash' }],
-  ['vertex:gemini-2.5-pro', { provider: 'vertex', modelId: 'gemini-2.5-pro' }],
-  ['vertex:gemini-2.5-flash-lite', { provider: 'vertex', modelId: 'gemini-2.5-flash-lite' }],
-  ['vertex:gemini-3-flash-preview', { provider: 'vertex', modelId: 'gemini-3-flash-preview' }],
-  ['vertex:gemini-3.1-flash-lite-preview', { provider: 'vertex', modelId: 'gemini-3.1-flash-lite-preview' }],
+  // supportedTiers 以 Google 官方文档为准，更新时同步两个列表：
+  // - Flex: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/flex-paygo
+  // - Priority: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo
+  [
+    'vertex:gemini-2.5-flash',
+    { provider: 'vertex', modelId: 'gemini-2.5-flash', supportedTiers: ['standard', 'priority'] },
+  ],
+  [
+    'vertex:gemini-2.5-pro',
+    { provider: 'vertex', modelId: 'gemini-2.5-pro', supportedTiers: ['standard', 'priority'] },
+  ],
+  [
+    'vertex:gemini-2.5-flash-lite',
+    { provider: 'vertex', modelId: 'gemini-2.5-flash-lite', supportedTiers: ['standard', 'priority'] },
+  ],
+  [
+    'vertex:gemini-3-flash-preview',
+    { provider: 'vertex', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
+  ],
+  [
+    'vertex:gemini-3.1-flash-lite-preview',
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3.1-flash-lite-preview',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
 ]);
 
 // ==================== 注册函数 ====================
@@ -596,6 +659,19 @@ export function getModelId(spec: LLMModelSpec): string {
  */
 export function getProvider(spec: LLMModelSpec): LLMProviderType {
   return getModel(spec).provider as LLMProviderType;
+}
+
+/**
+ * 未标注 supportedTiers 的模型默认走 `['standard']`。
+ * 调用方可预先判断；也可直接传 tier，运行时不支持会 warn + 降级。
+ *
+ * @example
+ * getSupportedTiers('vertex:gemini-3.1-flash-lite-preview') // → ['standard', 'flex', 'priority']
+ * getSupportedTiers('vertex:gemini-2.5-flash-lite')          // → ['standard', 'priority']
+ * getSupportedTiers('openrouter:grok-4.1-fast')              // → ['standard']
+ */
+export function getSupportedTiers(spec: LLMModelSpec): readonly VertexTier[] {
+  return getModel(spec).supportedTiers ?? DEFAULT_SUPPORTED_TIERS;
 }
 
 /**

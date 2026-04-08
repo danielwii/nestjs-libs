@@ -33,7 +33,7 @@ import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
 import { EMBEDDING_MODELS } from '../types/embedding.types';
-import { getModel, parseModelSpec } from '../types/model.types';
+import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI } from './llm.clients';
@@ -56,7 +56,7 @@ import {
 import { ResultAsync } from 'neverthrow';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
-import type { LLMModelKey, LLMModelSpec } from '../types/model.types';
+import type { LLMModelKey, LLMModelSpec, VertexTier } from '../types/model.types';
 /**
  * 仅对已知会包裹 markdown 代码块的模型启用 extractJsonMiddleware。
  *
@@ -234,6 +234,8 @@ interface ResolvedSpec {
   maxRetries: number;
   timeout: number;
   fallbackModels: LLMModelKey[];
+  /** 请求 tier（仅 vertex provider 生效） */
+  tier: VertexTier | undefined;
 }
 
 const specLogger = getAppLogger('features', 'LLM', 'spec');
@@ -256,23 +258,26 @@ function resolveSpec(
   const maxRetries = callerMaxRetries ?? parsed.maxRetries ?? SysEnv.AI_LLM_MAX_RETRIES;
   const timeout = callerTimeout ?? parsed.timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;
   const fallbackModels = parsed.fallbackModels;
+  const tier = parsed.tier;
 
   // 有非默认参数时打印生效值，方便排查
   const hasSpecParams =
     parsed.thinking !== undefined ||
     parsed.maxRetries !== undefined ||
     parsed.timeout !== undefined ||
-    fallbackModels.length > 0;
+    fallbackModels.length > 0 ||
+    tier !== undefined;
   if (hasSpecParams) {
     const parts: string[] = [];
     if (thinking !== 'none') parts.push(`thinking=${thinking}`);
     parts.push(`retry=${maxRetries}`);
     parts.push(`timeout=${timeout}ms`);
     if (fallbackModels.length > 0) parts.push(`fallback=[${fallbackModels.join(',')}]`);
+    if (tier !== undefined) parts.push(`tier=${tier}`);
     specLogger.info`[resolveSpec] ${parsed.key} → ${parts.join(', ')}`;
   }
 
-  return { key: parsed.key, thinking, maxRetries, timeout, fallbackModels };
+  return { key: parsed.key, thinking, maxRetries, timeout, fallbackModels, tier };
 }
 
 /**
@@ -307,6 +312,46 @@ function buildProviderOptions(
   }
 
   return thinkingOptions;
+}
+
+/** 导出给测试文件共享同一真相源 */
+export const VERTEX_TIER_HEADER = 'X-Vertex-AI-LLM-Shared-Request-Type';
+
+const tierLogger = getAppLogger('features', 'LLM', 'tier');
+
+/**
+ * 四种情况的行为契约：
+ * - `undefined` / `standard`：不发 header，返回 undefined
+ * - 非 vertex provider：warn + 降级
+ * - 模型不支持该 tier：warn + 降级
+ * - 支持：info 日志 + 返回 header 对象
+ *
+ * 导出仅供单元测试；运行时视为模块内部 API。
+ *
+ * @see https://docs.cloud.google.com/vertex-ai/generative-ai/docs/flex-paygo
+ * @see https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo
+ */
+export function buildTierHeaders(
+  modelKey: LLMModelKey,
+  tier: VertexTier | undefined,
+): Record<string, string> | undefined {
+  if (!tier || tier === 'standard') return undefined;
+
+  const config = getModel(modelKey);
+  if (config.provider !== 'vertex') {
+    tierLogger.warning`[buildTierHeaders] tier=${tier} requested for non-vertex provider=${config.provider} (model=${modelKey}), ignoring`;
+    return undefined;
+  }
+
+  // 直接用已获取的 config 读 supportedTiers，避免 getSupportedTiers 再次查 registry
+  const supported = config.supportedTiers ?? DEFAULT_SUPPORTED_TIERS;
+  if (!supported.includes(tier)) {
+    tierLogger.warning`[buildTierHeaders] tier=${tier} not supported for model=${modelKey}, falling back to standard. supported=[${supported.join(',')}]`;
+    return undefined;
+  }
+
+  tierLogger.info`[buildTierHeaders] tier=${tier} applied for model=${modelKey}`;
+  return { [VERTEX_TIER_HEADER]: tier };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -719,6 +764,7 @@ export class LLM {
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+      const tierHeaders = buildTierHeaders(modelKey, spec.tier);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -729,6 +775,7 @@ export class LLM {
           system,
           messages,
           providerOptions,
+          headers: tierHeaders,
           temperature,
           maxOutputTokens,
           maxRetries: spec.maxRetries,
@@ -918,6 +965,7 @@ export class LLM {
       const languageModel = createModel(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+      const tierHeaders = buildTierHeaders(modelKey, spec.tier);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -928,6 +976,7 @@ export class LLM {
           messages,
           tools,
           providerOptions,
+          headers: tierHeaders,
           temperature,
           maxOutputTokens,
           maxRetries: spec.maxRetries,
@@ -1041,6 +1090,7 @@ export class LLM {
 
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+    const tierHeaders = buildTierHeaders(modelKey, spec.tier);
 
     const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -1054,6 +1104,7 @@ export class LLM {
       tools,
       stopWhen,
       providerOptions,
+      headers: tierHeaders,
       temperature,
       maxOutputTokens,
       maxRetries: spec.maxRetries,
@@ -1120,6 +1171,7 @@ export class LLM {
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+    const tierHeaders = buildTierHeaders(modelKey, spec.tier);
 
     const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -1130,6 +1182,7 @@ export class LLM {
       system,
       messages,
       providerOptions,
+      headers: tierHeaders,
       temperature,
       maxOutputTokens,
       maxRetries: spec.maxRetries,
@@ -1233,6 +1286,7 @@ export class LLM {
               },
             }
           : baseProviderOptions;
+      const tierHeaders = buildTierHeaders(modelKey, spec.tier);
 
       // 创建 Tool，将 Schema 作为 inputSchema
       const tools = {
@@ -1255,6 +1309,7 @@ export class LLM {
           tools,
           toolChoice,
           providerOptions,
+          headers: tierHeaders,
           temperature,
           maxOutputTokens,
           maxRetries: spec.maxRetries,
@@ -1390,6 +1445,7 @@ export class LLM {
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+    const tierHeaders = buildTierHeaders(modelKey, spec.tier);
 
     // 创建 Tool，将 Schema 作为 inputSchema
     const tools = {
@@ -1411,6 +1467,7 @@ export class LLM {
       tools,
       toolChoice,
       providerOptions,
+      headers: tierHeaders,
       temperature,
       maxOutputTokens,
       maxRetries: spec.maxRetries,
