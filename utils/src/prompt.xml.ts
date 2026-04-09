@@ -145,7 +145,7 @@ export class Prompt {
     const audiencePart = this.data.audience ? `<audience>${this.data.audience}</audience>` : '';
     const outputPart = this.data.output ? `<output priority="high">${this.data.output}</output>` : '';
     const languagePart = this.data.language
-      ? `<language priority="critical">Your language is "${this.data.language}". Always respond in this language unless the user asks you to use a different one.</language>`
+      ? `<language priority="critical">Preferred response language: "${this.data.language}". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>`
       : '';
 
     const instructionsPart = this.data.instructions.length

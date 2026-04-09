@@ -101,7 +101,7 @@ describe('Prompt', () => {
         <section name="conversation_history" purpose="用于参考">对话历史</section>
         <section name="empty_context"><empty /></section>
       </context>
-      <language priority="critical">Your language is "中文". Always respond in this language unless the user asks you to use a different one.</language>
+      <language priority="critical">Preferred response language: "中文". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning (UTC)
@@ -174,7 +174,7 @@ describe('PromptBuilder', () => {
       <context>
         <section name="section" priority="critical">内容</section>
       </context>
-      <language priority="critical">Your language is "zh-Hans". Always respond in this language unless the user asks you to use a different one.</language>
+      <language priority="critical">Preferred response language: "zh-Hans". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning (UTC)
