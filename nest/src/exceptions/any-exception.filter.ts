@@ -135,12 +135,14 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
       // 未识别异常：兜底 500 + Sentry
       this.captureExceptionBySentry(exception, host);
+      const fallbackMessage = getErrorMessage(exception) || 'Internal server error';
       this.logger
-        .error`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${getErrorMessage(exception)} ${exception}`;
-      throw new GraphQLError(getErrorMessage(exception) || 'Internal server error', {
+        .error`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${fallbackMessage} ${exception}`;
+      throw new GraphQLError(fallbackMessage, {
         extensions: {
           code: ErrorCodes.SYSTEM_INTERNAL_ERROR,
           httpStatus: HttpStatus.INTERNAL_SERVER_ERROR,
+          userMessage: fallbackMessage,
         },
       });
     }
@@ -281,6 +283,12 @@ export class AnyExceptionFilter implements ExceptionFilter {
     );
   }
 
+  /**
+   * GraphQL extensions 契约（所有 GraphQL 错误路径都遵循）：
+   * `{ code: string, httpStatus: number, userMessage: string, ...extras }`
+   * iOS 客户端统一通过 extensions.httpStatus 判断登出/重试等行为，不依赖具体异常类型。
+   * Oops 路径额外带 errorCode / businessCode；non-Oops 路径可能带 errors（Zod issues 等）。
+   */
   private async handleGraphqlBusinessException(
     exception: OopsLike,
     request: IdentityRequest | undefined,

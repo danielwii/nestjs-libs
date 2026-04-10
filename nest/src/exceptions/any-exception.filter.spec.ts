@@ -478,7 +478,7 @@ describe('AnyExceptionFilter', () => {
       }
     });
 
-    it('未识别异常 → GraphQLError + extensions.httpStatus=500 (兜底)', async () => {
+    it('未识别异常 → GraphQLError + extensions.httpStatus=500 + userMessage (兜底)', async () => {
       const { host } = createGraphqlHost();
       const exception = new Error('unexpected graphql error');
 
@@ -490,6 +490,7 @@ describe('AnyExceptionFilter', () => {
         const gqlError = e as GraphQLError;
         expect(gqlError.extensions.httpStatus).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
         expect(gqlError.extensions.code).toBe(ErrorCodes.SYSTEM_INTERNAL_ERROR);
+        expect(gqlError.extensions.userMessage).toBe('unexpected graphql error');
         expect(gqlError.message).toBe('unexpected graphql error');
       }
     });
