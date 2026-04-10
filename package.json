@@ -31,7 +31,7 @@
   },
   "peerDependencies": {
     "@ai-sdk/google": "^3.0.55",
-    "@ai-sdk/google-vertex": "^4.0.98",
+    "@ai-sdk/google-vertex": "4.0.105",
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/provider-utils": "^4.0.21",
     "@logtape/logtape": "^2.0.5",
@@ -142,7 +142,7 @@
   },
   "devDependencies": {
     "@ai-sdk/google": "^3.0.61",
-    "@ai-sdk/google-vertex": "^4.0.106",
+    "@ai-sdk/google-vertex": "4.0.105",
     "@ai-sdk/openai": "^3.0.52",
     "@ai-sdk/provider-utils": "^4.0.23",
     "@eslint/js": "^10.0.1",
