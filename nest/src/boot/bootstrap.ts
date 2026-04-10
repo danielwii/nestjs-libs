@@ -325,9 +325,14 @@ export async function bootstrap(
     app.disable('x-powered-by');
   }
 
-  // --- api / scheduler：OTel middleware（Sentry 未接管时） ---
-  if (!isGrpc && !process.env.SENTRY_DSN) {
-    bootstrapLogger.info`[Config] OTel HTTP tracing via lightweight otelTraceMiddleware (no Sentry)`;
+  // --- api / scheduler：OTel trace header middleware ---
+  // 无条件 mount：
+  // - Sentry 模式下，middleware 读取 Sentry 已建的 SERVER span 写 trace header
+  // - 非 Sentry 模式下，middleware 自己建 span 并写 header
+  // 任一模式都需要 middleware 在 guard 之前写好 X-Trace-Id / traceparent，保证
+  // 认证失败等异常路径的响应也带 trace 信息（iOS / 日志关联依赖）。
+  if (!isGrpc) {
+    bootstrapLogger.info`[Config] OTel trace header middleware mounted (sentry=${!!process.env.SENTRY_DSN})`;
     app.use(otelTraceMiddleware);
   }
 

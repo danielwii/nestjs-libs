@@ -9,7 +9,7 @@ import { catchError, finalize } from 'rxjs';
 
 import type { IdentityRequest } from '../types/identity.interface';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import type { Observable } from 'rxjs';
 
 export class LoggerInterceptor implements NestInterceptor {
@@ -19,9 +19,7 @@ export class LoggerInterceptor implements NestInterceptor {
     // 注意：Subscription 必须直接返回原始结果，任何额外的 pipe 都会把 AsyncIterator 变成 Observable，
     // 导致 graphql-transport-ws 收到 {} 而不是流式数据。
     // NestJS switchToHttp() 在 GraphQL 场景返回空对象，类型声明为可空
-    // res 可能是不完整的对象（无 getHeader/setHeader），使用 Partial
     let req: IdentityRequest | undefined = ctx.switchToHttp().getRequest<IdentityRequest | undefined>();
-    let res: Partial<Response> | undefined = ctx.switchToHttp().getResponse<Partial<Response> | undefined>();
 
     const isGraphql = ctx.getType<'http' | 'graphql'>() === 'graphql';
     const gqlExecutionContext = isGraphql ? GqlExecutionContext.create(ctx) : null;
@@ -32,7 +30,6 @@ export class LoggerInterceptor implements NestInterceptor {
     if (!req && gqlExecutionContext) {
       const gqlContext = gqlExecutionContext.getContext<Record<string, unknown>>();
       req = gqlContext.req as IdentityRequest | undefined;
-      res = gqlContext.res as Partial<Response> | undefined;
 
       if (req) {
         const ua = req.headers['user-agent'];
@@ -126,7 +123,6 @@ export class LoggerInterceptor implements NestInterceptor {
     const uid = req.user?.uid;
     // handler.name 在 OpenTelemetry 插件下可能为空字符串或被覆盖
 
-     
     const TAG = `(${uid ?? 'anonymous'}) #${ctx.getClass().name}.${ctx.getHandler().name || 'anonymous'}`;
 
     // 健康检查路径，跳过日志记录
@@ -139,23 +135,7 @@ export class LoggerInterceptor implements NestInterceptor {
     const traceId = spanTraceId ?? headerTraceId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const userIdFromRequest = req.user?.userId;
 
-    // 获取 spanId 用于构建 traceparent
-    const spanId = currentSpan?.spanContext().spanId ?? crypto.randomUUID().replace(/-/g, '').substring(0, 16);
-
     return RequestContext.run({ traceId, userId: userIdFromRequest ?? null }, () => {
-      // res 在 GraphQL 场景下可能为 undefined，traceId 总是存在
-
-      if (res?.getHeader && res.setHeader) {
-        const isSse = res.getHeader('Content-Type') === 'text/event-stream';
-        if (!isSse) {
-          // W3C Trace Context 标准格式: 00-{traceId}-{spanId}-{flags}
-          // flags: 01 表示已采样
-          res.setHeader('traceparent', `00-${traceId}-${spanId}-01`);
-          // 保留 X-Trace-Id 向后兼容
-          res.setHeader('X-Trace-Id', traceId);
-        }
-      }
-
       if (!isHealthCheck) {
         this.logger
           .debug`-> ${TAG} call... ip=${ipAddress} cfRay=${cfRay} ${req.method} ${req.url} ua=${req.headers['user-agent']}`;

@@ -1,4 +1,4 @@
-import { AnyExceptionFilter } from './any-exception.filter';
+import { AnyExceptionFilter, toErrorDescriptor } from './any-exception.filter';
 import { ErrorCodes } from './error-codes';
 import { Oops } from './oops';
 
@@ -16,6 +16,7 @@ import {
 import { ThrottlerException } from '@nestjs/throttler';
 
 import { describe, expect, it, mock } from 'bun:test';
+import { GraphQLError } from 'graphql';
 import { ZodError } from 'zod';
 
 import type { ArgumentsHost } from '@nestjs/common';
@@ -414,7 +415,7 @@ describe('AnyExceptionFilter', () => {
       await expect(filter.catch(exception, host)).rejects.toThrow();
     });
 
-    it('UnauthorizedException → 静默 throw 原始异常', async () => {
+    it('UnauthorizedException → GraphQLError + extensions.httpStatus=401 (iOS auto-logout 依赖)', async () => {
       const { host } = createGraphqlHost();
       const exception = new UnauthorizedException('not authed');
 
@@ -422,11 +423,62 @@ describe('AnyExceptionFilter', () => {
         await filter.catch(exception, host);
         expect.unreachable('should have thrown');
       } catch (e) {
-        expect(e).toBeInstanceOf(UnauthorizedException);
+        expect(e).toBeInstanceOf(GraphQLError);
+        const gqlError = e as GraphQLError;
+        expect(gqlError.extensions.httpStatus).toBe(HttpStatus.UNAUTHORIZED);
+        expect(gqlError.extensions.code).toBe(ErrorCodes.CLIENT_AUTH_REQUIRED);
+        expect(gqlError.message).toBe('not authed');
       }
     });
 
-    it('其他异常 → throw 原始异常', async () => {
+    it('BadRequestException → GraphQLError + extensions.httpStatus=400', async () => {
+      const { host } = createGraphqlHost();
+      const exception = new BadRequestException('invalid field');
+
+      try {
+        await filter.catch(exception, host);
+        expect.unreachable('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(GraphQLError);
+        const gqlError = e as GraphQLError;
+        expect(gqlError.extensions.httpStatus).toBe(HttpStatus.BAD_REQUEST);
+        expect(gqlError.extensions.code).toBe(ErrorCodes.CLIENT_INPUT_ERROR);
+      }
+    });
+
+    it('ZodError → GraphQLError + extensions.httpStatus=400 + errors', async () => {
+      const { host } = createGraphqlHost();
+      const zodError = new ZodError([
+        { code: 'invalid_type', expected: 'string', path: ['name'], message: 'Expected string' } as never,
+      ]);
+
+      try {
+        await filter.catch(zodError, host);
+        expect.unreachable('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(GraphQLError);
+        const gqlError = e as GraphQLError;
+        expect(gqlError.extensions.httpStatus).toBe(HttpStatus.BAD_REQUEST);
+        expect(gqlError.extensions.code).toBe(ErrorCodes.CLIENT_VALIDATION_FAILED);
+        expect(gqlError.extensions.errors).toBeDefined();
+      }
+    });
+
+    it('ThrottlerException → GraphQLError + extensions.httpStatus=429', async () => {
+      const { host } = createGraphqlHost();
+
+      try {
+        await filter.catch(new ThrottlerException('rate limited'), host);
+        expect.unreachable('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(GraphQLError);
+        const gqlError = e as GraphQLError;
+        expect(gqlError.extensions.httpStatus).toBe(HttpStatus.TOO_MANY_REQUESTS);
+        expect(gqlError.extensions.code).toBe(ErrorCodes.CLIENT_RATE_LIMITED);
+      }
+    });
+
+    it('未识别异常 → GraphQLError + extensions.httpStatus=500 (兜底)', async () => {
       const { host } = createGraphqlHost();
       const exception = new Error('unexpected graphql error');
 
@@ -434,7 +486,11 @@ describe('AnyExceptionFilter', () => {
         await filter.catch(exception, host);
         expect.unreachable('should have thrown');
       } catch (e) {
-        expect(e).toBe(exception);
+        expect(e).toBeInstanceOf(GraphQLError);
+        const gqlError = e as GraphQLError;
+        expect(gqlError.extensions.httpStatus).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(gqlError.extensions.code).toBe(ErrorCodes.SYSTEM_INTERNAL_ERROR);
+        expect(gqlError.message).toBe('unexpected graphql error');
       }
     });
   });
@@ -452,5 +508,111 @@ describe('AnyExceptionFilter', () => {
       const body = getResponseBody(response);
       expect(body.message).toBe('原始消息');
     });
+  });
+});
+
+// ==================== toErrorDescriptor（纯函数，独立测试） ====================
+
+describe('toErrorDescriptor', () => {
+  it('ZodError → 400 + CLIENT_VALIDATION_FAILED + issues', () => {
+    const zodError = new ZodError([
+      { code: 'invalid_type', expected: 'string', path: ['name'], message: 'Expected string' } as never,
+    ]);
+    const desc = toErrorDescriptor(zodError);
+    expect(desc).not.toBeNull();
+    expect(desc?.httpStatus).toBe(HttpStatus.BAD_REQUEST);
+    expect(desc?.code).toBe(ErrorCodes.CLIENT_VALIDATION_FAILED);
+    expect(desc?.errors).toBeDefined();
+    expect(desc?.logLevel).toBe('warning');
+  });
+
+  it('UnauthorizedException → 401 + CLIENT_AUTH_REQUIRED', () => {
+    const desc = toErrorDescriptor(new UnauthorizedException('not authed'));
+    expect(desc?.httpStatus).toBe(HttpStatus.UNAUTHORIZED);
+    expect(desc?.code).toBe(ErrorCodes.CLIENT_AUTH_REQUIRED);
+    expect(desc?.message).toBe('not authed');
+    expect(desc?.logLevel).toBe('warning');
+  });
+
+  it('BadRequestException → 400 + CLIENT_INPUT_ERROR', () => {
+    const desc = toErrorDescriptor(new BadRequestException('bad'));
+    expect(desc?.httpStatus).toBe(HttpStatus.BAD_REQUEST);
+    expect(desc?.code).toBe(ErrorCodes.CLIENT_INPUT_ERROR);
+  });
+
+  it('NotFoundException → 404 + CLIENT_AUTH_REQUIRED', () => {
+    const desc = toErrorDescriptor(new NotFoundException('nope'));
+    expect(desc?.httpStatus).toBe(HttpStatus.NOT_FOUND);
+    expect(desc?.code).toBe(ErrorCodes.CLIENT_AUTH_REQUIRED);
+  });
+
+  it('ConflictException → 409 + BUSINESS_DATA_CONFLICT', () => {
+    const desc = toErrorDescriptor(new ConflictException('dup'));
+    expect(desc?.httpStatus).toBe(HttpStatus.CONFLICT);
+    expect(desc?.code).toBe(ErrorCodes.BUSINESS_DATA_CONFLICT);
+  });
+
+  it('ThrottlerException → 429 + CLIENT_RATE_LIMITED', () => {
+    const desc = toErrorDescriptor(new ThrottlerException('too many'));
+    expect(desc?.httpStatus).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(desc?.code).toBe(ErrorCodes.CLIENT_RATE_LIMITED);
+  });
+
+  it('UnprocessableEntityException + BUSINESS_RULE_VIOLATION cause → warning', () => {
+    const exception = new UnprocessableEntityException('rule violated');
+    (exception as unknown as { cause: string }).cause = ErrorCodes.BUSINESS_RULE_VIOLATION;
+    const desc = toErrorDescriptor(exception);
+    expect(desc?.httpStatus).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    expect(desc?.code).toBe(ErrorCodes.BUSINESS_RULE_VIOLATION);
+    expect(desc?.logLevel).toBe('warning');
+  });
+
+  it('UnprocessableEntityException + 无效 cause → SYSTEM_INTERNAL_ERROR + error 级别', () => {
+    const desc = toErrorDescriptor(new UnprocessableEntityException('unknown'));
+    expect(desc?.httpStatus).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    expect(desc?.code).toBe(ErrorCodes.SYSTEM_INTERNAL_ERROR);
+    expect(desc?.logLevel).toBe('error');
+  });
+
+  it('HttpException 4xx → 状态码 + CLIENT_INPUT_ERROR + warning', () => {
+    const desc = toErrorDescriptor(new HttpException('not acceptable', HttpStatus.NOT_ACCEPTABLE));
+    expect(desc?.httpStatus).toBe(HttpStatus.NOT_ACCEPTABLE);
+    expect(desc?.code).toBe(ErrorCodes.CLIENT_INPUT_ERROR);
+    expect(desc?.logLevel).toBe('warning');
+  });
+
+  it('HttpException 5xx → 状态码 + SYSTEM_INTERNAL_ERROR + error', () => {
+    const desc = toErrorDescriptor(new HttpException('gateway timeout', HttpStatus.GATEWAY_TIMEOUT));
+    expect(desc?.httpStatus).toBe(HttpStatus.GATEWAY_TIMEOUT);
+    expect(desc?.code).toBe(ErrorCodes.SYSTEM_INTERNAL_ERROR);
+    expect(desc?.logLevel).toBe('error');
+  });
+
+  it('Prisma P2002 (鸭子类型) → 422 + SYSTEM_DATABASE_ERROR', () => {
+    const prismaError = Object.assign(new Error('unique constraint'), {
+      code: 'P2002',
+      clientVersion: '5.0.0',
+    });
+    const desc = toErrorDescriptor(prismaError);
+    expect(desc?.httpStatus).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    expect(desc?.code).toBe(ErrorCodes.SYSTEM_DATABASE_ERROR);
+  });
+
+  it('FetchError (by name) → 422 + EXTERNAL_SERVICE_ERROR', () => {
+    const err = new Error('connection refused');
+    err.name = 'FetchError';
+    const desc = toErrorDescriptor(err);
+    expect(desc?.httpStatus).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    expect(desc?.code).toBe(ErrorCodes.EXTERNAL_SERVICE_ERROR);
+  });
+
+  it('未识别的 Error → null (调用方兜底 500)', () => {
+    expect(toErrorDescriptor(new Error('unknown'))).toBeNull();
+  });
+
+  it('null / string / object → null', () => {
+    expect(toErrorDescriptor(null)).toBeNull();
+    expect(toErrorDescriptor('string error')).toBeNull();
+    expect(toErrorDescriptor({ foo: 'bar' })).toBeNull();
   });
 });

@@ -114,18 +114,37 @@ export class AnyExceptionFilter implements ExceptionFilter {
         return this.handleGraphqlBusinessException(exception, request, host);
       }
 
-      // 认证失败是正常业务行为，不作为系统错误记录
-      if (exception instanceof UnauthorizedException) {
-        // WARN 日志已在 UserAuthGuard 中记录，此处静默传递
-        throw exception;
+      // 非 Oops 异常：通过 toErrorDescriptor 映射成带 extensions 的 GraphQLError
+      // 这里是 iOS 客户端依赖 extensions.httpStatus 触发自动登出等行为的关键路径，
+      // 过去直接 throw 原始异常会让 Apollo 默认只带 message，没有 httpStatus。
+      const descriptor = toErrorDescriptor(exception);
+      if (descriptor) {
+        this.logMappedException(exception, request, descriptor, true);
+        if (isServerError(descriptor.httpStatus)) {
+          this.captureExceptionBySentry(exception, host);
+        }
+        throw new GraphQLError(descriptor.message, {
+          extensions: {
+            code: descriptor.code,
+            httpStatus: descriptor.httpStatus,
+            userMessage: descriptor.message,
+            ...(descriptor.errors !== undefined ? { errors: descriptor.errors } : {}),
+          },
+        });
       }
 
+      // 未识别异常：兜底 500 + Sentry
+      this.captureExceptionBySentry(exception, host);
       this.logger
         .error`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${getErrorMessage(exception)} ${exception}`;
-      throw exception;
+      throw new GraphQLError(getErrorMessage(exception) || 'Internal server error', {
+        extensions: {
+          code: ErrorCodes.SYSTEM_INTERNAL_ERROR,
+          httpStatus: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+      });
     }
 
-    // GraphQL 分支已 throw/return，后续代码仅 HTTP 请求执行，response 是完整的 Express Response
     const response = rawResponse as Response;
 
     // OopsError V2: instanceof 检测（优先）
@@ -138,157 +157,20 @@ export class AnyExceptionFilter implements ExceptionFilter {
       return this.handleBusinessException(exception, request, response, host);
     }
 
-    if (exception instanceof ZodError) {
-      const errors = exception.issues;
-      this.logger.warning`(${request?.user?.uid})[${request?.ip}] ZodError ${errors} ${exception}`;
-      return response.status(HttpStatus.BAD_REQUEST).json(
-        ApiRes.failure({
-          code: ErrorCodes.CLIENT_VALIDATION_FAILED,
-          message: 'Invalid parameters',
-          // statusCode: HttpStatus.BAD_REQUEST,
-          errors,
-        }),
-      );
-    }
-    if (exception instanceof BadRequestException) {
-      this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] BadRequestException ${exception.message} ${exception.getResponse()} ${exception}`;
-      return response.status(HttpStatus.BAD_REQUEST).json(
-        ApiRes.failure({
-          code: ErrorCodes.CLIENT_INPUT_ERROR,
-          message: exception.message,
-          // statusCode: HttpStatus.BAD_REQUEST,
-          errors: getResponseMessage(exception.getResponse()),
-        }),
-      );
-    }
-    // Prisma 错误识别（鸭子类型，不依赖 Prisma 导入）
-    // PrismaClientKnownRequestError 结构：{ code: 'P2002', meta: {...}, clientVersion: '5.x.x' }
-    if (isPrismaKnownRequestError(exception)) {
-      this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] PrismaClientKnownRequestError(${exception.code}) ${exception.message}`;
-      return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-        ApiRes.failure({
-          code: ErrorCodes.SYSTEM_DATABASE_ERROR,
-          message: 'Operation failed, please try again later',
-        }),
-      );
-    }
-    if (exception instanceof ThrottlerException) {
-      this.logger.warning`(${request?.user?.uid})[${request?.ip}] ThrottlerException ${exception.message}`;
-      return response.status(HttpStatus.TOO_MANY_REQUESTS).json(
-        ApiRes.failure({
-          code: ErrorCodes.CLIENT_RATE_LIMITED,
-          message: exception.message,
-          // statusCode: HttpStatus.TOO_MANY_REQUESTS,
-          errors: getResponseMessage(exception.getResponse()),
-        }),
-      );
-    }
-    if (exception instanceof NotFoundException) {
-      this.logger.warning`(${request?.user?.uid})[${request?.ip}] NotFoundException ${exception.message}`;
-      return response.status(HttpStatus.NOT_FOUND).json(
-        ApiRes.failure({
-          code: ErrorCodes.CLIENT_AUTH_REQUIRED,
-          message: exception.message,
-          // statusCode: HttpStatus.NOT_FOUND,
-          errors: getResponseMessage(exception.getResponse()),
-        }),
-      );
-    }
-    if (getErrorName(exception) === 'FetchError') {
-      this.logger.warning`(${request?.user?.uid})[${request?.ip}] FetchError ${exception}`;
-      return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-        ApiRes.failure({
-          code: ErrorCodes.EXTERNAL_SERVICE_ERROR,
-          message: 'Service temporarily unavailable',
-          // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-        }),
-      );
-    }
-    if (exception instanceof UnauthorizedException) {
-      const path = (request as unknown as { path?: string }).path;
-      this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] UnauthorizedException ${exception.message} ${path} ${exception.stack}`;
-      return response.status(HttpStatus.UNAUTHORIZED).json(
-        ApiRes.failure({
-          code: ErrorCodes.CLIENT_AUTH_REQUIRED,
-          message: exception.message,
-          // statusCode: HttpStatus.UNAUTHORIZED,
-          errors: getResponseMessage(exception.getResponse()),
-        }),
-      );
-    }
-    if (exception instanceof ConflictException) {
-      this.logger.warning`(${request?.user?.uid})[${request?.ip}] ConflictException ${exception.message}`;
-      return response.status(HttpStatus.CONFLICT).json(
-        ApiRes.failure({
-          code: ErrorCodes.BUSINESS_DATA_CONFLICT,
-          message: exception.message,
-          // statusCode: HttpStatus.CONFLICT,
-          errors: getResponseMessage(exception.getResponse()),
-        }),
-      );
-    }
-    if (exception instanceof UnprocessableEntityException) {
-      const rawCause = exception.cause;
-      const cause = isValidErrorCode(rawCause) ? rawCause : ErrorCodes.SYSTEM_INTERNAL_ERROR;
-      const warnCodes: ErrorCodeValue[] = [ErrorCodes.DATA_VERSION_MISMATCH, ErrorCodes.BUSINESS_RULE_VIOLATION];
-      const isWarn = warnCodes.includes(cause);
-      if (isWarn)
-        this.logger
-          .warning`(${request?.user?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message}`;
-      else
-        this.logger
-          .error`(${request?.user?.uid})[${request?.ip}] UnprocessableEntityException(${cause}) ${exception.message} ${exception}`;
-
-      return response.status(HttpStatus.UNPROCESSABLE_ENTITY).json(
-        ApiRes.failure({
-          code: cause,
-          message: exception.message,
-          // statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-          errors: getResponseMessage(exception.getResponse()),
-        }),
-      );
-    }
-
-    if (exception instanceof HttpException) {
-      // HttpException 已通过 instanceof 检查，可直接访问其属性
-      const status = exception.getStatus();
-      const responseBody = exception.getResponse();
-      const responseMessage = getResponseMessage(responseBody);
-      const message: string =
-        typeof responseBody === 'string'
-          ? responseBody
-          : typeof responseMessage === 'string'
-            ? responseMessage
-            : exception.message;
-
-      if (status < (HttpStatus.INTERNAL_SERVER_ERROR as number)) {
-        this.logger
-          .warning`(${request?.user?.uid})[${request?.ip}] HttpException(${status}) ${exception.name} ${message} ${exception}`;
-
-        return response.status(status).json(
-          ApiRes.failure({
-            code: ErrorCodes.CLIENT_INPUT_ERROR,
-            message,
-            errors: typeof responseBody === 'object' ? responseMessage : undefined,
-          }),
-        );
-      } else {
-        // 500+ 错误：触发 Sentry + ApiRes 格式
+    // 非 Oops 异常：通过 toErrorDescriptor 统一映射（与 GraphQL 分支共享规则）
+    const descriptor = toErrorDescriptor(exception);
+    if (descriptor) {
+      this.logMappedException(exception, request, descriptor, false);
+      if (isServerError(descriptor.httpStatus)) {
         this.captureExceptionBySentry(exception, host);
-        this.logger
-          .error`(${request?.user?.uid})[${request?.ip}] FatalException(${status}) ${exception.name} ${message} ${exception}`;
-
-        const body = typeof responseBody === 'object' ? (responseBody as Record<string, unknown>) : {};
-        return response.status(status).json(
-          ApiRes.failure({
-            code: typeof body.code === 'string' ? body.code : ErrorCodes.SYSTEM_INTERNAL_ERROR,
-            message: typeof body.message === 'string' ? body.message : 'Internal server error, please try again later',
-          }),
-        );
       }
+      return response.status(descriptor.httpStatus).json(
+        ApiRes.failure({
+          code: descriptor.code,
+          message: descriptor.message,
+          errors: descriptor.errors,
+        }),
+      );
     }
 
     // 只有未被识别的异常才交给 Sentry
@@ -307,6 +189,32 @@ export class AnyExceptionFilter implements ExceptionFilter {
       message,
     });
     return;
+  }
+
+  /**
+   * 统一日志入口：用 `toErrorDescriptor` 映射过的异常都走这里。
+   *
+   * - logLevel=error 时把原始 exception 附在末尾，保留 stack trace 便于排障
+   * - 4xx (warning) 不带 stack，避免日志噪音
+   * - GraphQL 上下文加 `<GraphqlRequest>` 前缀，方便在日志里按协议过滤
+   */
+  private logMappedException(
+    exception: unknown,
+    request: IdentityRequest | undefined,
+    descriptor: HttpErrorDescriptor,
+    isGraphql: boolean,
+  ): void {
+    const tag = isGraphql
+      ? `<GraphqlRequest> (${request?.user?.uid})[${request?.ip}]`
+      : `(${request?.user?.uid})[${request?.ip}]`;
+    const name = getErrorName(exception);
+
+    if (descriptor.logLevel === 'error') {
+      this.logger
+        .error`${tag} ${name}(${descriptor.httpStatus}) ${descriptor.message} code=${descriptor.code} ${exception}`;
+    } else {
+      this.logger.warning`${tag} ${name}(${descriptor.httpStatus}) ${descriptor.message} code=${descriptor.code}`;
+    }
   }
 
   /**
@@ -542,6 +450,11 @@ interface PrismaKnownRequestError {
   meta?: unknown;
 }
 
+/** `HttpStatus.INTERNAL_SERVER_ERROR` 是 TS 字面量类型，直接比较需要 `as number` 收窄；集中到这里避免在调用处重复 cast。 */
+function isServerError(status: number): boolean {
+  return status >= (HttpStatus.INTERNAL_SERVER_ERROR as number);
+}
+
 function isPrismaKnownRequestError(e: unknown): e is PrismaKnownRequestError {
   if (typeof e !== 'object' || e === null) return false;
 
@@ -558,4 +471,163 @@ function isPrismaKnownRequestError(e: unknown): e is PrismaKnownRequestError {
   if (err.constructor?.name === 'PrismaClientKnownRequestError') return true;
 
   return false;
+}
+
+/**
+ * 异常到响应描述符的统一映射结果
+ *
+ * HTTP 分支拿它填 `ApiRes.failure` + `response.status(httpStatus)`，
+ * GraphQL 分支拿它填 `GraphQLError(message, { extensions: { httpStatus, code, userMessage } })`。
+ * 两个协议共享同一套"异常 → 状态/码/消息"的映射规则，避免两边漂移。
+ */
+export interface HttpErrorDescriptor {
+  httpStatus: number;
+  code: string;
+  message: string;
+  errors?: unknown;
+  /**
+   * 日志级别。绝大多数情况下 = httpStatus >= 500 ? 'error' : 'warning'，
+   * UnprocessableEntityException 例外：某些 cause 语义是业务预期（warning），
+   * 其他 cause 视为未预期错误（error）。
+   */
+  logLevel: 'warning' | 'error';
+}
+
+/**
+ * 把"协议层"异常（HttpException 家族 + Zod / Prisma / FetchError）映射为统一的
+ * HttpErrorDescriptor。返回 `null` 表示这是未识别的异常，调用方应走 500 兜底 + Sentry。
+ *
+ * 设计决策：
+ * - OopsError / Legacy BusinessException **不**进入此函数 —— 它们走 handleBusinessException
+ *   / handleGraphqlBusinessException，这些方法会做 i18n 翻译 + 细分日志，映射规则不同。
+ * - Pure function，不做日志、不触发 Sentry，仅做数据转换。副作用由调用方执行，便于单元测试。
+ * - 新增异常类型时只需在此添加一个 branch，HTTP/GraphQL 两条响应路径自动对齐。
+ */
+export function toErrorDescriptor(exception: unknown): HttpErrorDescriptor | null {
+  if (exception instanceof ZodError) {
+    return {
+      httpStatus: HttpStatus.BAD_REQUEST,
+      code: ErrorCodes.CLIENT_VALIDATION_FAILED,
+      message: 'Invalid parameters',
+      errors: exception.issues,
+      logLevel: 'warning',
+    };
+  }
+
+  if (exception instanceof BadRequestException) {
+    return {
+      httpStatus: HttpStatus.BAD_REQUEST,
+      code: ErrorCodes.CLIENT_INPUT_ERROR,
+      message: exception.message,
+      errors: getResponseMessage(exception.getResponse()),
+      logLevel: 'warning',
+    };
+  }
+
+  if (isPrismaKnownRequestError(exception)) {
+    return {
+      httpStatus: HttpStatus.UNPROCESSABLE_ENTITY,
+      code: ErrorCodes.SYSTEM_DATABASE_ERROR,
+      message: 'Operation failed, please try again later',
+      logLevel: 'warning',
+    };
+  }
+
+  if (exception instanceof ThrottlerException) {
+    return {
+      httpStatus: HttpStatus.TOO_MANY_REQUESTS,
+      code: ErrorCodes.CLIENT_RATE_LIMITED,
+      message: exception.message,
+      errors: getResponseMessage(exception.getResponse()),
+      logLevel: 'warning',
+    };
+  }
+
+  if (exception instanceof NotFoundException) {
+    return {
+      httpStatus: HttpStatus.NOT_FOUND,
+      code: ErrorCodes.CLIENT_AUTH_REQUIRED,
+      message: exception.message,
+      errors: getResponseMessage(exception.getResponse()),
+      logLevel: 'warning',
+    };
+  }
+
+  if (getErrorName(exception) === 'FetchError') {
+    return {
+      httpStatus: HttpStatus.UNPROCESSABLE_ENTITY,
+      code: ErrorCodes.EXTERNAL_SERVICE_ERROR,
+      message: 'Service temporarily unavailable',
+      logLevel: 'warning',
+    };
+  }
+
+  if (exception instanceof UnauthorizedException) {
+    return {
+      httpStatus: HttpStatus.UNAUTHORIZED,
+      code: ErrorCodes.CLIENT_AUTH_REQUIRED,
+      message: exception.message,
+      errors: getResponseMessage(exception.getResponse()),
+      logLevel: 'warning',
+    };
+  }
+
+  if (exception instanceof ConflictException) {
+    return {
+      httpStatus: HttpStatus.CONFLICT,
+      code: ErrorCodes.BUSINESS_DATA_CONFLICT,
+      message: exception.message,
+      errors: getResponseMessage(exception.getResponse()),
+      logLevel: 'warning',
+    };
+  }
+
+  if (exception instanceof UnprocessableEntityException) {
+    const rawCause = exception.cause;
+    const code = isValidErrorCode(rawCause) ? rawCause : ErrorCodes.SYSTEM_INTERNAL_ERROR;
+    // 业务预期的 422（数据冲突、业务规则）记 warning；其他 cause 视为未预期，记 error
+    const warnCodes: ErrorCodeValue[] = [ErrorCodes.DATA_VERSION_MISMATCH, ErrorCodes.BUSINESS_RULE_VIOLATION];
+    return {
+      httpStatus: HttpStatus.UNPROCESSABLE_ENTITY,
+      code,
+      message: exception.message,
+      errors: getResponseMessage(exception.getResponse()),
+      logLevel: warnCodes.includes(code) ? 'warning' : 'error',
+    };
+  }
+
+  // 注意：HttpException 分支必须放在最后。BadRequest / Unauthorized / NotFound / Conflict /
+  // Throttler / UnprocessableEntity 都继承自 HttpException，提前匹配会吃掉它们的细分 code 映射。
+  if (exception instanceof HttpException) {
+    const status = exception.getStatus();
+    const responseBody = exception.getResponse();
+    const responseMessage = getResponseMessage(responseBody);
+    const message: string =
+      typeof responseBody === 'string'
+        ? responseBody
+        : typeof responseMessage === 'string'
+          ? responseMessage
+          : exception.message;
+
+    if (!isServerError(status)) {
+      return {
+        httpStatus: status,
+        code: ErrorCodes.CLIENT_INPUT_ERROR,
+        message,
+        errors: typeof responseBody === 'object' ? responseMessage : undefined,
+        logLevel: 'warning',
+      };
+    }
+
+    // 5xx HttpException：调用方负责触发 Sentry
+    const body = typeof responseBody === 'object' ? (responseBody as Record<string, unknown>) : {};
+    return {
+      httpStatus: status,
+      code: typeof body.code === 'string' ? body.code : ErrorCodes.SYSTEM_INTERNAL_ERROR,
+      message: typeof body.message === 'string' ? body.message : 'Internal server error, please try again later',
+      logLevel: 'error',
+    };
+  }
+
+  return null;
 }
