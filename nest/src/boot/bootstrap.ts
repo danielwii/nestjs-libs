@@ -366,7 +366,7 @@ export async function bootstrap(
       },
       { inheritAppConfig: true },
     );
-    setGrpcMicroserviceRef(grpcMs);
+    setGrpcMicroserviceRef(grpcMs, grpcPort);
 
     await app.startAllMicroservices();
     bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}`;
