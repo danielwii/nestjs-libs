@@ -288,8 +288,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    * - 超过此时间后强制关闭，避免无限等待
    * - 应小于 K8s terminationGracePeriodSeconds 减去 preStop 延迟
    *
-   * 计算公式：IN_FLIGHT_TIMEOUT_MS < terminationGracePeriodSeconds - preStop sleep
-   * 当前配置：terminationGracePeriodSeconds=90s, preStop=10s → IN_FLIGHT_TIMEOUT_MS < 80s
+   * 计算公式：IN_FLIGHT_TIMEOUT_MS < terminationGracePeriodSeconds - preStop - DRAIN_DELAY_MS
    * 默认：60s（支持最长 1 分钟的请求如 chat API）
    */
   @Type(() => Number) @IsNumber() @IsOptional() IN_FLIGHT_TIMEOUT_MS: number = 60_000;
@@ -307,7 +306,16 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    *
    * 默认 10s，覆盖 K8s readiness probe 周期(3s) + endpoint 传播延迟
    */
-  @Type(() => Number) @IsNumber() @IsOptional() DRAIN_DELAY_MS: number = 10_000;
+  @Type(() => Number) @IsNumber() @IsOptional() DRAIN_DELAY_MS: number = 15_000;
+
+  /**
+   * gRPC drain grace period（毫秒）
+   *
+   * Phase 2.6 调用 grpc.Server.drain(port, graceTimeMs)，发送 GOAWAY 帧。
+   * 已有连接在 graceTimeMs 内完成请求后被关闭，新连接立即被拒绝。
+   * fire-and-forget：drain 的 grace 计时器和 Phase 3 的 in-flight timeout 并行跑。
+   */
+  @Type(() => Number) @IsNumber() @IsOptional() GRPC_DRAIN_MS: number = 60_000;
 
   get environment() {
     const env = this.ENV ?? this.DOPPLER_ENVIRONMENT ?? 'dev';

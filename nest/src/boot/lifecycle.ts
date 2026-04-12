@@ -1,5 +1,5 @@
 import { SysEnv } from '@app/env';
-import { grpcMicroserviceRef, shutdownState } from '@app/nest/boot/shutdown-state';
+import { grpcMicroserviceRef, grpcPort, shutdownState } from '@app/nest/boot/shutdown-state';
 import { ConnectionManagerService } from '@app/nest/connection/connection-manager.service';
 import { getAppLogger } from '@app/utils/app-logger';
 import { getErrorMessage } from '@app/utils/error';
@@ -167,6 +167,25 @@ export const runApp = <App extends INestApplication>(app: App) => {
       logger.info`(${os.hostname}) [${signal}] Phase 2.5: client notifications complete at +${elapsed()}`;
     } catch (e) {
       logger.warning`(${os.hostname}) [${signal}] Phase 2.5: failed: ${getErrorMessage(e)}`;
+    }
+
+    // --- Phase 2.6: gRPC GOAWAY drain (fire-and-forget) ---
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- NestJS internals not typed
+      const msForDrain = grpcMicroserviceRef as any;
+      const grpcServerForDrain = msForDrain?.serverInstance?.grpcClient as
+        | { drain?: (port: string, graceTimeMs: number) => void }
+        | undefined;
+      if (grpcServerForDrain?.drain && grpcPort !== undefined) {
+        const grpcUrl = `0.0.0.0:${grpcPort}`;
+        const GRPC_DRAIN_MS = SysEnv.GRPC_DRAIN_MS;
+        logger.info`(${os.hostname}) [${signal}] Phase 2.6: gRPC drain ${grpcUrl} graceTimeMs=${GRPC_DRAIN_MS} (fire-and-forget) at +${elapsed()}`;
+        grpcServerForDrain.drain(grpcUrl, GRPC_DRAIN_MS);
+      } else {
+        logger.info`(${os.hostname}) [${signal}] Phase 2.6: skip (no grpc server or port)`;
+      }
+    } catch (e) {
+      logger.warning`(${os.hostname}) [${signal}] Phase 2.6: failed: ${getErrorMessage(e)}`;
     }
 
     // --- Phase 3: 停止接收 + 等待 in-flight ---

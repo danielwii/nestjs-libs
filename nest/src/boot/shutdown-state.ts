@@ -13,7 +13,9 @@ export const shutdownState = { value: false };
  * 这些不在公开接口上。lifecycle.ts 中通过运行时检查安全访问。
  */
 export let grpcMicroserviceRef: unknown = undefined;
+export let grpcPort: number | undefined = undefined;
 
-export function setGrpcMicroserviceRef(ref: unknown) {
+export function setGrpcMicroserviceRef(ref: unknown, port: number) {
   grpcMicroserviceRef = ref;
+  grpcPort = port;
 }
