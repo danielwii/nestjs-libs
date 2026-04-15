@@ -52,3 +52,17 @@ export abstract class OopsError extends Error {
     return this.internalDetails ?? this.message;
   }
 }
+
+/**
+ * Type guard for the unified Oops exception hierarchy.
+ */
+export function isOopsError(error: unknown): error is OopsError {
+  return error instanceof OopsError;
+}
+
+/**
+ * Normalize unknown errors into the Oops hierarchy while preserving existing OopsError instances.
+ */
+export function coerceOopsError(error: unknown, fallback: (error: unknown) => OopsError): OopsError {
+  return isOopsError(error) ? error : fallback(error);
+}
