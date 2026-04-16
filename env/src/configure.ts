@@ -247,8 +247,6 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   LLM_FETCH_VERBOSE: boolean = false;
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
-  /** 是否为集群模式（多实例部署），影响分布式锁后端选择。K8s 多 pod 默认开启 */
-  @IsBoolean() @Transform(booleanTransformFn) CLUSTER_ENABLED: boolean = true;
   @IsString() @IsOptional() DATABASE_URL?: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
