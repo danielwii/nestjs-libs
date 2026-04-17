@@ -247,6 +247,15 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   LLM_FETCH_VERBOSE: boolean = false;
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
+
+  // ==================== Cluster (node-registry) ====================
+  // 对齐 modx node-registry addon：
+  // - CLUSTER_ENABLED 控制整个模块是否激活（多实例部署 = true）
+  // - TTL / heartbeat 间隔使用 modx 默认值（300s / 60s），env 可覆盖
+  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) CLUSTER_ENABLED: boolean = true;
+  @IsString() @IsOptional() CLUSTER_NODE_TTL_SECONDS?: string;
+  @IsString() @IsOptional() CLUSTER_HEARTBEAT_INTERVAL_MS?: string;
+
   @IsString() @IsOptional() DATABASE_URL?: string;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
