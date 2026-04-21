@@ -458,9 +458,10 @@ interface PrismaKnownRequestError {
   meta?: unknown;
 }
 
-/** `HttpStatus.INTERNAL_SERVER_ERROR` 是 TS 字面量类型，直接比较需要 `as number` 收窄；集中到这里避免在调用处重复 cast。 */
+/** 通过 `number` 注解将 enum 字面量类型放宽为 number，避免 `no-unsafe-enum-comparison` 同时不触发 `no-unnecessary-type-assertion`。 */
+const SERVER_ERROR_MIN: number = HttpStatus.INTERNAL_SERVER_ERROR;
 function isServerError(status: number): boolean {
-  return status >= (HttpStatus.INTERNAL_SERVER_ERROR as number);
+  return status >= SERVER_ERROR_MIN;
 }
 
 function isPrismaKnownRequestError(e: unknown): e is PrismaKnownRequestError {

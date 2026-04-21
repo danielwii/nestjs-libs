@@ -171,12 +171,14 @@ export function formatErrorDetail(err: unknown): string {
   }
   if (cause !== undefined && cause !== 'unknown cause') {
     let causeStr: string;
-    if (cause instanceof Error) {
-      causeStr = cause.message;
-    } else if (typeof cause === 'object' && cause !== null) {
-      causeStr = JSON.stringify(cause);
+    if (cause !== null && typeof cause === 'object') {
+      causeStr = cause instanceof Error ? cause.message : JSON.stringify(cause);
     } else {
-      causeStr = String(cause as string | number | boolean | undefined | symbol | bigint);
+      // cause 已由外层 + 内层守卫收窄为 primitive，String() 安全。
+      // no-base-to-string 规则在被外层条件 pre-narrow 过的 unknown 上误报（maintainer 认可此处 disable：
+      // https://github.com/typescript-eslint/typescript-eslint/issues/11011）。
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string
+      causeStr = String(cause);
     }
     parts.push(`cause: ${causeStr}`);
   }

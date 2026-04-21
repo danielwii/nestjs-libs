@@ -36,7 +36,7 @@ import { EMBEDDING_MODELS } from '../types/embedding.types';
 import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
-import { getOpenAI } from './llm.clients';
+import { getOpenAI, getOpenRouter } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
 import * as Sentry from '@sentry/nestjs';
@@ -67,10 +67,21 @@ import type { LLMModelKey, LLMModelSpec, VertexTier } from '../types/model.types
  * @see https://ai-sdk.dev/docs/reference/ai-sdk-core/extract-json-middleware
  */
 import type { ProviderType } from './options.helpers';
+import type { JSONObject } from '@ai-sdk/provider';
 import type { OopsError } from '@app/nest/exceptions/oops-error';
 import type { LanguageModel, ModelMessage, StopCondition, TelemetrySettings, ToolSet } from 'ai';
 import type * as NodeFs from 'node:fs';
 import type { z } from 'zod';
+
+/**
+ * `buildProviderOptions` 的精确返回类型：仅包含实际使用的 provider 键，
+ * 值对齐 AI SDK 的 `JSONObject`，可直接传给 `providerOptions`（即 `SharedV3ProviderOptions = Record<string, JSONObject>`）。
+ */
+type ProviderOptionsSurface = {
+  openrouter?: JSONObject;
+  google?: JSONObject;
+  vertex?: JSONObject;
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
@@ -291,9 +302,9 @@ function buildProviderOptions(
   thinking: ThinkingEffort,
   modelKey: LLMModelKey,
   providerSort?: ProviderSort,
-) {
+): ProviderOptionsSurface {
   const modelConfig = getModel(modelKey);
-  const thinkingOptions =
+  const thinkingOptions: ProviderOptionsSurface =
     thinking === 'none'
       ? modelConfig.reasoningRequired
         ? {}
@@ -302,10 +313,9 @@ function buildProviderOptions(
 
   // 只有 openrouter 支持 providerSort
   if (provider === 'openrouter' && providerSort) {
-    const openrouterOptions = (thinkingOptions as { openrouter?: Record<string, unknown> }).openrouter ?? {};
     return {
       openrouter: {
-        ...openrouterOptions,
+        ...thinkingOptions.openrouter,
         provider: { sort: providerSort },
       },
     };
@@ -557,7 +567,7 @@ export class LLM {
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
     const { id, method, model: modelKey, system, messages, jsonSchema: schemaObj, toolName, toolDescription } = data;
 
-    LLM.logger.info`[LLM:replay] id=${id as string}, method=${method as string}, model=${modelKey as string}`;
+    LLM.logger.info`[LLM:replay] id=${id}, method=${method}, model=${modelKey}`;
 
     const schema = wrapJsonSchema(schemaObj as Record<string, unknown>);
     const languageModel = createModel(modelKey as LLMModelKey);
@@ -1281,7 +1291,7 @@ export class LLM {
           ? {
               ...baseProviderOptions,
               openrouter: {
-                ...((baseProviderOptions as Record<string, unknown>).openrouter as Record<string, unknown> | undefined),
+                ...baseProviderOptions.openrouter,
                 parallelToolCalls,
               },
             }
@@ -1566,6 +1576,27 @@ export class LLM {
       case 'openai': {
         // OpenAI 不支持 task type，忽略
         const embeddingModel = getOpenAI().embeddingModel(modelId);
+        const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+        try {
+          const result = await embed({
+            model: embeddingModel,
+            value: text,
+            abortSignal: signal,
+          });
+          cleanup();
+
+          const usage: TokenUsage = { inputTokens: result.usage.tokens, outputTokens: 0 };
+          LLM.logEnd(id, 'embedding', modelKey, startTime, usage);
+          return { embedding: result.embedding, usage };
+        } catch (error) {
+          cleanup();
+          throw error;
+        }
+      }
+
+      case 'openrouter': {
+        // OpenRouter 透传上游供应商（当前仅 openai/*），API 与 OpenAI 兼容，走 AI SDK provider
+        const embeddingModel = getOpenRouter().textEmbeddingModel(modelId);
         const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
         try {
           const result = await embed({

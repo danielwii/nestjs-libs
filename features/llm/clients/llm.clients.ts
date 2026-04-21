@@ -76,7 +76,7 @@ let _openai: ReturnType<typeof createOpenAI> | null = null;
  * - SysEnv.AI_OPENROUTER_API_KEY
  * - ApiFetcher.fetch（带代理）
  */
-function getOpenRouter() {
+export function getOpenRouter() {
   if (!_openrouter) {
     const apiKey = SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY;
     if (!apiKey) {

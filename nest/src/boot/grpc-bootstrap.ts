@@ -82,25 +82,21 @@ export function addDescriptorSetReflection(server: Pick<Server, 'addService'>, d
 
   // nice-grpc ServiceDefinition → @grpc/grpc-js addService 需要类型断言
   // nice-grpc 的 async generator handler → @grpc/grpc-js 的 bidi stream callback
-  server.addService(
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-    ServerReflectionService as any,
-    {
-      serverReflectionInfo: (call: ServerDuplexStream<unknown, unknown>) => {
-        void (async () => {
-          try {
-            const requests = callToAsyncIterable(call);
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-            for await (const response of impl.serverReflectionInfo(requests as any, {} as any)) {
-              call.write(response);
-            }
-          } catch (err) {
-            getAppLogger('boot', 'gRPC-Reflection').error`Reflection error: ${err}`;
-          } finally {
-            call.end();
+  server.addService(ServerReflectionService, {
+    serverReflectionInfo: (call: ServerDuplexStream<unknown, unknown>) => {
+      void (async () => {
+        try {
+          const requests = callToAsyncIterable(call);
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+          for await (const response of impl.serverReflectionInfo(requests as any, {} as any)) {
+            call.write(response);
           }
-        })();
-      },
+        } catch (err) {
+          getAppLogger('boot', 'gRPC-Reflection').error`Reflection error: ${err}`;
+        } finally {
+          call.end();
+        }
+      })();
     },
-  );
+  });
 }

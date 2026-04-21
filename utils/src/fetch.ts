@@ -29,7 +29,7 @@ export class ApiFetcher {
     ApiFetcher.logger
       .debug`#fetch url=${urlStr} method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth} proxy=${!!proxyUrl}`;
 
-    const response = await fetch(url as string, {
+    const response = await fetch(url, {
       ...options,
       ...(proxyUrl ? { proxy: proxyUrl } : {}),
       // Bun-specific: verbose 每次调用时读 SysEnv，支持 DB 热切换

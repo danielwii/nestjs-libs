@@ -80,7 +80,7 @@ export interface EmbeddingThresholdConfig {
 }
 
 /** 模型提供商 */
-export type EmbeddingProvider = 'openai' | 'jina' | 'voyage' | 'gemini';
+export type EmbeddingProvider = 'openai' | 'jina' | 'voyage' | 'gemini' | 'openrouter';
 
 /** OpenAI Embedding 模型 */
 export type OpenAIEmbeddingModel = 'text-embedding-3-small' | 'text-embedding-3-large' | 'text-embedding-ada-002';
@@ -94,8 +94,16 @@ export type VoyageEmbeddingModel = 'voyage-3.5-lite' | 'voyage-3-large';
 /** Gemini Embedding 模型 */
 export type GeminiEmbeddingModel = 'gemini-embedding-001' | 'gemini-embedding-2-preview';
 
+/** OpenRouter Embedding 模型（统一计费，透传上游供应商） */
+export type OpenRouterEmbeddingModel = 'openai/text-embedding-3-small';
+
 /** 所有支持的 Embedding 模型 */
-export type EmbeddingModel = OpenAIEmbeddingModel | JinaEmbeddingModel | VoyageEmbeddingModel | GeminiEmbeddingModel;
+export type EmbeddingModel =
+  | OpenAIEmbeddingModel
+  | JinaEmbeddingModel
+  | VoyageEmbeddingModel
+  | GeminiEmbeddingModel
+  | OpenRouterEmbeddingModel;
 
 /**
  * Embedding Model Key（provider:model 格式，与 LLMModelKey 统一设计）
@@ -104,12 +112,14 @@ export type EmbeddingModel = OpenAIEmbeddingModel | JinaEmbeddingModel | VoyageE
  * 'openai:text-embedding-3-small'
  * 'jina:jina-embeddings-v5-text'
  * 'gemini:gemini-embedding-2-preview'
+ * 'openrouter:openai/text-embedding-3-small'
  */
 export type EmbeddingModelKey =
   | `openai:${OpenAIEmbeddingModel}`
   | `jina:${JinaEmbeddingModel}`
   | `voyage:${VoyageEmbeddingModel}`
-  | `gemini:${GeminiEmbeddingModel}`;
+  | `gemini:${GeminiEmbeddingModel}`
+  | `openrouter:${OpenRouterEmbeddingModel}`;
 
 /** Task Type 支持 */
 export type EmbeddingTaskType =
@@ -189,6 +199,8 @@ export const EMBEDDING_MODEL_THRESHOLDS: Record<EmbeddingModel, EmbeddingThresho
   // Gemini（待校准）
   'gemini-embedding-001': { duplicate: 0.78, relevance: 0.35 },
   'gemini-embedding-2-preview': { duplicate: 0.78, relevance: 0.35 },
+  // OpenRouter（透传 OpenAI，向量空间与 text-embedding-3-small 一致，直接复用校准值）
+  'openai/text-embedding-3-small': { duplicate: 0.77, relevance: 0.38 },
 };
 
 /** 默认使用的模型 */
@@ -345,5 +357,16 @@ export const EMBEDDING_MODELS: Record<EmbeddingModel, EmbeddingModelMetadata> = 
       'CODE_RETRIEVAL_QUERY',
     ],
     modalities: ['text', 'image', 'video', 'audio', 'pdf'],
+  },
+  // ── OpenRouter（统一计费，透传上游 OpenAI）──
+  'openai/text-embedding-3-small': {
+    id: 'openai/text-embedding-3-small',
+    provider: 'openrouter',
+    dimensions: 1536,
+    pricePerMillion: 0.019, // OpenRouter 官网价，略低于 OpenAI 直连
+    maxInputTokens: 8192,
+    thresholds: EMBEDDING_MODEL_THRESHOLDS['openai/text-embedding-3-small'],
+    taskTypes: [],
+    modalities: ['text'],
   },
 };

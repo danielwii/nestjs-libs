@@ -123,7 +123,7 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
         observation = spanResult.observation;
         extraAttrs = spanResult.attributes;
       } else {
-        result = raw as T;
+        result = raw;
       }
 
       // 5. 设置 observation 和成功状态

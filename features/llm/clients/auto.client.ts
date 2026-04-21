@@ -132,12 +132,12 @@ export const autoOpts = {
         // ⚠️ 注意：Grok 4.1 Fast 无法关闭 reasoning（effort/enabled 参数均无效）
         // 如需低 TTFT，请使用 Gemini 2.5 Flash
         // @see ~/.claude/gotchas/openrouter-grok-reasoning-cannot-disable.md
-        return { openrouter: { reasoning: { effort: 'none' } } } as unknown as ProviderOptions;
+        return { openrouter: { reasoning: { effort: 'none' } } };
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
-        return { google: { thinkingConfig: { thinkingBudget: 0 } } } as unknown as ProviderOptions;
+        return { google: { thinkingConfig: { thinkingBudget: 0 } } };
       default:
-        return {} as ProviderOptions;
+        return {};
     }
   },
 
@@ -150,12 +150,12 @@ export const autoOpts = {
 
     switch (provider) {
       case 'openrouter':
-        return { openrouter: { reasoning: { effort } } } as unknown as ProviderOptions;
+        return { openrouter: { reasoning: { effort } } };
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
-        return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } } as unknown as ProviderOptions;
+        return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } };
       default:
-        return {} as ProviderOptions;
+        return {};
     }
   },
 
@@ -174,7 +174,7 @@ export const autoOpts = {
    * ```
    */
   providerSort(sort: 'price' | 'throughput' | 'latency'): ProviderOptions {
-    return { openrouter: { provider: { sort } } } as unknown as ProviderOptions;
+    return { openrouter: { provider: { sort } } };
   },
 
   /**

@@ -652,15 +652,19 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const projectScope = options?.scope;
     const SHARED = 'shared';
 
-    const envClass = (activeEnvs as { constructor: new () => T }).constructor as new () => T;
+    const envClass = (activeEnvs as { constructor: new () => T }).constructor;
     const validateDbValue = (
       field: string,
       rawValue: unknown,
     ): { ok: true; value: unknown } | { ok: false; reason: string } => {
       try {
-        const candidate = plainToInstance(envClass, { [field]: rawValue } as Record<string, unknown>, {
-          enableImplicitConversion: true,
-        }) as Record<string, unknown>;
+        const candidate = plainToInstance(
+          envClass,
+          { [field]: rawValue },
+          {
+            enableImplicitConversion: true,
+          },
+        ) as Record<string, unknown>;
         const fieldErrors = validateSync(candidate as object, {
           skipMissingProperties: true,
         }).filter((error) => error.property === field);
