@@ -33,6 +33,7 @@
     "@ai-sdk/google": "^3.0.55",
     "@ai-sdk/google-vertex": "4.0.112",
     "@ai-sdk/openai": "^3.0.48",
+    "@ai-sdk/provider": "^3.0.8",
     "@ai-sdk/provider-utils": "^4.0.21",
     "@logtape/logtape": "^2.0.5",
     "@nestjs/common": "^11.1.19",
@@ -71,6 +72,9 @@
       "optional": true
     },
     "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/provider": {
       "optional": true
     },
     "@ai-sdk/provider-utils": {
@@ -144,6 +148,7 @@
     "@ai-sdk/google": "^3.0.64",
     "@ai-sdk/google-vertex": "4.0.112",
     "@ai-sdk/openai": "^3.0.53",
+    "@ai-sdk/provider": "^3.0.8",
     "@ai-sdk/provider-utils": "^4.0.23",
     "@eslint/js": "^10.0.1",
     "@grpc/grpc-js": "^1.14.3",
