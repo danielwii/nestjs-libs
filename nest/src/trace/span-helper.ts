@@ -1,12 +1,14 @@
 import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
-import type { Attributes, Span } from '@opentelemetry/api';
+import type { Attributes, Span, Tracer } from '@opentelemetry/api';
 
 export interface SpanInputOutputOptions {
   name: string;
   metadata?: Record<string, unknown>;
   parentSpan?: Span;
   startTime?: Date;
+  /** 测试可注入 fake tracer，避免 spec 用 spyOn 污染全局 trace.getTracer */
+  tracer?: Tracer;
 }
 
 /**
@@ -14,9 +16,9 @@ export interface SpanInputOutputOptions {
  * 这个函数会自动将 input 和 output 转换为 Langfuse 可以识别的格式
  */
 function createSpan(options: SpanInputOutputOptions) {
-  const { name, metadata = {}, parentSpan, startTime } = options;
+  const { name, metadata = {}, parentSpan, startTime, tracer: tracerOverride } = options;
 
-  const tracer = trace.getTracer('ai');
+  const tracer = tracerOverride ?? trace.getTracer('ai');
 
   // 创建 span 上下文
   let spanContext = context.active();
@@ -50,12 +52,15 @@ export class LangfuseToolCallSpan {
   constructor(
     public readonly toolName: string,
     public readonly toolCallId: string,
+    /** 测试用：注入 fake tracer */
+    tracer?: Tracer,
   ) {
     this.span = createSpan({
       name: `ai.toolCall ${toolName}`,
       metadata: {
         'ai.toolCall.id': toolCallId,
       },
+      tracer,
     });
   }
 

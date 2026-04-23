@@ -1,36 +1,35 @@
 import { LangfuseToolCallSpan } from './span-helper';
 
-import { trace } from '@opentelemetry/api';
-import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
+
+import type { Tracer } from '@opentelemetry/api';
 
 /* eslint-disable @typescript-eslint/unbound-method */
 describe('SpanHelper', () => {
   describe('LangfuseToolCallSpan', () => {
     it('should create span with correct attributes and handle result', () => {
-      // Mock span
       const mockSpan = {
         setAttributes: mock(),
         setStatus: mock(),
         end: mock(),
       };
 
-      // Mock tracer
+      // 注入 fake tracer 而不是 spyOn 全局 trace.getTracer：spy 会污染整个进程的 OTel API，
+      // 让其他 spec（如 otel-trace.middleware.spec）拿到此 mockTracer 后的 startSpan
+      // 返回 mockSpan，后者缺 spanContext() 等方法时 crash。
       const mockTracer = {
         startSpan: mock(() => mockSpan),
-      };
-
-      // Mock trace.getTracer
-      spyOn(trace, 'getTracer').mockReturnValue(mockTracer as unknown as ReturnType<typeof trace.getTracer>);
+      } as unknown as Tracer;
 
       const toolName = 'test-tool';
       const toolCallId = 'call-123';
 
-      const spanHelper = new LangfuseToolCallSpan(toolName, toolCallId);
+      const spanHelper = new LangfuseToolCallSpan(toolName, toolCallId, mockTracer);
 
       // Verify span creation
-      expect(trace.getTracer).toHaveBeenCalledWith('ai');
-      expect(mockTracer.startSpan).toHaveBeenCalled();
-      const startSpanArgs = (mockTracer.startSpan.mock.calls as unknown as unknown[][])[0]!;
+      const startSpanMock = mockTracer.startSpan as unknown as ReturnType<typeof mock>;
+      expect(startSpanMock).toHaveBeenCalled();
+      const startSpanArgs = (startSpanMock.mock.calls as unknown as unknown[][])[0]!;
       expect(startSpanArgs[0]).toBe(`ai.toolCall ${toolName}`);
 
       // Verify initial attributes
