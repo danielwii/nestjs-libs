@@ -12,6 +12,22 @@ import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/com
 import type { Request } from 'express';
 import type { Observable } from 'rxjs';
 
+/**
+ * 判断是否是 BusinessException（IOopsException + isFatal()=false）。
+ * 用于日志降级：BusinessException 是预期业务状态，应记 warn 不是 error。
+ *
+ * @internal exported for testing
+ */
+export function isOopsBusinessException(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'isFatal' in error &&
+    typeof (error).isFatal === 'function' &&
+    !(error as { isFatal: () => boolean }).isFatal()
+  );
+}
+
 export class LoggerInterceptor implements NestInterceptor {
   private readonly logger = getAppLogger('LoggerInterceptor');
 
@@ -194,7 +210,14 @@ export class LoggerInterceptor implements NestInterceptor {
           this.logger.debug`<- ${TAG} spent ${Date.now() - now}ms`;
         }),
         catchError((e) => {
-          this.logger.error`${TAG} error: ${e}`;
+          // BusinessException (isFatal=false) 是预期业务状态（如 MG40001 设备离线），
+          // 应该用 warn 级别避免污染 Sentry/Loki ERROR 信号。FatalException 和 unknown
+          // 异常仍按 error 级别。GrpcExceptionFilter 也会按 isFatal 路由响应。
+          if (isOopsBusinessException(e)) {
+            this.logger.warning`${TAG} business: ${e}`;
+          } else {
+            this.logger.error`${TAG} error: ${e}`;
+          }
           throw e;
         }),
       );
