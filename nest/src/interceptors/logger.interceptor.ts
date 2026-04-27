@@ -13,8 +13,12 @@ import type { Request } from 'express';
 import type { Observable } from 'rxjs';
 
 /**
- * 判断是否是 BusinessException（IOopsException + isFatal()=false）。
- * 用于日志降级：BusinessException 是预期业务状态，应记 warn 不是 error。
+ * 判断是否是 BusinessException（IOopsException + httpStatus < 500）。
+ *
+ * 设计选择：基于 httpStatus property 而非调 isFatal() method。
+ * - Oops 契约：BusinessException httpStatus < 500，FatalException ≥ 500
+ * - 不调 method 避免 logging 路径触发外部对象副作用（neverthrow 哲学：
+ *   日志/错误处理是横切关注点，不应承担"可能失败"的语义）
  *
  * @internal exported for testing
  */
@@ -22,9 +26,9 @@ export function isOopsBusinessException(error: unknown): boolean {
   return (
     error !== null &&
     typeof error === 'object' &&
-    'isFatal' in error &&
-    typeof (error).isFatal === 'function' &&
-    !(error as { isFatal: () => boolean }).isFatal()
+    'httpStatus' in error &&
+    typeof (error).httpStatus === 'number' &&
+    (error as { httpStatus: number }).httpStatus < 500
   );
 }
 
