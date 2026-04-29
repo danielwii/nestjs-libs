@@ -38,7 +38,7 @@ export interface LLMUsage {
  * ```typescript
  * declare module '@app/llm-core' {
  *   interface LLMProviderOptionsRegistry {
- *     vertex: { location?: string };
+ *     moonshot: { responseFormat?: 'json' | 'text' };
  *     fal: { webhookUrl?: string };
  *   }
  * }

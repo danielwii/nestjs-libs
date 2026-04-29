@@ -27,6 +27,8 @@ import { getAppLogger } from '@app/utils/app-logger';
 
 /**
  * Vertex 特有概念，通过 `X-Vertex-AI-LLM-Shared-Request-Type` header 传递。
+ * `vertex-global:*` 是与 Google 官方 Priority/Flex PayGo URL 完全一致的路径；
+ * `vertex:*` 是 Express Mode 兼容路径。
  * 具体哪些模型支持以 Google 官方文档为准（运行时由 `supportedTiers` 标注 + 降级）。
  *
  * - `standard`: 共享配额池（默认）
@@ -37,6 +39,17 @@ import { getAppLogger } from '@app/utils/app-logger';
  * @see https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo
  */
 export type VertexTier = 'standard' | 'flex' | 'priority';
+
+/**
+ * Vertex `X-Vertex-AI-LLM-Request-Type` header.
+ *
+ * 目前只暴露 Google 文档中用于“只使用 Flex/Priority PayGo”的 `shared`。
+ * 未设置时保留默认行为：如有 Provisioned Throughput，先用 PT，再溢出到对应 tier。
+ *
+ * @see https://docs.cloud.google.com/vertex-ai/generative-ai/docs/flex-paygo
+ * @see https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo
+ */
+export type VertexRequestType = 'shared';
 
 /** 模块级单例，避免 `supportedTiers` 缺省时每次调用都分配新数组 */
 export const DEFAULT_SUPPORTED_TIERS: readonly VertexTier[] = ['standard'];
@@ -59,7 +72,7 @@ export interface ModelConfig<P extends string = string> {
    */
   reasoningRequired?: boolean;
   /**
-   * 该模型支持的 Vertex tier 列表（仅 vertex provider 相关）
+   * 该模型支持的 Vertex tier 列表（仅 vertex / vertex-global provider 相关）
    *
    * - 未填 = 默认只支持 `standard`
    * - 其他 provider 应留空
@@ -328,6 +341,13 @@ export interface LLMModelRegistry {
   'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-flash-lite-preview': ModelConfig<'vertex'>;
+
+  // ==================== Vertex AI (project/global mode) ====================
+  'vertex-global:gemini-2.5-flash': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-2.5-pro': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-2.5-flash-lite': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-3-flash-preview': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-3.1-flash-lite-preview': ModelConfig<'vertex-global'>;
 }
 
 /**
@@ -374,12 +394,15 @@ export interface ParsedModelSpec {
   timeout: number | undefined;
   /** 降级模型链，主模型失败后依次尝试 */
   fallbackModels: LLMModelKey[];
-  /** Vertex AI tier（仅 vertex provider 生效） */
+  /** Vertex AI tier（仅 vertex / vertex-global provider 会发送 header） */
   tier: VertexTier | undefined;
+  /** Vertex request type（仅 vertex / vertex-global + tier=flex/priority 时生效） */
+  vertexRequestType: VertexRequestType | undefined;
 }
 
 const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']);
 const VALID_VERTEX_TIERS = new Set<string>(['standard', 'flex', 'priority']);
+const VALID_VERTEX_REQUEST_TYPES = new Set<string>(['shared']);
 
 /**
  * 解析 LLMModelSpec 为 base key + 参数
@@ -401,6 +424,7 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
       timeout: undefined,
       fallbackModels: [],
       tier: undefined,
+      vertexRequestType: undefined,
     };
   }
   const key = spec.slice(0, qIdx) as LLMModelKey;
@@ -467,7 +491,18 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
     }
   }
 
-  return { key, thinking, maxRetries, timeout, fallbackModels, tier };
+  // vertexRequestType → Vertex AI request type header（无效值 warning + 忽略）
+  const vertexRequestTypeRaw = params.get('vertexRequestType');
+  let vertexRequestType: VertexRequestType | undefined;
+  if (vertexRequestTypeRaw !== null) {
+    if (VALID_VERTEX_REQUEST_TYPES.has(vertexRequestTypeRaw)) {
+      vertexRequestType = vertexRequestTypeRaw as VertexRequestType;
+    } else {
+      logger.warning`[parseModelSpec] Invalid vertexRequestType "${vertexRequestTypeRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_REQUEST_TYPES].join(', ')}`;
+    }
+  }
+
+  return { key, thinking, maxRetries, timeout, fallbackModels, tier, vertexRequestType };
 }
 
 /**
@@ -558,6 +593,8 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['google:gemini-3.1-flash-lite-preview', { provider: 'google', modelId: 'gemini-3.1-flash-lite-preview' }],
 
   // Vertex AI 模型 (Express Mode)
+  // 这些 key 保持既有 API-key Express Mode 语义；需要 Google 官方 project/global
+  // Priority/Flex PayGo 路径时，使用下方 `vertex-global:*` key。
   // supportedTiers 以 Google 官方文档为准，更新时同步两个列表：
   // - Flex: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/flex-paygo
   // - Priority: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo
@@ -581,6 +618,33 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex:gemini-3.1-flash-lite-preview',
     {
       provider: 'vertex',
+      modelId: 'gemini-3.1-flash-lite-preview',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
+
+  // Vertex AI 模型 (project/global mode)
+  // Google Priority/Flex PayGo 文档要求使用 /projects/{project}/locations/global/... 路径。
+  [
+    'vertex-global:gemini-2.5-flash',
+    { provider: 'vertex-global', modelId: 'gemini-2.5-flash', supportedTiers: ['standard', 'priority'] },
+  ],
+  [
+    'vertex-global:gemini-2.5-pro',
+    { provider: 'vertex-global', modelId: 'gemini-2.5-pro', supportedTiers: ['standard', 'priority'] },
+  ],
+  [
+    'vertex-global:gemini-2.5-flash-lite',
+    { provider: 'vertex-global', modelId: 'gemini-2.5-flash-lite', supportedTiers: ['standard', 'priority'] },
+  ],
+  [
+    'vertex-global:gemini-3-flash-preview',
+    { provider: 'vertex-global', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
+  ],
+  [
+    'vertex-global:gemini-3.1-flash-lite-preview',
+    {
+      provider: 'vertex-global',
       modelId: 'gemini-3.1-flash-lite-preview',
       supportedTiers: ['standard', 'flex', 'priority'],
     },
@@ -666,9 +730,9 @@ export function getProvider(spec: LLMModelSpec): LLMProviderType {
  * 调用方可预先判断；也可直接传 tier，运行时不支持会 warn + 降级。
  *
  * @example
- * getSupportedTiers('vertex:gemini-3.1-flash-lite-preview') // → ['standard', 'flex', 'priority']
- * getSupportedTiers('vertex:gemini-2.5-flash-lite')          // → ['standard', 'priority']
- * getSupportedTiers('openrouter:grok-4.1-fast')              // → ['standard']
+ * getSupportedTiers('vertex-global:gemini-3.1-flash-lite-preview') // → ['standard', 'flex', 'priority']
+ * getSupportedTiers('vertex:gemini-2.5-flash-lite')                 // → ['standard', 'priority']
+ * getSupportedTiers('openrouter:grok-4.1-fast')                     // → ['standard']
  */
 export function getSupportedTiers(spec: LLMModelSpec): readonly VertexTier[] {
   return getModel(spec).supportedTiers ?? DEFAULT_SUPPORTED_TIERS;
@@ -711,34 +775,52 @@ export function getModelsByProvider(provider: LLMProviderType): string[] {
 /**
  * Provider 到环境变量的映射
  */
-/** Provider → [新名字, 旧名字] 映射（兼容未迁移的项目） */
-const providerApiKeyMap: Partial<Record<string, [keyof typeof SysEnv, keyof typeof SysEnv]>> = {
-  openrouter: ['AI_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
-  google: ['AI_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
-  vertex: ['AI_GOOGLE_VERTEX_API_KEY', 'GOOGLE_VERTEX_API_KEY'],
-  openai: ['AI_OPENAI_API_KEY', 'OPENAI_API_KEY'],
+interface ProviderConfigRequirement {
+  envVar: string;
+  configured: () => boolean;
+}
+
+/** Provider → 配置需求映射（兼容未迁移的项目） */
+const providerConfigRequirements: Partial<Record<string, ProviderConfigRequirement>> = {
+  openrouter: {
+    envVar: 'AI_OPENROUTER_API_KEY',
+    configured: () => !!(SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY),
+  },
+  google: {
+    envVar: 'AI_GOOGLE_API_KEY',
+    configured: () => !!(SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY),
+  },
+  vertex: {
+    envVar: 'AI_GOOGLE_VERTEX_API_KEY',
+    configured: () => !!(SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY),
+  },
+  'vertex-global': {
+    envVar: 'GOOGLE_VERTEX_PROJECT',
+    configured: () => !!(SysEnv.GOOGLE_VERTEX_PROJECT ?? SysEnv.GOOGLE_CLOUD_PROJECT),
+  },
+  openai: {
+    envVar: 'AI_OPENAI_API_KEY',
+    configured: () => !!(SysEnv.AI_OPENAI_API_KEY ?? SysEnv.OPENAI_API_KEY),
+  },
 };
 
 /**
  * 检查 Provider 是否已配置 API Key（新旧名字都检查）
  */
 export function isProviderConfigured(provider: string): boolean {
-  const keys = providerApiKeyMap[provider];
-  if (!keys) return false;
-  return !!SysEnv[keys[0]] || !!SysEnv[keys[1]];
+  return providerConfigRequirements[provider]?.configured() ?? false;
 }
 
 /**
  * 获取 Provider 配置状态
  */
 export function getProviderStatus(): Record<string, { configured: boolean; envVar: string }> {
-  return Object.entries(providerApiKeyMap).reduce<Record<string, { configured: boolean; envVar: string }>>(
-    (acc, [provider, keys]) => {
-      if (!keys) return acc;
-      const [newKey, oldKey] = keys;
+  return Object.entries(providerConfigRequirements).reduce<Record<string, { configured: boolean; envVar: string }>>(
+    (acc, [provider, requirement]) => {
+      if (!requirement) return acc;
       acc[provider] = {
-        configured: !!SysEnv[newKey] || !!SysEnv[oldKey],
-        envVar: newKey,
+        configured: requirement.configured(),
+        envVar: requirement.envVar,
       };
       return acc;
     },
@@ -771,10 +853,10 @@ export function validateModelKey(modelKey: string): { valid: boolean; error?: st
   if (config) {
     const provider = config.provider;
     if (!isProviderConfigured(provider)) {
-      const keys = providerApiKeyMap[provider];
+      const requirement = providerConfigRequirements[provider];
       return {
         valid: false,
-        error: `Provider "${provider}" for model "${modelKey}" is not configured. Set ${keys?.[0] ?? provider}.`,
+        error: `Provider "${provider}" for model "${modelKey}" is not configured. Set ${requirement?.envVar ?? provider}.`,
       };
     }
   }

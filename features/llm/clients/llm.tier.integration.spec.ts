@@ -4,12 +4,15 @@
  * 目的：
  * 验证六个 LLM 静态方法（generateObject / generateText / streamText / streamObject /
  * generateObjectViaTool / streamObjectViaTool）在给定带 `?tier=` 的 model spec 时，
- * **最终发出的 HTTP 请求确实带了 `X-Vertex-AI-LLM-Shared-Request-Type` header**。
+ * **最终发出的 HTTP 请求确实带了 Vertex tier / request-type headers**。
  *
  * 实现方式：
  * 直接替换 `ApiFetcher.fetch`（libs 所有 provider client 初始化时传入的自定义 fetch），
  * 捕获 fetch 调用并 assert header。然后 `resetLLMClients()` 强制单例重建，
- * 让下次 `getVertex()` 时用 mock 后的 fetch。
+ * 让下次 `getVertex()` / `getVertexGlobal()` 时用 mock 后的 fetch。
+ *
+ * 这里主要防止 header 注入回归；`vertex-global` 的 project/global URL 语义由
+ * `vertex-global.spec.ts` 单独覆盖。
  *
  * 不关心响应内容 —— 只要 fetch 被调用 + headers 正确即可。
  * AI SDK 可能因为响应不完整抛错，我们 try/catch 吞掉。
@@ -20,14 +23,14 @@ import 'reflect-metadata';
 import { SysEnv } from '@app/env';
 import { ApiFetcher } from '@app/utils/fetch';
 
-import { LLM, VERTEX_TIER_HEADER } from './llm.class';
+import { LLM, VERTEX_REQUEST_TYPE_HEADER, VERTEX_TIER_HEADER } from './llm.class';
 import { resetLLMClients } from './llm.clients';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
 // 给测试用的假 key 注入到 SysEnv（`SysEnv` 是 plainToInstance 返回的 class 实例，属性可写）
-// 必须在 client 第一次被 getVertex/getOpenRouter 触发之前完成
+// 必须在 client 第一次被 getVertex/getVertexGlobal/getOpenRouter 触发之前完成
 // bun test 每个 spec 文件上下文独立，不需要 afterAll 恢复
 const sysEnvMut = SysEnv as unknown as Record<string, string | undefined>;
 sysEnvMut.AI_GOOGLE_VERTEX_API_KEY ??= 'test-vertex-key';
@@ -92,6 +95,12 @@ function assertTierHeader(expected: 'flex' | 'priority', count = 1): void {
   if (count > 0) {
     expect(first.url).toContain('aiplatform.googleapis.com');
   }
+}
+
+function assertVertexRequestTypeHeader(expected: 'shared'): void {
+  expect(capturedRequests.length).toBeGreaterThanOrEqual(1);
+  const first = capturedRequests[0]!;
+  expect(first.headers.get(VERTEX_REQUEST_TYPE_HEADER)).toBe(expected);
 }
 
 const SIMPLE_MESSAGE = [{ role: 'user' as const, content: 'test' }];
@@ -187,10 +196,23 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     });
     assertTierHeader('flex');
   });
+
+  it('generateText injects Priority-only shared request type headers into Vertex HTTP request', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'integration-generateText-priority-only',
+        model: 'vertex:gemini-2.5-flash?tier=priority&vertexRequestType=shared',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+    assertTierHeader('priority');
+    assertVertexRequestTypeHeader('shared');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// 降级路径：非 vertex provider 不应带 tier header
+// 降级路径：非 vertex/vertex-global provider 不应带 tier header
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('LLM tier headers: downgrade does not send header', () => {
@@ -206,6 +228,7 @@ describe('LLM tier headers: downgrade does not send header', () => {
     expect(capturedRequests.length).toBeGreaterThanOrEqual(1);
     const first = capturedRequests[0]!;
     expect(first.headers.get(VERTEX_TIER_HEADER)).toBeNull();
+    expect(first.headers.get(VERTEX_REQUEST_TYPE_HEADER)).toBeNull();
     expect(first.url).toContain('openrouter.ai');
   });
 
@@ -222,6 +245,7 @@ describe('LLM tier headers: downgrade does not send header', () => {
     expect(capturedRequests.length).toBeGreaterThanOrEqual(1);
     const first = capturedRequests[0]!;
     expect(first.headers.get(VERTEX_TIER_HEADER)).toBeNull();
+    expect(first.headers.get(VERTEX_REQUEST_TYPE_HEADER)).toBeNull();
     expect(first.url).toContain('aiplatform.googleapis.com');
   });
 });

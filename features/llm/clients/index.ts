@@ -31,7 +31,15 @@ export { autoOpts, type LLMOpts, llm, model, parseProvider, type TelemetryMeta }
 export { createGoogleClient, googleOptions } from './google.client';
 export { createVertex, vertexOptions } from './vertex.client';
 // 预配置单例
-export { getGoogleProvider, getLLMClientStatus, google, openrouter, resetLLMClients, vertex } from './llm.clients';
+export {
+  getGoogleProvider,
+  getLLMClientStatus,
+  google,
+  openrouter,
+  resetLLMClients,
+  vertex,
+  vertexGlobal,
+} from './llm.clients';
 // 工厂函数（需要自定义配置时使用）
 export { createOpenRouterClient, openrouterOptions } from './openrouter.client';
 

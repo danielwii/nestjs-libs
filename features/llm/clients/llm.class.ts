@@ -56,7 +56,7 @@ import {
 import { ResultAsync } from 'neverthrow';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
-import type { LLMModelKey, LLMModelSpec, VertexTier } from '../types/model.types';
+import type { LLMModelKey, LLMModelSpec, VertexRequestType, VertexTier } from '../types/model.types';
 /**
  * 仅对已知会包裹 markdown 代码块的模型启用 extractJsonMiddleware。
  *
@@ -117,6 +117,11 @@ export interface TokenUsage {
   totalTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * Provider 原始 usage metadata。Vertex project/global 返回的 PayGo 验证字段在
+   * `raw.trafficType`，例如 `ON_DEMAND_PRIORITY` / `ON_DEMAND_FLEX` / `ON_DEMAND`。
+   */
+  raw?: unknown;
 }
 
 /** OpenRouter Provider 排序策略 */
@@ -245,8 +250,10 @@ interface ResolvedSpec {
   maxRetries: number;
   timeout: number;
   fallbackModels: LLMModelKey[];
-  /** 请求 tier（仅 vertex provider 生效） */
+  /** 请求 tier（仅 vertex / vertex-global provider 会发送 header） */
   tier: VertexTier | undefined;
+  /** Vertex request type（仅 vertex / vertex-global + tier=flex/priority 时生效） */
+  vertexRequestType: VertexRequestType | undefined;
 }
 
 const specLogger = getAppLogger('features', 'LLM', 'spec');
@@ -270,6 +277,7 @@ function resolveSpec(
   const timeout = callerTimeout ?? parsed.timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;
   const fallbackModels = parsed.fallbackModels;
   const tier = parsed.tier;
+  const vertexRequestType = parsed.vertexRequestType;
 
   // 有非默认参数时打印生效值，方便排查
   const hasSpecParams =
@@ -277,7 +285,8 @@ function resolveSpec(
     parsed.maxRetries !== undefined ||
     parsed.timeout !== undefined ||
     fallbackModels.length > 0 ||
-    tier !== undefined;
+    tier !== undefined ||
+    vertexRequestType !== undefined;
   if (hasSpecParams) {
     const parts: string[] = [];
     if (thinking !== 'none') parts.push(`thinking=${thinking}`);
@@ -285,10 +294,11 @@ function resolveSpec(
     parts.push(`timeout=${timeout}ms`);
     if (fallbackModels.length > 0) parts.push(`fallback=[${fallbackModels.join(',')}]`);
     if (tier !== undefined) parts.push(`tier=${tier}`);
+    if (vertexRequestType !== undefined) parts.push(`vertexRequestType=${vertexRequestType}`);
     specLogger.info`[resolveSpec] ${parsed.key} → ${parts.join(', ')}`;
   }
 
-  return { key: parsed.key, thinking, maxRetries, timeout, fallbackModels, tier };
+  return { key: parsed.key, thinking, maxRetries, timeout, fallbackModels, tier, vertexRequestType };
 }
 
 /**
@@ -326,13 +336,14 @@ function buildProviderOptions(
 
 /** 导出给测试文件共享同一真相源 */
 export const VERTEX_TIER_HEADER = 'X-Vertex-AI-LLM-Shared-Request-Type';
+export const VERTEX_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Request-Type';
 
 const tierLogger = getAppLogger('features', 'LLM', 'tier');
 
 /**
  * 四种情况的行为契约：
  * - `undefined` / `standard`：不发 header，返回 undefined
- * - 非 vertex provider：warn + 降级
+ * - 非 vertex / vertex-global provider：warn + 降级
  * - 模型不支持该 tier：warn + 降级
  * - 支持：info 日志 + 返回 header 对象
  *
@@ -344,11 +355,17 @@ const tierLogger = getAppLogger('features', 'LLM', 'tier');
 export function buildTierHeaders(
   modelKey: LLMModelKey,
   tier: VertexTier | undefined,
+  vertexRequestType?: VertexRequestType,
 ): Record<string, string> | undefined {
-  if (!tier || tier === 'standard') return undefined;
+  if (!tier || tier === 'standard') {
+    if (vertexRequestType) {
+      tierLogger.warning`[buildTierHeaders] vertexRequestType=${vertexRequestType} requires tier=flex|priority (model=${modelKey}), ignoring`;
+    }
+    return undefined;
+  }
 
   const config = getModel(modelKey);
-  if (config.provider !== 'vertex') {
+  if (config.provider !== 'vertex' && config.provider !== 'vertex-global') {
     tierLogger.warning`[buildTierHeaders] tier=${tier} requested for non-vertex provider=${config.provider} (model=${modelKey}), ignoring`;
     return undefined;
   }
@@ -360,8 +377,26 @@ export function buildTierHeaders(
     return undefined;
   }
 
-  tierLogger.info`[buildTierHeaders] tier=${tier} applied for model=${modelKey}`;
-  return { [VERTEX_TIER_HEADER]: tier };
+  const requestTypePart = vertexRequestType ? `, requestType=${vertexRequestType}` : ', requestType=default';
+  tierLogger.info`[buildTierHeaders] provider=${config.provider}, tier=${tier}${requestTypePart} applied for model=${modelKey}; verify actual routing via usage.raw.trafficType`;
+  return {
+    ...(vertexRequestType ? { [VERTEX_REQUEST_TYPE_HEADER]: vertexRequestType } : {}),
+    [VERTEX_TIER_HEADER]: tier,
+  };
+}
+
+function extractTrafficType(usage: TokenUsage): string | undefined {
+  const raw = usage.raw;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const record = raw as Record<string, unknown>;
+  const value = record.trafficType ?? record.traffic_type;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function formatTierLogPart(tier?: VertexTier, vertexRequestType?: VertexRequestType): string {
+  if (!tier || tier === 'standard') return '';
+  const requestTypePart = vertexRequestType ? `, vertexRequestType=${vertexRequestType}` : '';
+  return `, vertexTier=${tier}${requestTypePart}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -502,10 +537,13 @@ export class LLM {
     modelKey: string,
     thinking?: ThinkingEffort,
     fb?: FallbackAttempt,
+    tier?: VertexTier,
+    vertexRequestType?: VertexRequestType,
   ): void {
     const thinkingPart = thinking && thinking !== 'none' ? `, thinking=${thinking}` : '';
     const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
-    LLM.logger.info`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}${fbPart}`;
+    const tierPart = formatTierLogPart(tier, vertexRequestType);
+    LLM.logger.info`[LLM:start] id=${id}, method=${method}, model=${modelKey}${thinkingPart}${tierPart}${fbPart}`;
   }
 
   /**
@@ -659,6 +697,8 @@ export class LLM {
     startTime: number,
     usage: TokenUsage,
     fb?: FallbackAttempt,
+    tier?: VertexTier,
+    vertexRequestType?: VertexRequestType,
   ): void {
     const duration = Date.now() - startTime;
     const inputTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
@@ -667,8 +707,11 @@ export class LLM {
     const cost = getCostFromUsage(usage, modelKey);
     const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}` : '';
     const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
+    const trafficType = extractTrafficType(usage);
+    const trafficPart = trafficType ? `, trafficType=${trafficType}` : '';
+    const tierPart = formatTierLogPart(tier, vertexRequestType);
     LLM.logger
-      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}`;
+      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}${trafficPart}`;
   }
 
   private static logTTFT(id: string, startTime: number): void {
@@ -767,14 +810,14 @@ export class LLM {
 
     return withFallback(id, 'generateObject', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb);
+      LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
       LLM.logInputSummary(id, schema, messages, system);
       LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, system);
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
-      const tierHeaders = buildTierHeaders(modelKey, spec.tier);
+      const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -794,7 +837,7 @@ export class LLM {
         });
 
         cleanup();
-        LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage, fb);
+        LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage, fb, spec.tier, spec.vertexRequestType);
 
         return {
           object: result.output,
@@ -970,12 +1013,12 @@ export class LLM {
 
     return withFallback(id, 'generateText', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb);
+      LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
 
       const languageModel = createModel(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
-      const tierHeaders = buildTierHeaders(modelKey, spec.tier);
+      const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -1001,7 +1044,7 @@ export class LLM {
           LLM.logger.debug`[LLM:sources] id=${id}, sources=${sourcesCount}`;
         }
 
-        LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage, fb);
+        LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage, fb, spec.tier, spec.vertexRequestType);
 
         return {
           text: result.text,
@@ -1077,7 +1120,7 @@ export class LLM {
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObject — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
-    LLM.logStart(id, 'streamObject', modelKey, spec.thinking);
+    LLM.logStart(id, 'streamObject', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
     LLM.logInputSummary(id, schema, messages, system);
     LLM.captureRequest(id, 'streamObject', modelKey, schema, messages, system);
 
@@ -1100,7 +1143,7 @@ export class LLM {
 
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
-    const tierHeaders = buildTierHeaders(modelKey, spec.tier);
+    const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
     const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -1132,7 +1175,7 @@ export class LLM {
       },
       onFinish(event) {
         cleanup();
-        LLM.logEnd(id, 'streamObject', modelKey, startTime, event.usage);
+        LLM.logEnd(id, 'streamObject', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
       },
     });
 
@@ -1176,12 +1219,12 @@ export class LLM {
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamText — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
-    LLM.logStart(id, 'streamText', modelKey, spec.thinking);
+    LLM.logStart(id, 'streamText', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
-    const tierHeaders = buildTierHeaders(modelKey, spec.tier);
+    const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
     const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -1210,7 +1253,7 @@ export class LLM {
       },
       onFinish(event) {
         cleanup();
-        LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage);
+        LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
       },
     });
 
@@ -1274,7 +1317,7 @@ export class LLM {
 
     return withFallback(id, 'generateObjectViaTool', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking, fb);
+      LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
       LLM.logInputSummary(id, schema, messages, system);
       LLM.captureRequest(id, 'generateObjectViaTool', modelKey, schema, messages, system, {
         toolName,
@@ -1296,7 +1339,7 @@ export class LLM {
               },
             }
           : baseProviderOptions;
-      const tierHeaders = buildTierHeaders(modelKey, spec.tier);
+      const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
       // 创建 Tool，将 Schema 作为 inputSchema
       const tools = {
@@ -1328,7 +1371,16 @@ export class LLM {
         });
 
         cleanup();
-        LLM.logEnd(id, 'generateObjectViaTool', modelKey, startTime, result.usage, fb);
+        LLM.logEnd(
+          id,
+          'generateObjectViaTool',
+          modelKey,
+          startTime,
+          result.usage,
+          fb,
+          spec.tier,
+          spec.vertexRequestType,
+        );
 
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
         const toolCall = result.toolCalls.at(0);
@@ -1450,12 +1502,12 @@ export class LLM {
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObjectViaTool — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
-    LLM.logStart(id, 'streamObjectViaTool', modelKey, spec.thinking);
+    LLM.logStart(id, 'streamObjectViaTool', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
-    const tierHeaders = buildTierHeaders(modelKey, spec.tier);
+    const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
     // 创建 Tool，将 Schema 作为 inputSchema
     const tools = {
@@ -1526,7 +1578,7 @@ export class LLM {
     // 获取 usage
     const usage = await result.usage;
     cleanup();
-    LLM.logEnd(id, 'streamObjectViaTool', modelKey, startTime, usage);
+    LLM.logEnd(id, 'streamObjectViaTool', modelKey, startTime, usage, undefined, spec.tier, spec.vertexRequestType);
     yield { type: 'usage', usage };
   }
 

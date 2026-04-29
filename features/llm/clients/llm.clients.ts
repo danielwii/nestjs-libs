@@ -45,6 +45,7 @@
 
 import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
+import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
 import '@app/nest/exceptions/oops-factories';
@@ -63,7 +64,10 @@ import type { LanguageModel } from 'ai';
 let _openrouter: ReturnType<typeof createOpenRouter> | null = null;
 let _google: ReturnType<typeof createGoogleGenerativeAI> | null = null;
 let _vertex: ReturnType<typeof createVertex> | null = null;
+let _vertexGlobal: ReturnType<typeof createVertex> | null = null;
 let _openai: ReturnType<typeof createOpenAI> | null = null;
+
+const clientLogger = getAppLogger('features', 'LLM', 'clients');
 
 // ============================================================================
 // OpenRouter 客户端
@@ -193,6 +197,7 @@ function getVertex() {
     if (!apiKey) {
       throw Oops.Panic.Config('AI_GOOGLE_VERTEX_API_KEY is not configured');
     }
+    clientLogger.info`[vertex:init] mode=express, auth=api-key, baseURL=default-express, project=none, location=none`;
     _vertex = createVertex({
       apiKey,
       fetch: ApiFetcher.fetch,
@@ -211,6 +216,70 @@ function getVertex() {
  * ```
  */
 export const vertex = (modelId: string): LanguageModel => getVertex()(modelId);
+
+// ============================================================================
+// Vertex AI 客户端 (project/global mode)
+// ============================================================================
+
+function getVertexGlobalProject(): string {
+  const project = SysEnv.GOOGLE_VERTEX_PROJECT ?? SysEnv.GOOGLE_CLOUD_PROJECT;
+  if (!project) {
+    throw Oops.Panic.Config('GOOGLE_VERTEX_PROJECT is not configured for vertex-global provider');
+  }
+  return project;
+}
+
+function getVertexGlobalLocation(): 'global' {
+  const location = SysEnv.GOOGLE_VERTEX_LOCATION ?? SysEnv.GOOGLE_CLOUD_LOCATION ?? 'global';
+  if (location !== 'global') {
+    throw Oops.Panic.Config(`vertex-global provider requires GOOGLE_VERTEX_LOCATION=global, got "${location}"`);
+  }
+  return 'global';
+}
+
+/**
+ * 获取 Vertex AI project/global 客户端单例
+ *
+ * 用于 Google Priority PayGo 官方路径：
+ * /v1/projects/{project}/locations/global/publishers/google/models/...
+ *
+ * 注意：
+ * - URL 固定为 project/global，不使用 Express Mode URL
+ * - 有 Vertex API key 时使用 x-goog-api-key
+ * - 没有 API key 时由 ADC / service account / Workload Identity 提供 OAuth
+ * - 真实是否命中 Priority/Flex PayGo 以响应 usage.raw.trafficType 为准
+ */
+function getVertexGlobal() {
+  if (!_vertexGlobal) {
+    const project = getVertexGlobalProject();
+    const location = getVertexGlobalLocation();
+    const encodedProject = encodeURIComponent(project);
+    const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY;
+    const auth = apiKey ? 'api-key' : 'adc-or-service-account';
+    const baseURL = `https://aiplatform.googleapis.com/v1/projects/${encodedProject}/locations/${location}/publishers/google`;
+
+    clientLogger.info`[vertex-global:init] mode=project-global, project=${project}, location=${location}, auth=${auth}, baseURL=${baseURL}`;
+
+    _vertexGlobal = createVertex({
+      apiKey,
+      project,
+      location,
+      baseURL,
+      fetch: ApiFetcher.fetch,
+    });
+  }
+  return _vertexGlobal;
+}
+
+/**
+ * Vertex AI 模型选择器 (project/global mode)
+ *
+ * @example
+ * ```typescript
+ * vertexGlobal('gemini-2.5-flash')
+ * ```
+ */
+export const vertexGlobal = (modelId: string): LanguageModel => getVertexGlobal()(modelId);
 
 // ============================================================================
 // 客户端状态检查
@@ -233,6 +302,10 @@ export function getLLMClientStatus() {
       configured: !!(SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY),
       initialized: !!_vertex,
     },
+    vertexGlobal: {
+      configured: !!(SysEnv.GOOGLE_VERTEX_PROJECT ?? SysEnv.GOOGLE_CLOUD_PROJECT),
+      initialized: !!_vertexGlobal,
+    },
 
     proxy: {
       enabled: SysEnv.APP_PROXY_ENABLED ?? false,
@@ -248,6 +321,7 @@ export function resetLLMClients() {
   _openrouter = null;
   _google = null;
   _vertex = null;
+  _vertexGlobal = null;
   _openai = null;
 }
 

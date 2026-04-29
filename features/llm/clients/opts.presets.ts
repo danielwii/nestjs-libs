@@ -68,7 +68,7 @@ export const opts = {
   },
 
   /**
-   * Vertex AI 预设（与 Google 相同，使用 google key）
+   * Vertex AI 预设（`vertex:*` / `vertex-global:*` 均与 Google 相同，使用 google key）
    */
   vertex: {
     /** 禁用 thinking（thinkingBudget: 0） */

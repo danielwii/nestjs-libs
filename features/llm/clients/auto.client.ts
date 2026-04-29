@@ -27,7 +27,7 @@ import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
 
 import { getModel } from '../types/model.types';
-import { google, openrouter, vertex } from './llm.clients';
+import { google, openrouter, vertex, vertexGlobal } from './llm.clients';
 
 import '@app/nest/exceptions/oops-factories';
 
@@ -49,6 +49,8 @@ import type { z } from 'zod';
  * ```typescript
  * model('openrouter:gemini-2.5-flash')  // → 使用 openrouter 客户端
  * model('google:gemini-2.5-flash')      // → 使用 google 客户端
+ * model('vertex-global:gemini-2.5-flash?tier=priority&vertexRequestType=shared')
+ * // → 使用 Vertex project/global 客户端，走官方 Priority PayGo URL
  * ```
  */
 export function model(key: LLMModelSpec, modelIdSuffix?: string): LanguageModel {
@@ -63,6 +65,8 @@ export function model(key: LLMModelSpec, modelIdSuffix?: string): LanguageModel 
       return google(modelId);
     case 'vertex':
       return vertex(modelId);
+    case 'vertex-global':
+      return vertexGlobal(modelId);
     default:
       throw Oops.Panic.Config(`Unknown provider: ${provider as string} for model: ${key}`);
   }
@@ -72,7 +76,7 @@ export function model(key: LLMModelSpec, modelIdSuffix?: string): LanguageModel 
  * 从 Model Key 解析 Provider
  *
  * 支持两种格式：
- * - Provider 名：`'openrouter'` | `'google'` | `'vertex'`
+ * - Provider 名：`'openrouter'` | `'google'` | `'vertex'` | `'vertex-global'`
  * - Model Key：`'openrouter:x-ai/grok-4.1-fast'`
  *
  * @example
@@ -80,11 +84,12 @@ export function model(key: LLMModelSpec, modelIdSuffix?: string): LanguageModel 
  * parseProvider('openrouter')                    // => 'openrouter'
  * parseProvider('openrouter:x-ai/grok-4.1-fast') // => 'openrouter'
  * parseProvider('google:gemini-2.5-flash')       // => 'google'
+ * parseProvider('vertex-global:gemini-2.5-flash') // => 'vertex-global'
  * ```
  */
 export function parseProvider(key: string): LLMProviderType {
   // 支持直接传 provider 名（如 'openrouter'）
-  const validProviders: LLMProviderType[] = ['openrouter', 'google', 'vertex'];
+  const validProviders: LLMProviderType[] = ['openrouter', 'google', 'vertex', 'vertex-global'];
   if (validProviders.includes(key as LLMProviderType)) {
     return key as LLMProviderType;
   }
@@ -112,7 +117,7 @@ export const autoOpts = {
    *
    * 根据 provider 自动选择正确格式：
    * - openrouter: `{ reasoning: { effort: 'none' } }`
-   * - google/vertex: `{ thinkingConfig: { thinkingBudget: 0 } }`
+   * - google/vertex/vertex-global: `{ thinkingConfig: { thinkingBudget: 0 } }`
    *
    * @param key Provider 名或 Model Key
    *
@@ -135,6 +140,7 @@ export const autoOpts = {
         return { openrouter: { reasoning: { effort: 'none' } } };
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
+      case 'vertex-global':
         return { google: { thinkingConfig: { thinkingBudget: 0 } } };
       default:
         return {};
@@ -153,6 +159,7 @@ export const autoOpts = {
         return { openrouter: { reasoning: { effort } } };
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
+      case 'vertex-global':
         return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } };
       default:
         return {};
@@ -329,6 +336,7 @@ class LLMBuilder {
         break;
       case 'google':
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
+      case 'vertex-global':
         this._thinkingOptions = { google: { thinkingConfig: { thinkingBudget: tokens } } };
         break;
     }

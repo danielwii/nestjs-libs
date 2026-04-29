@@ -1,16 +1,20 @@
 /**
  * Google Vertex AI Client Factory (Express Mode)
  *
- * 使用 AI SDK + Vertex Provider，通过 API Key 直接访问 Gemini
- * Express Mode 不需要配置 project 和 location
+ * 使用 AI SDK + Vertex Provider，通过 API key 直接访问 Gemini。
+ * Express Mode 不需要配置 project/location，URL 不是 Google Priority/Flex PayGo 文档里的
+ * `/v1/projects/{project}/locations/global/...` 路径。
+ *
+ * 需要官方 Priority/Flex PayGo 语义时，使用 `vertex-global:*` model key。
  */
 
 import { createVertex } from '@ai-sdk/google-vertex';
 
 /**
- * Vertex AI 特有的 providerOptions
+ * Vertex AI 特有的 providerOptions。
  *
- * 注意：Vertex 使用 google 作为 providerOptions key（与 Google AI Studio 相同）
+ * 注意：`vertex:*` 与 `vertex-global:*` 都使用 google 作为 providerOptions key
+ *（与 Google AI Studio 相同）。
  *
  * @example
  * ```typescript
@@ -46,7 +50,7 @@ export function vertexOptions(options: {
     return undefined;
   })();
 
-  // Vertex 使用 google 作为 providerOptions key
+  // AI SDK 的 Vertex provider 使用 google 作为 providerOptions key；Express/global 模式一致。
   return {
     google: {
       ...(thinkingConfig && { thinkingConfig }),

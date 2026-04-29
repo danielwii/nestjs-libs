@@ -2,25 +2,25 @@
  * LLM Vertex Tier 支持的单元测试
  *
  * 覆盖：
- * 1. parseModelSpec 对 `?tier=` 的解析（合法值 / 非法值 / 与其他 spec 参数组合）
- * 2. getSupportedTiers 查询函数（已标注 / 未标注 / 非 vertex provider）
+ * 1. parseModelSpec 对 `?tier=` / `?vertexRequestType=` 的解析（合法值 / 非法值 / 与其他 spec 参数组合）
+ * 2. getSupportedTiers 查询函数（已标注 / 未标注 / 非 vertex/vertex-global provider）
  * 3. buildTierHeaders 的三种运行时行为：
  *    - 生效（返回 header 对象）
  *    - 不支持的 tier → warn + 降级
- *    - 非 vertex provider → warn + 降级
+ *    - 非 vertex/vertex-global provider → warn + 降级
  */
 
 import 'reflect-metadata';
 
 import { getSupportedTiers, parseModelSpec } from '../types/model.types';
-import { buildTierHeaders, VERTEX_TIER_HEADER } from './llm.class';
+import { buildTierHeaders, VERTEX_REQUEST_TYPE_HEADER, VERTEX_TIER_HEADER } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
 import type { LLMModelSpec, VertexTier } from '../types/model.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// parseModelSpec: ?tier= 查询参数
+// parseModelSpec: ?tier= / ?vertexRequestType= 查询参数
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('parseModelSpec: ?tier query parameter', () => {
@@ -69,6 +69,20 @@ describe('parseModelSpec: ?tier query parameter', () => {
     expect(result.tier).toBe('flex');
     expect(result.fallbackModels).toContain('openrouter:gemini-2.5-flash-lite');
   });
+
+  it('parses vertexRequestType=shared for shared/on-demand only routing', () => {
+    const spec = 'vertex:gemini-2.5-flash?tier=priority&vertexRequestType=shared' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.tier).toBe('priority');
+    expect(result.vertexRequestType).toBe('shared');
+  });
+
+  it('returns undefined for invalid vertexRequestType value (warns and ignores)', () => {
+    const spec = 'vertex:gemini-2.5-flash?tier=priority&vertexRequestType=dedicated' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.tier).toBe('priority');
+    expect(result.vertexRequestType).toBeUndefined();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +92,11 @@ describe('parseModelSpec: ?tier query parameter', () => {
 describe('getSupportedTiers', () => {
   it('returns [standard, priority] for vertex:gemini-2.5-flash (Priority listed)', () => {
     const tiers = getSupportedTiers('vertex:gemini-2.5-flash');
+    expect(tiers).toEqual(['standard', 'priority']);
+  });
+
+  it('returns [standard, priority] for vertex-global:gemini-2.5-flash (Priority listed)', () => {
+    const tiers = getSupportedTiers('vertex-global:gemini-2.5-flash');
     expect(tiers).toEqual(['standard', 'priority']);
   });
 
@@ -144,6 +163,11 @@ describe('buildTierHeaders: supported tiers emit header', () => {
     expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'priority' });
   });
 
+  it('priority on vertex-global gemini-2.5-flash → emits priority header', () => {
+    const headers = buildTierHeaders('vertex-global:gemini-2.5-flash', 'priority');
+    expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'priority' });
+  });
+
   it('priority on gemini-2.5-flash-lite → emits priority header (2026-04 docs)', () => {
     const headers = buildTierHeaders('vertex:gemini-2.5-flash-lite', 'priority');
     expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'priority' });
@@ -152,6 +176,30 @@ describe('buildTierHeaders: supported tiers emit header', () => {
   it('priority on gemini-3.1-flash-lite-preview → emits priority header (dual flex+priority)', () => {
     const headers = buildTierHeaders('vertex:gemini-3.1-flash-lite-preview', 'priority');
     expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'priority' });
+  });
+
+  it('priority with vertexRequestType=shared → emits both Priority-only headers', () => {
+    const headers = buildTierHeaders('vertex:gemini-2.5-flash', 'priority', 'shared');
+    expect(headers).toEqual({
+      [VERTEX_REQUEST_TYPE_HEADER]: 'shared',
+      [VERTEX_TIER_HEADER]: 'priority',
+    });
+  });
+
+  it('priority with vertexRequestType=shared on vertex-global → emits both Priority-only headers', () => {
+    const headers = buildTierHeaders('vertex-global:gemini-2.5-flash', 'priority', 'shared');
+    expect(headers).toEqual({
+      [VERTEX_REQUEST_TYPE_HEADER]: 'shared',
+      [VERTEX_TIER_HEADER]: 'priority',
+    });
+  });
+
+  it('flex with vertexRequestType=shared → emits both Flex-only headers', () => {
+    const headers = buildTierHeaders('vertex:gemini-3-flash-preview', 'flex', 'shared');
+    expect(headers).toEqual({
+      [VERTEX_REQUEST_TYPE_HEADER]: 'shared',
+      [VERTEX_TIER_HEADER]: 'flex',
+    });
   });
 });
 
@@ -178,6 +226,11 @@ describe('buildTierHeaders: downgrade paths (warn + undefined)', () => {
 
   it('priority on google direct model (non-vertex provider) → undefined', () => {
     const headers = buildTierHeaders('google:gemini-2.5-flash', 'priority');
+    expect(headers).toBeUndefined();
+  });
+
+  it('vertexRequestType=shared without flex/priority tier → undefined', () => {
+    const headers = buildTierHeaders('vertex:gemini-2.5-flash', 'standard', 'shared');
     expect(headers).toBeUndefined();
   });
 });

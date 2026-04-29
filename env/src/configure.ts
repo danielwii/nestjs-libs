@@ -203,8 +203,16 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // ==================== LLM ====================
   @IsString() @IsOptional() AI_OPENROUTER_API_KEY?: string;
   @IsString() @IsOptional() AI_GOOGLE_API_KEY?: string;
-  /** Vertex AI Express Mode API Key (格式: AQ.xxx) */
+  /** Vertex AI API key（优先用于 Express Mode；vertex-global 也可用它发 x-goog-api-key） */
   @IsString() @IsOptional() AI_GOOGLE_VERTEX_API_KEY?: string;
+  /** Vertex AI project/global mode project id；`vertex-global:*` 的官方 PayGo 路径必需 */
+  @IsString() @IsOptional() GOOGLE_VERTEX_PROJECT?: string;
+  /** Vertex AI location；Priority/Flex PayGo 文档要求使用 global */
+  @IsString() @IsOptional() GOOGLE_VERTEX_LOCATION?: string;
+  /** Google Cloud project id（Google SDK 文档变量名，作为 GOOGLE_VERTEX_PROJECT fallback） */
+  @IsString() @IsOptional() GOOGLE_CLOUD_PROJECT?: string;
+  /** Google Cloud location（Google SDK 文档变量名，作为 GOOGLE_VERTEX_LOCATION fallback） */
+  @IsString() @IsOptional() GOOGLE_CLOUD_LOCATION?: string;
   @IsString() @IsOptional() AI_OPENAI_API_KEY?: string;
   @IsString() @IsOptional() AI_JINA_API_KEY?: string;
   @IsString() @IsOptional() AI_VOYAGE_API_KEY?: string;
