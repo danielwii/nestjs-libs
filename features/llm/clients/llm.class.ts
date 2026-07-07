@@ -71,7 +71,7 @@ import type { LLMModelKey, LLMModelSpec, VertexRequestType, VertexTier } from '.
 import type { ProviderType } from './options.helpers';
 import type { JSONObject } from '@ai-sdk/provider';
 import type { OopsError } from '@app/nest/exceptions/oops-error';
-import type { LanguageModel, ModelMessage, StopCondition, TelemetrySettings, ToolSet } from 'ai';
+import type { LanguageModel, ModelMessage, StopCondition, TelemetryOptions, ToolSet } from 'ai';
 import type * as NodeFs from 'node:fs';
 import type { z } from 'zod';
 
@@ -90,7 +90,7 @@ type ProviderOptionsSurface = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** 默认开启 telemetry，OTel exporter 未配置时无副作用 */
-const DEFAULT_TELEMETRY: TelemetrySettings = { isEnabled: true };
+const DEFAULT_TELEMETRY: TelemetryOptions = { isEnabled: true };
 
 /** 仅这些模型启用 JSON 代码块剥离中间件 */
 const MODELS_NEEDING_EXTRACT_JSON = new Set<LLMModelKey>(['openrouter:kimi-k2.5', 'openrouter:moonshotai/kimi-k2.5']);
@@ -171,7 +171,7 @@ interface BaseParams {
   /** 最大重试次数（覆盖 spec 和 env 默认值） */
   maxRetries?: number;
   /** Telemetry 配置 */
-  telemetry?: TelemetrySettings;
+  telemetry?: TelemetryOptions;
 }
 
 /** generateObject 参数 */
@@ -837,7 +837,7 @@ export class LLM {
           maxOutputTokens,
           maxRetries: spec.maxRetries,
           abortSignal: signal,
-          experimental_telemetry: telemetry,
+          telemetry,
         });
 
         cleanup();
@@ -1038,7 +1038,7 @@ export class LLM {
           maxOutputTokens,
           maxRetries: spec.maxRetries,
           abortSignal: signal,
-          experimental_telemetry: telemetry,
+          telemetry,
         });
 
         cleanup();
@@ -1166,7 +1166,7 @@ export class LLM {
       maxOutputTokens,
       maxRetries: spec.maxRetries,
       abortSignal: signal,
-      experimental_telemetry: telemetry,
+      telemetry,
       onError: ({ error }) => {
         cleanup();
         LLM.logError(id, 'streamObject', modelKey, error);
@@ -1244,7 +1244,7 @@ export class LLM {
       maxOutputTokens,
       maxRetries: spec.maxRetries,
       abortSignal: signal,
-      experimental_telemetry: telemetry,
+      telemetry,
       onError: ({ error }) => {
         cleanup();
         LLM.logError(id, 'streamText', modelKey, error);
@@ -1371,7 +1371,7 @@ export class LLM {
           maxOutputTokens,
           maxRetries: spec.maxRetries,
           abortSignal: signal,
-          experimental_telemetry: telemetry,
+          telemetry,
         });
 
         cleanup();
@@ -1538,7 +1538,7 @@ export class LLM {
       maxOutputTokens,
       maxRetries: spec.maxRetries,
       abortSignal: signal,
-      experimental_telemetry: telemetry,
+      telemetry,
       onError: ({ error }) => {
         cleanup();
         LLM.logError(id, 'streamObjectViaTool', modelKey, error);

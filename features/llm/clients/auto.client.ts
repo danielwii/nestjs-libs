@@ -35,7 +35,7 @@ import { generateText as aiGenerateText, streamText as aiStreamText, Output } fr
 
 import type { LLMModelKey, LLMModelSpec, LLMProviderType } from '../types/model.types';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
-import type { GenerateTextResult, LanguageModel, ModelMessage, StreamTextResult, TelemetrySettings } from 'ai';
+import type { GenerateTextResult, LanguageModel, ModelMessage, StreamTextResult, TelemetryOptions } from 'ai';
 import type { z } from 'zod';
 
 // ============================================================================
@@ -225,6 +225,11 @@ export interface TelemetryMeta {
   parentObservationId?: string;
 }
 
+type NoTools = Record<string, never>;
+interface BuilderTelemetryContext extends TelemetryMeta, Record<string, unknown> {}
+type TextOutput = ReturnType<typeof Output.text>;
+type ObjectOutput<T> = ReturnType<typeof Output.object<T>>;
+
 /**
  * 通用配置选项（非核心参数）
  */
@@ -388,25 +393,34 @@ class LLMBuilder {
     return options;
   }
 
-  private _buildTelemetry(): TelemetrySettings {
-    // AI SDK v6 要求显式启用 telemetry 才能发送到 Langfuse
-    // 默认启用，确保所有 LLM 调用都有 trace
-    const metadata: Record<string, string | string[]> = {};
-    if (this._telemetry?.userId) metadata.userId = this._telemetry.userId;
-    if (this._telemetry?.sessionId) metadata.sessionId = this._telemetry.sessionId;
-    if (this._telemetry?.tags?.length) metadata.tags = this._telemetry.tags;
-    if (this._telemetry?.parentObservationId) metadata.parentObservationId = this._telemetry.parentObservationId;
-
+  private _buildTelemetry(): TelemetryOptions<BuilderTelemetryContext, NoTools> {
+    // AI SDK v7 exposes per-call metadata through explicit runtime context
+    // inclusion instead of the removed v6 `metadata` field.
     return {
       isEnabled: true,
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+      includeRuntimeContext: {
+        userId: true,
+        sessionId: true,
+        tags: true,
+        parentObservationId: true,
+      },
     };
   }
 
+  private _buildTelemetryRuntimeContext(): BuilderTelemetryContext | undefined {
+    const context: BuilderTelemetryContext = {};
+    if (this._telemetry?.userId) context.userId = this._telemetry.userId;
+    if (this._telemetry?.sessionId) context.sessionId = this._telemetry.sessionId;
+    if (this._telemetry?.tags?.length) context.tags = this._telemetry.tags;
+    if (this._telemetry?.parentObservationId) context.parentObservationId = this._telemetry.parentObservationId;
+
+    return Object.keys(context).length > 0 ? context : undefined;
+  }
+
   /** 流式文本生成 */
-  streamText(): StreamTextResult<never, never> {
+  streamText(): StreamTextResult<NoTools, BuilderTelemetryContext, TextOutput> {
     const telemetry = this._buildTelemetry();
-    return aiStreamText({
+    return aiStreamText<NoTools, BuilderTelemetryContext>({
       model: this._model,
       messages: this._messages,
       system: this._system,
@@ -415,13 +429,14 @@ class LLMBuilder {
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       timeout: SysEnv.AI_LLM_TIMEOUT_MS,
-      experimental_telemetry: telemetry,
+      telemetry,
+      runtimeContext: this._buildTelemetryRuntimeContext(),
     });
   }
 
   /** 文本生成 */
-  generateText(): Promise<GenerateTextResult<never, never>> {
-    return aiGenerateText({
+  generateText(): Promise<GenerateTextResult<NoTools, BuilderTelemetryContext, TextOutput>> {
+    return aiGenerateText<NoTools, BuilderTelemetryContext, TextOutput>({
       model: this._model,
       messages: this._messages,
       system: this._system,
@@ -430,15 +445,16 @@ class LLMBuilder {
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       timeout: SysEnv.AI_LLM_TIMEOUT_MS,
-      experimental_telemetry: this._buildTelemetry(),
+      telemetry: this._buildTelemetry(),
+      runtimeContext: this._buildTelemetryRuntimeContext(),
     });
   }
 
   /** 结构化对象生成 */
   generateObject<T>(
     schema: z.ZodType<T>,
-  ): Promise<GenerateTextResult<Record<string, never>, ReturnType<typeof Output.object<T>>>> {
-    return aiGenerateText({
+  ): Promise<GenerateTextResult<NoTools, BuilderTelemetryContext, ObjectOutput<T>>> {
+    return aiGenerateText<NoTools, BuilderTelemetryContext, ObjectOutput<T>>({
       model: this._model,
       output: Output.object({ schema }),
       messages: this._messages,
@@ -448,13 +464,14 @@ class LLMBuilder {
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       timeout: SysEnv.AI_LLM_TIMEOUT_MS,
-      experimental_telemetry: this._buildTelemetry(),
+      telemetry: this._buildTelemetry(),
+      runtimeContext: this._buildTelemetryRuntimeContext(),
     });
   }
 
   /** 流式结构化对象生成 */
-  streamObject<T>(schema: z.ZodType<T>): StreamTextResult<Record<string, never>, ReturnType<typeof Output.object<T>>> {
-    return aiStreamText({
+  streamObject<T>(schema: z.ZodType<T>): StreamTextResult<NoTools, BuilderTelemetryContext, ObjectOutput<T>> {
+    return aiStreamText<NoTools, BuilderTelemetryContext, ObjectOutput<T>>({
       model: this._model,
       output: Output.object({ schema }),
       messages: this._messages,
@@ -464,7 +481,8 @@ class LLMBuilder {
       maxOutputTokens: this._opts.maxOutputTokens,
       abortSignal: this._signal,
       timeout: SysEnv.AI_LLM_TIMEOUT_MS,
-      experimental_telemetry: this._buildTelemetry(),
+      telemetry: this._buildTelemetry(),
+      runtimeContext: this._buildTelemetryRuntimeContext(),
     });
   }
 
