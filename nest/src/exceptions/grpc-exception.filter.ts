@@ -1,4 +1,5 @@
 import { Catch } from '@nestjs/common';
+import { RpcException } from '@nestjs/microservices';
 
 import { getAppLogger } from '@app/utils/app-logger';
 
@@ -12,6 +13,9 @@ import { Observable, of, throwError } from 'rxjs';
 import { ZodError } from 'zod';
 
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
+
+const MIN_GRPC_STATUS_CODE: number = status.OK;
+const MAX_GRPC_STATUS_CODE: number = status.UNAUTHENTICATED;
 
 /**
  * OopsException 接口
@@ -39,6 +43,13 @@ interface GrpcError {
   userMessage: string;
   internalDetails?: string;
   provider: string;
+}
+
+interface RpcExceptionPayload {
+  code?: unknown;
+  status?: unknown;
+  details?: unknown;
+  message?: unknown;
 }
 
 /**
@@ -77,6 +88,10 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     // Zod 验证错误
     if (exception instanceof ZodError) {
       return this.handleZodError(exception);
+    }
+
+    if (exception instanceof RpcException) {
+      return this.handleRpcException(exception);
     }
 
     // 其他未知错误
@@ -242,6 +257,49 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     this.logger.warning`[ZodError] ${firstIssue?.path.join('.')}: ${firstIssue?.message}`;
 
     return throwError(() => ({ code: status.INVALID_ARGUMENT, details: JSON.stringify(grpcError) }));
+  }
+
+  private handleRpcException(exception: RpcException): Observable<never> {
+    const serialized = this.serializeRpcException(exception);
+
+    this.logger.warning`[RpcException] ${serialized.details}`;
+
+    return throwError(() => serialized);
+  }
+
+  private serializeRpcException(exception: RpcException): { code: number; details: string; message: string } {
+    const error = exception.getError();
+
+    if (typeof error === 'object') {
+      const payload = error as RpcExceptionPayload;
+      const details = this.stringifyRpcExceptionDetails(payload.details ?? payload.message ?? exception.message);
+
+      return {
+        code: this.normalizeGrpcStatusCode(payload.code ?? payload.status),
+        details,
+        message: details,
+      };
+    }
+
+    const details = this.stringifyRpcExceptionDetails(error);
+    return { code: status.UNKNOWN, details, message: details };
+  }
+
+  private normalizeGrpcStatusCode(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isInteger(value)) return status.UNKNOWN;
+    if (value < MIN_GRPC_STATUS_CODE || value > MAX_GRPC_STATUS_CODE) return status.UNKNOWN;
+    return value;
+  }
+
+  private stringifyRpcExceptionDetails(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (value instanceof Error) return value.message;
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   }
 
   private handleUnexpectedError(exception: unknown, host: ArgumentsHost): Observable<never> {
