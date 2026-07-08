@@ -37,8 +37,17 @@ export type LogSafePayloadValue =
   | null
   | {
       redacted: true;
-      kind: 'secret' | 'long_string' | 'object_depth' | 'large_array' | 'circular_reference' | 'unsupported_value';
+      kind:
+        | 'secret'
+        | 'long_string'
+        | 'object_depth'
+        | 'large_array'
+        | 'circular_reference'
+        | 'unsupported_value'
+        | 'binary';
       length?: number;
+      byteLength?: number;
+      valueType?: string;
       fingerprint?: string;
       fingerprintScope?: FingerprintScope;
       reason: string;
@@ -275,7 +284,7 @@ export function normalizeHeadersForLog(headers: Record<string, unknown> | undefi
 }
 
 function redactedPayload(
-  kind: 'secret' | 'long_string' | 'object_depth' | 'large_array' | 'circular_reference' | 'unsupported_value',
+  kind: Extract<LogSafePayloadValue, { redacted: true }>['kind'],
   reason: string,
   value?: string,
   length?: number,
@@ -286,6 +295,16 @@ function redactedPayload(
     reason,
     ...(length !== undefined ? { length } : {}),
     ...(value !== undefined ? fingerprint(value) : {}),
+  };
+}
+
+function binaryPayload(input: ArrayBuffer | ArrayBufferView): Extract<LogSafePayloadValue, { redacted: true }> {
+  return {
+    redacted: true,
+    kind: 'binary',
+    reason: 'binary_payload',
+    byteLength: input.byteLength,
+    valueType: input.constructor.name || 'Binary',
   };
 }
 
@@ -321,6 +340,9 @@ export function normalizePayloadForLog(
     }
     if (typeof input !== 'object') {
       return redactedPayload('unsupported_value', typeof input);
+    }
+    if (input instanceof ArrayBuffer || ArrayBuffer.isView(input)) {
+      return binaryPayload(input);
     }
     if (seen.has(input)) {
       return redactedPayload('circular_reference', 'circular_reference');

@@ -148,6 +148,44 @@ describe('log redaction normalizers', () => {
     });
   });
 
+  it('summarizes binary payloads before recursing into byte entries', () => {
+    const buffer = Buffer.from('raw-secret');
+    const bytes = new Uint8Array([1, 2, 3]);
+    const arrayBuffer = new Uint8Array([4, 5, 6, 7]).buffer;
+    const out = normalizePayloadForLog({ buffer, nested: { bytes, arrayBuffer } }) as {
+      buffer: Record<string, unknown>;
+      nested: {
+        bytes: Record<string, unknown>;
+        arrayBuffer: Record<string, unknown>;
+      };
+    };
+
+    expect(out.buffer).toEqual({
+      redacted: true,
+      kind: 'binary',
+      reason: 'binary_payload',
+      byteLength: buffer.byteLength,
+      valueType: 'Buffer',
+    });
+    expect(out.nested.bytes).toEqual({
+      redacted: true,
+      kind: 'binary',
+      reason: 'binary_payload',
+      byteLength: bytes.byteLength,
+      valueType: 'Uint8Array',
+    });
+    expect(out.nested.arrayBuffer).toEqual({
+      redacted: true,
+      kind: 'binary',
+      reason: 'binary_payload',
+      byteLength: arrayBuffer.byteLength,
+      valueType: 'ArrayBuffer',
+    });
+    expect(Object.keys(out.buffer)).not.toContain('0');
+    expect(Object.keys(out.nested.bytes)).not.toContain('0');
+    expect(JSON.stringify(out)).not.toContain('raw-secret');
+  });
+
   it('handles circular references without throwing', () => {
     const value: { self?: unknown } = {};
     value.self = value;
