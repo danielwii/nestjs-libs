@@ -16,7 +16,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 
 import '@app/nest/exceptions/oops-factories';
 
-import { GrpcServiceTokenGuard } from '@app/nest/guards';
+import { getConfiguredGrpcServiceToken, GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { VisitorInterceptor } from '@app/nest/interceptors/visitor.interceptor';
@@ -65,7 +65,7 @@ export function wrapWithBootModule(AppModule: IEntryNestModule): Type<unknown> {
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
 
-type BootstrapMode = 'api' | 'grpc' | 'scheduler';
+export type BootstrapMode = 'api' | 'grpc' | 'scheduler';
 
 export interface BootstrapOptions {
   /** 启动模式：api（默认）、grpc、scheduler */
@@ -93,6 +93,13 @@ export interface BootstrapOptions {
   httpPort?: number;
 }
 
+export function assertGrpcServiceTokenConfiguredForMode(mode: BootstrapMode): void {
+  if (mode !== 'grpc') return;
+  if (!getConfiguredGrpcServiceToken()) {
+    throw Oops.Panic.Config('GRPC_SERVICE_TOKEN is required for gRPC mode');
+  }
+}
+
 export async function bootstrap(
   AppModule: IEntryNestModule,
   onInit?: (app: INestApplication) => Promise<void>,
@@ -104,6 +111,7 @@ export async function bootstrap(
 
   // --- NODE_ENV 检查（api / grpc 必须设置） ---
   if ((isApi || isGrpc) && !process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
+  assertGrpcServiceTokenConfiguredForMode(mode);
 
   const now = Date.now();
 

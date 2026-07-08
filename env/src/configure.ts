@@ -188,9 +188,15 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   @IsString() @IsOptional() SERVICE_NAME?: string;
   @IsString() @IsOptional() TRACING_EXPORTER_URL?: string;
+  @IsString() @IsOptional() LOG_REDACTION_KEY?: string;
 
   // ==================== OpenTelemetry 配置 ====================
   @IsString() @IsOptional() OTEL_EXPORTER_OTLP_ENDPOINT?: string;
+  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?: string;
+  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_PROTOCOL?: string;
+  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_TRACES_PROTOCOL?: string;
+  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_HEADERS?: string;
+  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_TRACES_HEADERS?: string;
   @IsString() @IsOptional() OTEL_LOG_LEVEL?: string;
 
   @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_PROXY_ENABLED?: boolean;

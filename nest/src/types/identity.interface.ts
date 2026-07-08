@@ -7,6 +7,7 @@ import type { Request } from 'express';
 export type IdentityUser<T = Record<string, unknown>> = {
   uid?: string;
   userId?: string;
+  preferredLocale?: string;
 } & T;
 
 /**

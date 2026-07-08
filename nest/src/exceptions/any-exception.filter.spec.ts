@@ -1,3 +1,5 @@
+import { SysEnv } from '@app/env';
+
 import { AnyExceptionFilter, toErrorDescriptor } from './any-exception.filter';
 import { ErrorCodes } from './error-codes';
 import { Oops } from './oops';
@@ -15,13 +17,19 @@ import {
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 
-import { describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { GraphQLError } from 'graphql';
 import { ZodError } from 'zod';
 
 import type { ArgumentsHost } from '@nestjs/common';
 
 // ==================== Test Helpers ====================
+
+const ORIGINAL_I18N_EXCEPTION_ENABLED = SysEnv.I18N_EXCEPTION_ENABLED;
+
+afterEach(() => {
+  SysEnv.I18N_EXCEPTION_ENABLED = ORIGINAL_I18N_EXCEPTION_ENABLED;
+});
 
 function createMockResponse() {
   const res: Record<string, unknown> = {};
@@ -37,11 +45,17 @@ function createMockResponse() {
 }
 
 function createMockRequest(
-  overrides?: Partial<{ ip: string; uid: string; headers: Record<string, string>; path: string }>,
+  overrides?: Partial<{
+    ip: string;
+    uid: string;
+    preferredLocale: string;
+    headers: Record<string, string>;
+    path: string;
+  }>,
 ) {
   return {
     ip: overrides?.ip ?? '127.0.0.1',
-    user: { uid: overrides?.uid ?? 'test-user' },
+    user: { uid: overrides?.uid ?? 'test-user', preferredLocale: overrides?.preferredLocale },
     headers: overrides?.headers ?? {},
     path: overrides?.path ?? '/test',
   };
@@ -75,6 +89,17 @@ function createGraphqlHost(overrides?: { request?: ReturnType<typeof createMockR
 
 function getResponseBody(response: ReturnType<typeof createMockResponse>) {
   return response._body as { success: boolean; code?: string; message?: string; errors?: unknown };
+}
+
+function createI18nFilter() {
+  SysEnv.I18N_EXCEPTION_ENABLED = true;
+  const translateErrorMessage = mock((options: { sourceMessage: string }) => Promise.resolve(options.sourceMessage));
+  const app = {
+    get: mock(() => ({
+      translateErrorMessage,
+    })),
+  };
+  return { filter: new AnyExceptionFilter(app as never), translateErrorMessage };
 }
 
 // ==================== Tests ====================
@@ -508,6 +533,75 @@ describe('AnyExceptionFilter', () => {
 
       const body = getResponseBody(response);
       expect(body.message).toBe('原始消息');
+    });
+
+    it('x-locale 优先于 request.user.preferredLocale', async () => {
+      const { filter: filterWithI18n, translateErrorMessage } = createI18nFilter();
+      const { host } = createHttpHost({
+        request: createMockRequest({
+          headers: { 'x-locale': ' en-US ' },
+          preferredLocale: 'zh-Hant',
+        }),
+      });
+
+      await filterWithI18n.catch(Oops.Validation('原始消息'), host);
+
+      expect(translateErrorMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetLanguage: 'en-US',
+        }),
+      );
+    });
+
+    it('x-locale 缺失时 fallback 到 typed request.user.preferredLocale', async () => {
+      const { filter: filterWithI18n, translateErrorMessage } = createI18nFilter();
+      const { host } = createHttpHost({
+        request: createMockRequest({
+          preferredLocale: ' zh-Hant ',
+        }),
+      });
+
+      await filterWithI18n.catch(Oops.Validation('原始消息'), host);
+
+      expect(translateErrorMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetLanguage: 'zh-Hant',
+        }),
+      );
+    });
+
+    it('空 x-locale 和 wildcard x-locale fallback 到 preferredLocale', async () => {
+      const emptyCase = createI18nFilter();
+      await emptyCase.filter.catch(
+        Oops.Validation('原始消息'),
+        createHttpHost({ request: createMockRequest({ headers: { 'x-locale': ' ' }, preferredLocale: 'ja' }) }).host,
+      );
+      expect(emptyCase.translateErrorMessage).toHaveBeenCalledWith(expect.objectContaining({ targetLanguage: 'ja' }));
+
+      const wildcardCase = createI18nFilter();
+      await wildcardCase.filter.catch(
+        Oops.Validation('原始消息'),
+        createHttpHost({ request: createMockRequest({ headers: { 'x-locale': '*' }, preferredLocale: 'ko' }) }).host,
+      );
+      expect(wildcardCase.translateErrorMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ targetLanguage: 'ko' }),
+      );
+    });
+
+    it('空 preferredLocale / wildcard preferredLocale / product-specific user.language 都不作为语言信号', async () => {
+      for (const user of [
+        { uid: 'u1', preferredLocale: ' ' },
+        { uid: 'u1', preferredLocale: '*' },
+        { uid: 'u1', language: 'zh-Hans' },
+      ]) {
+        const { filter: filterWithI18n, translateErrorMessage } = createI18nFilter();
+        const request = createMockRequest();
+        request.user = user as never;
+
+        await filterWithI18n.catch(Oops.Validation('原始消息'), createHttpHost({ request }).host);
+
+        expect(translateErrorMessage).toHaveBeenCalledWith(expect.objectContaining({ targetLanguage: null }));
+      }
     });
   });
 });
