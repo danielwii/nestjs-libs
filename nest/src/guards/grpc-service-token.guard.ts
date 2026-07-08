@@ -47,7 +47,8 @@ const SERVICE_TOKEN_KEY = 'x-service-token';
 
 export function getConfiguredGrpcServiceToken(): string | undefined {
   const token = process.env.GRPC_SERVICE_TOKEN?.trim();
-  return token ? token : undefined;
+  if (!token) return undefined;
+  return token;
 }
 
 @Injectable()
@@ -64,7 +65,7 @@ export class GrpcServiceTokenGuard implements CanActivate {
       this.logger.error`#canActivate GRPC_SERVICE_TOKEN not configured; rejecting RPC request`;
       throw new RpcException({
         code: status.UNAUTHENTICATED,
-        message: 'GRPC_SERVICE_TOKEN is required for gRPC mode',
+        message: 'GRPC_SERVICE_TOKEN is required when gRPC microservice is configured',
       });
     }
 

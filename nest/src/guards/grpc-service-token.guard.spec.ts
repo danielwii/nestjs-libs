@@ -70,13 +70,13 @@ describe('GrpcServiceTokenGuard', () => {
     delete process.env.GRPC_SERVICE_TOKEN;
     expectUnauthenticated(
       () => new GrpcServiceTokenGuard().canActivate(rpcContext(metadata)),
-      'GRPC_SERVICE_TOKEN is required for gRPC mode',
+      'GRPC_SERVICE_TOKEN is required when gRPC microservice is configured',
     );
 
     process.env.GRPC_SERVICE_TOKEN = '  ';
     expectUnauthenticated(
       () => new GrpcServiceTokenGuard().canActivate(rpcContext(metadata)),
-      'GRPC_SERVICE_TOKEN is required for gRPC mode',
+      'GRPC_SERVICE_TOKEN is required when gRPC microservice is configured',
     );
   });
 

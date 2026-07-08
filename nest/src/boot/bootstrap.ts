@@ -93,10 +93,17 @@ export interface BootstrapOptions {
   httpPort?: number;
 }
 
-export function assertGrpcServiceTokenConfiguredForMode(mode: BootstrapMode): void {
-  if (mode !== 'grpc') return;
+export function hasGrpcMicroserviceConfigured(mode: BootstrapMode, options?: Pick<BootstrapOptions, 'grpc'>): boolean {
+  return mode === 'grpc' || options?.grpc !== undefined;
+}
+
+export function assertGrpcServiceTokenConfiguredForMode(
+  mode: BootstrapMode,
+  options?: Pick<BootstrapOptions, 'grpc'>,
+): void {
+  if (!hasGrpcMicroserviceConfigured(mode, options)) return;
   if (!getConfiguredGrpcServiceToken()) {
-    throw Oops.Panic.Config('GRPC_SERVICE_TOKEN is required for gRPC mode');
+    throw Oops.Panic.Config('GRPC_SERVICE_TOKEN is required when gRPC microservice is configured');
   }
 }
 
@@ -108,10 +115,11 @@ export async function bootstrap(
   const mode: BootstrapMode = options?.mode ?? 'api';
   const isApi = mode === 'api';
   const isGrpc = mode === 'grpc';
+  const hasGrpcMicroservice = hasGrpcMicroserviceConfigured(mode, options);
 
   // --- NODE_ENV 检查（api / grpc 必须设置） ---
   if ((isApi || isGrpc) && !process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
-  assertGrpcServiceTokenConfiguredForMode(mode);
+  assertGrpcServiceTokenConfiguredForMode(mode, options);
 
   const now = Date.now();
 
@@ -159,13 +167,15 @@ export async function bootstrap(
         ? (options.grpc.package[0]?.split('.').pop() ?? 'unknown')
         : (options?.grpc?.package.split('.').pop() ?? 'unknown'));
     app.useGlobalFilters(new GrpcExceptionFilter(provider));
-    app.useGlobalGuards(new GrpcServiceTokenGuard());
   } else {
     // api / scheduler：AnyExceptionFilter
     app.useGlobalFilters(new AnyExceptionFilter(app));
     if (isApi) {
       bootstrapLogger.info`[Config] AnyExceptionFilter initialized with app reference for lazy i18n support`;
     }
+  }
+  if (hasGrpcMicroservice) {
+    app.useGlobalGuards(new GrpcServiceTokenGuard());
   }
 
   // --- Interceptors ---
