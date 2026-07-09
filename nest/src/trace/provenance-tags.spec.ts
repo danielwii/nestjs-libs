@@ -2,10 +2,12 @@ import {
   applyProvenanceToActiveSpan,
   applyProvenanceToSpan,
   clearProvenanceTags,
+  getActiveSpanLlmTags,
   getProvenanceTags,
   mergeProvenanceLlmTags,
   mergeProvenanceTags,
   sanitizeProvenanceTags,
+  setActiveSpanLlmTags,
   setProvenanceTags,
   toProvenanceLlmTags,
   toProvenanceLogTags,
@@ -174,5 +176,16 @@ describe('provenance projections', () => {
 
   it('does not throw when no active span exists', () => {
     expect(() => applyProvenanceToActiveSpan({ 'sandbox.client_type': 'browser' })).not.toThrow();
+  });
+
+  it('tracks active span caller tags in RequestContext for later provenance updates', () => {
+    RequestContext.run({}, () => {
+      const previous = setActiveSpanLlmTags(['task:reply']);
+
+      expect(previous).toBeUndefined();
+      expect(getActiveSpanLlmTags()).toEqual(['task:reply']);
+      expect(setActiveSpanLlmTags(undefined)).toEqual(['task:reply']);
+      expect(getActiveSpanLlmTags()).toEqual([]);
+    });
   });
 });

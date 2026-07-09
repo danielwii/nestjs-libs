@@ -1,5 +1,5 @@
 import { LangfuseContract } from './langfuse/contract';
-import { applyProvenanceToSpan, mergeProvenanceLlmTags } from './provenance-tags';
+import { applyProvenanceToSpan, mergeProvenanceLlmTags, setActiveSpanLlmTags } from './provenance-tags';
 import { RequestContext } from './request-context';
 
 import { context as otelContext, trace } from '@opentelemetry/api';
@@ -78,6 +78,7 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
   }
 
   return tracer.startActiveSpan(name, {}, activeCtx, async (span) => {
+    const previousSpanLlmTags = setActiveSpanLlmTags(traceMeta?.tags);
     try {
       // 1. 设置 trace 元数据（从 options 或 RequestContext）
       const effectiveTraceMeta: TraceMetadata = {
@@ -140,6 +141,7 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
       LangfuseContract.error(span, error instanceof Error ? error : new Error(String(error)));
       throw error;
     } finally {
+      setActiveSpanLlmTags(previousSpanLlmTags);
       span.end();
     }
   });
@@ -165,6 +167,7 @@ export function withTelemetryGenerator<T, TReturn = void>(
   }
 
   const span = tracer.startSpan(name, {}, activeCtx);
+  const previousSpanLlmTags = setActiveSpanLlmTags(traceMeta?.tags);
 
   // 设置 trace 元数据
   const effectiveTraceMeta: TraceMetadata = {
@@ -187,8 +190,17 @@ export function withTelemetryGenerator<T, TReturn = void>(
     setSpanAttributes(span, attributes);
   }
 
+  const source = factory(span);
+  async function* generatorWithSpanLlmTags(): AsyncGenerator<T, TReturn> {
+    try {
+      return yield* source;
+    } finally {
+      setActiveSpanLlmTags(previousSpanLlmTags);
+    }
+  }
+
   // 返回 generator 和 span，由调用者负责结束 span
-  return { generator: factory(span), span };
+  return { generator: generatorWithSpanLlmTags(), span };
 }
 
 /**

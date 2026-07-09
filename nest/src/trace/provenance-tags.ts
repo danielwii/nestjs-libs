@@ -11,6 +11,7 @@ export type ProvenanceTags = Readonly<Record<string, string>>;
 const logger = getAppLogger('ProvenanceTags');
 
 const PROVENANCE_TAGS_KEY = 'provenance.tags';
+const ACTIVE_SPAN_LLM_TAGS_KEY = 'provenance.active_span_llm_tags';
 const MAX_TAGS = 16;
 const MAX_KEY_LENGTH = 64;
 const MAX_VALUE_LENGTH = 256;
@@ -123,6 +124,18 @@ export function clearProvenanceTags(): void {
   RequestContext.set(PROVENANCE_TAGS_KEY, undefined);
 }
 
+export function setActiveSpanLlmTags(tags: readonly string[] | undefined): readonly string[] | undefined {
+  if (!hasRequestContext()) return undefined;
+
+  const previous = RequestContext.get<readonly string[]>(ACTIVE_SPAN_LLM_TAGS_KEY);
+  RequestContext.set(ACTIVE_SPAN_LLM_TAGS_KEY, tags !== undefined ? [...tags] : undefined);
+  return previous;
+}
+
+export function getActiveSpanLlmTags(): readonly string[] {
+  return RequestContext.get<readonly string[]>(ACTIVE_SPAN_LLM_TAGS_KEY) ?? [];
+}
+
 function sortedEntries(tags: ProvenanceTags | undefined): Array<[string, string]> {
   return Object.entries(sanitizeProvenanceTags(tags)).sort(([a], [b]) => a.localeCompare(b));
 }
@@ -161,5 +174,5 @@ export function applyProvenanceToSpan(
 export function applyProvenanceToActiveSpan(tags: ProvenanceTags = getProvenanceTags()): void {
   const span = trace.getSpan(context.active());
   if (!span) return;
-  applyProvenanceToSpan(span, tags);
+  applyProvenanceToSpan(span, tags, getActiveSpanLlmTags());
 }
