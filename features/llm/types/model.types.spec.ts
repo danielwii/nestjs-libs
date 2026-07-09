@@ -187,6 +187,16 @@ describe('getModel', () => {
     const config = getModel(`${KNOWN_KEY}?reason=high&retry=3` as LLMModelSpec);
     expect(config.provider).toBe('openrouter');
   });
+
+  it('should return Vertex direct Gemini 3.5 Flash variants', () => {
+    const regional = getModel('vertex:gemini-3.5-flash');
+    const global = getModel('vertex-global:gemini-3.5-flash');
+
+    expect(regional.provider).toBe('vertex');
+    expect(regional.modelId).toBe('gemini-3.5-flash');
+    expect(global.provider).toBe('vertex-global');
+    expect(global.modelId).toBe('gemini-3.5-flash');
+  });
 });
 
 describe('getModelId', () => {
@@ -194,6 +204,11 @@ describe('getModelId', () => {
     const id = getModelId(KNOWN_KEY);
     expect(typeof id).toBe('string');
     expect(id.length).toBeGreaterThan(0);
+  });
+
+  it('should return modelId for Vertex direct Gemini 3.5 Flash variants', () => {
+    expect(getModelId('vertex:gemini-3.5-flash')).toBe('gemini-3.5-flash');
+    expect(getModelId('vertex-global:gemini-3.5-flash')).toBe('gemini-3.5-flash');
   });
 });
 

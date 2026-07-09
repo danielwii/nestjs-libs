@@ -48,6 +48,21 @@ function colorLevel(level: string): string {
   return `${ansi.bold}${color}${upper}${ansi.reset}`;
 }
 
+const INVALID_TRACE_ID = '00000000000000000000000000000000';
+type ActiveTraceIdResolver = () => string | undefined;
+
+let activeTraceIdResolver: ActiveTraceIdResolver | undefined;
+
+// Runtime integrations that already require OTel install this; shared utils stays peer-free.
+export function setActiveTraceIdResolver(resolver: ActiveTraceIdResolver | undefined): void {
+  activeTraceIdResolver = resolver;
+}
+
+function activeTraceId(): string | undefined {
+  const traceId = activeTraceIdResolver?.();
+  return traceId && traceId !== INVALID_TRACE_ID ? traceId : undefined;
+}
+
 // ==================== LogTape Record Type ====================
 
 export interface LogRecord {
@@ -74,8 +89,9 @@ export function devFormatter(record: LogRecord): string {
   // Context tag: [spanName|traceId|userId|...contextTags]
   const contextParts: string[] = [];
   const { traceId, userId, spanName, contextTags } = record.properties;
+  const effectiveTraceId = typeof traceId === 'string' && traceId.length > 0 ? traceId : activeTraceId();
   if (spanName && typeof spanName === 'string') contextParts.push(spanName);
-  if (traceId && typeof traceId === 'string') contextParts.push(traceId);
+  if (effectiveTraceId) contextParts.push(effectiveTraceId);
   if (userId && typeof userId === 'string' && userId.trim().length > 0) contextParts.push(userId);
   // Extra context tags (from NestJS RequestContext non-standard fields)
   if (Array.isArray(contextTags)) {
@@ -153,6 +169,11 @@ export function prodFormatter(record: LogRecord): string {
   // Flatten properties (module, traceId, userId, spanName)
   for (const [k, v] of Object.entries(record.properties)) {
     if (v !== undefined && v !== null) entry[k] = v;
+  }
+
+  if (!entry.traceId) {
+    const traceId = activeTraceId();
+    if (traceId) entry.traceId = traceId;
   }
 
   return JSON.stringify(entry);

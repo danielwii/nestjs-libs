@@ -17,6 +17,9 @@ import {
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { GraphQLError } from 'graphql';
 import { ZodError } from 'zod';
@@ -570,6 +573,22 @@ describe('AnyExceptionFilter', () => {
       );
     });
 
+    it('headers 缺失时 fallback 到 typed request.user.preferredLocale', async () => {
+      const { filter: filterWithI18n, translateErrorMessage } = createI18nFilter();
+      const request = createMockRequest({
+        preferredLocale: ' zh-Hant ',
+      }) as ReturnType<typeof createMockRequest> & { headers?: Record<string, string> };
+      Reflect.deleteProperty(request, 'headers');
+
+      await filterWithI18n.catch(Oops.Validation('原始消息'), createHttpHost({ request }).host);
+
+      expect(translateErrorMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetLanguage: 'zh-Hant',
+        }),
+      );
+    });
+
     it('空 x-locale 和 wildcard x-locale fallback 到 preferredLocale', async () => {
       const emptyCase = createI18nFilter();
       await emptyCase.filter.catch(
@@ -651,6 +670,12 @@ describe('toErrorDescriptor', () => {
     const desc = toErrorDescriptor(new ThrottlerException('too many'));
     expect(desc?.httpStatus).toBe(HttpStatus.TOO_MANY_REQUESTS);
     expect(desc?.code).toBe(ErrorCodes.CLIENT_RATE_LIMITED);
+  });
+
+  it('error-descriptor does not import optional throttler at module scope', () => {
+    const source = readFileSync(join(process.cwd(), 'nest/src/exceptions/error-descriptor.ts'), 'utf8');
+
+    expect(source).not.toContain('@nestjs/throttler');
   });
 
   it('UnprocessableEntityException + BUSINESS_RULE_VIOLATION cause → warning', () => {

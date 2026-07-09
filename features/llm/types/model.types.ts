@@ -535,6 +535,7 @@ export interface LLMModelRegistry {
   'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-flash-lite': ModelConfig<'vertex'>;
+  'vertex:gemini-3.5-flash': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>;
 
   // ==================== Vertex AI (project/global mode) ====================
@@ -543,6 +544,7 @@ export interface LLMModelRegistry {
   'vertex-global:gemini-2.5-flash-lite': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3-flash-preview': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.1-flash-lite': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-3.5-flash': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.1-pro-preview': ModelConfig<'vertex-global'>;
 }
 
@@ -886,6 +888,10 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
   [
+    'vertex:gemini-3.5-flash',
+    { provider: 'vertex', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
+  ],
+  [
     'vertex:gemini-3.1-pro-preview',
     {
       provider: 'vertex',
@@ -919,6 +925,10 @@ const modelRegistry = new Map<string, ModelConfig>([
       modelId: 'gemini-3.1-flash-lite',
       supportedTiers: ['standard', 'flex', 'priority'],
     },
+  ],
+  [
+    'vertex-global:gemini-3.5-flash',
+    { provider: 'vertex-global', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
   ],
   [
     'vertex-global:gemini-3.1-pro-preview',
