@@ -8,6 +8,9 @@ import { llm } from './auto.client';
 import { mergeProvenanceRuntimeContext } from './llm.class';
 import { resetLLMClients } from './llm.clients';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 interface LLMBuilderTestAccess {
@@ -88,5 +91,19 @@ describe('LLM provenance runtime context', () => {
         tags: ['task:reply', 'origin.channel:api', 'sandbox.client_type:browser'],
       });
     });
+  });
+
+  it('keeps LLM client provenance formatting independent from tracing span helpers', () => {
+    const autoClient = readFileSync(join(import.meta.dir, 'auto.client.ts'), 'utf8');
+    const llmClass = readFileSync(join(import.meta.dir, 'llm.class.ts'), 'utf8');
+    const provenanceContext = readFileSync(join(process.cwd(), 'nest/src/trace/provenance-context.ts'), 'utf8');
+    const provenanceFormat = readFileSync(join(process.cwd(), 'nest/src/trace/provenance-format.ts'), 'utf8');
+
+    expect(autoClient).not.toContain('@app/nest/trace/provenance-tags');
+    expect(llmClass).not.toContain('@app/nest/trace/provenance-tags');
+    expect(autoClient).toContain('@app/nest/trace/provenance-context');
+    expect(llmClass).toContain('@app/nest/trace/provenance-context');
+    expect(provenanceContext).not.toContain('@opentelemetry/api');
+    expect(provenanceFormat).not.toContain('@opentelemetry/api');
   });
 });

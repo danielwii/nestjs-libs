@@ -29,7 +29,7 @@
 
 import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
-import { mergeProvenanceLlmTags } from '@app/nest/trace/provenance-tags';
+import { mergeProvenanceLlmTags } from '@app/nest/trace/provenance-context';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';

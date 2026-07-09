@@ -1,128 +1,27 @@
-import { getAppLogger } from '@app/utils/app-logger';
-
-import { RequestContext } from './request-context';
+import {
+  getProvenanceTags,
+  mergeProvenanceTags as mergeContextProvenanceTags,
+  mergeProvenanceLlmTags,
+  setProvenanceTags as setContextProvenanceTags,
+} from './provenance-context';
+import { sortedProvenanceEntries } from './provenance-format';
 
 import { context, createContextKey, trace } from '@opentelemetry/api';
 
+import type { ProvenanceTags } from './provenance-format';
 import type { Context, Span } from '@opentelemetry/api';
 
-export type ProvenanceTags = Readonly<Record<string, string>>;
-
-const logger = getAppLogger('ProvenanceTags');
-
-const PROVENANCE_TAGS_KEY = 'provenance.tags';
 const ACTIVE_SPAN_LLM_TAGS_CONTEXT_KEY = createContextKey('provenance.active_span_llm_tags');
-const MAX_TAGS = 16;
-const MAX_KEY_LENGTH = 64;
-const MAX_VALUE_LENGTH = 256;
-const KEY_PATTERN = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
-const SENSITIVE_KEY_PARTS = new Set([
-  'authorization',
-  'cookie',
-  'csrf_token',
-  'id_token',
-  'api_key',
-  'password',
-  'refresh_token',
-  'secret',
-  'token',
-]);
 
-function hasRequestContext(): boolean {
-  return RequestContext.entries() !== undefined;
-}
-
-function isSensitiveKey(key: string): boolean {
-  return key.split('.').some((part) => SENSITIVE_KEY_PARTS.has(part) || part.endsWith('_token'));
-}
-
-function normalizeValue(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? String(value) : undefined;
-  }
-
-  if (typeof value === 'boolean') {
-    return String(value);
-  }
-
-  return undefined;
-}
-
-function warnDropped(dropped: number): void {
-  if (dropped > 0) {
-    logger.warning`Dropped ${dropped} invalid provenance tag(s)`;
-  }
-}
-
-export function sanitizeProvenanceTags(
-  input: Record<string, unknown> | undefined,
-  options?: { warn?: boolean },
-): ProvenanceTags {
-  if (!input) return Object.freeze({});
-
-  const output: Record<string, string> = {};
-  let accepted = 0;
-  let dropped = 0;
-
-  for (const [key, rawValue] of Object.entries(input)) {
-    const value = normalizeValue(rawValue);
-    const valid =
-      key.length <= MAX_KEY_LENGTH &&
-      KEY_PATTERN.test(key) &&
-      !isSensitiveKey(key) &&
-      value !== undefined &&
-      value.length <= MAX_VALUE_LENGTH &&
-      accepted < MAX_TAGS;
-
-    if (!valid) {
-      dropped += 1;
-      continue;
-    }
-
-    output[key] = value;
-    accepted += 1;
-  }
-
-  if (options?.warn) {
-    warnDropped(dropped);
-  }
-  return Object.freeze(output);
-}
-
-export function setProvenanceTags(tags: Record<string, unknown>): void {
-  if (!hasRequestContext()) return;
-
-  const sanitized = sanitizeProvenanceTags(tags, { warn: true });
-  RequestContext.set(PROVENANCE_TAGS_KEY, sanitized);
-  applyProvenanceToActiveSpan(sanitized);
-}
-
-export function mergeProvenanceTags(tags: Record<string, unknown>): void {
-  if (!hasRequestContext()) return;
-
-  const merged = {
-    ...getProvenanceTags(),
-    ...sanitizeProvenanceTags(tags, { warn: true }),
-  };
-  const sanitized = sanitizeProvenanceTags(merged);
-  RequestContext.set(PROVENANCE_TAGS_KEY, sanitized);
-  applyProvenanceToActiveSpan(sanitized);
-}
-
-export function getProvenanceTags(): ProvenanceTags {
-  const current = RequestContext.get<Record<string, unknown>>(PROVENANCE_TAGS_KEY);
-  return sanitizeProvenanceTags(current);
-}
-
-export function clearProvenanceTags(): void {
-  if (!hasRequestContext()) return;
-  RequestContext.set(PROVENANCE_TAGS_KEY, undefined);
-}
+export type { ProvenanceTags } from './provenance-format';
+export { sanitizeProvenanceTags } from './provenance-format';
+export {
+  clearProvenanceTags,
+  getProvenanceTags,
+  mergeProvenanceLlmTags,
+  toProvenanceLlmTags,
+  toProvenanceLogTags,
+} from './provenance-context';
 
 export function withActiveSpanLlmTags(activeContext: Context, tags: readonly string[] | undefined): Context {
   if (tags === undefined) {
@@ -137,24 +36,14 @@ export function getActiveSpanLlmTags(activeContext: Context = context.active()):
   return Array.isArray(tags) && tags.every((tag) => typeof tag === 'string') ? tags : [];
 }
 
-function sortedEntries(tags: ProvenanceTags | undefined): Array<[string, string]> {
-  return Object.entries(sanitizeProvenanceTags(tags)).sort(([a], [b]) => a.localeCompare(b));
+export function setProvenanceTags(tags: Record<string, unknown>): void {
+  setContextProvenanceTags(tags);
+  applyProvenanceToActiveSpan();
 }
 
-export function toProvenanceLogTags(tags: ProvenanceTags = getProvenanceTags()): string[] {
-  return sortedEntries(tags).map(([key, value]) => `provenance:${key}=${value}`);
-}
-
-export function toProvenanceLlmTags(tags: ProvenanceTags = getProvenanceTags()): string[] {
-  return sortedEntries(tags).map(([key, value]) => `${key}:${value}`);
-}
-
-export function mergeProvenanceLlmTags(
-  existingTags: readonly string[] = [],
-  tags: ProvenanceTags = getProvenanceTags(),
-): string[] {
-  const provenanceTags = toProvenanceLlmTags(tags);
-  return provenanceTags.length > 0 ? [...existingTags, ...provenanceTags] : [...existingTags];
+export function mergeProvenanceTags(tags: Record<string, unknown>): void {
+  mergeContextProvenanceTags(tags);
+  applyProvenanceToActiveSpan();
 }
 
 export function applyProvenanceToSpan(
@@ -162,7 +51,7 @@ export function applyProvenanceToSpan(
   tags: ProvenanceTags = getProvenanceTags(),
   existingLlmTags: readonly string[] = [],
 ): void {
-  const entries = sortedEntries(tags);
+  const entries = sortedProvenanceEntries(tags);
   if (entries.length === 0) return;
 
   for (const [key, value] of entries) {
