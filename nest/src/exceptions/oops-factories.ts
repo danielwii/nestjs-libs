@@ -1,6 +1,10 @@
 import { ErrorCodes } from './error-codes';
 import { Oops } from './oops';
 
+import type { PanicHttpStatus } from './oops';
+
+type ExternalServicePanicOptions = { cause?: unknown; httpStatus?: PanicHttpStatus };
+
 // ==================== Oops (422) Factories ====================
 
 /** 通用参数验证失败 */
@@ -164,8 +168,13 @@ Oops.Panic.Database = function (operation: string, options?: { cause?: unknown }
 };
 
 /** 外部服务不可达 — "服务暂时不可用" */
-Oops.Panic.ExternalService = function (service: string, details?: string, options?: { cause?: unknown }): Oops.Panic {
+Oops.Panic.ExternalService = function (
+  service: string,
+  details?: string,
+  options?: ExternalServicePanicOptions,
+): Oops.Panic {
   return new Oops.Panic({
+    httpStatus: options?.httpStatus,
     errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
     userMessage: '服务暂时不可用，请稍后重试',
     internalDetails: `External service error: ${service}${details ? `, ${details}` : ''}`,
@@ -207,7 +216,7 @@ declare module './oops' {
     // Panic (500) factory methods
     namespace Panic {
       function Database(operation: string, options?: { cause?: unknown }): Oops.Panic;
-      function ExternalService(service: string, details?: string, options?: { cause?: unknown }): Oops.Panic;
+      function ExternalService(service: string, details?: string, options?: ExternalServicePanicOptions): Oops.Panic;
       function Config(details: string, options?: { cause?: unknown }): Oops.Panic;
       function AIModelError(model: string, error: string, options?: { cause?: unknown }): Oops.Panic;
       function AIObjectGenerationFailed(

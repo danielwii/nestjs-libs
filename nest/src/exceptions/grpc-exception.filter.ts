@@ -324,12 +324,18 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     // 关键区分：
     // - 400 INVALID_ARGUMENT: 请求参数本身有问题（格式错、缺字段），修改参数才能成功
     // - 422 FAILED_PRECONDITION: 请求合法但当前条件不满足（设备不在线、余额不足），换个时机/条件可能成功
+    // - 502/503 UNAVAILABLE: 上游依赖不可用，区别于本服务内部故障
+    if (httpStatus === 502) return status.UNAVAILABLE;
+    if (httpStatus === 503) return status.UNAVAILABLE;
     if (httpStatus >= 500) return status.INTERNAL;
     if (httpStatus === 400) return status.INVALID_ARGUMENT;
     if (httpStatus === 401) return status.UNAUTHENTICATED;
     if (httpStatus === 403) return status.PERMISSION_DENIED;
     if (httpStatus === 404) return status.NOT_FOUND;
+    if (httpStatus === 408) return status.DEADLINE_EXCEEDED;
     if (httpStatus === 409) return status.ALREADY_EXISTS;
+    if (httpStatus === 413) return status.RESOURCE_EXHAUSTED;
+    if (httpStatus === 415) return status.INVALID_ARGUMENT;
     if (httpStatus === 422) return status.FAILED_PRECONDITION;
     if (httpStatus === 429) return status.RESOURCE_EXHAUSTED;
     return status.UNKNOWN;

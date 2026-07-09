@@ -54,7 +54,7 @@ describe('Oops.Block factory methods (4xx)', () => {
   });
 });
 
-describe('Oops.Panic factory methods (500)', () => {
+describe('Oops.Panic factory methods (5xx)', () => {
   it('Panic.Database()', () => {
     const err = Oops.Panic.Database('query timeout');
     expect(err).toBeInstanceOf(Oops.Panic);
@@ -79,6 +79,12 @@ describe('Oops.Panic factory methods (500)', () => {
     const cause = new Error('connection refused');
     const err = Oops.Panic.ExternalService('Redis', 'connection refused', { cause });
     expect(err.cause).toBe(cause);
+  });
+
+  it('Panic.ExternalService() should preserve upstream failure status', () => {
+    const err = Oops.Panic.ExternalService('Azure STT', 'temporarily unavailable', { httpStatus: 503 });
+    expect(err.httpStatus).toBe(503);
+    expect(err.isFatal()).toBe(true);
   });
 
   it('Panic.Config()', () => {
