@@ -14,11 +14,16 @@ interface OopsConfig {
   cause?: unknown;
 }
 
+type BlockHttpStatus = 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429;
+type PanicHttpStatus = 500 | 502 | 503;
+
 interface BlockConfig extends OopsConfig {
-  httpStatus: 400 | 401 | 403 | 404 | 409 | 429;
+  httpStatus: BlockHttpStatus;
 }
 
 interface PanicConfig {
+  /** Defaults to 500; use 502/503 when preserving upstream dependency failure semantics. */
+  httpStatus?: PanicHttpStatus;
   errorCode: ErrorCodeValue;
   oopsCode?: string;
   userMessage: string;
@@ -64,7 +69,7 @@ namespace Oops {
    * WARN 日志，不触发 Sentry。
    */
   export class Block extends OopsError {
-    readonly httpStatus: 400 | 401 | 403 | 404 | 409 | 429;
+    readonly httpStatus: BlockHttpStatus;
     readonly errorCode: ErrorCodeValue;
     readonly oopsCode: string;
     readonly userMessage: string;
@@ -83,13 +88,14 @@ namespace Oops {
   }
 
   /**
-   * 系统故障 — 500 Internal Server Error
+   * 系统故障 — 5xx server / upstream failure
    *
    * 大楼停电了：DB 挂了、外部服务不可达、配置缺失。
+   * 缺省 500；上游依赖失败可显式标 502/503。
    * ERROR 日志，触发 Sentry。
    */
   export class Panic extends OopsError {
-    readonly httpStatus = 500 as const;
+    readonly httpStatus: PanicHttpStatus;
     readonly errorCode: ErrorCodeValue;
     readonly oopsCode: string;
     readonly userMessage: string;
@@ -98,6 +104,7 @@ namespace Oops {
 
     constructor(config: PanicConfig) {
       super(config.internalDetails ?? config.userMessage, { cause: config.cause });
+      this.httpStatus = config.httpStatus ?? 500;
       this.errorCode = config.errorCode;
       this.oopsCode = config.oopsCode ?? '';
       this.userMessage = config.userMessage;
@@ -108,4 +115,4 @@ namespace Oops {
 }
 
 export { Oops };
-export type { OopsConfig, BlockConfig, PanicConfig };
+export type { OopsConfig, BlockConfig, PanicConfig, BlockHttpStatus, PanicHttpStatus };

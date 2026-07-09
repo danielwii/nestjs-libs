@@ -3,6 +3,8 @@ import { OopsError } from './oops-error';
 
 import { describe, expect, it } from 'bun:test';
 
+import type { BlockHttpStatus, PanicHttpStatus } from './oops';
+
 describe('Oops (422)', () => {
   it('should have httpStatus 422', () => {
     const err = new Oops({
@@ -19,7 +21,7 @@ describe('Oops (422)', () => {
 });
 
 describe('Oops.Block (4xx)', () => {
-  it('should accept 401/403/404/409 status', () => {
+  it('should accept existing request-boundary statuses', () => {
     const err = new Oops.Block({
       httpStatus: 401,
       errorCode: '0x0103',
@@ -32,10 +34,28 @@ describe('Oops.Block (4xx)', () => {
     expect(err instanceof Oops.Block).toBe(true);
     expect(err instanceof Oops).toBe(false);
   });
+
+  it('should accept timeout, payload size, and media type statuses as non-fatal request blocks', () => {
+    const statuses: BlockHttpStatus[] = [408, 413, 415];
+
+    for (const httpStatus of statuses) {
+      const err = new Oops.Block({
+        httpStatus,
+        errorCode: '0x0101',
+        oopsCode: 'ST01',
+        userMessage: 'stream request blocked',
+      });
+
+      expect(err.httpStatus).toBe(httpStatus);
+      expect(err.isFatal()).toBe(false);
+      expect(err instanceof OopsError).toBe(true);
+      expect(err instanceof Oops.Block).toBe(true);
+    }
+  });
 });
 
-describe('Oops.Panic (500)', () => {
-  it('should have httpStatus 500 and be fatal', () => {
+describe('Oops.Panic (5xx)', () => {
+  it('should default httpStatus to 500 and be fatal', () => {
     const err = new Oops.Panic({
       errorCode: '0x0401',
       oopsCode: 'SY01',
@@ -47,6 +67,24 @@ describe('Oops.Panic (500)', () => {
     expect(err instanceof OopsError).toBe(true);
     expect(err instanceof Oops.Panic).toBe(true);
     expect(err instanceof Oops).toBe(false);
+  });
+
+  it('should accept upstream failure statuses and remain fatal', () => {
+    const statuses: PanicHttpStatus[] = [502, 503];
+
+    for (const httpStatus of statuses) {
+      const err = new Oops.Panic({
+        httpStatus,
+        errorCode: '0x0401',
+        oopsCode: 'SY02',
+        userMessage: 'upstream failed',
+      });
+
+      expect(err.httpStatus).toBe(httpStatus);
+      expect(err.isFatal()).toBe(true);
+      expect(err instanceof OopsError).toBe(true);
+      expect(err instanceof Oops.Panic).toBe(true);
+    }
   });
 
   it('should default oopsCode to empty string', () => {
