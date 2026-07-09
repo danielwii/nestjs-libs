@@ -70,8 +70,17 @@ import type { LLMModelKey, LLMModelSpec, VertexRequestType, VertexTier } from '.
  */
 import type { ProviderType } from './options.helpers';
 import type { JSONObject } from '@ai-sdk/provider';
+import type { Context } from '@ai-sdk/provider-utils';
 import type { OopsError } from '@app/nest/exceptions/oops-error';
-import type { LanguageModel, ModelMessage, StopCondition, TelemetryOptions, ToolSet } from 'ai';
+import type {
+  LanguageModel,
+  ModelMessage,
+  PrepareStepFunction,
+  PrepareStepResult,
+  StopCondition,
+  TelemetryOptions,
+  ToolSet,
+} from 'ai';
 import type * as NodeFs from 'node:fs';
 import type { z } from 'zod';
 
@@ -129,6 +138,44 @@ export interface TokenUsage {
 /** OpenRouter Provider 排序策略 */
 export type ProviderSort = 'price' | 'throughput' | 'latency';
 
+type LLMReservedAIKeys = 'model' | 'providerOptions';
+type LLMWrappedAIKeys = LLMReservedAIKeys | 'prepareStep';
+
+export interface LLMPrepareStepOptions {
+  /** Step-level model spec. Translated through LLM's normal model/provider normalization. */
+  model?: LLMModelSpec;
+  /** Step-level thinking override. Defaults to current step model spec semantics. */
+  thinking?: ThinkingEffort;
+  /** OpenRouter provider ordering override for the step model. */
+  providerSort?: ProviderSort;
+  /** Provider model id suffix for the step model. */
+  modelIdSuffix?: string;
+}
+
+export type LLMPrepareStepResult<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context> =
+  | (Omit<NonNullable<PrepareStepResult<TOOLS, RUNTIME_CONTEXT>>, LLMReservedAIKeys> & {
+      llm?: LLMPrepareStepOptions;
+    })
+  | undefined;
+
+export type LLMPrepareStepFunction<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context> = (
+  options: Parameters<PrepareStepFunction<TOOLS, RUNTIME_CONTEXT>>[0],
+) => LLMPrepareStepResult<TOOLS, RUNTIME_CONTEXT> | PromiseLike<LLMPrepareStepResult<TOOLS, RUNTIME_CONTEXT>>;
+
+export type LLMGenerateTextAIOptions<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context> = Omit<
+  Parameters<typeof generateText<TOOLS, RUNTIME_CONTEXT>>[0],
+  LLMWrappedAIKeys
+> & {
+  prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
+};
+
+export type LLMStreamTextAIOptions<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context> = Omit<
+  Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT>>[0],
+  LLMWrappedAIKeys
+> & {
+  prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
+};
+
 /**
  * Web 搜索来源引用
  *
@@ -181,7 +228,13 @@ interface GenerateObjectParams<T> extends BaseParams {
 }
 
 /** generateText 参数 */
-interface GenerateTextParams extends BaseParams {
+interface GenerateTextParams<
+  TOOLS extends ToolSet = ToolSet,
+  RUNTIME_CONTEXT extends Context = Context,
+> extends BaseParams {
+  /** AI SDK 原生参数，LLM 保留 model/providerOptions 并转译 prepareStep.llm */
+  ai?: LLMGenerateTextAIOptions<TOOLS, RUNTIME_CONTEXT>;
+
   /**
    * 可选工具集（如 provider-defined tools）
    *
@@ -201,7 +254,8 @@ interface GenerateTextParams extends BaseParams {
    * });
    * ```
    */
-  tools?: ToolSet;
+  /** @deprecated use `ai.tools` */
+  tools?: TOOLS;
 
   /**
    * Model ID 后缀
@@ -213,6 +267,36 @@ interface GenerateTextParams extends BaseParams {
    * → provider 收到 'x-ai/grok-4.1-fast:online'
    */
   modelIdSuffix?: string;
+}
+
+interface StreamTextParams<
+  TOOLS extends ToolSet = ToolSet,
+  RUNTIME_CONTEXT extends Context = Context,
+> extends BaseParams {
+  /** AI SDK 原生参数，LLM 保留 model/providerOptions 并转译 prepareStep.llm */
+  ai?: LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>;
+}
+
+interface StreamObjectParams<
+  T,
+  TOOLS extends ToolSet = ToolSet,
+  RUNTIME_CONTEXT extends Context = Context,
+> extends GenerateObjectParams<T> {
+  /** AI SDK 原生参数，LLM 保留 model/providerOptions/output 并转译 prepareStep.llm */
+  ai?: LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>;
+  /** 可选的工具集，模型可在生成结构化输出的同时调用这些工具 */
+  tools?: TOOLS;
+  /**
+   * 多步工具调用的停止条件
+   *
+   * 当传入 tools 时，模型可能先调用工具再生成最终输出，需要多步。
+   * 默认 stepCountIs(1)（只运行 1 步，工具结果不会回传给模型）。
+   *
+   * 推荐：有 tools 时设为 stepCountIs(3) 或更高。
+   *
+   * @default stepCountIs(1)
+   */
+  stopWhen?: StopCondition<TOOLS, RUNTIME_CONTEXT> | Array<StopCondition<TOOLS, RUNTIME_CONTEXT>>;
 }
 
 /** generateObject 返回值 */
@@ -334,6 +418,142 @@ function buildProviderOptions(
   }
 
   return thinkingOptions;
+}
+
+const aiLogger = getAppLogger('features', 'LLM', 'ai');
+
+function stripJsonCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const jsonMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/);
+  if (jsonMatch?.[1]) return jsonMatch[1].trim();
+  if (trimmed.startsWith('```')) return trimmed.replace(/^```(?:json)?\s*\n?/, '').trim();
+  return trimmed;
+}
+
+function createLanguageModelForCall(
+  modelKey: LLMModelKey,
+  modelIdSuffix: string | undefined,
+  options?: { extractJson?: boolean },
+): LanguageModel {
+  const languageModel = createModel(modelKey, modelIdSuffix);
+  if (!options?.extractJson || !MODELS_NEEDING_EXTRACT_JSON.has(modelKey)) {
+    return languageModel;
+  }
+
+  return wrapLanguageModel({
+    model: languageModel as Parameters<typeof wrapLanguageModel>[0]['model'],
+    middleware: extractJsonMiddleware({ transform: stripJsonCodeFence }),
+  });
+}
+
+interface ResolveAIOptionsContext {
+  id: string;
+  method: string;
+  modelSpec: LLMModelSpec;
+  modelIdSuffix?: string;
+  thinking: ThinkingEffort;
+  providerSort?: ProviderSort;
+  extractJson?: boolean;
+}
+
+interface LegacyAIOptions<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context> {
+  tools?: TOOLS;
+  stopWhen?: StopCondition<TOOLS, RUNTIME_CONTEXT> | Array<StopCondition<TOOLS, RUNTIME_CONTEXT>>;
+}
+
+function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>(
+  prepareStep: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT> | undefined,
+  context: ResolveAIOptionsContext,
+): PrepareStepFunction<TOOLS, RUNTIME_CONTEXT> | undefined {
+  if (!prepareStep) return undefined;
+
+  return async (options) => {
+    const result = await prepareStep(options);
+    if (!result) return undefined;
+
+    const unsafe = result as Record<string, unknown>;
+    if ('model' in unsafe || 'providerOptions' in unsafe) {
+      aiLogger.warning`[prepareStep] id=${context.id}, method=${context.method}: raw model/providerOptions are managed by LLM and ignored; use llm.model instead`;
+    }
+
+    const { model: _model, providerOptions: _providerOptions, llm, ...safe } = unsafe;
+    if (!llm) {
+      return safe;
+    }
+
+    const llmOptions = llm as LLMPrepareStepOptions;
+    const targetModelSpec = llmOptions.model ?? context.modelSpec;
+    const targetModelIdSuffix = llmOptions.modelIdSuffix ?? (llmOptions.model ? undefined : context.modelIdSuffix);
+    const stepThinking = llmOptions.thinking ?? (llmOptions.model ? 'none' : context.thinking);
+    const stepSpec = resolveSpec(targetModelSpec, stepThinking, undefined, undefined);
+
+    if (stepSpec.fallbackModels.length > 0) {
+      aiLogger.warning`[prepareStep] id=${context.id}, method=${context.method}: step-level fallback models are ignored because AI SDK PrepareStepResult can only return one model`;
+    }
+    if ((stepSpec.tier && stepSpec.tier !== 'standard') || stepSpec.vertexRequestType) {
+      aiLogger.warning`[prepareStep] id=${context.id}, method=${context.method}: step-level tier/requestType is ignored because AI SDK PrepareStepResult does not support step-level headers`;
+    }
+
+    const provider = parseProvider(stepSpec.key);
+    return {
+      ...safe,
+      model: createLanguageModelForCall(stepSpec.key, targetModelIdSuffix, {
+        extractJson: context.extractJson,
+      }),
+      providerOptions: buildProviderOptions(
+        provider,
+        stepSpec.thinking,
+        stepSpec.key,
+        llmOptions.providerSort ?? context.providerSort,
+      ),
+    };
+  };
+}
+
+function resolveLLMAIOptions<
+  TOOLS extends ToolSet,
+  RUNTIME_CONTEXT extends Context,
+  OPTIONS extends {
+    tools?: TOOLS;
+    stopWhen?: StopCondition<TOOLS, RUNTIME_CONTEXT> | Array<StopCondition<TOOLS, RUNTIME_CONTEXT>>;
+    prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
+  },
+>(
+  ai: OPTIONS | undefined,
+  context: ResolveAIOptionsContext,
+  legacy?: LegacyAIOptions<TOOLS, RUNTIME_CONTEXT>,
+): OPTIONS | undefined {
+  if (!ai && !legacy?.tools && !legacy?.stopWhen) return undefined;
+
+  const source = (ai ?? {}) as Record<string, unknown>;
+  if ('model' in source || 'providerOptions' in source) {
+    aiLogger.warning`[options] id=${context.id}, method=${context.method}: raw model/providerOptions are managed by LLM and ignored`;
+  }
+
+  const { model: _model, providerOptions: _providerOptions, ...safe } = source;
+  const merged = { ...safe } as Record<string, unknown>;
+  if (merged.tools === undefined && legacy?.tools !== undefined) {
+    merged.tools = legacy.tools;
+  }
+  if (merged.stopWhen === undefined && legacy?.stopWhen !== undefined) {
+    merged.stopWhen = legacy.stopWhen;
+  }
+  if (merged.prepareStep) {
+    merged.prepareStep = wrapPrepareStep(merged.prepareStep as LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>, context);
+  }
+
+  return merged as OPTIONS;
+}
+
+function mergeHeaders(
+  aiHeaders: Record<string, string | undefined> | undefined,
+  llmHeaders: Record<string, string> | undefined,
+): Record<string, string | undefined> | undefined {
+  if (!aiHeaders && !llmHeaders) return undefined;
+  return {
+    ...aiHeaders,
+    ...llmHeaders,
+  };
 }
 
 /** 导出给测试文件共享同一真相源 */
@@ -923,7 +1143,9 @@ export class LLM {
   /**
    * generateText 的 Result 包装版
    */
-  static safeGenerateText(params: GenerateTextParams): ResultAsync<GenerateTextResult, OopsError> {
+  static safeGenerateText<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
+    params: GenerateTextParams<TOOLS, RUNTIME_CONTEXT>,
+  ): ResultAsync<GenerateTextResult, OopsError> {
     return LLM.toResult(LLM.generateTextCore(params), params.model);
   }
 
@@ -932,7 +1154,9 @@ export class LLM {
    *
    * 内部实现统一走 `safeGenerateText`，这里只在边界处将 Err(OopsError) 转为 throw。
    */
-  static async generateText(params: GenerateTextParams): Promise<GenerateTextResult> {
+  static async generateText<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
+    params: GenerateTextParams<TOOLS, RUNTIME_CONTEXT>,
+  ): Promise<GenerateTextResult> {
     return (await LLM.safeGenerateText(params)).match(
       (value) => value,
       (error) => {
@@ -995,7 +1219,9 @@ export class LLM {
    * });
    * ```
    */
-  private static async generateTextCore(params: GenerateTextParams): Promise<GenerateTextResult> {
+  private static async generateTextCore<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
+    params: GenerateTextParams<TOOLS, RUNTIME_CONTEXT>,
+  ): Promise<GenerateTextResult> {
     const {
       model: modelSpec,
       id,
@@ -1008,34 +1234,50 @@ export class LLM {
       abortSignal,
       timeout: callerTimeout,
       maxRetries: callerMaxRetries,
-      telemetry = DEFAULT_TELEMETRY,
+      telemetry: callerTelemetry,
+      ai,
       tools,
       modelIdSuffix,
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const telemetry = callerTelemetry ?? ai?.telemetry ?? DEFAULT_TELEMETRY;
 
     return withFallback(id, 'generateText', spec, async (modelKey, fb) => {
       const startTime = Date.now();
       LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
 
-      const languageModel = createModel(modelKey, modelIdSuffix);
+      const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMGenerateTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
+        ai,
+        {
+          id,
+          method: 'generateText',
+          modelSpec: modelKey,
+          modelIdSuffix,
+          thinking: spec.thinking,
+          providerSort,
+        },
+        { tools },
+      );
+      const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
       const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+      const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
-      const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
+      const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
 
       try {
         const result = await generateText({
+          ...(aiOptions ?? {}),
           model: languageModel,
-          system,
+          ...(system !== undefined ? { system } : {}),
+          prompt: undefined,
           messages,
-          tools,
           providerOptions,
-          headers: tierHeaders,
-          temperature,
-          maxOutputTokens,
+          headers,
+          ...(temperature !== undefined ? { temperature } : {}),
+          ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
           maxRetries: spec.maxRetries,
           abortSignal: signal,
           telemetry,
@@ -1083,22 +1325,8 @@ export class LLM {
    * }
    * ```
    */
-  static streamObject<T>(
-    params: GenerateObjectParams<T> & {
-      /** 可选的工具集，模型可在生成结构化输出的同时调用这些工具 */
-      tools?: ToolSet;
-      /**
-       * 多步工具调用的停止条件
-       *
-       * 当传入 tools 时，模型可能先调用工具再生成最终输出，需要多步。
-       * 默认 stepCountIs(1)（只运行 1 步，工具结果不会回传给模型）。
-       *
-       * 推荐：有 tools 时设为 stepCountIs(3) 或更高。
-       *
-       * @default stepCountIs(1)
-       */
-      stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
-    },
+  static streamObject<T, TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
+    params: StreamObjectParams<T, TOOLS, RUNTIME_CONTEXT>,
   ) {
     const startTime = Date.now();
     const {
@@ -1114,12 +1342,26 @@ export class LLM {
       abortSignal,
       timeout: callerTimeout,
       maxRetries: callerMaxRetries,
-      telemetry = DEFAULT_TELEMETRY,
+      telemetry: callerTelemetry,
+      ai,
       tools,
       stopWhen,
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
+      ai,
+      {
+        id,
+        method: 'streamObject',
+        modelSpec,
+        thinking: spec.thinking,
+        providerSort,
+        extractJson: true,
+      },
+      { tools, stopWhen },
+    );
+    const telemetry = callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
     const { key: modelKey } = spec;
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObject — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
@@ -1128,60 +1370,56 @@ export class LLM {
     LLM.logInputSummary(id, schema, messages, system);
     LLM.captureRequest(id, 'streamObject', modelKey, schema, messages, system);
 
-    const languageModel = createModel(modelKey);
-    const model: LanguageModel = MODELS_NEEDING_EXTRACT_JSON.has(modelKey)
-      ? wrapLanguageModel({
-          model: languageModel as Parameters<typeof wrapLanguageModel>[0]['model'],
-          middleware: extractJsonMiddleware({
-            transform: (text) => {
-              const trimmed = text.trim();
-              // 剥离 ```json 或 ``` 包裹；无闭合时仅剥离开头
-              const jsonMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/);
-              if (jsonMatch?.[1]) return jsonMatch[1].trim();
-              if (trimmed.startsWith('```')) return trimmed.replace(/^```(?:json)?\s*\n?/, '').trim();
-              return trimmed;
-            },
-          }),
-        })
-      : languageModel;
+    const model = createLanguageModelForCall(modelKey, undefined, { extractJson: true });
 
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
     const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+    const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
-    const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
+    const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
 
     let ttftLogged = false;
 
-    const result = streamText({
+    type StreamOnErrorEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onError']>>[0];
+    type StreamOnChunkEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onChunk']>>[0];
+    type StreamOnFinishEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onFinish']>>[0];
+
+    const output = Output.object({ schema });
+    const streamRequest = {
+      ...(aiOptions ?? {}),
       model,
-      output: Output.object({ schema }),
-      system,
+      output,
+      ...(system !== undefined ? { system } : {}),
+      prompt: undefined,
       messages,
-      tools,
-      stopWhen,
       providerOptions,
-      headers: tierHeaders,
-      temperature,
-      maxOutputTokens,
+      headers,
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       maxRetries: spec.maxRetries,
       abortSignal: signal,
       telemetry,
-      onError: ({ error }) => {
+      onError: async (event: StreamOnErrorEvent) => {
+        await aiOptions?.onError?.(event);
         cleanup();
-        LLM.logError(id, 'streamObject', modelKey, error);
+        LLM.logError(id, 'streamObject', modelKey, event.error);
       },
-      onChunk() {
+      onChunk: async (event: StreamOnChunkEvent) => {
+        await aiOptions?.onChunk?.(event);
         if (!ttftLogged) {
           LLM.logTTFT(id, startTime);
           ttftLogged = true;
         }
       },
-      onFinish(event) {
+      onFinish: async (event: StreamOnFinishEvent) => {
+        await aiOptions?.onFinish?.(event);
         cleanup();
         LLM.logEnd(id, 'streamObject', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
       },
-    });
+    } as unknown as Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, typeof output>>[0];
+
+    const result = streamText<TOOLS, RUNTIME_CONTEXT, typeof output>(streamRequest);
 
     return result;
   }
@@ -1201,7 +1439,9 @@ export class LLM {
    * }
    * ```
    */
-  static streamText(params: BaseParams) {
+  static streamText<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
+    params: StreamTextParams<TOOLS, RUNTIME_CONTEXT>,
+  ) {
     const startTime = Date.now();
     const {
       model: modelSpec,
@@ -1215,51 +1455,72 @@ export class LLM {
       abortSignal,
       timeout: callerTimeout,
       maxRetries: callerMaxRetries,
-      telemetry = DEFAULT_TELEMETRY,
+      telemetry: callerTelemetry,
+      ai,
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(ai, {
+      id,
+      method: 'streamText',
+      modelSpec,
+      thinking: spec.thinking,
+      providerSort,
+    });
+    const telemetry = callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
     const { key: modelKey } = spec;
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamText — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
     LLM.logStart(id, 'streamText', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
 
-    const languageModel = createModel(modelKey);
+    const languageModel = createLanguageModelForCall(modelKey, undefined);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
     const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+    const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
-    const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
+    const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
 
     let ttftLogged = false;
 
-    const result = streamText({
+    type StreamOnErrorEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onError']>>[0];
+    type StreamOnChunkEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onChunk']>>[0];
+    type StreamOnFinishEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onFinish']>>[0];
+
+    const streamRequest = {
+      ...(aiOptions ?? {}),
       model: languageModel,
-      system,
+      ...(system !== undefined ? { system } : {}),
+      prompt: undefined,
       messages,
       providerOptions,
-      headers: tierHeaders,
-      temperature,
-      maxOutputTokens,
+      headers,
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       maxRetries: spec.maxRetries,
       abortSignal: signal,
       telemetry,
-      onError: ({ error }) => {
+      onError: async (event: StreamOnErrorEvent) => {
+        await aiOptions?.onError?.(event);
         cleanup();
-        LLM.logError(id, 'streamText', modelKey, error);
+        LLM.logError(id, 'streamText', modelKey, event.error);
       },
-      onChunk() {
+      onChunk: async (event: StreamOnChunkEvent) => {
+        await aiOptions?.onChunk?.(event);
         if (!ttftLogged) {
           LLM.logTTFT(id, startTime);
           ttftLogged = true;
         }
       },
-      onFinish(event) {
+      onFinish: async (event: StreamOnFinishEvent) => {
+        await aiOptions?.onFinish?.(event);
         cleanup();
         LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
       },
-    });
+    } as unknown as Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT>>[0];
+
+    const result = streamText<TOOLS, RUNTIME_CONTEXT>(streamRequest);
 
     return result;
   }

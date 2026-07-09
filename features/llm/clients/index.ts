@@ -50,4 +50,15 @@ export * from './options.helpers';
 export { opts } from './opts.presets';
 
 // LLM 统一入口
-export { LLM, type Message, type ThinkingEffort, type TokenUsage, type WebSource } from './llm.class';
+export {
+  LLM,
+  type LLMGenerateTextAIOptions,
+  type LLMPrepareStepFunction,
+  type LLMPrepareStepOptions,
+  type LLMPrepareStepResult,
+  type LLMStreamTextAIOptions,
+  type Message,
+  type ThinkingEffort,
+  type TokenUsage,
+  type WebSource,
+} from './llm.class';
