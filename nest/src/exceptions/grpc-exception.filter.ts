@@ -1,9 +1,10 @@
-import { Catch } from '@nestjs/common';
+import { Catch, HttpException } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
 import { getAppLogger } from '@app/utils/app-logger';
 
 import { OOPS_ERROR_METADATA_KEY } from './error-codes';
+import { toErrorDescriptor } from './error-descriptor';
 import { Oops } from './oops';
 import { OopsError } from './oops-error';
 
@@ -92,6 +93,10 @@ export class GrpcExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof RpcException) {
       return this.handleRpcException(exception);
+    }
+
+    if (exception instanceof HttpException) {
+      return this.handleHttpException(exception, host);
     }
 
     // 其他未知错误
@@ -259,6 +264,37 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     return throwError(() => ({ code: status.INVALID_ARGUMENT, details: JSON.stringify(grpcError) }));
   }
 
+  private handleHttpException(exception: HttpException, host: ArgumentsHost): Observable<never> {
+    const descriptor = toErrorDescriptor(exception);
+    if (!descriptor) {
+      return this.handleUnexpectedError(exception, host);
+    }
+
+    const grpcError: GrpcError = {
+      httpStatus: descriptor.httpStatus,
+      errorCode: descriptor.code,
+      businessCode: descriptor.code,
+      userMessage: descriptor.message,
+      provider: this.provider,
+    };
+
+    if (descriptor.errors !== undefined) {
+      grpcError.internalDetails = this.stringifyRpcExceptionDetails(descriptor.errors);
+    }
+
+    const grpcStatus = this.httpStatusToGrpcStatus(descriptor.httpStatus);
+    const details = JSON.stringify(grpcError);
+
+    if (descriptor.logLevel === 'error') {
+      this.logger.error`[HttpException] ${descriptor.httpStatus} ${descriptor.code} ${descriptor.message} ${exception}`;
+      this.captureFatalToSentry(exception, host);
+    } else {
+      this.logger.warning`[HttpException] ${descriptor.httpStatus} ${descriptor.code} ${descriptor.message}`;
+    }
+
+    return throwError(() => ({ code: grpcStatus, details }));
+  }
+
   private handleRpcException(exception: RpcException): Observable<never> {
     const serialized = this.serializeRpcException(exception);
 
@@ -327,6 +363,7 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     // - 502/503 UNAVAILABLE: 上游依赖不可用，区别于本服务内部故障
     if (httpStatus === 502) return status.UNAVAILABLE;
     if (httpStatus === 503) return status.UNAVAILABLE;
+    if (httpStatus === 504) return status.DEADLINE_EXCEEDED;
     if (httpStatus >= 500) return status.INTERNAL;
     if (httpStatus === 400) return status.INVALID_ARGUMENT;
     if (httpStatus === 401) return status.UNAUTHENTICATED;
@@ -338,6 +375,7 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     if (httpStatus === 415) return status.INVALID_ARGUMENT;
     if (httpStatus === 422) return status.FAILED_PRECONDITION;
     if (httpStatus === 429) return status.RESOURCE_EXHAUSTED;
+    if (httpStatus >= 400 && httpStatus < 500) return status.INVALID_ARGUMENT;
     return status.UNKNOWN;
   }
 }

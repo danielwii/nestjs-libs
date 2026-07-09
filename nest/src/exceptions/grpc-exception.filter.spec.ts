@@ -1,8 +1,10 @@
+import { ErrorCodes } from './error-codes';
 import { GrpcExceptionFilter } from './grpc-exception.filter';
 import { Oops } from './oops';
 
 import './oops-factories';
 
+import { HttpException, HttpStatus, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
 import { Metadata, status } from '@grpc/grpc-js';
@@ -128,6 +130,73 @@ describe('GrpcExceptionFilter', () => {
       } catch (error: unknown) {
         const grpcError = error as { code: number };
         expect(grpcError.code).toBe(status.INVALID_ARGUMENT);
+      }
+    });
+  });
+
+  describe('HttpException', () => {
+    it('should map UnauthorizedException to UNAUTHENTICATED', async () => {
+      const { host } = mockGrpcHost();
+      const result$ = filter.catch(new UnauthorizedException('not logged in'), host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected HttpException to be thrown as gRPC error');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number; details: string };
+        expect(grpcError.code).toBe(status.UNAUTHENTICATED);
+        const parsed = JSON.parse(grpcError.details) as { httpStatus: number; errorCode: string; businessCode: string };
+        expect(parsed.httpStatus).toBe(HttpStatus.UNAUTHORIZED);
+        expect(parsed.errorCode).toBe(ErrorCodes.CLIENT_AUTH_REQUIRED);
+        expect(parsed.businessCode).toBe(ErrorCodes.CLIENT_AUTH_REQUIRED);
+      }
+    });
+
+    it('should map NotFoundException to NOT_FOUND', async () => {
+      const { host } = mockGrpcHost();
+      const result$ = filter.catch(new NotFoundException('resource not found'), host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected HttpException to be thrown as gRPC error');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number; details: string };
+        expect(grpcError.code).toBe(status.NOT_FOUND);
+        const parsed = JSON.parse(grpcError.details) as { httpStatus: number; errorCode: string };
+        expect(parsed.httpStatus).toBe(HttpStatus.NOT_FOUND);
+        expect(parsed.errorCode).toBe(ErrorCodes.CLIENT_AUTH_REQUIRED);
+      }
+    });
+
+    it('should map generic 4xx HttpException to INVALID_ARGUMENT', async () => {
+      const { host } = mockGrpcHost();
+      const result$ = filter.catch(new HttpException('not acceptable', HttpStatus.NOT_ACCEPTABLE), host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected HttpException to be thrown as gRPC error');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number; details: string };
+        expect(grpcError.code).toBe(status.INVALID_ARGUMENT);
+        const parsed = JSON.parse(grpcError.details) as { httpStatus: number; errorCode: string };
+        expect(parsed.httpStatus).toBe(HttpStatus.NOT_ACCEPTABLE);
+        expect(parsed.errorCode).toBe(ErrorCodes.CLIENT_INPUT_ERROR);
+      }
+    });
+
+    it('should map 504 HttpException to DEADLINE_EXCEEDED', async () => {
+      const { host } = mockGrpcHost();
+      const result$ = filter.catch(new HttpException('gateway timeout', HttpStatus.GATEWAY_TIMEOUT), host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected HttpException to be thrown as gRPC error');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number; details: string };
+        expect(grpcError.code).toBe(status.DEADLINE_EXCEEDED);
+        const parsed = JSON.parse(grpcError.details) as { httpStatus: number; errorCode: string };
+        expect(parsed.httpStatus).toBe(HttpStatus.GATEWAY_TIMEOUT);
+        expect(parsed.errorCode).toBe(ErrorCodes.SYSTEM_INTERNAL_ERROR);
       }
     });
   });
