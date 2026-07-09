@@ -50,6 +50,8 @@ import { ApiFetcher } from '@app/utils/fetch';
 
 import '@app/nest/exceptions/oops-factories';
 
+import { createVertexFetch } from './vertex.fetch';
+
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -200,7 +202,7 @@ function getVertex() {
     clientLogger.info`[vertex:init] mode=express, auth=api-key, baseURL=default-express, project=none, location=none`;
     _vertex = createVertex({
       apiKey,
-      fetch: ApiFetcher.fetch,
+      fetch: createVertexFetch(ApiFetcher.fetch),
     });
   }
   return _vertex;
@@ -265,7 +267,7 @@ function getVertexGlobal() {
       project,
       location,
       baseURL,
-      fetch: ApiFetcher.fetch,
+      fetch: createVertexFetch(ApiFetcher.fetch),
     });
   }
   return _vertexGlobal;
