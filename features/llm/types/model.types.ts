@@ -887,7 +887,10 @@ const modelRegistry = new Map<string, ModelConfig>([
       supportedTiers: ['standard', 'flex', 'priority'],
     },
   ],
-  ['vertex:gemini-3.5-flash', { provider: 'vertex', modelId: 'gemini-3.5-flash' }],
+  [
+    'vertex:gemini-3.5-flash',
+    { provider: 'vertex', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
+  ],
   [
     'vertex:gemini-3.1-pro-preview',
     {

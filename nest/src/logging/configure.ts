@@ -1,6 +1,7 @@
-import { devFormatter, prodFormatter } from '@app/utils/log-formatter';
+import { devFormatter, prodFormatter, setActiveTraceIdResolver } from '@app/utils/log-formatter';
 
 import { configure, getConsoleSink } from '@logtape/logtape';
+import { context, trace } from '@opentelemetry/api';
 
 import type { LogLevel as LogTapeLevel } from '@logtape/logtape';
 import type { LogLevel } from '@nestjs/common';
@@ -17,6 +18,10 @@ const nestToLogtapeLevel: Record<LogLevel, LogTapeLevel> = {
 
 let configured = false;
 
+export function registerActiveTraceIdResolver(): void {
+  setActiveTraceIdResolver(() => trace.getSpan(context.active())?.spanContext().traceId);
+}
+
 /**
  * Initialize LogTape logging.
  *
@@ -24,6 +29,8 @@ let configured = false;
  * Prod: shared prodFormatter (JSON lines for log aggregation)
  */
 export async function configureLogging(nestLevel?: LogLevel): Promise<void> {
+  registerActiveTraceIdResolver();
+
   if (configured) return;
   configured = true;
 

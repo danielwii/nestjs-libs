@@ -119,6 +119,11 @@ describe('getSupportedTiers', () => {
     expect(tiers).toEqual(['standard', 'flex', 'priority']);
   });
 
+  it('returns [standard, flex, priority] for vertex:gemini-3.5-flash (regional PayGo lists)', () => {
+    const tiers = getSupportedTiers('vertex:gemini-3.5-flash');
+    expect(tiers).toEqual(['standard', 'flex', 'priority']);
+  });
+
   it('returns [standard, flex, priority] for vertex-global:gemini-3.5-flash (global PayGo lists)', () => {
     const tiers = getSupportedTiers('vertex-global:gemini-3.5-flash');
     expect(tiers).toEqual(['standard', 'flex', 'priority']);
@@ -160,6 +165,16 @@ describe('buildTierHeaders: supported tiers emit header', () => {
   it('flex on gemini-3-flash-preview → emits flex header', () => {
     const headers = buildTierHeaders('vertex:gemini-3-flash-preview', 'flex');
     expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'flex' });
+  });
+
+  it('flex on regional gemini-3.5-flash → emits flex header', () => {
+    const headers = buildTierHeaders('vertex:gemini-3.5-flash', 'flex');
+    expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'flex' });
+  });
+
+  it('priority on regional gemini-3.5-flash → emits priority header', () => {
+    const headers = buildTierHeaders('vertex:gemini-3.5-flash', 'priority');
+    expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'priority' });
   });
 
   it('priority on gemini-2.5-flash → emits priority header', () => {
