@@ -9,6 +9,8 @@
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
+    "typecheck:ts6": "tsc6 --noEmit",
+    "toolchain:ts": "bun -e \"const ts = require('typescript'); if (!ts.version || typeof ts.Extension !== 'object') { console.error('typescript JS API invalid: version=' + ts.version + ' Extension=' + typeof ts.Extension); process.exit(1); } console.log('typescript=' + ts.version);\" && tsc --version && tsc6 --version",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -18,7 +20,7 @@
     ]
   },
   "dependencies": {
-    "@dotenvx/dotenvx": "^2.3.0",
+    "@dotenvx/dotenvx": "^2.3.4",
     "@js-temporal/polyfill": "^0.5.1",
     "dedent": "^1.7.2",
     "json5": "^2.2.3",
@@ -147,11 +149,11 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/google": "^4.0.10",
-    "@ai-sdk/google-vertex": "^5.0.13",
-    "@ai-sdk/openai": "^4.0.9",
-    "@ai-sdk/provider": "^4.0.2",
-    "@ai-sdk/provider-utils": "^5.0.6",
+    "@ai-sdk/google": "^4.0.11",
+    "@ai-sdk/google-vertex": "^5.0.14",
+    "@ai-sdk/openai": "^4.0.10",
+    "@ai-sdk/provider": "^4.0.3",
+    "@ai-sdk/provider-utils": "^5.0.7",
     "@eslint/js": "^10.0.1",
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
@@ -183,7 +185,7 @@
     "@types/number-to-words": "^1.2.3",
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.1",
-    "ai": "^7.0.18",
+    "ai": "^7.0.19",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
@@ -204,11 +206,12 @@
     "lint-staged": "^17.0.8",
     "morgan": "^1.11.0",
     "nice-grpc": "^2.1.16",
-    "prettier": "^3.9.4",
+    "prettier": "^3.9.5",
     "reflect-metadata": "^0.2.2",
     "response-time": "^2.3.4",
     "rxjs": "^7.8.2",
-    "typescript": "^6.0.3",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.63.0",
     "zod": "^4.4.3"
   }
