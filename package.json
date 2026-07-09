@@ -9,6 +9,8 @@
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
+    "typecheck:ts6": "tsc6 --noEmit",
+    "toolchain:ts": "bun -e \"const ts = require('typescript'); if (!ts.version || typeof ts.Extension !== 'object') { console.error('typescript JS API invalid: version=' + ts.version + ' Extension=' + typeof ts.Extension); process.exit(1); } console.log('typescript=' + ts.version);\" && tsc --version && tsc6 --version",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -208,7 +210,8 @@
     "reflect-metadata": "^0.2.2",
     "response-time": "^2.3.4",
     "rxjs": "^7.8.2",
-    "typescript": "^7.0.2",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.63.0",
     "zod": "^4.4.3"
   }
