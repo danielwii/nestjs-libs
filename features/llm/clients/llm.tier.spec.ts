@@ -24,6 +24,15 @@ import type { LLMModelSpec, VertexTier } from '../types/model.types';
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('parseModelSpec: ?tier query parameter', () => {
+  it('parses namespaced vertex.tier and vertex.requestType', () => {
+    const spec = 'vertex:gemini-2.5-flash?vertex.tier=priority&vertex.requestType=shared' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.key).toBe('vertex:gemini-2.5-flash');
+    expect(result.tier).toBe('priority');
+    expect(result.vertexRequestType).toBe('shared');
+    expect(result.vertex).toEqual({ tier: 'priority', requestType: 'shared' });
+  });
+
   it('parses ?tier=flex', () => {
     const spec = 'vertex:gemini-3.1-flash-lite?tier=flex' as LLMModelSpec;
     const result = parseModelSpec(spec);
@@ -81,6 +90,15 @@ describe('parseModelSpec: ?tier query parameter', () => {
     const result = parseModelSpec(spec);
     expect(result.tier).toBe('priority');
     expect(result.vertexRequestType).toBeUndefined();
+  });
+
+  it('ignores namespaced vertex options on non-vertex providers', () => {
+    const spec = 'openrouter:claude-sonnet-4.5?vertex.tier=flex&vertex.requestType=shared' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.key).toBe('openrouter:claude-sonnet-4.5');
+    expect(result.tier).toBeUndefined();
+    expect(result.vertexRequestType).toBeUndefined();
+    expect(result.vertex).toBeUndefined();
   });
 });
 

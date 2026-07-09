@@ -6,6 +6,9 @@
 
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
+import type { OpenRouterModelOptions, OpenRouterProviderRouting, OpenRouterProviderSort } from '../types/model.types';
+import type { JSONObject } from '@ai-sdk/provider';
+
 // 延迟导入 ApiFetcher，避免循环依赖
 let cachedFetch: typeof fetch | undefined;
 async function getProxyFetch(): Promise<typeof fetch> {
@@ -22,6 +25,96 @@ export interface OpenRouterClientOptions {
   useProxy?: boolean;
   /** 自定义 fetch（不推荐，除非有特殊需求） */
   customFetch?: typeof fetch;
+}
+
+export type OpenRouterRoutingProfile = { kind: 'auto' } | { kind: 'provider'; provider: OpenRouterProviderRouting };
+
+const openRouterRoutingProfiles = new Map<string, OpenRouterRoutingProfile>([
+  ['auto', { kind: 'auto' }],
+  ['latency', { kind: 'provider', provider: { sort: 'latency' } }],
+  ['bedrock', { kind: 'provider', provider: { only: ['amazon-bedrock'], allowFallbacks: false } }],
+]);
+
+export function registerOpenRouterRoutingProfile(name: string, profile: OpenRouterRoutingProfile): void {
+  openRouterRoutingProfiles.set(name, profile);
+}
+
+export function getOpenRouterRoutingProfile(name: string): OpenRouterRoutingProfile | undefined {
+  return openRouterRoutingProfiles.get(name);
+}
+
+export function mergeOpenRouterProviderRouting(
+  ...routings: Array<OpenRouterProviderRouting | undefined>
+): OpenRouterProviderRouting | undefined {
+  let merged: OpenRouterProviderRouting | undefined;
+  for (const routing of routings) {
+    if (!routing) continue;
+    merged = {
+      ...(merged ?? {}),
+      ...routing,
+      ...(merged?.extra || routing.extra ? { extra: { ...(merged?.extra ?? {}), ...(routing.extra ?? {}) } } : {}),
+    };
+  }
+  return merged;
+}
+
+export function mergeOpenRouterOptions(
+  ...options: Array<OpenRouterModelOptions | undefined>
+): OpenRouterModelOptions | undefined {
+  let routing: string | undefined;
+  let provider: OpenRouterProviderRouting | undefined;
+
+  for (const option of options) {
+    if (!option) continue;
+    if (option.routing !== undefined) {
+      routing = option.routing;
+    }
+    provider = mergeOpenRouterProviderRouting(provider, option.provider);
+  }
+
+  return routing !== undefined || provider !== undefined
+    ? {
+        ...(routing !== undefined ? { routing } : {}),
+        ...(provider !== undefined ? { provider } : {}),
+      }
+    : undefined;
+}
+
+function normalizeOpenRouterProviderRouting(routing: OpenRouterProviderRouting | undefined): JSONObject | undefined {
+  if (!routing) return undefined;
+
+  const { order, only, ignore, allowFallbacks, requireParameters, sort, extra } = routing;
+  const payload: Record<string, unknown> = {
+    ...(order !== undefined ? { order: [...order] } : {}),
+    ...(only !== undefined ? { only: [...only] } : {}),
+    ...(ignore !== undefined ? { ignore: [...ignore] } : {}),
+    ...(allowFallbacks !== undefined ? { allow_fallbacks: allowFallbacks } : {}),
+    ...(requireParameters !== undefined ? { require_parameters: requireParameters } : {}),
+    ...(sort !== undefined ? { sort } : {}),
+    ...(extra ?? {}),
+  };
+
+  return Object.keys(payload).length > 0 ? (payload as JSONObject) : undefined;
+}
+
+export function resolveOpenRouterOptions(
+  options: OpenRouterModelOptions | undefined,
+  onUnknownProfile?: (name: string) => void,
+): { openrouter?: JSONObject } | undefined {
+  if (!options) return undefined;
+
+  const profile = options.routing !== undefined ? getOpenRouterRoutingProfile(options.routing) : undefined;
+  if (options.routing !== undefined && !profile) {
+    onUnknownProfile?.(options.routing);
+  }
+
+  const profileProvider = profile?.kind === 'provider' ? profile.provider : undefined;
+  const provider = normalizeOpenRouterProviderRouting(
+    mergeOpenRouterProviderRouting(profileProvider, options.provider),
+  );
+
+  if (!provider) return undefined;
+  return { openrouter: { provider } };
 }
 
 /**
@@ -74,17 +167,19 @@ export function openrouterOptions(options: {
   route?: 'fallback' | string;
   /** Provider 偏好顺序 */
   providerOrder?: string[];
+  /** Provider routing 配置（camelCase，返回时转成 OpenRouter payload） */
+  provider?: OpenRouterProviderRouting;
   /**
    * Provider 排序策略（禁用负载均衡，按指定属性排序）
    * - 'price': 优先最低价格
    * - 'throughput': 优先最高吞吐量
    * - 'latency': 优先最低延迟
    */
-  providerSort?: 'price' | 'throughput' | 'latency';
+  providerSort?: OpenRouterProviderSort;
   /** 其他透传参数 */
   extra?: Record<string, unknown>;
 }) {
-  const { disableThinking, reasoningEffort, route, providerOrder, providerSort, extra } = options;
+  const { disableThinking, reasoningEffort, route, providerOrder, provider, providerSort, extra } = options;
 
   const reasoning = (() => {
     if (disableThinking) {
@@ -99,17 +194,23 @@ export function openrouterOptions(options: {
     return undefined;
   })();
 
-  // 构建 provider 配置
-  const providerConfig = {
-    ...(providerOrder && { order: providerOrder }),
-    ...(providerSort && { sort: providerSort }),
-  };
+  const providerConfig = normalizeOpenRouterProviderRouting(
+    mergeOpenRouterProviderRouting(
+      provider,
+      providerOrder || providerSort
+        ? {
+            ...(providerOrder ? { order: providerOrder } : {}),
+            ...(providerSort ? { sort: providerSort } : {}),
+          }
+        : undefined,
+    ),
+  );
 
   return {
     openrouter: {
       ...(reasoning && { reasoning }),
       ...(route && { route }),
-      ...(Object.keys(providerConfig).length > 0 && { provider: providerConfig }),
+      ...(providerConfig && { provider: providerConfig }),
       ...extra,
     },
   };

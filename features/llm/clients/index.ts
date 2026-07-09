@@ -40,8 +40,14 @@ export {
   vertex,
   vertexGlobal,
 } from './llm.clients';
-// 工厂函数（需要自定义配置时使用）
-export { createOpenRouterClient, openrouterOptions } from './openrouter.client';
+// 工厂函数与 OpenRouter 扩展点（需要自定义配置时使用）
+export {
+  createOpenRouterClient,
+  getOpenRouterRoutingProfile,
+  openrouterOptions,
+  registerOpenRouterRoutingProfile,
+  type OpenRouterRoutingProfile,
+} from './openrouter.client';
 
 // 场景化辅助
 export * from './options.helpers';

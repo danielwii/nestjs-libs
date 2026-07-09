@@ -39,6 +39,7 @@ import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec } from '../types/mode
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI, getOpenRouter } from './llm.clients';
+import { mergeOpenRouterOptions, resolveOpenRouterOptions } from './openrouter.client';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
 import { Temporal } from '@js-temporal/polyfill';
@@ -59,7 +60,14 @@ import {
 import { ResultAsync } from 'neverthrow';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
-import type { LLMModelKey, LLMModelSpec, VertexRequestType, VertexTier } from '../types/model.types';
+import type {
+  LLMModelKey,
+  LLMModelSpec,
+  OpenRouterModelOptions,
+  OpenRouterProviderSort,
+  VertexRequestType,
+  VertexTier,
+} from '../types/model.types';
 /**
  * 仅对已知会包裹 markdown 代码块的模型启用 extractJsonMiddleware。
  *
@@ -140,7 +148,7 @@ export interface TokenUsage {
 }
 
 /** OpenRouter Provider 排序策略 */
-export type ProviderSort = 'price' | 'throughput' | 'latency';
+export type ProviderSort = OpenRouterProviderSort;
 
 type LLMReservedAIKeys = 'model' | 'providerOptions';
 type LLMWrappedAIKeys = LLMReservedAIKeys | 'prepareStep';
@@ -152,6 +160,8 @@ export interface LLMPrepareStepOptions {
   thinking?: ThinkingEffort;
   /** OpenRouter provider ordering override for the step model. */
   providerSort?: ProviderSort;
+  /** OpenRouter provider routing override for the step model. */
+  openrouter?: OpenRouterModelOptions;
   /** Provider model id suffix for the step model. */
   modelIdSuffix?: string;
 }
@@ -211,6 +221,8 @@ interface BaseParams {
    * - 'latency': 优先最低延迟
    */
   providerSort?: ProviderSort;
+  /** OpenRouter provider routing options（仅 openrouter 有效） */
+  openrouter?: OpenRouterModelOptions;
   /** 温度 */
   temperature?: number;
   /** 最大输出 token */
@@ -336,6 +348,7 @@ interface GenerateTextResult {
 /** resolveSpec 返回值 */
 interface ResolvedSpec {
   key: LLMModelKey;
+  provider: ProviderType;
   thinking: ThinkingEffort;
   maxRetries: number;
   timeout: number;
@@ -344,6 +357,8 @@ interface ResolvedSpec {
   tier: VertexTier | undefined;
   /** Vertex request type（仅 vertex / vertex-global + tier=flex/priority 时生效） */
   vertexRequestType: VertexRequestType | undefined;
+  /** OpenRouter provider-namespaced options. */
+  openrouter: OpenRouterModelOptions | undefined;
 }
 
 const specLogger = getAppLogger('features', 'LLM', 'spec');
@@ -368,6 +383,7 @@ function resolveSpec(
   const fallbackModels = parsed.fallbackModels;
   const tier = parsed.tier;
   const vertexRequestType = parsed.vertexRequestType;
+  const openrouter = parsed.openrouter;
 
   // 有非默认参数时打印生效值，方便排查
   const hasSpecParams =
@@ -376,7 +392,8 @@ function resolveSpec(
     parsed.timeout !== undefined ||
     fallbackModels.length > 0 ||
     tier !== undefined ||
-    vertexRequestType !== undefined;
+    vertexRequestType !== undefined ||
+    openrouter !== undefined;
   if (hasSpecParams) {
     const parts: string[] = [];
     if (thinking !== 'none') parts.push(`thinking=${thinking}`);
@@ -385,10 +402,33 @@ function resolveSpec(
     if (fallbackModels.length > 0) parts.push(`fallback=[${fallbackModels.join(',')}]`);
     if (tier !== undefined) parts.push(`tier=${tier}`);
     if (vertexRequestType !== undefined) parts.push(`vertexRequestType=${vertexRequestType}`);
+    if (openrouter?.routing !== undefined) parts.push(`openrouter.routing=${openrouter.routing}`);
     specLogger.info`[resolveSpec] ${parsed.key} → ${parts.join(', ')}`;
   }
 
-  return { key: parsed.key, thinking, maxRetries, timeout, fallbackModels, tier, vertexRequestType };
+  return {
+    key: parsed.key,
+    provider: parsed.provider,
+    thinking,
+    maxRetries,
+    timeout,
+    fallbackModels,
+    tier,
+    vertexRequestType,
+    openrouter,
+  };
+}
+
+function resolveOpenRouterCallOptions(
+  specOpenRouter: OpenRouterModelOptions | undefined,
+  providerSort: ProviderSort | undefined,
+  callOpenRouter: OpenRouterModelOptions | undefined,
+): OpenRouterModelOptions | undefined {
+  const legacyProviderSort = providerSort ? { provider: { sort: providerSort } } : undefined;
+  if (callOpenRouter) {
+    return mergeOpenRouterOptions(legacyProviderSort, callOpenRouter);
+  }
+  return legacyProviderSort ?? specOpenRouter;
 }
 
 /**
@@ -401,7 +441,7 @@ function buildProviderOptions(
   provider: ProviderType,
   thinking: ThinkingEffort,
   modelKey: LLMModelKey,
-  providerSort?: ProviderSort,
+  openrouter?: OpenRouterModelOptions,
 ): ProviderOptionsSurface {
   const modelConfig = getModel(modelKey);
   const thinkingOptions: ProviderOptionsSurface =
@@ -411,12 +451,24 @@ function buildProviderOptions(
         : disableThinkingOptions(provider)
       : reasoningEffortOptions(provider, thinking);
 
-  // 只有 openrouter 支持 providerSort
-  if (provider === 'openrouter' && providerSort) {
+  if (provider !== 'openrouter') {
+    if (openrouter) {
+      aiLogger.warning`[buildProviderOptions] openrouter options requested for non-openrouter provider=${provider} (model=${modelKey}), ignoring`;
+    }
+    return thinkingOptions;
+  }
+
+  const routingOptions = resolveOpenRouterOptions(
+    openrouter,
+    (name) =>
+      { aiLogger.warning`[buildProviderOptions] unknown OpenRouter routing profile="${name}" (model=${modelKey}), ignoring`; },
+  );
+
+  if (routingOptions?.openrouter) {
     return {
       openrouter: {
         ...thinkingOptions.openrouter,
-        provider: { sort: providerSort },
+        ...routingOptions.openrouter,
       },
     };
   }
@@ -494,6 +546,7 @@ interface ResolveAIOptionsContext {
   modelIdSuffix?: string;
   thinking: ThinkingEffort;
   providerSort?: ProviderSort;
+  openrouter?: OpenRouterModelOptions;
   extractJson?: boolean;
 }
 
@@ -540,17 +593,17 @@ function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>
     }
 
     const provider = parseProvider(stepSpec.key);
+    const stepOpenRouter = resolveOpenRouterCallOptions(
+      llmOptions.model ? stepSpec.openrouter : context.openrouter,
+      llmOptions.providerSort ?? (llmOptions.openrouter ? undefined : context.providerSort),
+      llmOptions.openrouter,
+    );
     return {
       ...safe,
       model: createLanguageModelForCall(stepSpec.key, targetModelIdSuffix, {
         extractJson: context.extractJson,
       }),
-      providerOptions: buildProviderOptions(
-        provider,
-        stepSpec.thinking,
-        stepSpec.key,
-        llmOptions.providerSort ?? context.providerSort,
-      ),
+      providerOptions: buildProviderOptions(provider, stepSpec.thinking, stepSpec.key, stepOpenRouter),
     };
   };
 }
@@ -1067,6 +1120,7 @@ export class LLM {
       messages,
       thinking: callerThinking = 'none',
       providerSort,
+      openrouter,
       temperature,
       maxOutputTokens,
       abortSignal,
@@ -1076,6 +1130,7 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
 
     return withFallback(id, 'generateObject', spec, async (modelKey, fb) => {
       const startTime = Date.now();
@@ -1085,7 +1140,7 @@ export class LLM {
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
-      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
       const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
@@ -1275,6 +1330,7 @@ export class LLM {
       messages,
       thinking: callerThinking = 'none',
       providerSort,
+      openrouter,
       temperature,
       maxOutputTokens,
       abortSignal,
@@ -1287,6 +1343,7 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
     const telemetry = callerTelemetry ?? ai?.telemetry ?? DEFAULT_TELEMETRY;
 
     return withFallback(id, 'generateText', spec, async (modelKey, fb) => {
@@ -1302,12 +1359,13 @@ export class LLM {
           modelIdSuffix,
           thinking: spec.thinking,
           providerSort,
+          openrouter: openrouterOptions,
         },
         { tools },
       );
       const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
-      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
       const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
       const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
@@ -1385,6 +1443,7 @@ export class LLM {
       messages,
       thinking: callerThinking = 'none',
       providerSort,
+      openrouter,
       temperature,
       maxOutputTokens,
       abortSignal,
@@ -1397,6 +1456,7 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
     const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
       ai,
       {
@@ -1405,6 +1465,7 @@ export class LLM {
         modelSpec,
         thinking: spec.thinking,
         providerSort,
+        openrouter: openrouterOptions,
         extractJson: true,
       },
       { tools, stopWhen },
@@ -1421,7 +1482,7 @@ export class LLM {
     const model = createLanguageModelForCall(modelKey, undefined, { extractJson: true });
 
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
     const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
@@ -1499,6 +1560,7 @@ export class LLM {
       messages,
       thinking: callerThinking = 'none',
       providerSort,
+      openrouter,
       temperature,
       maxOutputTokens,
       abortSignal,
@@ -1509,12 +1571,14 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
     const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(ai, {
       id,
       method: 'streamText',
       modelSpec,
       thinking: spec.thinking,
       providerSort,
+      openrouter: openrouterOptions,
     });
     const telemetry = callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
     const { key: modelKey } = spec;
@@ -1525,7 +1589,7 @@ export class LLM {
 
     const languageModel = createLanguageModelForCall(modelKey, undefined);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
     const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
@@ -1617,6 +1681,7 @@ export class LLM {
       messages,
       thinking: callerThinking = 'none',
       providerSort,
+      openrouter,
       temperature,
       maxOutputTokens,
       abortSignal,
@@ -1629,6 +1694,7 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
 
     return withFallback(id, 'generateObjectViaTool', spec, async (modelKey, fb) => {
       const startTime = Date.now();
@@ -1641,7 +1707,7 @@ export class LLM {
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
-      const baseProviderOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+      const baseProviderOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
 
       // OpenRouter 支持 parallelToolCalls 参数控制并行 tool call
       const providerOptions =
@@ -1803,6 +1869,7 @@ export class LLM {
       messages,
       thinking: callerThinking = 'none',
       providerSort,
+      openrouter,
       temperature,
       maxOutputTokens,
       abortSignal,
@@ -1814,6 +1881,7 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
     const { key: modelKey } = spec;
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObjectViaTool — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
@@ -1822,7 +1890,7 @@ export class LLM {
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
     const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
 
     // 创建 Tool，将 Schema 作为 inputSchema

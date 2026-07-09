@@ -54,6 +54,41 @@ export type VertexRequestType = 'shared';
 /** 模块级单例，避免 `supportedTiers` 缺省时每次调用都分配新数组 */
 export const DEFAULT_SUPPORTED_TIERS: readonly VertexTier[] = ['standard'];
 
+/** OpenRouter provider 排序策略。 */
+export type OpenRouterProviderSort = 'price' | 'throughput' | 'latency';
+
+/** OpenRouter provider routing，框架侧使用 camelCase，adapter 负责转成 OpenRouter payload。 */
+export interface OpenRouterProviderRouting {
+  /** Provider slugs to try in order. */
+  order?: readonly string[];
+  /** Only allow these provider slugs. */
+  only?: readonly string[];
+  /** Skip these provider slugs. */
+  ignore?: readonly string[];
+  /** OpenRouter `allow_fallbacks`. */
+  allowFallbacks?: boolean;
+  /** OpenRouter `require_parameters`. */
+  requireParameters?: boolean;
+  /** Sort providers by a supported OpenRouter dimension. */
+  sort?: OpenRouterProviderSort;
+  /** Escape hatch for OpenRouter provider-routing fields not promoted by this framework yet. */
+  extra?: Record<string, unknown>;
+}
+
+/** OpenRouter-specific options parsed from model specs or accepted by call sites. */
+export interface OpenRouterModelOptions {
+  /** Named routing profile, resolved by the OpenRouter adapter. */
+  routing?: string;
+  /** Direct provider routing override. */
+  provider?: OpenRouterProviderRouting;
+}
+
+/** Vertex-specific options parsed from model specs. */
+export interface VertexModelOptions {
+  tier?: VertexTier;
+  requestType?: VertexRequestType;
+}
+
 /**
  * Model 配置接口
  */
@@ -585,6 +620,7 @@ export type LLMModelSpec = LLMModelKey | `${LLMModelKey}?${string}`;
  */
 export interface ParsedModelSpec {
   key: LLMModelKey;
+  provider: LLMProviderType;
   thinking: ThinkingEffortLevel | undefined;
   /** 最大重试次数（覆盖 AI_LLM_MAX_RETRIES） */
   maxRetries: number | undefined;
@@ -596,11 +632,19 @@ export interface ParsedModelSpec {
   tier: VertexTier | undefined;
   /** Vertex request type（仅 vertex / vertex-global + tier=flex/priority 时生效） */
   vertexRequestType: VertexRequestType | undefined;
+  /** Provider-namespaced Vertex options. */
+  vertex: VertexModelOptions | undefined;
+  /** Provider-namespaced OpenRouter options. */
+  openrouter: OpenRouterModelOptions | undefined;
 }
 
 const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']);
 const VALID_VERTEX_TIERS = new Set<string>(['standard', 'flex', 'priority']);
 const VALID_VERTEX_REQUEST_TYPES = new Set<string>(['shared']);
+
+function parseProviderFromKey(key: LLMModelKey): LLMProviderType {
+  return key.slice(0, key.indexOf(':')) as LLMProviderType;
+}
 
 /**
  * 解析 LLMModelSpec 为 base key + 参数
@@ -615,17 +659,22 @@ const VALID_VERTEX_REQUEST_TYPES = new Set<string>(['shared']);
 export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
   const qIdx = spec.indexOf('?');
   if (qIdx === -1) {
+    const key = spec as LLMModelKey;
     return {
-      key: spec as LLMModelKey,
+      key,
+      provider: parseProviderFromKey(key),
       thinking: undefined,
       maxRetries: undefined,
       timeout: undefined,
       fallbackModels: [],
       tier: undefined,
       vertexRequestType: undefined,
+      vertex: undefined,
+      openrouter: undefined,
     };
   }
   const key = spec.slice(0, qIdx) as LLMModelKey;
+  const provider = parseProviderFromKey(key);
   const params = new URLSearchParams(spec.slice(qIdx + 1));
 
   // reason → thinking effort（无效值 warning + 忽略，不阻断）
@@ -678,29 +727,72 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
     }
   }
 
-  // tier → Vertex AI tier（无效值 warning + 忽略）
-  const tierRaw = params.get('tier');
+  // vertex.tier → Vertex AI tier. Legacy ?tier= remains supported for backward compatibility.
+  const tierNamespacedRaw = params.get('vertex.tier');
+  const tierLegacyRaw = params.get('tier');
+  if (tierLegacyRaw !== null) {
+    logger.warning`[parseModelSpec] "tier" is deprecated in "${spec}", use "vertex.tier"`;
+  }
+  if (tierNamespacedRaw !== null && tierLegacyRaw !== null && tierNamespacedRaw !== tierLegacyRaw) {
+    logger.warning`[parseModelSpec] Both "vertex.tier" and legacy "tier" are present in "${spec}", using "vertex.tier"`;
+  }
+  const tierRaw = tierNamespacedRaw ?? tierLegacyRaw;
   let tier: VertexTier | undefined;
   if (tierRaw !== null) {
-    if (VALID_VERTEX_TIERS.has(tierRaw)) {
+    if (provider !== 'vertex' && provider !== 'vertex-global' && tierNamespacedRaw !== null) {
+      logger.warning`[parseModelSpec] vertex.tier requested for non-vertex provider=${provider} in "${spec}", ignoring`;
+    } else if (VALID_VERTEX_TIERS.has(tierRaw)) {
       tier = tierRaw as VertexTier;
     } else {
       logger.warning`[parseModelSpec] Invalid tier "${tierRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_TIERS].join(', ')}`;
     }
   }
 
-  // vertexRequestType → Vertex AI request type header（无效值 warning + 忽略）
-  const vertexRequestTypeRaw = params.get('vertexRequestType');
+  // vertex.requestType → Vertex AI request type header. Legacy ?vertexRequestType= remains supported.
+  const vertexRequestTypeNamespacedRaw = params.get('vertex.requestType');
+  const vertexRequestTypeLegacyRaw = params.get('vertexRequestType');
+  if (vertexRequestTypeLegacyRaw !== null) {
+    logger.warning`[parseModelSpec] "vertexRequestType" is deprecated in "${spec}", use "vertex.requestType"`;
+  }
+  if (
+    vertexRequestTypeNamespacedRaw !== null &&
+    vertexRequestTypeLegacyRaw !== null &&
+    vertexRequestTypeNamespacedRaw !== vertexRequestTypeLegacyRaw
+  ) {
+    logger.warning`[parseModelSpec] Both "vertex.requestType" and legacy "vertexRequestType" are present in "${spec}", using "vertex.requestType"`;
+  }
+  const vertexRequestTypeRaw = vertexRequestTypeNamespacedRaw ?? vertexRequestTypeLegacyRaw;
   let vertexRequestType: VertexRequestType | undefined;
   if (vertexRequestTypeRaw !== null) {
-    if (VALID_VERTEX_REQUEST_TYPES.has(vertexRequestTypeRaw)) {
+    if (provider !== 'vertex' && provider !== 'vertex-global' && vertexRequestTypeNamespacedRaw !== null) {
+      logger.warning`[parseModelSpec] vertex.requestType requested for non-vertex provider=${provider} in "${spec}", ignoring`;
+    } else if (VALID_VERTEX_REQUEST_TYPES.has(vertexRequestTypeRaw)) {
       vertexRequestType = vertexRequestTypeRaw as VertexRequestType;
     } else {
       logger.warning`[parseModelSpec] Invalid vertexRequestType "${vertexRequestTypeRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_REQUEST_TYPES].join(', ')}`;
     }
   }
 
-  return { key, thinking, maxRetries, timeout, fallbackModels, tier, vertexRequestType };
+  // openrouter.routing → OpenRouter named routing profile.
+  const openrouterRoutingRaw = params.get('openrouter.routing');
+  let openrouter: OpenRouterModelOptions | undefined;
+  if (openrouterRoutingRaw !== null) {
+    if (provider === 'openrouter') {
+      openrouter = { routing: openrouterRoutingRaw };
+    } else {
+      logger.warning`[parseModelSpec] openrouter.routing requested for provider=${provider} in "${spec}", ignoring`;
+    }
+  }
+
+  const vertex =
+    tier !== undefined || vertexRequestType !== undefined
+      ? {
+          ...(tier !== undefined ? { tier } : {}),
+          ...(vertexRequestType !== undefined ? { requestType: vertexRequestType } : {}),
+        }
+      : undefined;
+
+  return { key, provider, thinking, maxRetries, timeout, fallbackModels, tier, vertexRequestType, vertex, openrouter };
 }
 
 /**
