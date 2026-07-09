@@ -2,16 +2,16 @@ import { getAppLogger } from '@app/utils/app-logger';
 
 import { RequestContext } from './request-context';
 
-import { context, trace } from '@opentelemetry/api';
+import { context, createContextKey, trace } from '@opentelemetry/api';
 
-import type { Span } from '@opentelemetry/api';
+import type { Context, Span } from '@opentelemetry/api';
 
 export type ProvenanceTags = Readonly<Record<string, string>>;
 
 const logger = getAppLogger('ProvenanceTags');
 
 const PROVENANCE_TAGS_KEY = 'provenance.tags';
-const ACTIVE_SPAN_LLM_TAGS_KEY = 'provenance.active_span_llm_tags';
+const ACTIVE_SPAN_LLM_TAGS_CONTEXT_KEY = createContextKey('provenance.active_span_llm_tags');
 const MAX_TAGS = 16;
 const MAX_KEY_LENGTH = 64;
 const MAX_VALUE_LENGTH = 256;
@@ -124,16 +124,17 @@ export function clearProvenanceTags(): void {
   RequestContext.set(PROVENANCE_TAGS_KEY, undefined);
 }
 
-export function setActiveSpanLlmTags(tags: readonly string[] | undefined): readonly string[] | undefined {
-  if (!hasRequestContext()) return undefined;
+export function withActiveSpanLlmTags(activeContext: Context, tags: readonly string[] | undefined): Context {
+  if (tags === undefined) {
+    return activeContext.deleteValue(ACTIVE_SPAN_LLM_TAGS_CONTEXT_KEY);
+  }
 
-  const previous = RequestContext.get<readonly string[]>(ACTIVE_SPAN_LLM_TAGS_KEY);
-  RequestContext.set(ACTIVE_SPAN_LLM_TAGS_KEY, tags !== undefined ? [...tags] : undefined);
-  return previous;
+  return activeContext.setValue(ACTIVE_SPAN_LLM_TAGS_CONTEXT_KEY, [...tags]);
 }
 
-export function getActiveSpanLlmTags(): readonly string[] {
-  return RequestContext.get<readonly string[]>(ACTIVE_SPAN_LLM_TAGS_KEY) ?? [];
+export function getActiveSpanLlmTags(activeContext: Context = context.active()): readonly string[] {
+  const tags = activeContext.getValue(ACTIVE_SPAN_LLM_TAGS_CONTEXT_KEY);
+  return Array.isArray(tags) && tags.every((tag) => typeof tag === 'string') ? tags : [];
 }
 
 function sortedEntries(tags: ProvenanceTags | undefined): Array<[string, string]> {

@@ -7,13 +7,14 @@ import {
   mergeProvenanceLlmTags,
   mergeProvenanceTags,
   sanitizeProvenanceTags,
-  setActiveSpanLlmTags,
   setProvenanceTags,
   toProvenanceLlmTags,
   toProvenanceLogTags,
+  withActiveSpanLlmTags,
 } from './provenance-tags';
 import { RequestContext } from './request-context';
 
+import { context } from '@opentelemetry/api';
 import { describe, expect, it } from 'bun:test';
 
 import type { Span } from '@opentelemetry/api';
@@ -178,14 +179,21 @@ describe('provenance projections', () => {
     expect(() => applyProvenanceToActiveSpan({ 'sandbox.client_type': 'browser' })).not.toThrow();
   });
 
-  it('tracks active span caller tags in RequestContext for later provenance updates', () => {
-    RequestContext.run({}, () => {
-      const previous = setActiveSpanLlmTags(['task:reply']);
+  it('scopes active span caller tags per OTel context', () => {
+    const base = context.active();
+    const taskContext = withActiveSpanLlmTags(base, ['task:reply']);
+    const reviewContext = withActiveSpanLlmTags(base, ['task:review']);
 
-      expect(previous).toBeUndefined();
-      expect(getActiveSpanLlmTags()).toEqual(['task:reply']);
-      expect(setActiveSpanLlmTags(undefined)).toEqual(['task:reply']);
-      expect(getActiveSpanLlmTags()).toEqual([]);
-    });
+    expect(getActiveSpanLlmTags(taskContext)).toEqual(['task:reply']);
+    expect(getActiveSpanLlmTags(reviewContext)).toEqual(['task:review']);
+    expect(getActiveSpanLlmTags(base)).toEqual([]);
+  });
+
+  it('does not inherit caller tags when a child OTel context has no span tags', () => {
+    const parentContext = withActiveSpanLlmTags(context.active(), ['task:reply']);
+    const childContext = withActiveSpanLlmTags(parentContext, undefined);
+
+    expect(getActiveSpanLlmTags(parentContext)).toEqual(['task:reply']);
+    expect(getActiveSpanLlmTags(childContext)).toEqual([]);
   });
 });
