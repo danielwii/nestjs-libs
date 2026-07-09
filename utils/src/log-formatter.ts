@@ -53,6 +53,7 @@ type ActiveTraceIdResolver = () => string | undefined;
 
 let activeTraceIdResolver: ActiveTraceIdResolver | undefined;
 
+// Runtime integrations that already require OTel install this; shared utils stays peer-free.
 export function setActiveTraceIdResolver(resolver: ActiveTraceIdResolver | undefined): void {
   activeTraceIdResolver = resolver;
 }
