@@ -275,5 +275,31 @@ describe('GrpcExceptionFilter', () => {
         expect(grpcError.code).toBe(status.INTERNAL);
       }
     });
+
+    it('Oops.Panic upstream failure statuses should throw UNAVAILABLE', async () => {
+      const cases = [502, 503] as const;
+
+      for (const httpStatus of cases) {
+        const { host } = mockGrpcHost();
+        const exception = new Oops.Panic({
+          httpStatus,
+          errorCode: '0x0303',
+          userMessage: 'upstream unavailable',
+          internalDetails: 'dependency outage',
+        });
+
+        const result$ = filter.catch(exception, host);
+
+        try {
+          await firstValueFrom(result$);
+          expect.unreachable('expected Oops.Panic to be thrown as gRPC error');
+        } catch (error: unknown) {
+          const grpcError = error as { code: number; details: string };
+          expect(grpcError.code).toBe(status.UNAVAILABLE);
+          const parsed = JSON.parse(grpcError.details) as { httpStatus: number };
+          expect(parsed.httpStatus).toBe(httpStatus);
+        }
+      }
+    });
   });
 });
