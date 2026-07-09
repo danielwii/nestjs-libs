@@ -51,6 +51,13 @@
 // ==================== Env Loading ====================
 // 必须最先执行：加载 .env 文件到 process.env
 // 在所有 Schema.Config / getLogger 之前
+import {
+  createOtlpTraceProcessor,
+  describeOtlpEndpoint,
+  resolveOtelServiceName,
+  resolveOtlpTraceExportConfig,
+  resolveOtlpTraceProtocol,
+} from '@app/nest/boot/otlp-trace-exporter';
 import { configureLogging } from '@app/nest/logging';
 
 import { isFullStackExtraScope } from './instrument-helpers';
@@ -60,7 +67,7 @@ import { getLogger } from '@logtape/logtape';
 import { diag } from '@opentelemetry/api';
 import { getStringFromEnv } from '@opentelemetry/core';
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { BatchSpanProcessor, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 
 import type { SpanExporter } from '@opentelemetry/sdk-trace-base';
 
@@ -107,6 +114,16 @@ try {
   LangfuseSpanProcessor = require('@langfuse/otel').LangfuseSpanProcessor;
 } catch {
   // Langfuse not installed, skip
+}
+
+let OTLPTraceExporter: (new (opts: { url: string; headers?: Record<string, string> }) => SpanExporter) | null = null;
+if (resolveOtlpTraceProtocol().supported) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency
+    OTLPTraceExporter = require('@opentelemetry/exporter-trace-otlp-http').OTLPTraceExporter;
+  } catch {
+    // OTLP HTTP exporter not installed, skip
+  }
 }
 
 // ==================== Loggers ====================
@@ -253,9 +270,10 @@ function bootstrapSentry() {
  * 独立的 OTel pipeline，不受 Sentry 采样率影响。
  * 所有 span 100% recording → shouldExportSpan 只导出 scope='ai' 给 Langfuse。
  */
-function bootstrapOtel(langfuseProcessor: unknown | null) {
+function bootstrapOtel(langfuseProcessor: unknown | null, otlpProcessor: unknown | null) {
   const spanProcessors: unknown[] = [];
   if (langfuseProcessor) spanProcessors.push(langfuseProcessor);
+  if (otlpProcessor) spanProcessors.push(otlpProcessor);
   if (spanProcessors.length === 0) {
     otelLogger.debug`${'no processors, using minimal exporter'}`;
     spanProcessors.push(new SimpleSpanProcessor(new MinimalSpanExporter()));
@@ -307,7 +325,10 @@ function bootstrapOtel(langfuseProcessor: unknown | null) {
     otelLogger.warning`${'APP_OTEL_HTTP_INSTRUMENTATION_ENABLED=true but @opentelemetry/instrumentation-http not installed'}`;
   }
 
+  const serviceName = resolveOtelServiceName();
+
   const sdk = new NodeSDK({
+    serviceName,
     spanProcessors: spanProcessors as never[],
     instrumentations: instrumentations as never[],
     autoDetectResources: false,
@@ -317,7 +338,8 @@ function bootstrapOtel(langfuseProcessor: unknown | null) {
   try {
     sdk.start();
     const httpLabel = httpInstrumentationEnabled && HttpInstrumentation ? ' + HTTP' : '';
-    otelLogger.info`${`started${GrpcInstrumentation ? ' + gRPC' : ''}${httpLabel}${langfuseProcessor ? ' + Langfuse' : ''}`}`;
+    const otlpLabel = otlpProcessor ? ' + OTLP' : '';
+    otelLogger.info`${`started service=${serviceName}${GrpcInstrumentation ? ' + gRPC' : ''}${httpLabel}${langfuseProcessor ? ' + Langfuse' : ''}${otlpLabel}`}`;
   } catch (error) {
     otelLogger.error`${`failed: ${error instanceof Error ? error.message : String(error)}`}`;
     return;
@@ -351,9 +373,24 @@ function bootstrapTracing() {
     sentryLogger.debug`${'skipped (SENTRY_DSN not set)'}`;
   }
 
-  // OTel：独立 pipeline，Langfuse 100% 采样
+  // OTel：独立 pipeline，Langfuse / OTLP 可并行导出
   const langfuseProcessor = createLangfuseProcessor();
-  bootstrapOtel(langfuseProcessor);
+  const otlpConfig = resolveOtlpTraceExportConfig();
+  const otlpProcessor = otlpConfig.enabled
+    ? createOtlpTraceProcessor(otlpConfig, { OTLPTraceExporter, BatchSpanProcessor })
+    : null;
+  if (!otlpConfig.enabled) {
+    if (otlpConfig.warning) {
+      otelLogger.warning`${otlpConfig.warning}`;
+    }
+  } else {
+    if (otlpProcessor) {
+      otelLogger.info`${`OTLP exporter enabled endpoint=${describeOtlpEndpoint(otlpConfig.endpoint)} headers=${Object.keys(otlpConfig.headers).length}`}`;
+    } else {
+      otelLogger.warning`${`OTLP trace endpoint configured (${describeOtlpEndpoint(otlpConfig.endpoint)}) but @opentelemetry/exporter-trace-otlp-http is not installed`}`;
+    }
+  }
+  bootstrapOtel(langfuseProcessor, otlpProcessor);
 }
 
 bootstrapTracing();

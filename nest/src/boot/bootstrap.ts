@@ -16,7 +16,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 
 import '@app/nest/exceptions/oops-factories';
 
-import { GrpcServiceTokenGuard } from '@app/nest/guards';
+import { getConfiguredGrpcServiceToken, GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { VisitorInterceptor } from '@app/nest/interceptors/visitor.interceptor';
@@ -42,7 +42,14 @@ import responseTime from 'response-time';
 
 import type { Server } from '@grpc/grpc-js';
 import type { PackageDefinition } from '@grpc/proto-loader';
-import type { DynamicModule, ForwardReference, INestApplication, LogLevel, Type } from '@nestjs/common';
+import type {
+  DynamicModule,
+  ForwardReference,
+  INestApplication,
+  INestMicroservice,
+  LogLevel,
+  Type,
+} from '@nestjs/common';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -64,8 +71,9 @@ export function wrapWithBootModule(AppModule: IEntryNestModule): Type<unknown> {
 }
 
 const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'fatal'];
+const GLOBAL_VALIDATION_PIPE_OPTIONS = { enableDebugMessages: true, transform: true, whitelist: true } as const;
 
-type BootstrapMode = 'api' | 'grpc' | 'scheduler';
+export type BootstrapMode = 'api' | 'grpc' | 'scheduler';
 
 export interface BootstrapOptions {
   /** 启动模式：api（默认）、grpc、scheduler */
@@ -93,6 +101,49 @@ export interface BootstrapOptions {
   httpPort?: number;
 }
 
+export function hasGrpcMicroserviceConfigured(mode: BootstrapMode, options?: Pick<BootstrapOptions, 'grpc'>): boolean {
+  return mode === 'grpc' || options?.grpc !== undefined;
+}
+
+export function resolveGrpcProvider(options?: Pick<BootstrapOptions, 'grpc' | 'grpcProvider'>): string {
+  return (
+    options?.grpcProvider ??
+    (Array.isArray(options?.grpc?.package)
+      ? (options.grpc.package[0]?.split('.').pop() ?? 'unknown')
+      : (options?.grpc?.package.split('.').pop() ?? 'unknown'))
+  );
+}
+
+function createGlobalValidationPipe(): ValidationPipe {
+  return new ValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS);
+}
+
+type GrpcMicroserviceBoundaryTarget = Pick<
+  INestMicroservice,
+  'useGlobalFilters' | 'useGlobalGuards' | 'useGlobalInterceptors' | 'useGlobalPipes'
+>;
+
+export function configureGrpcMicroserviceBoundary(
+  target: GrpcMicroserviceBoundaryTarget,
+  reflector: Reflector,
+  provider: string,
+): void {
+  target.useGlobalPipes(createGlobalValidationPipe());
+  target.useGlobalFilters(new GrpcExceptionFilter(provider));
+  target.useGlobalGuards(new GrpcServiceTokenGuard());
+  target.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(reflector), new LoggerInterceptor());
+}
+
+export function assertGrpcServiceTokenConfiguredForMode(
+  mode: BootstrapMode,
+  options?: Pick<BootstrapOptions, 'grpc'>,
+): void {
+  if (!hasGrpcMicroserviceConfigured(mode, options)) return;
+  if (!getConfiguredGrpcServiceToken()) {
+    throw Oops.Panic.Config('GRPC_SERVICE_TOKEN is required when gRPC microservice is configured');
+  }
+}
+
 export async function bootstrap(
   AppModule: IEntryNestModule,
   onInit?: (app: INestApplication) => Promise<void>,
@@ -101,9 +152,11 @@ export async function bootstrap(
   const mode: BootstrapMode = options?.mode ?? 'api';
   const isApi = mode === 'api';
   const isGrpc = mode === 'grpc';
+  const grpcProvider = resolveGrpcProvider(options);
 
   // --- NODE_ENV 检查（api / grpc 必须设置） ---
   if ((isApi || isGrpc) && !process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
+  assertGrpcServiceTokenConfiguredForMode(mode, options);
 
   const now = Date.now();
 
@@ -140,24 +193,21 @@ export async function bootstrap(
   }
 
   // --- ValidationPipe（所有模式） ---
-  app.useGlobalPipes(new ValidationPipe({ enableDebugMessages: true, transform: true, whitelist: true }));
+  app.useGlobalPipes(createGlobalValidationPipe());
 
   // --- ExceptionFilter ---
   if (isGrpc) {
     // gRPC 模式：提取 provider 名称用于异常追踪
-    const provider =
-      options?.grpcProvider ??
-      (Array.isArray(options?.grpc?.package)
-        ? (options.grpc.package[0]?.split('.').pop() ?? 'unknown')
-        : (options?.grpc?.package.split('.').pop() ?? 'unknown'));
-    app.useGlobalFilters(new GrpcExceptionFilter(provider));
-    app.useGlobalGuards(new GrpcServiceTokenGuard());
+    app.useGlobalFilters(new GrpcExceptionFilter(grpcProvider));
   } else {
     // api / scheduler：AnyExceptionFilter
     app.useGlobalFilters(new AnyExceptionFilter(app));
     if (isApi) {
       bootstrapLogger.info`[Config] AnyExceptionFilter initialized with app reference for lazy i18n support`;
     }
+  }
+  if (isGrpc) {
+    app.useGlobalGuards(new GrpcServiceTokenGuard());
   }
 
   // --- Interceptors ---
@@ -345,6 +395,7 @@ export async function bootstrap(
   if (options?.grpc) {
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
+    const inheritAppConfig = isGrpc;
 
     const grpcMs = app.connectMicroservice<MicroserviceOptions>(
       {
@@ -365,8 +416,11 @@ export async function bootstrap(
             : undefined,
         },
       },
-      { inheritAppConfig: true },
+      { inheritAppConfig, deferInitialization: !inheritAppConfig },
     );
+    if (!inheritAppConfig) {
+      configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), grpcProvider);
+    }
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 
     await app.startAllMicroservices();

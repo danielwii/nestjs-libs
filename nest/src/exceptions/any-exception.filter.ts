@@ -372,8 +372,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 获取翻译后的错误消息
    *
    * 【设计意图】
-   * - 框架层只负责提取 x-locale 和调用 i18nService
-   * - 不做任何语言判断、规范化、fallback
+   * - 框架层只负责选择语言信号源和调用 i18nService
+   * - 不做任何语言判断、规范化
    * - 所有语言逻辑交给 i18nService.translateErrorMessage 统一处理
    */
   private async getTranslatedMessage(exception: OopsLike, request?: IdentityRequest): Promise<string> {
@@ -383,7 +383,6 @@ export class AnyExceptionFilter implements ExceptionFilter {
         return exception.userMessage;
       }
 
-      // 提取原始 x-locale（不做任何处理）
       const locale = this.getLocaleFromRequest(request);
 
       // 直接传给 i18nService，让它处理一切（语言解析、缓存、翻译、fallback）
@@ -403,17 +402,19 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 从请求中提取用户语言偏好
    *
    * 【设计意图】
-   * - 只提取 x-locale 请求头的原始值
-   * - 不做任何规范化、验证、fallback
-   * - 返回 null 表示用户未指定语言偏好
+   * - 优先 x-locale 请求头
+   * - 兜底 authenticated identity claim: request.user.preferredLocale
+   * - 不读取产品特定字段，如 request.user.language
+   * - 不做任何 locale 规范化或验证
+   * - 返回 null 表示没有可用语言信号
    * - 所有语言逻辑交给 i18nService 处理
    */
   private getLocaleFromRequest(request?: IdentityRequest): string | null {
-    if (!request?.headers) {
+    if (!request) {
       return null;
     }
 
-    const xLocale = request.headers['x-locale'];
+    const xLocale = request.headers?.['x-locale'];
 
     if (typeof xLocale === 'string') {
       const trimmed = xLocale.trim();
@@ -421,6 +422,14 @@ export class AnyExceptionFilter implements ExceptionFilter {
       // 过滤空字符串和通配符
       if (trimmed && trimmed !== '*') {
         return trimmed; // 原样返回：'zh-Hans', 'zh-hans', 'en', 'zh', ...
+      }
+    }
+
+    const preferredLocale = request.user?.preferredLocale;
+    if (typeof preferredLocale === 'string') {
+      const trimmed = preferredLocale.trim();
+      if (trimmed && trimmed !== '*') {
+        return trimmed;
       }
     }
 

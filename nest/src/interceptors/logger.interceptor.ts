@@ -3,6 +3,8 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 
+import { normalizeHeadersForLog, normalizePayloadForLog } from './log-redaction';
+
 import { context, trace } from '@opentelemetry/api';
 import * as _ from 'radash';
 import { catchError, finalize } from 'rxjs';
@@ -27,7 +29,7 @@ export function isOopsBusinessException(error: unknown): boolean {
     error !== null &&
     typeof error === 'object' &&
     'httpStatus' in error &&
-    typeof (error).httpStatus === 'number' &&
+    typeof error.httpStatus === 'number' &&
     (error as { httpStatus: number }).httpStatus < 500
   );
 }
@@ -103,12 +105,7 @@ export class LoggerInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const body = Object.fromEntries(
-      Object.entries((req.body ?? {}) as Record<string, unknown>).map(([k, v]) => [
-        k,
-        typeof v === 'string' && v.length > 100 ? `${v.slice(0, 100)}...` : v,
-      ]),
-    );
+    const body = normalizePayloadForLog(req.body ?? {});
     // 获取客户端真实 IP：优先使用 Cloudflare cf-connecting-ip，其次 x-forwarded-for，最后 req.ip
     const cfConnectingIp = req.headers['cf-connecting-ip'];
     const realIp =
@@ -122,10 +119,7 @@ export class LoggerInterceptor implements NestInterceptor {
       body,
       query: req.query,
       params: req.params,
-      headers: {
-        ...req.headers,
-        cookie: req.headers.cookie ? `${req.headers.cookie.slice(0, 100)}...` : req.headers.cookie,
-      },
+      headers: normalizeHeadersForLog(req.headers),
       /*
             raw: req.raw,
             id: req.id,
@@ -205,8 +199,8 @@ export class LoggerInterceptor implements NestInterceptor {
 
     return RequestContext.run({ traceId, userId: null }, () => {
       // Truncate large data for logging (similar to HTTP body truncation)
-      const truncatedData = this.truncateData(data);
-      this.logger.debug`-> ${TAG} call... data=${truncatedData}`;
+      const logSafeData = normalizePayloadForLog(data);
+      this.logger.debug`-> ${TAG} call... data=${logSafeData}`;
 
       const now = Date.now();
       return next.handle().pipe(
@@ -268,52 +262,8 @@ export class LoggerInterceptor implements NestInterceptor {
     // 3. Generate new traceId
     return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
-
-  /**
-   * Truncate large data objects for logging
-   */
-  private truncateData(data: unknown): unknown {
-    if (data === null || data === undefined) {
-      return data;
-    }
-
-    if (typeof data === 'string') {
-      return data.length > 200 ? `${data.slice(0, 200)}...` : data;
-    }
-
-    if (typeof data !== 'object') {
-      return data;
-    }
-
-    // For objects, create a truncated copy
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-      if (typeof value === 'string' && value.length > 100) {
-        result[key] = `${value.slice(0, 100)}...`;
-      } else if (Array.isArray(value) && value.length > 5) {
-        result[key] = `[Array(${value.length})]`;
-      } else {
-        result[key] = value;
-      }
-    }
-    return result;
-  }
 }
 
-const SENSITIVE_WS_HEADER_PATTERN = /authorization|token|cookie|secret/i;
-
 function maskWsHeaders(headers?: Record<string, unknown>) {
-  if (!headers) {
-    return {};
-  }
-
-  const masked: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (SENSITIVE_WS_HEADER_PATTERN.test(key) && typeof value === 'string') {
-      masked[key] = value.length > 12 ? `${value.slice(0, 12)}...` : value;
-    } else {
-      masked[key] = value;
-    }
-  }
-  return masked;
+  return normalizeHeadersForLog(headers);
 }

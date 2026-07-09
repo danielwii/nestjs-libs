@@ -3,6 +3,8 @@ import { Oops } from './oops';
 
 import './oops-factories';
 
+import { RpcException } from '@nestjs/microservices';
+
 import { Metadata, status } from '@grpc/grpc-js';
 import { describe, expect, it } from 'bun:test';
 import { firstValueFrom } from 'rxjs';
@@ -126,6 +128,63 @@ describe('GrpcExceptionFilter', () => {
       } catch (error: unknown) {
         const grpcError = error as { code: number };
         expect(grpcError.code).toBe(status.INVALID_ARGUMENT);
+      }
+    });
+  });
+
+  describe('RpcException', () => {
+    it('should preserve explicit gRPC status codes from transport-native exceptions', async () => {
+      const { host } = mockGrpcHost();
+      const exception = new RpcException({
+        code: status.UNAUTHENTICATED,
+        message: 'Missing service token in gRPC metadata',
+      });
+
+      const result$ = filter.catch(exception, host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected RpcException to be rethrown');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number; details: string; message: string };
+        expect(grpcError.code).toBe(status.UNAUTHENTICATED);
+        expect(grpcError.details).toBe('Missing service token in gRPC metadata');
+        expect(grpcError.message).toBe('Missing service token in gRPC metadata');
+      }
+    });
+
+    it('should preserve status field as a gRPC code alias', async () => {
+      const { host } = mockGrpcHost();
+      const exception = new RpcException({
+        status: status.PERMISSION_DENIED,
+        message: 'Permission denied',
+      });
+
+      const result$ = filter.catch(exception, host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected RpcException to be rethrown');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number; details: string };
+        expect(grpcError.code).toBe(status.PERMISSION_DENIED);
+        expect(grpcError.details).toBe('Permission denied');
+      }
+    });
+
+    it('should map plain RpcException messages to UNKNOWN', async () => {
+      const { host } = mockGrpcHost();
+      const exception = new RpcException('transport failed');
+
+      const result$ = filter.catch(exception, host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected RpcException to be rethrown');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number; details: string };
+        expect(grpcError.code).toBe(status.UNKNOWN);
+        expect(grpcError.details).toBe('transport failed');
       }
     });
   });

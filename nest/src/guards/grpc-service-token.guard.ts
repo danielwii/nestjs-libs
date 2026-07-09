@@ -29,39 +29,44 @@
  *
  * 安全模型：
  * - 自动跳过非 RPC 上下文（HTTP 健康检查等不受影响）
- * - 未配置 GRPC_SERVICE_TOKEN 时，跳过验证（本地开发兼容）
+ * - 未配置 GRPC_SERVICE_TOKEN 时，gRPC runtime fail-closed
  * - 配置后，缺少或错误的 token 返回 UNAUTHENTICATED
  */
 
 import { Injectable } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 
-import { status } from '@grpc/grpc-js';
 import { getAppLogger } from '@app/utils/app-logger';
+
+import { status } from '@grpc/grpc-js';
 
 import type { Metadata } from '@grpc/grpc-js';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 
 const SERVICE_TOKEN_KEY = 'x-service-token';
 
+export function getConfiguredGrpcServiceToken(): string | undefined {
+  const token = process.env.GRPC_SERVICE_TOKEN?.trim();
+  if (!token) return undefined;
+  return token;
+}
+
 @Injectable()
 export class GrpcServiceTokenGuard implements CanActivate {
   private readonly logger = getAppLogger('GrpcServiceTokenGuard');
-  private loggedSkipOnce = false;
 
   canActivate(context: ExecutionContext): boolean {
     // 非 RPC 上下文直接放行（健康检查等 HTTP 端点）
     if (context.getType() !== 'rpc') return true;
 
-    const expectedToken = process.env.GRPC_SERVICE_TOKEN;
+    const expectedToken = getConfiguredGrpcServiceToken();
 
-    // 未配置 token 时跳过验证（本地开发）
     if (!expectedToken) {
-      if (!this.loggedSkipOnce) {
-        this.logger.warning`#canActivate GRPC_SERVICE_TOKEN not configured, skipping auth (local dev mode)`;
-        this.loggedSkipOnce = true;
-      }
-      return true;
+      this.logger.error`#canActivate GRPC_SERVICE_TOKEN not configured; rejecting RPC request`;
+      throw new RpcException({
+        code: status.UNAUTHENTICATED,
+        message: 'GRPC_SERVICE_TOKEN is required when gRPC microservice is configured',
+      });
     }
 
     const rpcContext = context.switchToRpc().getContext<Metadata>();
