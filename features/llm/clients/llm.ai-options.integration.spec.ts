@@ -169,4 +169,87 @@ describe('LLM ai namespace', () => {
     expect(capturedRequests[0]!.url).toContain('openrouter.ai');
     expect(capturedRequests[1]!.url).toContain('aiplatform.googleapis.com');
   });
+
+  it('model spec openrouter.routing=bedrock emits Bedrock-only provider routing', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'ai-openrouter-routing-bedrock',
+        model: 'openrouter:claude-sonnet-4.5?openrouter.routing=bedrock',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+
+    const body = firstJsonBody();
+    expect(body.provider).toEqual({
+      only: ['amazon-bedrock'],
+      allow_fallbacks: false,
+    });
+  });
+
+  it('call-level openrouter provider routing overrides model spec routing', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'ai-openrouter-routing-call-override',
+        model: 'openrouter:claude-sonnet-4.5?openrouter.routing=latency',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+        openrouter: {
+          provider: {
+            only: ['amazon-bedrock'],
+            allowFallbacks: false,
+          },
+        },
+      }),
+    );
+
+    const body = firstJsonBody();
+    expect(body.provider).toEqual({
+      only: ['amazon-bedrock'],
+      allow_fallbacks: false,
+    });
+  });
+
+  it('legacy providerSort still emits OpenRouter provider.sort', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'ai-openrouter-provider-sort',
+        model: 'openrouter:claude-sonnet-4.5',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+        providerSort: 'latency',
+      }),
+    );
+
+    const body = firstJsonBody();
+    expect(body.provider).toEqual({ sort: 'latency' });
+  });
+
+  it('prepareStep.llm.openrouter overrides current OpenRouter routing', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'ai-prepareStep-openrouter-routing',
+        model: 'openrouter:claude-sonnet-4.5?openrouter.routing=latency',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+        ai: {
+          prepareStep: () => ({
+            llm: {
+              openrouter: {
+                provider: {
+                  only: ['amazon-bedrock'],
+                  allowFallbacks: false,
+                },
+              },
+            },
+          }),
+        },
+      }),
+    );
+
+    const body = firstJsonBody();
+    const provider = body.provider as Record<string, unknown>;
+    expect(provider.only).toEqual(['amazon-bedrock']);
+    expect(provider.allow_fallbacks).toBe(false);
+  });
 });

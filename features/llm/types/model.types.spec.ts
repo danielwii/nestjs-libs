@@ -129,6 +129,21 @@ describe('parseModelSpec', () => {
     expect(result.fallbackModels).toEqual([KNOWN_KEY_2]);
   });
 
+  it('should parse openrouter.routing as provider-namespaced options', () => {
+    const spec = 'openrouter:claude-sonnet-4.5?openrouter.routing=bedrock' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.provider).toBe('openrouter');
+    expect(result.openrouter).toEqual({ routing: 'bedrock' });
+    expect(result.vertex).toBeUndefined();
+  });
+
+  it('should ignore openrouter.routing on non-openrouter providers', () => {
+    const spec = 'google:gemini-2.5-flash?openrouter.routing=bedrock' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.provider).toBe('google');
+    expect(result.openrouter).toBeUndefined();
+  });
+
   it('should handle empty query string gracefully', () => {
     const spec = `${KNOWN_KEY}?` as LLMModelSpec;
     const result = parseModelSpec(spec);

@@ -7,7 +7,7 @@
  * 3. Provider 特有选项类型安全
  */
 
-import type { LLMModelKey } from './model.types';
+import type { LLMModelKey, OpenRouterProviderRouting } from './model.types';
 import type { z } from 'zod';
 
 // ==================== 消息类型 ====================
@@ -47,12 +47,16 @@ export interface LLMUsage {
 export interface LLMProviderOptionsRegistry {
   // OpenRouter 特有选项
   openrouter: {
+    /** Named routing profile */
+    routing?: string;
     /** 路由策略 */
     route?: 'fallback' | string;
     /** 模型转换 */
     transforms?: string[];
     /** Provider 偏好顺序 */
     providerOrder?: string[];
+    /** Provider routing options */
+    provider?: OpenRouterProviderRouting;
     /** 额外透传参数 */
     extra?: Record<string, unknown>;
   };
