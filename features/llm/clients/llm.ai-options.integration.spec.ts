@@ -28,10 +28,12 @@ interface CapturedRequest {
 }
 
 let capturedRequests: CapturedRequest[] = [];
+let responseStatuses: number[] = [];
 const originalFetch = ApiFetcher.fetch;
 
 beforeEach(() => {
   capturedRequests = [];
+  responseStatuses = [400];
   (ApiFetcher as unknown as { fetch: typeof fetch }).fetch = (async (
     url: string | URL | Request,
     init?: RequestInit,
@@ -42,8 +44,9 @@ beforeEach(() => {
       body: typeof init?.body === 'string' ? init.body : undefined,
     });
 
+    const status = responseStatuses.shift() ?? 400;
     return new Response(JSON.stringify({ error: { code: 400, message: 'mock-fetch' } }), {
-      status: 400,
+      status,
       headers: { 'content-type': 'application/json' },
     });
   }) as typeof fetch;
@@ -143,5 +146,27 @@ describe('LLM ai namespace', () => {
     const first = capturedRequests[0]!;
     expect(first.url).toContain('aiplatform.googleapis.com');
     expect(first.headers.get(VERTEX_TIER_HEADER)).toBeNull();
+  });
+
+  it('prepareStep.llm without model keeps the current fallback attempt model', async () => {
+    responseStatuses = [500, 400];
+
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'ai-prepareStep-fallback-attempt',
+        model: 'openrouter:grok-4.1-fast?fallback=vertex:gemini-2.5-flash',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+        ai: {
+          prepareStep: () => ({
+            llm: { thinking: 'low' },
+          }),
+        },
+      }),
+    );
+
+    expect(capturedRequests.length).toBeGreaterThanOrEqual(2);
+    expect(capturedRequests[0]!.url).toContain('openrouter.ai');
+    expect(capturedRequests[1]!.url).toContain('aiplatform.googleapis.com');
   });
 });

@@ -450,6 +450,7 @@ interface ResolveAIOptionsContext {
   id: string;
   method: string;
   modelSpec: LLMModelSpec;
+  modelIdSuffix?: string;
   thinking: ThinkingEffort;
   providerSort?: ProviderSort;
   extractJson?: boolean;
@@ -482,6 +483,7 @@ function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>
 
     const llmOptions = llm as LLMPrepareStepOptions;
     const targetModelSpec = llmOptions.model ?? context.modelSpec;
+    const targetModelIdSuffix = llmOptions.modelIdSuffix ?? (llmOptions.model ? undefined : context.modelIdSuffix);
     const stepThinking = llmOptions.thinking ?? (llmOptions.model ? 'none' : context.thinking);
     const stepSpec = resolveSpec(targetModelSpec, stepThinking, undefined, undefined);
 
@@ -495,7 +497,7 @@ function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>
     const provider = parseProvider(stepSpec.key);
     return {
       ...safe,
-      model: createLanguageModelForCall(stepSpec.key, llmOptions.modelIdSuffix, {
+      model: createLanguageModelForCall(stepSpec.key, targetModelIdSuffix, {
         extractJson: context.extractJson,
       }),
       providerOptions: buildProviderOptions(
@@ -1239,23 +1241,24 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
-    const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMGenerateTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
-      ai,
-      {
-        id,
-        method: 'generateText',
-        modelSpec,
-        thinking: spec.thinking,
-        providerSort,
-      },
-      { tools },
-    );
-    const telemetry = callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
+    const telemetry = callerTelemetry ?? ai?.telemetry ?? DEFAULT_TELEMETRY;
 
     return withFallback(id, 'generateText', spec, async (modelKey, fb) => {
       const startTime = Date.now();
       LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
 
+      const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMGenerateTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
+        ai,
+        {
+          id,
+          method: 'generateText',
+          modelSpec: modelKey,
+          modelIdSuffix,
+          thinking: spec.thinking,
+          providerSort,
+        },
+        { tools },
+      );
       const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, providerSort);
