@@ -1,12 +1,12 @@
-import { getAppLogger } from '@app/utils/app-logger';
+import { toProvenanceLogTags } from '@app/nest/trace/provenance-tags';
 import { RequestContext } from '@app/nest/trace/request-context';
+import { getAppLogger } from '@app/utils/app-logger';
 import { onelineStack } from '@app/utils/error';
 
 import { lazy } from '@logtape/logtape';
-
-import type { Logger } from '@logtape/logtape';
 import { context, trace } from '@opentelemetry/api';
 
+import type { Logger } from '@logtape/logtape';
 import type { LoggerService } from '@nestjs/common';
 
 /**
@@ -51,13 +51,14 @@ export class LogtapeNestLogger implements LoggerService {
     contextTags: lazy(() => {
       const entries = RequestContext.entries();
       if (!entries) return undefined;
-      const KNOWN_KEYS = new Set(['traceId', 'userId', 'spanName']);
+      const KNOWN_KEYS = new Set(['traceId', 'userId', 'spanName', 'provenance.tags']);
       const tags: string[] = [];
       for (const [key, value] of Object.entries(entries)) {
         if (!KNOWN_KEYS.has(key) && typeof value === 'string' && value.length > 0) {
           tags.push(value);
         }
       }
+      tags.push(...toProvenanceLogTags());
       return tags.length > 0 ? tags : undefined;
     }),
   });
@@ -95,7 +96,6 @@ export class LogtapeNestLogger implements LoggerService {
     const [msg, logger] = this.extractContext(message, optionalParams);
     logger.fatal`${msg}`;
   }
-   
 
   /**
    * Extract trailing context string (NestJS convention: last arg is the class/module name).

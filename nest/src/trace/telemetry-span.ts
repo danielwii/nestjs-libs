@@ -1,4 +1,5 @@
 import { LangfuseContract } from './langfuse/contract';
+import { applyProvenanceToSpan, mergeProvenanceLlmTags, withActiveSpanLlmTags } from './provenance-tags';
 import { RequestContext } from './request-context';
 
 import { context as otelContext, trace } from '@opentelemetry/api';
@@ -75,6 +76,7 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
   if (parentContext) {
     activeCtx = trace.setSpanContext(activeCtx, parentContext);
   }
+  activeCtx = withActiveSpanLlmTags(activeCtx, traceMeta?.tags);
 
   return tracer.startActiveSpan(name, {}, activeCtx, async (span) => {
     try {
@@ -83,7 +85,7 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
         name: traceMeta?.name,
         userId: traceMeta?.userId ?? RequestContext.get<string>('userId'),
         sessionId: traceMeta?.sessionId ?? RequestContext.get<string>('threadId'),
-        tags: traceMeta?.tags,
+        tags: mergeProvenanceLlmTags(traceMeta?.tags),
       };
 
       // 检查是否已设置 trace name（避免重复设置）
@@ -102,6 +104,8 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
           span.setAttribute('langfuse.session.id', effectiveTraceMeta.sessionId);
         }
       }
+
+      applyProvenanceToSpan(span, undefined, traceMeta?.tags);
 
       // 2. 设置初始 attributes
       if (attributes) {
@@ -160,6 +164,7 @@ export function withTelemetryGenerator<T, TReturn = void>(
   if (parentContext) {
     activeCtx = trace.setSpanContext(activeCtx, parentContext);
   }
+  activeCtx = withActiveSpanLlmTags(activeCtx, traceMeta?.tags);
 
   const span = tracer.startSpan(name, {}, activeCtx);
 
@@ -168,7 +173,7 @@ export function withTelemetryGenerator<T, TReturn = void>(
     name: traceMeta?.name,
     userId: traceMeta?.userId ?? RequestContext.get<string>('userId'),
     sessionId: traceMeta?.sessionId ?? RequestContext.get<string>('threadId'),
-    tags: traceMeta?.tags,
+    tags: mergeProvenanceLlmTags(traceMeta?.tags),
   };
 
   const traceNameAlreadySet = RequestContext.get<boolean>('langfuse.trace.name.set');
@@ -177,6 +182,8 @@ export function withTelemetryGenerator<T, TReturn = void>(
     LangfuseContract.setTraceMetadata(span, effectiveTraceMeta);
     RequestContext.set('langfuse.trace.name.set', true);
   }
+
+  applyProvenanceToSpan(span, undefined, traceMeta?.tags);
 
   if (attributes) {
     setSpanAttributes(span, attributes);
