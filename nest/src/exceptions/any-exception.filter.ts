@@ -31,6 +31,10 @@ type OopsLike = {
   getInternalDetails(): string;
 };
 
+type LocaleRequestLike = Omit<IdentityRequest, 'headers'> & {
+  headers?: IdentityRequest['headers'];
+};
+
 /**
  * ⚠️  ErrorCodes 迁移说明（针对其他项目）
  *
@@ -370,7 +374,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * - 不做任何语言判断、规范化
    * - 所有语言逻辑交给 i18nService.translateErrorMessage 统一处理
    */
-  private async getTranslatedMessage(exception: OopsLike, request?: IdentityRequest): Promise<string> {
+  private async getTranslatedMessage(exception: OopsLike, request?: LocaleRequestLike): Promise<string> {
     try {
       const i18nService = this.getI18nService();
       if (!i18nService) {
@@ -403,12 +407,13 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * - 返回 null 表示没有可用语言信号
    * - 所有语言逻辑交给 i18nService 处理
    */
-  private getLocaleFromRequest(request?: IdentityRequest): string | null {
+  private getLocaleFromRequest(request?: LocaleRequestLike): string | null {
     if (!request) {
       return null;
     }
 
-    const xLocale = request.headers['x-locale'];
+    const headers = request.headers ?? {};
+    const xLocale = headers['x-locale'];
 
     if (typeof xLocale === 'string') {
       const trimmed = xLocale.trim();

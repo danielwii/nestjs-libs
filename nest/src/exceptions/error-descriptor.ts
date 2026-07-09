@@ -7,7 +7,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { HttpStatus } from '@nestjs/common/enums';
-import { ThrottlerException } from '@nestjs/throttler';
 
 import { getErrorName, getResponseMessage } from '@app/utils/error';
 
@@ -77,6 +76,10 @@ function isPrismaKnownRequestError(e: unknown): e is PrismaKnownRequestError {
   return false;
 }
 
+function isThrottlerException(exception: unknown): exception is HttpException {
+  return exception instanceof HttpException && getErrorName(exception) === 'ThrottlerException';
+}
+
 /**
  * 把"协议层"异常（HttpException 家族 + Zod / Prisma / FetchError）映射为统一的
  * HttpErrorDescriptor。返回 `null` 表示这是未识别的异常，调用方应走 500 兜底 + Sentry。
@@ -117,7 +120,7 @@ export function toErrorDescriptor(exception: unknown): HttpErrorDescriptor | nul
     };
   }
 
-  if (exception instanceof ThrottlerException) {
+  if (isThrottlerException(exception)) {
     return {
       httpStatus: HttpStatus.TOO_MANY_REQUESTS,
       code: ErrorCodes.CLIENT_RATE_LIMITED,

@@ -10,7 +10,6 @@
 import { r } from './logging';
 
 import { Temporal } from '@js-temporal/polyfill';
-import { trace } from '@opentelemetry/api';
 
 // ==================== ANSI Colors ====================
 
@@ -50,9 +49,16 @@ function colorLevel(level: string): string {
 }
 
 const INVALID_TRACE_ID = '00000000000000000000000000000000';
+type ActiveTraceIdResolver = () => string | undefined;
+
+let activeTraceIdResolver: ActiveTraceIdResolver | undefined;
+
+export function setActiveTraceIdResolver(resolver: ActiveTraceIdResolver | undefined): void {
+  activeTraceIdResolver = resolver;
+}
 
 function activeTraceId(): string | undefined {
-  const traceId = trace.getActiveSpan()?.spanContext().traceId;
+  const traceId = activeTraceIdResolver?.();
   return traceId && traceId !== INVALID_TRACE_ID ? traceId : undefined;
 }
 
