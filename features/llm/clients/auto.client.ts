@@ -25,6 +25,7 @@
  */
 import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
+import { mergeProvenanceLlmTags } from '@app/nest/trace/provenance-tags';
 
 import { getModel } from '../types/model.types';
 import { google, openrouter, vertex, vertexGlobal } from './llm.clients';
@@ -411,7 +412,8 @@ class LLMBuilder {
     const context: BuilderTelemetryContext = {};
     if (this._telemetry?.userId) context.userId = this._telemetry.userId;
     if (this._telemetry?.sessionId) context.sessionId = this._telemetry.sessionId;
-    if (this._telemetry?.tags?.length) context.tags = this._telemetry.tags;
+    const tags = mergeProvenanceLlmTags(this._telemetry?.tags);
+    if (tags.length) context.tags = tags;
     if (this._telemetry?.parentObservationId) context.parentObservationId = this._telemetry.parentObservationId;
 
     return Object.keys(context).length > 0 ? context : undefined;

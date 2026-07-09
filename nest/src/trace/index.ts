@@ -1,4 +1,5 @@
 export * from './interface';
+export * from './provenance-tags';
 export * from './request-context';
 export * from './trace.decorator';
 export * from './langfuse';

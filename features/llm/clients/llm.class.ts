@@ -29,6 +29,7 @@
 
 import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
+import { mergeProvenanceLlmTags } from '@app/nest/trace/provenance-tags';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
@@ -99,7 +100,10 @@ type ProviderOptionsSurface = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** 默认开启 telemetry，OTel exporter 未配置时无副作用 */
-const DEFAULT_TELEMETRY: TelemetryOptions = { isEnabled: true };
+const DEFAULT_TELEMETRY: TelemetryOptions = {
+  isEnabled: true,
+  includeRuntimeContext: { tags: true },
+};
 
 /** 仅这些模型启用 JSON 代码块剥离中间件 */
 const MODELS_NEEDING_EXTRACT_JSON = new Set<LLMModelKey>(['openrouter:kimi-k2.5', 'openrouter:moonshotai/kimi-k2.5']);
@@ -446,6 +450,43 @@ function createLanguageModelForCall(
   });
 }
 
+function getRuntimeContextTags(runtimeContext: Context | undefined): string[] {
+  const tags = runtimeContext?.tags;
+  return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : [];
+}
+
+export function mergeProvenanceRuntimeContext<RUNTIME_CONTEXT extends Context>(
+  runtimeContext?: RUNTIME_CONTEXT,
+): RUNTIME_CONTEXT | undefined {
+  const tags = mergeProvenanceLlmTags(getRuntimeContextTags(runtimeContext));
+  if (tags.length === 0) return runtimeContext;
+
+  if (runtimeContext !== undefined) {
+    return {
+      ...runtimeContext,
+      tags,
+    };
+  }
+
+  return { tags } as unknown as RUNTIME_CONTEXT;
+}
+
+function withProvenanceTelemetry<RUNTIME_CONTEXT extends Context, TOOLS extends ToolSet>(
+  telemetry: TelemetryOptions<RUNTIME_CONTEXT, TOOLS>,
+): TelemetryOptions<RUNTIME_CONTEXT, TOOLS> {
+  if (telemetry.isEnabled === false) {
+    return telemetry;
+  }
+
+  return {
+    ...telemetry,
+    includeRuntimeContext: {
+      ...telemetry.includeRuntimeContext,
+      tags: true,
+    },
+  };
+}
+
 interface ResolveAIOptionsContext {
   id: string;
   method: string;
@@ -477,6 +518,10 @@ function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>
     }
 
     const { model: _model, providerOptions: _providerOptions, llm, ...safe } = unsafe;
+    if (safe.runtimeContext !== undefined) {
+      safe.runtimeContext = mergeProvenanceRuntimeContext(safe.runtimeContext as RUNTIME_CONTEXT);
+    }
+
     if (!llm) {
       return safe;
     }
@@ -1057,7 +1102,8 @@ export class LLM {
           maxOutputTokens,
           maxRetries: spec.maxRetries,
           abortSignal: signal,
-          telemetry,
+          telemetry: withProvenanceTelemetry(telemetry),
+          runtimeContext: mergeProvenanceRuntimeContext(),
         });
 
         cleanup();
@@ -1266,6 +1312,7 @@ export class LLM {
       const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
+      const runtimeContext = mergeProvenanceRuntimeContext<RUNTIME_CONTEXT>(aiOptions?.runtimeContext);
 
       try {
         const result = await generateText({
@@ -1280,7 +1327,8 @@ export class LLM {
           ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
           maxRetries: spec.maxRetries,
           abortSignal: signal,
-          telemetry,
+          telemetry: withProvenanceTelemetry(telemetry),
+          ...(runtimeContext !== undefined ? { runtimeContext } : {}),
         });
 
         cleanup();
@@ -1399,7 +1447,8 @@ export class LLM {
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       maxRetries: spec.maxRetries,
       abortSignal: signal,
-      telemetry,
+      telemetry: withProvenanceTelemetry(telemetry),
+      runtimeContext: mergeProvenanceRuntimeContext(aiOptions?.runtimeContext),
       onError: async (event: StreamOnErrorEvent) => {
         await aiOptions?.onError?.(event);
         cleanup();
@@ -1500,7 +1549,8 @@ export class LLM {
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       maxRetries: spec.maxRetries,
       abortSignal: signal,
-      telemetry,
+      telemetry: withProvenanceTelemetry(telemetry),
+      runtimeContext: mergeProvenanceRuntimeContext(aiOptions?.runtimeContext),
       onError: async (event: StreamOnErrorEvent) => {
         await aiOptions?.onError?.(event);
         cleanup();
@@ -1632,7 +1682,8 @@ export class LLM {
           maxOutputTokens,
           maxRetries: spec.maxRetries,
           abortSignal: signal,
-          telemetry,
+          telemetry: withProvenanceTelemetry(telemetry),
+          runtimeContext: mergeProvenanceRuntimeContext(),
         });
 
         cleanup();
@@ -1799,7 +1850,8 @@ export class LLM {
       maxOutputTokens,
       maxRetries: spec.maxRetries,
       abortSignal: signal,
-      telemetry,
+      telemetry: withProvenanceTelemetry(telemetry),
+      runtimeContext: mergeProvenanceRuntimeContext(),
       onError: ({ error }) => {
         cleanup();
         LLM.logError(id, 'streamObjectViaTool', modelKey, error);
