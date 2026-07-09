@@ -329,7 +329,10 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     if (httpStatus === 401) return status.UNAUTHENTICATED;
     if (httpStatus === 403) return status.PERMISSION_DENIED;
     if (httpStatus === 404) return status.NOT_FOUND;
+    if (httpStatus === 408) return status.DEADLINE_EXCEEDED;
     if (httpStatus === 409) return status.ALREADY_EXISTS;
+    if (httpStatus === 413) return status.RESOURCE_EXHAUSTED;
+    if (httpStatus === 415) return status.INVALID_ARGUMENT;
     if (httpStatus === 422) return status.FAILED_PRECONDITION;
     if (httpStatus === 429) return status.RESOURCE_EXHAUSTED;
     return status.UNKNOWN;

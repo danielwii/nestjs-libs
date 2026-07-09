@@ -231,6 +231,36 @@ describe('GrpcExceptionFilter', () => {
       }
     });
 
+    it('Oops.Block request-boundary statuses should map to specific gRPC statuses', async () => {
+      const cases = [
+        { httpStatus: 408 as const, grpcStatus: status.DEADLINE_EXCEEDED },
+        { httpStatus: 413 as const, grpcStatus: status.RESOURCE_EXHAUSTED },
+        { httpStatus: 415 as const, grpcStatus: status.INVALID_ARGUMENT },
+      ];
+
+      for (const { httpStatus, grpcStatus } of cases) {
+        const { host } = mockGrpcHost();
+        const exception = new Oops.Block({
+          httpStatus,
+          errorCode: '0x0101',
+          oopsCode: 'ST01',
+          userMessage: 'stream request blocked',
+        });
+
+        const result$ = filter.catch(exception, host);
+
+        try {
+          await firstValueFrom(result$);
+          expect.unreachable('expected Oops.Block to be thrown as gRPC error');
+        } catch (error: unknown) {
+          const grpcError = error as { code: number; details: string };
+          expect(grpcError.code).toBe(grpcStatus);
+          const parsed = JSON.parse(grpcError.details) as { httpStatus: number };
+          expect(parsed.httpStatus).toBe(httpStatus);
+        }
+      }
+    });
+
     it('Oops.Panic (500) should throw INTERNAL', async () => {
       const { host } = mockGrpcHost();
       const exception = Oops.Panic.Database('query failed');
