@@ -18,7 +18,7 @@
     ]
   },
   "dependencies": {
-    "@dotenvx/dotenvx": "^2.3.4",
+    "@dotenvx/dotenvx": "^2.7.3",
     "@js-temporal/polyfill": "^0.5.1",
     "dedent": "^1.7.2",
     "json5": "^2.2.3",
@@ -147,11 +147,11 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/google": "^4.0.12",
-    "@ai-sdk/google-vertex": "^5.0.15",
-    "@ai-sdk/openai": "^4.0.11",
+    "@ai-sdk/google": "^4.0.14",
+    "@ai-sdk/google-vertex": "^5.0.18",
+    "@ai-sdk/openai": "^4.0.13",
     "@ai-sdk/provider": "^4.0.3",
-    "@ai-sdk/provider-utils": "^5.0.7",
+    "@ai-sdk/provider-utils": "^5.0.9",
     "@eslint/js": "^10.0.1",
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
@@ -183,13 +183,13 @@
     "@types/number-to-words": "^1.2.3",
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.1",
-    "ai": "^7.0.20",
+    "ai": "^7.0.26",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
     "connect-redis": "^9.0.0",
     "cookie-parser": "^1.4.7",
-    "eslint": "^10.6.0",
+    "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
     "express": "^5.2.1",
@@ -198,7 +198,7 @@
     "graphql": "^16.14.2",
     "graphql-upload-ts": "^2.2.0",
     "graphql-yoga": "^5.21.2",
-    "helmet": "^8.2.0",
+    "helmet": "^8.3.0",
     "husky": "^9.1.7",
     "ioredis": "^5.11.1",
     "lint-staged": "^17.0.8",
@@ -209,7 +209,7 @@
     "response-time": "^2.3.4",
     "rxjs": "^7.8.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.63.0",
+    "typescript-eslint": "^8.64.0",
     "zod": "^4.4.3"
   }
 }
