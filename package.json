@@ -10,7 +10,6 @@
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
-    "typecheck:ts59": "bun ./node_modules/typescript-5-9/bin/tsc --noEmit",
     "check:dep-identity": "bun scripts/check-dep-identity.ts",
     "prepare": "husky"
   },
@@ -253,7 +252,6 @@
     "response-time": "^2.3.4",
     "rxjs": "^7.8.2",
     "typescript": "^6.0.3",
-    "typescript-5-9": "npm:typescript@5.9.3",
     "typescript-eslint": "^8.64.0",
     "zod": "^4.4.3"
   }

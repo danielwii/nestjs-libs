@@ -1,4 +1,5 @@
 import { LLM } from './llm.class';
+import { openrouterOptions } from './openrouter.client';
 
 import { stepCountIs, tool } from 'ai';
 import { z } from 'zod';
@@ -7,12 +8,15 @@ import type {
   StreamTextParams as PublicStreamTextParams,
   LLMStreamTextResult as PublicStreamTextResult,
 } from '../index';
-import type { LLMModelKey } from '../types/model.types';
+import type { LLMModelKey, ParsedModelSpec } from '../types/model.types';
+import type { LLMProviderOptionsRegistry } from '../types/request.types';
 import type {
   StreamTextParams as ClientStreamTextParams,
   LLMStreamTextResult as ClientStreamTextResult,
+  LLMPrepareStepOptions,
 } from './index';
 import type { Context } from '@ai-sdk/provider-utils';
+import type { AbstractEnvironmentVariables } from '@app/env';
 import type { ModelMessage, ToolSet } from 'ai';
 
 const model = 'openrouter:grok-4.1-fast' as LLMModelKey;
@@ -25,6 +29,7 @@ const canonical: Parameters<typeof LLM.generateText>[0] = {
   model,
   instructions: 'canonical prompt owner',
   messages,
+  openrouter: { provider: { sort: 'latency' } },
 };
 
 void canonical;
@@ -37,6 +42,72 @@ const legacyTools: Parameters<typeof LLM.generateText>[0] = { id: 'legacy-tools'
 const legacyStopWhen: Parameters<typeof LLM.streamText>[0] = { id: 'legacy-stop', model, messages, stopWhen: [] };
 // @ts-expect-error maxSteps is not part of the AI SDK v7 canonical API
 const legacyMaxSteps: Parameters<typeof LLM.streamText>[0] = { id: 'legacy-max-steps', model, messages, maxSteps: 2 };
+
+const removedRootProviderSort: Parameters<typeof LLM.generateText>[0] = {
+  id: 'removed-root-provider-sort',
+  model,
+  messages,
+  // @ts-expect-error provider routing has one owner: openrouter.provider
+  providerSort: 'latency',
+};
+
+const removedPrepareStepProviderSort: LLMPrepareStepOptions = {
+  // @ts-expect-error step routing has one owner: llm.openrouter.provider
+  providerSort: 'latency',
+};
+
+const canonicalOpenRouterOptions = openrouterOptions({ provider: { sort: 'latency' } });
+const removedOpenRouterProviderSort = openrouterOptions({
+  // @ts-expect-error helper aliases are removed; use provider.sort
+  providerSort: 'latency',
+});
+const removedOpenRouterProviderOrder = openrouterOptions({
+  // @ts-expect-error helper aliases are removed; use provider.order
+  providerOrder: ['anthropic'],
+});
+
+const canonicalRegistryOptions: LLMProviderOptionsRegistry['openrouter'] = {
+  provider: { order: ['anthropic'] },
+};
+const removedRegistryProviderOrder: LLMProviderOptionsRegistry['openrouter'] = {
+  // @ts-expect-error registry aliases are removed; use provider.order
+  providerOrder: ['anthropic'],
+};
+
+type CanonicalOpenRouterKey = AbstractEnvironmentVariables['AI_OPENROUTER_API_KEY'];
+type CanonicalGoogleKey = AbstractEnvironmentVariables['AI_GOOGLE_API_KEY'];
+type CanonicalVertexKey = AbstractEnvironmentVariables['AI_GOOGLE_VERTEX_API_KEY'];
+type CanonicalOpenAIKey = AbstractEnvironmentVariables['AI_OPENAI_API_KEY'];
+type CanonicalJinaKey = AbstractEnvironmentVariables['AI_JINA_API_KEY'];
+type CanonicalVoyageKey = AbstractEnvironmentVariables['AI_VOYAGE_API_KEY'];
+type CanonicalVertexProject = AbstractEnvironmentVariables['GOOGLE_VERTEX_PROJECT'];
+type CanonicalVertexLocation = AbstractEnvironmentVariables['GOOGLE_VERTEX_LOCATION'];
+
+// @ts-expect-error removed wrapper env key; use AI_OPENROUTER_API_KEY
+type RemovedOpenRouterKey = AbstractEnvironmentVariables['OPENROUTER_API_KEY'];
+// @ts-expect-error removed wrapper env key; use AI_GOOGLE_API_KEY
+type RemovedGoogleKey = AbstractEnvironmentVariables['GOOGLE_GENERATIVE_AI_API_KEY'];
+// @ts-expect-error removed wrapper env key; use AI_GOOGLE_VERTEX_API_KEY
+type RemovedVertexKey = AbstractEnvironmentVariables['GOOGLE_VERTEX_API_KEY'];
+// @ts-expect-error removed wrapper env key; use AI_OPENAI_API_KEY
+type RemovedOpenAIKey = AbstractEnvironmentVariables['OPENAI_API_KEY'];
+// @ts-expect-error removed wrapper env key; use AI_JINA_API_KEY
+type RemovedJinaKey = AbstractEnvironmentVariables['JINA_API_KEY'];
+// @ts-expect-error removed wrapper env key; use AI_VOYAGE_API_KEY
+type RemovedVoyageKey = AbstractEnvironmentVariables['VOYAGE_API_KEY'];
+// @ts-expect-error use the AI SDK v7 canonical GOOGLE_VERTEX_PROJECT
+type RemovedGoogleCloudProject = AbstractEnvironmentVariables['GOOGLE_CLOUD_PROJECT'];
+// @ts-expect-error use the AI SDK v7 canonical GOOGLE_VERTEX_LOCATION
+type RemovedGoogleCloudLocation = AbstractEnvironmentVariables['GOOGLE_CLOUD_LOCATION'];
+
+// @ts-expect-error parsed Vertex options have one owner: vertex.tier
+type RemovedParsedTier = ParsedModelSpec['tier'];
+// @ts-expect-error parsed Vertex options have one owner: vertex.requestType
+type RemovedParsedVertexRequestType = ParsedModelSpec['vertexRequestType'];
+
+type AutoClientModule = typeof import('./auto.client');
+// @ts-expect-error the deep-import builder was deleted instead of retained as a migration bridge
+type RemovedLlmBuilder = AutoClientModule['llm'];
 
 const validTools = {
   lookup: tool({
@@ -166,6 +237,13 @@ void legacySystem;
 void legacyTools;
 void legacyStopWhen;
 void legacyMaxSteps;
+void removedRootProviderSort;
+void removedPrepareStepProviderSort;
+void canonicalOpenRouterOptions;
+void removedOpenRouterProviderSort;
+void removedOpenRouterProviderOrder;
+void canonicalRegistryOptions;
+void removedRegistryProviderOrder;
 void publicParams;
 void invalidToolChoice;
 void invalidRuntimeSelection;

@@ -222,7 +222,7 @@ describe('LLM ai namespace', () => {
         maxRetries: 0,
         ai: {
           prepareStep: () => ({
-            llm: { model: 'vertex:gemini-2.5-flash?tier=priority' },
+            llm: { model: 'vertex:gemini-2.5-flash?vertex.tier=priority' },
           }),
         },
       }),
@@ -296,14 +296,14 @@ describe('LLM ai namespace', () => {
     });
   });
 
-  it('legacy providerSort still emits OpenRouter provider.sort', async () => {
+  it('call-level openrouter.provider.sort emits OpenRouter provider.sort', async () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'ai-openrouter-provider-sort',
         model: 'openrouter:claude-sonnet-4.5',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
-        providerSort: 'latency',
+        openrouter: { provider: { sort: 'latency' } },
       }),
     );
 

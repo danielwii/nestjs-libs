@@ -224,7 +224,7 @@ export const vertex = (modelId: string): LanguageModel => getVertex()(modelId);
 // ============================================================================
 
 function getVertexGlobalProject(): string {
-  const project = SysEnv.GOOGLE_VERTEX_PROJECT ?? SysEnv.GOOGLE_CLOUD_PROJECT;
+  const project = SysEnv.GOOGLE_VERTEX_PROJECT;
   if (!project) {
     throw Oops.Panic.Config('GOOGLE_VERTEX_PROJECT is not configured for vertex-global provider');
   }
@@ -232,7 +232,7 @@ function getVertexGlobalProject(): string {
 }
 
 function getVertexGlobalLocation(): 'global' {
-  const location = SysEnv.GOOGLE_VERTEX_LOCATION ?? SysEnv.GOOGLE_CLOUD_LOCATION ?? 'global';
+  const location = SysEnv.GOOGLE_VERTEX_LOCATION ?? 'global';
   if (location !== 'global') {
     throw Oops.Panic.Config(`vertex-global provider requires GOOGLE_VERTEX_LOCATION=global, got "${location}"`);
   }
@@ -305,7 +305,7 @@ export function getLLMClientStatus() {
       initialized: !!_vertex,
     },
     vertexGlobal: {
-      configured: !!(SysEnv.GOOGLE_VERTEX_PROJECT ?? SysEnv.GOOGLE_CLOUD_PROJECT),
+      configured: !!SysEnv.GOOGLE_VERTEX_PROJECT,
       initialized: !!_vertexGlobal,
     },
 

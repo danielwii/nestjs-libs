@@ -6,7 +6,7 @@
  * here directly — single source of truth, no drift risk.
  */
 
-import { isDefaultLangfuseLlmScope, isFullStackExtraScope } from './instrument-helpers';
+import { isDefaultLangfuseLlmScope, isFullStackExtraScope, resolveLangfuseBaseUrl } from './instrument-helpers';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -38,14 +38,36 @@ describe('isFullStackExtraScope', () => {
 });
 
 describe('isDefaultLangfuseLlmScope', () => {
-  it('matches legacy and AI SDK v7 LLM telemetry scopes', () => {
-    expect(isDefaultLangfuseLlmScope('ai')).toBe(true);
+  it('matches only the AI SDK v7 LLM telemetry scope', () => {
     expect(isDefaultLangfuseLlmScope('gen_ai')).toBe(true);
+    expect(isDefaultLangfuseLlmScope('ai')).toBe(false);
   });
 
   it('rejects non-LLM telemetry scopes', () => {
     expect(isDefaultLangfuseLlmScope('')).toBe(false);
     expect(isDefaultLangfuseLlmScope('@opentelemetry/instrumentation-http')).toBe(false);
     expect(isDefaultLangfuseLlmScope('prisma')).toBe(false);
+  });
+});
+
+describe('resolveLangfuseBaseUrl', () => {
+  it('returns the canonical setting', () => {
+    expect(resolveLangfuseBaseUrl('https://langfuse.example.com', undefined)).toBe('https://langfuse.example.com');
+  });
+
+  it('returns undefined when the canonical setting is absent', () => {
+    expect(resolveLangfuseBaseUrl(undefined, undefined)).toBeUndefined();
+  });
+
+  it('rejects the removed setting instead of treating it as a fallback', () => {
+    expect(() => resolveLangfuseBaseUrl(undefined, 'https://legacy.example.com')).toThrow(
+      'LANGFUSE_BASEURL has been removed; use LANGFUSE_BASE_URL',
+    );
+  });
+
+  it('rejects ambiguous configuration when both spellings are present', () => {
+    expect(() => resolveLangfuseBaseUrl('https://langfuse.example.com', 'https://legacy.example.com')).toThrow(
+      'LANGFUSE_BASEURL has been removed; use LANGFUSE_BASE_URL',
+    );
   });
 });

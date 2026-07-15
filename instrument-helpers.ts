@@ -30,10 +30,24 @@ export function isFullStackExtraScope(scope: string): boolean {
   );
 }
 
-/**
- * Default LLM telemetry scopes. `ai` is the legacy Vercel AI SDK scope and
- * `gen_ai` is the OpenTelemetry scope used by @ai-sdk/otel in AI SDK v7.
- */
+/** Default AI SDK v7 OpenTelemetry scope exported to Langfuse. */
 export function isDefaultLangfuseLlmScope(scope: string): boolean {
-  return scope === 'ai' || scope === 'gen_ai';
+  return scope === 'gen_ai';
+}
+
+/**
+ * Resolve the one supported Langfuse endpoint setting.
+ *
+ * The removed spelling is an input contract violation, not a fallback source:
+ * accepting it here would keep configuration drift invisible during startup.
+ */
+export function resolveLangfuseBaseUrl(
+  baseUrl: string | undefined,
+  removedBaseUrl: string | undefined,
+): string | undefined {
+  if (removedBaseUrl !== undefined) {
+    throw new Error('LANGFUSE_BASEURL has been removed; use LANGFUSE_BASE_URL');
+  }
+
+  return baseUrl;
 }

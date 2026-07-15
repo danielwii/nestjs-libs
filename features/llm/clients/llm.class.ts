@@ -40,7 +40,7 @@ import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec } from '../types/mode
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI, getOpenRouter } from './llm.clients';
-import { mergeOpenRouterOptions, resolveOpenRouterOptions } from './openrouter.client';
+import { resolveOpenRouterOptions } from './openrouter.client';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 import { createStreamLifecycle } from './stream-lifecycle';
 import { DEFAULT_LLM_TELEMETRY as DEFAULT_TELEMETRY } from './telemetry-policy';
@@ -68,7 +68,7 @@ import type {
   LLMModelKey,
   LLMModelSpec,
   OpenRouterModelOptions,
-  OpenRouterProviderSort,
+  VertexModelOptions,
   VertexRequestType,
   VertexTier,
 } from '../types/model.types';
@@ -146,9 +146,6 @@ export interface TokenUsage {
   raw?: unknown;
 }
 
-/** OpenRouter Provider 排序策略 */
-export type ProviderSort = OpenRouterProviderSort;
-
 type LLMReservedAIKeys = 'model' | 'providerOptions' | 'output';
 /**
  * 在 `ai` namespace 中被禁止的键：
@@ -164,8 +161,6 @@ export interface LLMPrepareStepOptions {
   model?: LLMModelSpec;
   /** Step-level thinking override. Defaults to current step model spec semantics. */
   thinking?: ThinkingEffort;
-  /** OpenRouter provider ordering override for the step model. */
-  providerSort?: ProviderSort;
   /** OpenRouter provider routing override for the step model. */
   openrouter?: OpenRouterModelOptions;
   /** Provider model id suffix for the step model. */
@@ -227,13 +222,6 @@ interface BaseParams {
   messages: Message[];
   /** Thinking 强度，默认 'none' */
   thinking?: ThinkingEffort;
-  /**
-   * OpenRouter Provider 排序策略（仅 openrouter 有效）
-   * - 'price': 优先最低价格
-   * - 'throughput': 优先最高吞吐量
-   * - 'latency': 优先最低延迟
-   */
-  providerSort?: ProviderSort;
   /** OpenRouter provider routing options（仅 openrouter 有效） */
   openrouter?: OpenRouterModelOptions;
   /** 温度 */
@@ -331,10 +319,8 @@ interface ResolvedSpec {
   maxRetries: number;
   timeout: number;
   fallbackModels: LLMModelKey[];
-  /** 请求 tier（仅 vertex / vertex-global provider 会发送 header） */
-  tier: VertexTier | undefined;
-  /** Vertex request type（仅 vertex / vertex-global + tier=flex/priority 时生效） */
-  vertexRequestType: VertexRequestType | undefined;
+  /** Provider-namespaced Vertex request options. */
+  vertex: VertexModelOptions | undefined;
   /** OpenRouter provider-namespaced options. */
   openrouter: OpenRouterModelOptions | undefined;
 }
@@ -359,8 +345,7 @@ function resolveSpec(
   const maxRetries = callerMaxRetries ?? parsed.maxRetries ?? SysEnv.AI_LLM_MAX_RETRIES;
   const timeout = callerTimeout ?? parsed.timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;
   const fallbackModels = parsed.fallbackModels;
-  const tier = parsed.tier;
-  const vertexRequestType = parsed.vertexRequestType;
+  const vertex = parsed.vertex;
   const openrouter = parsed.openrouter;
 
   // 有非默认参数时打印生效值，方便排查
@@ -369,8 +354,7 @@ function resolveSpec(
     parsed.maxRetries !== undefined ||
     parsed.timeout !== undefined ||
     fallbackModels.length > 0 ||
-    tier !== undefined ||
-    vertexRequestType !== undefined ||
+    vertex !== undefined ||
     openrouter !== undefined;
   if (hasSpecParams) {
     const parts: string[] = [];
@@ -378,8 +362,8 @@ function resolveSpec(
     parts.push(`retry=${maxRetries}`);
     parts.push(`timeout=${timeout}ms`);
     if (fallbackModels.length > 0) parts.push(`fallback=[${fallbackModels.join(',')}]`);
-    if (tier !== undefined) parts.push(`tier=${tier}`);
-    if (vertexRequestType !== undefined) parts.push(`vertexRequestType=${vertexRequestType}`);
+    if (vertex?.tier !== undefined) parts.push(`vertex.tier=${vertex.tier}`);
+    if (vertex?.requestType !== undefined) parts.push(`vertex.requestType=${vertex.requestType}`);
     if (openrouter?.routing !== undefined) parts.push(`openrouter.routing=${openrouter.routing}`);
     specLogger.info`[resolveSpec] ${parsed.key} → ${parts.join(', ')}`;
   }
@@ -391,22 +375,16 @@ function resolveSpec(
     maxRetries,
     timeout,
     fallbackModels,
-    tier,
-    vertexRequestType,
+    vertex,
     openrouter,
   };
 }
 
 function resolveOpenRouterCallOptions(
   specOpenRouter: OpenRouterModelOptions | undefined,
-  providerSort: ProviderSort | undefined,
   callOpenRouter: OpenRouterModelOptions | undefined,
 ): OpenRouterModelOptions | undefined {
-  const legacyProviderSort = providerSort ? { provider: { sort: providerSort } } : undefined;
-  if (callOpenRouter) {
-    return mergeOpenRouterOptions(legacyProviderSort, callOpenRouter);
-  }
-  return legacyProviderSort ?? specOpenRouter;
+  return callOpenRouter ?? specOpenRouter;
 }
 
 /**
@@ -521,7 +499,6 @@ interface ResolveAIOptionsContext {
   modelSpec: LLMModelSpec;
   modelIdSuffix?: string;
   thinking: ThinkingEffort;
-  providerSort?: ProviderSort;
   openrouter?: OpenRouterModelOptions;
   extractJson?: boolean;
 }
@@ -559,14 +536,14 @@ function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>
     if (stepSpec.fallbackModels.length > 0) {
       aiLogger.warning`[prepareStep] id=${context.id}, method=${context.method}: step-level fallback models are ignored because AI SDK PrepareStepResult can only return one model`;
     }
-    if ((stepSpec.tier && stepSpec.tier !== 'standard') || stepSpec.vertexRequestType) {
+    const stepTier = stepSpec.vertex?.tier;
+    if ((stepTier && stepTier !== 'standard') || stepSpec.vertex?.requestType) {
       aiLogger.warning`[prepareStep] id=${context.id}, method=${context.method}: step-level tier/requestType is ignored because AI SDK PrepareStepResult does not support step-level headers`;
     }
 
     const provider = parseProvider(stepSpec.key);
     const stepOpenRouter = resolveOpenRouterCallOptions(
       llmOptions.model ? stepSpec.openrouter : context.openrouter,
-      llmOptions.providerSort ?? (llmOptions.openrouter ? undefined : context.providerSort),
       llmOptions.openrouter,
     );
     return {
@@ -1077,7 +1054,6 @@ export class LLM {
       instructions,
       messages,
       thinking: callerThinking = 'none',
-      providerSort,
       openrouter,
       temperature,
       maxOutputTokens,
@@ -1088,18 +1064,18 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
-    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, openrouter);
 
     return withFallback(id, 'generateObject', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
+      LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb, spec.vertex?.tier, spec.vertex?.requestType);
       LLM.logInputSummary(id, schema, messages, instructions);
       LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, instructions);
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
-      const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+      const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -1120,7 +1096,16 @@ export class LLM {
         });
 
         cleanup();
-        LLM.logEnd(id, 'generateObject', modelKey, startTime, result.usage, fb, spec.tier, spec.vertexRequestType);
+        LLM.logEnd(
+          id,
+          'generateObject',
+          modelKey,
+          startTime,
+          result.usage,
+          fb,
+          spec.vertex?.tier,
+          spec.vertex?.requestType,
+        );
 
         return {
           object: result.output,
@@ -1155,9 +1140,8 @@ export class LLM {
   /**
    * 结构化对象生成（边界适配层）
    *
-   * 内部实现统一走 `safeGenerateObject`，这里只在边界处将 Err(OopsError) 转为 throw。
-   *
-   * @deprecated 使用 `safeGenerateObject`（返回 ResultAsync）替代。
+   * 这是受支持的 Promise/throw 边界。内部编排应使用 `safeGenerateObject`；
+   * 需要 Promise 契约的框架边界可使用本方法，将 Err(OopsError) 转为 throw。
    */
   static async generateObject<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
     return (await LLM.safeGenerateObject(params)).match(
@@ -1180,9 +1164,8 @@ export class LLM {
   /**
    * 通过 Tool Calling 生成结构化对象（边界适配层）
    *
-   * 内部实现统一走 `safeGenerateObjectViaTool`，这里只在边界处将 Err(OopsError) 转为 throw。
-   *
-   * @deprecated 使用 `safeGenerateObjectViaTool`（返回 ResultAsync）替代。
+   * 这是受支持的 Promise/throw 边界。内部编排应使用 `safeGenerateObjectViaTool`；
+   * 需要 Promise 契约的框架边界可使用本方法，将 Err(OopsError) 转为 throw。
    */
   static async generateObjectViaTool<T>(
     params: GenerateObjectParams<T> & {
@@ -1287,7 +1270,6 @@ export class LLM {
       instructions,
       messages,
       thinking: callerThinking = 'none',
-      providerSort,
       openrouter,
       temperature,
       maxOutputTokens,
@@ -1300,12 +1282,12 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
-    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, openrouter);
     const telemetry = callerTelemetry ?? ai?.telemetry ?? DEFAULT_TELEMETRY;
 
     return withFallback(id, 'generateText', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
+      LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb, spec.vertex?.tier, spec.vertex?.requestType);
 
       const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMGenerateTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
         ai,
@@ -1315,14 +1297,13 @@ export class LLM {
           modelSpec: modelKey,
           modelIdSuffix,
           thinking: spec.thinking,
-          providerSort,
           openrouter: openrouterOptions,
         },
       );
       const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
       const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
-      const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+      const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
       const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
@@ -1352,7 +1333,16 @@ export class LLM {
           LLM.logger.debug`[LLM:sources] id=${id}, sources=${sourcesCount}`;
         }
 
-        LLM.logEnd(id, 'generateText', modelKey, startTime, result.usage, fb, spec.tier, spec.vertexRequestType);
+        LLM.logEnd(
+          id,
+          'generateText',
+          modelKey,
+          startTime,
+          result.usage,
+          fb,
+          spec.vertex?.tier,
+          spec.vertex?.requestType,
+        );
 
         return {
           text: result.text,
@@ -1398,7 +1388,6 @@ export class LLM {
       instructions,
       messages,
       thinking: callerThinking = 'none',
-      providerSort,
       openrouter,
       temperature,
       maxOutputTokens,
@@ -1410,13 +1399,12 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
-    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, openrouter);
     const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(ai, {
       id,
       method: 'streamObject',
       modelSpec,
       thinking: spec.thinking,
-      providerSort,
       openrouter: openrouterOptions,
       extractJson: true,
     });
@@ -1426,7 +1414,7 @@ export class LLM {
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObject — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
-    LLM.logStart(id, 'streamObject', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
+    LLM.logStart(id, 'streamObject', modelKey, spec.thinking, undefined, spec.vertex?.tier, spec.vertex?.requestType);
     LLM.logInputSummary(id, schema, messages, instructions);
     LLM.captureRequest(id, 'streamObject', modelKey, schema, messages, instructions);
 
@@ -1434,7 +1422,7 @@ export class LLM {
 
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
-    const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+    const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
     const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
@@ -1475,8 +1463,8 @@ export class LLM {
             startTime,
             event.usage,
             undefined,
-            spec.tier,
-            spec.vertexRequestType,
+            spec.vertex?.tier,
+            spec.vertex?.requestType,
           );
         },
         logAbort: () => {
@@ -1554,7 +1542,6 @@ export class LLM {
       instructions,
       messages,
       thinking: callerThinking = 'none',
-      providerSort,
       openrouter,
       temperature,
       maxOutputTokens,
@@ -1566,13 +1553,12 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
-    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, openrouter);
     const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(ai, {
       id,
       method: 'streamText',
       modelSpec,
       thinking: spec.thinking,
-      providerSort,
       openrouter: openrouterOptions,
     });
     const telemetry: TelemetryOptions<RUNTIME_CONTEXT, TOOLS> =
@@ -1581,12 +1567,12 @@ export class LLM {
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamText — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
-    LLM.logStart(id, 'streamText', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
+    LLM.logStart(id, 'streamText', modelKey, spec.thinking, undefined, spec.vertex?.tier, spec.vertex?.requestType);
 
     const languageModel = createLanguageModelForCall(modelKey, undefined);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
-    const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+    const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
     const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
@@ -1618,7 +1604,16 @@ export class LLM {
           LLM.logErrorEvent(id, 'streamText', modelKey, event.error);
         },
         logSuccess: (event) => {
-          LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
+          LLM.logEnd(
+            id,
+            'streamText',
+            modelKey,
+            startTime,
+            event.usage,
+            undefined,
+            spec.vertex?.tier,
+            spec.vertex?.requestType,
+          );
         },
         logAbort: () => {
           LLM.logger
@@ -1700,7 +1695,6 @@ export class LLM {
       instructions,
       messages,
       thinking: callerThinking = 'none',
-      providerSort,
       openrouter,
       temperature,
       maxOutputTokens,
@@ -1714,11 +1708,19 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
-    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, openrouter);
 
     return withFallback(id, 'generateObjectViaTool', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
+      LLM.logStart(
+        id,
+        'generateObjectViaTool',
+        modelKey,
+        spec.thinking,
+        fb,
+        spec.vertex?.tier,
+        spec.vertex?.requestType,
+      );
       LLM.logInputSummary(id, schema, messages, instructions);
       LLM.captureRequest(id, 'generateObjectViaTool', modelKey, schema, messages, instructions, {
         toolName,
@@ -1740,7 +1742,7 @@ export class LLM {
               },
             }
           : baseProviderOptions;
-      const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+      const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
 
       // 创建 Tool，将 Schema 作为 inputSchema
       const tools = {
@@ -1780,8 +1782,8 @@ export class LLM {
           startTime,
           result.usage,
           fb,
-          spec.tier,
-          spec.vertexRequestType,
+          spec.vertex?.tier,
+          spec.vertex?.requestType,
         );
 
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
@@ -1888,7 +1890,6 @@ export class LLM {
       instructions,
       messages,
       thinking: callerThinking = 'none',
-      providerSort,
       openrouter,
       temperature,
       maxOutputTokens,
@@ -1901,17 +1902,25 @@ export class LLM {
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
-    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
+    const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, openrouter);
     const { key: modelKey } = spec;
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObjectViaTool — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
-    LLM.logStart(id, 'streamObjectViaTool', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
+    LLM.logStart(
+      id,
+      'streamObjectViaTool',
+      modelKey,
+      spec.thinking,
+      undefined,
+      spec.vertex?.tier,
+      spec.vertex?.requestType,
+    );
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
-    const tierHeaders = buildTierHeaders(modelKey, spec.tier, spec.vertexRequestType);
+    const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
 
     // 创建 Tool，将 Schema 作为 inputSchema
     const tools = {
@@ -1981,7 +1990,16 @@ export class LLM {
       }
 
       const usage = await result.usage;
-      LLM.logEnd(id, 'streamObjectViaTool', modelKey, startTime, usage, undefined, spec.tier, spec.vertexRequestType);
+      LLM.logEnd(
+        id,
+        'streamObjectViaTool',
+        modelKey,
+        startTime,
+        usage,
+        undefined,
+        spec.vertex?.tier,
+        spec.vertex?.requestType,
+      );
       yield { type: 'usage', usage };
     } catch (error) {
       LLM.logError(id, 'streamObjectViaTool', modelKey, error);

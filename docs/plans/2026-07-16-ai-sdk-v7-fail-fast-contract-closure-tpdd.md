@@ -1,6 +1,6 @@
 # AI SDK v7 Fail-Fast Contract Closure (TPDD)
 
-- Status: Implemented, ready for review
+- Status: Implementation complete - verification passed
 - Date: 2026-07-16
 - Repository: `danielwii/nestjs-libs`
 - Baseline: `main@58612f7`
@@ -25,6 +25,11 @@ The canonical vocabulary is:
 - `ai.toolChoice`
 - `ai.stopWhen`
 - concrete `TOOLS` and `RUNTIME_CONTEXT` generics
+- `openrouter.provider.order` / `openrouter.provider.sort`
+- `vertex.tier` / `vertex.requestType`
+- `LANGFUSE_BASE_URL`
+- `AI_*` provider keys and `GOOGLE_VERTEX_PROJECT` /
+  `GOOGLE_VERTEX_LOCATION`
 
 The library must not absorb consumer migration errors through aliases,
 normalization, fallback fields, merge arbitration, `any`, or generic-erasing
@@ -39,10 +44,11 @@ casts.
   repository in this PR.
 - Do not add a runtime compatibility layer for `system`, `onFinish`,
   `fullStream`, `maxSteps`, or root-level `tools` / `stopWhen`.
-- Do not remove every deprecated or experimental AI SDK field. This cut owns
-  only the canonical vocabulary named above and fields whose ownership is
-  already managed by `LLM`.
-- Do not migrate to AI SDK v8, TypeScript 6-only syntax, or a new LLM framework.
+- Do not remove provider protocol compatibility, intentional model fallback,
+  or the supported Promise boundary adapters over the Result APIs.
+- Do not migrate to AI SDK v8 or a new LLM framework.
+- Do not add a second compiler or source compatibility lane for pre-TypeScript
+  6 consumers; consumer compiler and dependency upgrades are atomic.
 - Do not make per-tool `outputSchema` mandatory.
 - Do not promise cleanup for a caller that abandons a native stream without an
   `AbortSignal`. Explicit cancellation remains `AbortSignal`-driven. The
@@ -65,8 +71,11 @@ casts.
    reproduce its verification environment.
 7. A consumer-facing dependency identity command detects duplicate physical
    package identities, including duplicates nested below scoped packages.
-8. TypeScript 6 and the consumer baseline TypeScript 5.9.3 both pass the same
-   compile-time contract fixtures.
+8. TypeScript 6 is the single compiler authority; the manifest and CI contain
+   no TypeScript 5.9 alias or compatibility lane.
+9. Removed LLM/OpenRouter fields, model query aliases, telemetry aliases, env
+   aliases, and the dead builder cannot be consumed through another public or
+   runtime path.
 
 ## 2. Evidence Baseline
 
@@ -177,6 +186,23 @@ Standalone success caused by dev dependency hoisting is not proof that a
 consumer can compile or start. Every static runtime import and every source-level
 type import required by consumers must be represented in the package contract.
 
+#### C7. A major-version cut does not host migration bridges
+
+The canonical libs source has one spelling and one compiler authority. Removed
+forms fail at the earliest enforceable boundary:
+
+- TypeScript rejects removed object fields, env properties, and builder exports;
+- model-spec parsing rejects `tier` and `vertexRequestType` with the canonical
+  replacement in the error;
+- parsed model specs expose Vertex options only under `vertex`; flat result
+  fields do not survive as a second owner;
+- tracing startup rejects `LANGFUSE_BASEURL` when Langfuse is enabled;
+- span filtering accepts only the AI SDK v7 `gen_ai` scope;
+- CI runs the TypeScript 6 compiler only.
+
+Provider wire compatibility and supported Promise boundary adapters are not
+migration aliases. They retain their explicit semantic ownership.
+
 ### 3.2 Boundary Separation
 
 | Layer                  | Owner                                      | Responsibility                                                          | Must not do                                           |
@@ -257,9 +283,21 @@ Consumer repository verification
       ownership; the standalone verification pair is reproducibly locked.
 - [x] M16. The dependency identity command detects duplicate realpaths below
       unscoped and scoped parent packages, including same-version duplicates.
-- [x] M17. TypeScript 6 and TypeScript 5.9.3 compile the same contract fixtures.
+- [x] M17. TypeScript 6 is the only compiler dependency and CI typecheck lane;
+      no aliased TypeScript 5.9 package remains.
 - [x] M18. No public/runtime compatibility path uses `any`, and no cast erases
       stream tool/context result generics.
+- [x] M19. `providerSort` / `providerOrder` are absent from the public LLM and
+      OpenRouter options; `openrouter.provider` is the only routing owner.
+- [x] M20. Model specs reject `tier` and `vertexRequestType`; only
+      `vertex.tier` and `vertex.requestType` are accepted and returned under the
+      parsed `vertex` namespace.
+- [x] M21. Langfuse accepts only `LANGFUSE_BASE_URL` and AI SDK v7 `gen_ai`;
+      the old env spelling fails fast and the old scope is not exported.
+- [x] M22. Deprecated AI key env properties and `GOOGLE_CLOUD_*` Vertex
+      fallbacks are removed; provider config has one canonical property each.
+- [x] M23. The deprecated deep-import builder and its builder-only types/tests
+      are deleted rather than left as unreachable source debt.
 
 ### Need Have - Important Check Points
 
@@ -274,7 +312,8 @@ Consumer repository verification
 - [x] N5. Full repository lint, typecheck, and test gates pass from a clean,
       standalone install.
 - [x] N6. Migration documentation states that consumer pointer, AI SDK family,
-      lockfile, overrides, and call sites advance atomically.
+      TypeScript compiler, env/model config, lockfile, overrides, and call sites
+      advance atomically.
 
 ### Should Have - Optional Check Points
 
@@ -295,7 +334,10 @@ Consumer repository verification
 - Runtime protection for callers that deliberately bypass TypeScript with
   `any`, unsafe casts, or JavaScript.
 - Bare native stream cancellation without an `AbortSignal`.
-- Removal of unrelated AI SDK deprecated/experimental fields.
+- Removal of unrelated AI SDK experimental fields.
+- Consumer service-layer migration from supported Promise boundary adapters to
+  `safe*` Result APIs. The Promise methods are thin adapters over the Result
+  core and are not compatibility aliases.
 - Tool result `outputSchema` rollout.
 
 ## 6. Target Design
@@ -503,12 +545,38 @@ node_modules/
 The checker must detect a conflicting root `@ai-sdk/provider` and nested
 `@ai-sdk/provider` in that shape.
 
+### 6.6 Legacy-Debt Elimination
+
+This cut removes compatibility paths rather than documenting them for later:
+
+1. `typescript-5-9`, `typecheck:ts59`, and the matching CI job are deleted.
+2. LLM call and `prepareStep.llm` routing use only
+   `openrouter.provider.{order,sort,...}`. OpenRouter helper inputs expose only
+   the nested `provider` object.
+3. `parseModelSpec()` throws for `tier` and `vertexRequestType`, while schema
+   validation rejects those forms before application startup where the schema
+   is used.
+4. `LANGFUSE_BASEURL` is never treated as configuration. If Langfuse is enabled
+   and the removed key is present, startup throws an actionable error naming
+   `LANGFUSE_BASE_URL`.
+5. Langfuse's default scope filter accepts `gen_ai` only.
+6. `AbstractEnvironmentVariables` exposes only the wrapper-owned `AI_*` keys
+   and the AI SDK-owned `GOOGLE_VERTEX_PROJECT` / `GOOGLE_VERTEX_LOCATION`.
+   Native provider key spellings and `GOOGLE_CLOUD_*` fallback properties are
+   removed from this shared env contract.
+7. The deprecated `llm()` builder and its builder-only types are deleted. The
+   supported `model()`, `parseProvider()`, and provider option helpers remain.
+
+Consumer repositories are not made source-compatible inside libs. Their old
+config and calls are migration evidence and must be changed in the consumer PR
+that advances the libs pointer.
+
 ## 7. Test Plan A
 
 | ID  | Priority | Scenario                                  | Setup / Given                                                                                   | Trigger / When                                     | Expected / Then                                                                              | Evidence                           | Automation       |
 | --- | -------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------- |
 | C1  | Must     | Canonical request compiles                | Public barrel import, concrete model/messages                                                   | Compile request using `instructions` and `ai.*`    | No diagnostic                                                                                | TS fixture                         | automated        |
-| C2  | Must     | Root aliases fail                         | Separate object literals for `system`, `tools`, `stopWhen`, `maxSteps`                          | Run TS6 and TS5.9                                  | Every fixture consumes one `@ts-expect-error`; no unused directive                           | Compiler output                    | automated        |
+| C2  | Must     | Root aliases fail                         | Separate object literals for `system`, `tools`, `stopWhen`, `maxSteps`                          | Run TypeScript 6                                   | Every fixture consumes one `@ts-expect-error`; no unused directive                           | Compiler output                    | automated        |
 | C3  | Must     | Nested prompt aliases fail                | `ai.instructions/system/prompt/messages` and `ai.onFinish` fixtures                             | Compile                                            | Every deprecated/duplicate owner is rejected                                                 | Compiler output                    | automated        |
 | C4  | Must     | Per-step canonical vocabulary             | One fixture returns `prepareStep.instructions`; one returns `prepareStep.system`                | Compile                                            | `instructions` passes; `system` is rejected                                                  | Compiler output                    | automated        |
 | C5  | Must     | Canonical result hides old stream         | Capture return types for `streamText` and `streamObject`                                        | Access `.stream` and `.fullStream`                 | `.stream` passes; `.fullStream` is rejected                                                  | Compiler output                    | automated        |
@@ -518,6 +586,11 @@ The checker must detect a conflicting root `@ai-sdk/provider` and nested
 | C9  | Must     | Stop condition passes unchanged           | Concrete tool set and `stepCountIs(2)` under `ai.stopWhen`                                      | Capture AI SDK request/options                     | Same stop condition identity/behavior reaches SDK                                            | Integration assertion              | automated        |
 | C10 | Must     | Legacy capture is rejected                | File fixture has top-level `system`, valid messages/model/schema                                | Call `replayFromFile()` before provider invocation | Validation fails at `system`; provider is not called                                         | Error/result assertion             | automated        |
 | C11 | Must     | Message role remains valid                | Capture uses `instructions` and message `{ role: 'system' }`                                    | Parse capture                                      | Parse succeeds                                                                               | Schema assertion                   | automated        |
+| C12 | Must     | OpenRouter aliases fail                   | LLM, prepare-step, request-registry, and helper option fixtures use old routing fields          | Compile                                            | `providerSort` / `providerOrder` each fail; nested `provider` compiles                       | TS fixture                         | automated        |
+| C13 | Must     | Model aliases fail                        | Model specs use old/canonical Vertex query keys and inspect the parsed result                   | Parse, schema-validate, and compile                | Old keys throw/reject; canonical keys parse under `vertex`; flat result fields fail typing   | Parser/schema/type assertions      | automated        |
+| C14 | Must     | Langfuse aliases fail                     | Legacy env key and old/new instrumentation scopes                                               | Resolve config and filter scopes                   | Legacy env throws; `ai` is false; `gen_ai` is true                                           | Pure helper assertions             | automated        |
+| C15 | Must     | Env aliases fail                          | Compile fixtures index canonical and removed AI/Vertex env properties                           | Compile                                            | Canonical keys resolve; removed keys consume `@ts-expect-error`                              | TS fixture                         | automated        |
+| C16 | Must     | Builder source is gone                    | Public barrel and auto client source                                                            | Compile and structural scan                        | No `llm` builder/LLMBuilder/builder-only exports remain                                      | Compiler/source assertion          | automated/review |
 | L1  | Must     | Successful stream finalizes once          | Fake provider completes one step; spies on caller, cleanup, terminal log                        | Fully consume stream                               | Caller `onEnd`, cleanup, success summary each equal 1                                        | Spy counts                         | automated        |
 | L2  | Must     | Throwing `onEnd` cannot skip finalization | Successful fake stream; caller `onEnd` throws                                                   | Consume stream                                     | Cleanup and success summary each equal 1; no second terminal state                           | Spy counts/state                   | automated        |
 | L3  | Must     | Error event can recover                   | Fake stream emits one error event then a valid finish                                           | Consume stream                                     | Caller/error-event log each equal 1; cleanup remains 0 until `onEnd`; success finalizes once | Ordered spy trace                  | automated        |
@@ -541,7 +614,7 @@ The checker must detect a conflicting root `@ai-sdk/provider` and nested
 | D4  | Must     | Scoped nested duplicate fails             | Root and scoped-parent-nested `@ai-sdk/provider` use different realpaths                        | Run checker                                        | Exit nonzero and list both identities                                                        | CLI result                         | automated        |
 | D5  | Must     | Same-version duplicate fails              | Two realpaths both report same package/version                                                  | Run checker                                        | Exit nonzero                                                                                 | CLI result                         | automated        |
 | D6  | Need     | Multiple anchors are compared             | Root anchor and libs anchor each resolve different `ai` realpaths                               | Run with both `--anchor` values                    | Exit nonzero and attribute each path to its anchor                                           | CLI result                         | automated        |
-| G1  | Must     | TS version matrix agrees                  | Exact TS6 and TS5.9.3 compilers installed deterministically                                     | Compile same project/fixtures                      | Both exit 0                                                                                  | CI jobs/commands                   | automated        |
+| G1  | Must     | One compiler authority                    | Manifest, lockfile, scripts, and CI                                                             | Install and compile                                | Exact TypeScript 6 resolution; no TS5 alias or extra lane                                    | Manifest/CI/compiler output        | automated        |
 | G2  | Need     | Full baseline remains green               | Clean standalone install                                                                        | Run lint, typecheck, full tests, diff check        | All commands exit 0; no old assertions deleted without mapping                               | CI artifacts                       | automated/review |
 
 ## 8. Implementation Slices
@@ -614,12 +687,30 @@ The checker must detect a conflicting root `@ai-sdk/provider` and nested
   - close static dependency declarations;
   - lock standalone verification;
   - implement recursive scoped-aware identity discovery;
-  - add deterministic TS5.9.3 compiler support.
+  - keep TypeScript 6 as the only compiler authority.
 - Tests: D1-D6 and G1.
 - Failure eliminated: standalone/consumer split reality and false-green shallow
   dependency scans.
 
-### Slice 5 - Release Evidence
+### Slice 5 - Legacy-Debt Elimination
+
+- Semantic owner: canonical public/config vocabulary.
+- Likely files:
+  - `package.json`, `bun.lock`, `.github/workflows/ci.yml`
+  - `features/llm/clients/{llm.class,auto.client,openrouter.client}.ts`
+  - `features/llm/types/{model.types,request.types}.ts`
+  - `env/src/configure.ts`
+  - `instrument.ts`, `instrument-helpers.ts`
+  - focused compile/runtime specs
+- Changes:
+  - delete compatibility compiler, aliases, fallbacks, and dead builder;
+  - preserve only canonical provider/model/env/telemetry ownership;
+  - add negative tests at TypeScript or runtime boundaries.
+- Tests: C12-C16 and G1.
+- Failure eliminated: old configurations surviving a major cut and hiding
+  required consumer migration work.
+
+### Slice 6 - Release Evidence
 
 - Semantic owner: reviewer and consumer migration contract.
 - Likely files:
@@ -644,7 +735,6 @@ include equivalents of:
 bun install --frozen-lockfile
 bunx eslint . --no-fix --format stylish
 bun run typecheck
-bun run typecheck:ts59
 bun run check:dep-identity -- --anchor .
 bun test
 git diff --check
@@ -656,22 +746,17 @@ valid message role and the guard type that names a field solely to exclude it.
 
 ### Implementation Evidence (2026-07-16)
 
-- `bun install --frozen-lockfile`: pass (`718` installs, `651` packages).
-- `bun run lint`: pass; the command is read-only and no longer rewrites source.
-- `bun run typecheck`: pass with the repository TypeScript 6 compiler.
-- `bun run typecheck:ts59`: pass with exact TypeScript `5.9.3`.
-- `bun run check:dep-identity -- --anchor .`: pass (`18` matching package
-  installations, one physical identity per package name).
-- `bun test`: `540` pass, `0` fail, `1133` assertions across `47` files.
-- Prettier check over every touched source, test, workflow, manifest, and plan
-  file: pass. The full-repository Prettier scan still reports six untouched
-  baseline files and this PR does not rewrite them.
-- No pre-existing test assertion was deleted. Direct native/proto-shaped
-  assertions were retained or supplemented with public-boundary and adapter
-  assertions.
-- S1 and S3 remain explicit deferrals. They add migration or extension
-  ergonomics and are not required for the fail-fast correctness invariant. S2
-  is implemented and verified through the identity CLI subprocess fixture.
+- `bun install --frozen-lockfile`: pass; 717 installs across 650 packages, no
+  lockfile changes.
+- `bun run typecheck`: pass under the sole TypeScript 6 compiler lane. Negative
+  fixtures reject removed LLM, OpenRouter, env, and builder spellings.
+- `bun run lint`: pass.
+- `bun run check:dep-identity -- --anchor . --json`: pass; no conflicts. The
+  resolved graph contains one `ai@7.0.28` identity.
+- Focused contract and behavior matrix: 86 pass, 0 fail, 156 assertions across
+  eight files.
+- Full repository suite: 545 pass, 0 fail, 1,140 assertions across 47 files.
+- `git diff --check`: pass.
 
 ## 10. Review Checklist
 
@@ -688,7 +773,10 @@ valid message role and the guard type that names a field solely to exclude it.
 - [x] Identity discovery enters scoped child packages before nested
       `node_modules`.
 - [x] Same-version duplicate physical identities fail.
-- [x] TS5.9.3 and TS6 run the same fixtures.
+- [x] TypeScript 6 is the only compiler dependency and CI lane.
+- [x] No LLM/OpenRouter/model/env/telemetry alias is accepted or converted.
+- [x] The deprecated builder and builder-only types are absent from source and
+      public barrels.
 - [x] No consumer repository or product behavior entered the diff.
 - [x] Existing tests were retained or have an explicit assertion mapping.
 
@@ -701,7 +789,7 @@ This spec is complete only when:
    non-correctness reason for deferral before merge. N1, N2, N4, and N5 may not
    be deferred merely for schedule.
 3. The public compile fixture proves deprecated fields fail and canonical
-   generic usage succeeds under both compiler versions.
+   generic usage succeeds under TypeScript 6.
 4. Lifecycle tests prove exact-once terminal cleanup/logging under callback
    failure and competing terminal signals.
 5. OTel tests prove one registration and one span, with explicit selected-field
@@ -711,6 +799,8 @@ This spec is complete only when:
 8. Full lint, typecheck, and test suites pass.
 9. The PR contains only libs changes and documents the separate consumer
    migration sequence.
+10. No compatibility compiler, runtime alias, config fallback, old telemetry
+    scope, or dead builder remains in the canonical migration surface.
 
 ## 12. Rollout and Rollback
 

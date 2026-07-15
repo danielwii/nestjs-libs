@@ -133,7 +133,7 @@ export interface ModelConfig<P extends string = string> {
  * - 全称：openrouter:google/gemini-2.5-flash（与 OpenRouter modelId 一致）
  *
  * OpenRouter Provider 定价差异：
- * 各 provider 定价不同，选型时可通过 providerSort（price/throughput/latency）控制路由偏好。
+ * 各 provider 定价不同，选型时可通过 openrouter.provider.sort 控制路由偏好。
  *
  * @see https://openrouter.ai/models
  */
@@ -295,7 +295,7 @@ export interface LLMModelRegistry {
    * | Parasail | $0.28 | $0.45 |
    * | Google Vertex | $0.56 | $1.68 | ← 贵 2-4x，慎用
    *
-   * 建议：providerSort: 'price' 优先低价 provider
+   * 建议：openrouter.provider.sort: 'price' 优先低价 provider
    */
   'openrouter:deepseek-v3.2': ModelConfig<'openrouter'>;
   'openrouter:deepseek/deepseek-v3.2': ModelConfig<'openrouter'>;
@@ -315,7 +315,7 @@ export interface LLMModelRegistry {
    * | NovitaAI / Moonshot / Fireworks / Baseten | $0.60 | $2.85-3 |
    * | Venice | $0.75 | $3.75 | ← 贵 2-3x
    *
-   * 建议：providerSort: 'price' 优先 SiliconFlow
+   * 建议：openrouter.provider.sort: 'price' 优先 SiliconFlow
    *
    * @see https://openrouter.ai/moonshotai/kimi-k2.5
    */
@@ -628,10 +628,6 @@ export interface ParsedModelSpec {
   timeout: number | undefined;
   /** 降级模型链，主模型失败后依次尝试 */
   fallbackModels: LLMModelKey[];
-  /** Vertex AI tier（仅 vertex / vertex-global provider 会发送 header） */
-  tier: VertexTier | undefined;
-  /** Vertex request type（仅 vertex / vertex-global + tier=flex/priority 时生效） */
-  vertexRequestType: VertexRequestType | undefined;
   /** Provider-namespaced Vertex options. */
   vertex: VertexModelOptions | undefined;
   /** Provider-namespaced OpenRouter options. */
@@ -641,6 +637,17 @@ export interface ParsedModelSpec {
 const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']);
 const VALID_VERTEX_TIERS = new Set<string>(['standard', 'flex', 'priority']);
 const VALID_VERTEX_REQUEST_TYPES = new Set<string>(['shared']);
+const REMOVED_MODEL_SPEC_PARAMS = new Map([
+  ['tier', 'vertex.tier'],
+  ['vertexRequestType', 'vertex.requestType'],
+] as const);
+
+function findRemovedModelSpecParam(params: URLSearchParams): readonly [string, string] | undefined {
+  for (const [removed, canonical] of REMOVED_MODEL_SPEC_PARAMS) {
+    if (params.has(removed)) return [removed, canonical];
+  }
+  return undefined;
+}
 
 function parseProviderFromKey(key: LLMModelKey): LLMProviderType {
   return key.slice(0, key.indexOf(':')) as LLMProviderType;
@@ -667,8 +674,6 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
       maxRetries: undefined,
       timeout: undefined,
       fallbackModels: [],
-      tier: undefined,
-      vertexRequestType: undefined,
       vertex: undefined,
       openrouter: undefined,
     };
@@ -676,6 +681,11 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
   const key = spec.slice(0, qIdx) as LLMModelKey;
   const provider = parseProviderFromKey(key);
   const params = new URLSearchParams(spec.slice(qIdx + 1));
+  const removedParam = findRemovedModelSpecParam(params);
+  if (removedParam) {
+    const [removed, canonical] = removedParam;
+    throw new Error(`Model spec parameter "${removed}" has been removed; use "${canonical}" in "${spec}"`);
+  }
 
   // reason → thinking effort（无效值 warning + 忽略，不阻断）
   const reason = params.get('reason');
@@ -727,49 +737,29 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
     }
   }
 
-  // vertex.tier → Vertex AI tier. Legacy ?tier= remains supported for backward compatibility.
-  const tierNamespacedRaw = params.get('vertex.tier');
-  const tierLegacyRaw = params.get('tier');
-  if (tierLegacyRaw !== null) {
-    logger.warning`[parseModelSpec] "tier" is deprecated in "${spec}", use "vertex.tier"`;
-  }
-  if (tierNamespacedRaw !== null && tierLegacyRaw !== null && tierNamespacedRaw !== tierLegacyRaw) {
-    logger.warning`[parseModelSpec] Both "vertex.tier" and legacy "tier" are present in "${spec}", using "vertex.tier"`;
-  }
-  const tierRaw = tierNamespacedRaw ?? tierLegacyRaw;
+  // vertex.tier → Vertex AI tier.
+  const tierRaw = params.get('vertex.tier');
   let tier: VertexTier | undefined;
   if (tierRaw !== null) {
-    if (provider !== 'vertex' && provider !== 'vertex-global' && tierNamespacedRaw !== null) {
+    if (provider !== 'vertex' && provider !== 'vertex-global') {
       logger.warning`[parseModelSpec] vertex.tier requested for non-vertex provider=${provider} in "${spec}", ignoring`;
     } else if (VALID_VERTEX_TIERS.has(tierRaw)) {
       tier = tierRaw as VertexTier;
     } else {
-      logger.warning`[parseModelSpec] Invalid tier "${tierRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_TIERS].join(', ')}`;
+      logger.warning`[parseModelSpec] Invalid vertex.tier "${tierRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_TIERS].join(', ')}`;
     }
   }
 
-  // vertex.requestType → Vertex AI request type header. Legacy ?vertexRequestType= remains supported.
-  const vertexRequestTypeNamespacedRaw = params.get('vertex.requestType');
-  const vertexRequestTypeLegacyRaw = params.get('vertexRequestType');
-  if (vertexRequestTypeLegacyRaw !== null) {
-    logger.warning`[parseModelSpec] "vertexRequestType" is deprecated in "${spec}", use "vertex.requestType"`;
-  }
-  if (
-    vertexRequestTypeNamespacedRaw !== null &&
-    vertexRequestTypeLegacyRaw !== null &&
-    vertexRequestTypeNamespacedRaw !== vertexRequestTypeLegacyRaw
-  ) {
-    logger.warning`[parseModelSpec] Both "vertex.requestType" and legacy "vertexRequestType" are present in "${spec}", using "vertex.requestType"`;
-  }
-  const vertexRequestTypeRaw = vertexRequestTypeNamespacedRaw ?? vertexRequestTypeLegacyRaw;
+  // vertex.requestType → Vertex AI request type header.
+  const vertexRequestTypeRaw = params.get('vertex.requestType');
   let vertexRequestType: VertexRequestType | undefined;
   if (vertexRequestTypeRaw !== null) {
-    if (provider !== 'vertex' && provider !== 'vertex-global' && vertexRequestTypeNamespacedRaw !== null) {
+    if (provider !== 'vertex' && provider !== 'vertex-global') {
       logger.warning`[parseModelSpec] vertex.requestType requested for non-vertex provider=${provider} in "${spec}", ignoring`;
     } else if (VALID_VERTEX_REQUEST_TYPES.has(vertexRequestTypeRaw)) {
       vertexRequestType = vertexRequestTypeRaw as VertexRequestType;
     } else {
-      logger.warning`[parseModelSpec] Invalid vertexRequestType "${vertexRequestTypeRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_REQUEST_TYPES].join(', ')}`;
+      logger.warning`[parseModelSpec] Invalid vertex.requestType "${vertexRequestTypeRaw}" in "${spec}", ignoring. Valid: ${[...VALID_VERTEX_REQUEST_TYPES].join(', ')}`;
     }
   }
 
@@ -792,7 +782,7 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
         }
       : undefined;
 
-  return { key, provider, thinking, maxRetries, timeout, fallbackModels, tier, vertexRequestType, vertex, openrouter };
+  return { key, provider, thinking, maxRetries, timeout, fallbackModels, vertex, openrouter };
 }
 
 /**
@@ -1132,7 +1122,9 @@ export function isModelRegistered(key: string): key is LLMModelKey {
 export function isModelSpecValid(spec: string): spec is LLMModelSpec {
   const qIdx = spec.indexOf('?');
   const baseKey = qIdx === -1 ? spec : spec.slice(0, qIdx);
-  return modelRegistry.has(baseKey);
+  if (!modelRegistry.has(baseKey)) return false;
+  if (qIdx === -1) return true;
+  return findRemovedModelSpecParam(new URLSearchParams(spec.slice(qIdx + 1))) === undefined;
 }
 
 /**
@@ -1177,7 +1169,7 @@ const providerConfigRequirements: Partial<Record<string, ProviderConfigRequireme
   },
   'vertex-global': {
     envVar: 'GOOGLE_VERTEX_PROJECT',
-    configured: () => !!(SysEnv.GOOGLE_VERTEX_PROJECT ?? SysEnv.GOOGLE_CLOUD_PROJECT),
+    configured: () => !!SysEnv.GOOGLE_VERTEX_PROJECT,
   },
   openai: {
     envVar: 'AI_OPENAI_API_KEY',
@@ -1186,7 +1178,7 @@ const providerConfigRequirements: Partial<Record<string, ProviderConfigRequireme
 };
 
 /**
- * 检查 Provider 是否已配置 API Key（新旧名字都检查）
+ * 检查 Provider 是否已配置 canonical credential/configuration field
  */
 export function isProviderConfigured(provider: string): boolean {
   return providerConfigRequirements[provider]?.configured() ?? false;

@@ -2,7 +2,7 @@
  * LLM Vertex Tier 支持的单元测试
  *
  * 覆盖：
- * 1. parseModelSpec 对 `?tier=` / `?vertexRequestType=` 的解析（合法值 / 非法值 / 与其他 spec 参数组合）
+ * 1. parseModelSpec 对 `vertex.tier` / `vertex.requestType` 的解析与旧参数拒绝
  * 2. getSupportedTiers 查询函数（已标注 / 未标注 / 非 vertex/vertex-global provider）
  * 3. buildTierHeaders 的三种运行时行为：
  *    - 生效（返回 header 对象）
@@ -12,6 +12,7 @@
 
 import 'reflect-metadata';
 
+import { LLMModelSpecSchema } from '../schemas/model.schema';
 import { getSupportedTiers, parseModelSpec } from '../types/model.types';
 import { buildTierHeaders, VERTEX_REQUEST_TYPE_HEADER, VERTEX_TIER_HEADER } from './llm.class';
 
@@ -20,85 +21,102 @@ import { describe, expect, it } from 'bun:test';
 import type { LLMModelSpec, VertexTier } from '../types/model.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// parseModelSpec: ?tier= / ?vertexRequestType= 查询参数
+// parseModelSpec: provider-namespaced Vertex query parameters
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('parseModelSpec: ?tier query parameter', () => {
+describe('parseModelSpec: provider-namespaced Vertex query parameters', () => {
   it('parses namespaced vertex.tier and vertex.requestType', () => {
     const spec = 'vertex:gemini-2.5-flash?vertex.tier=priority&vertex.requestType=shared' as LLMModelSpec;
     const result = parseModelSpec(spec);
     expect(result.key).toBe('vertex:gemini-2.5-flash');
-    expect(result.tier).toBe('priority');
-    expect(result.vertexRequestType).toBe('shared');
+    expect(result.vertex?.tier).toBe('priority');
+    expect(result.vertex?.requestType).toBe('shared');
     expect(result.vertex).toEqual({ tier: 'priority', requestType: 'shared' });
+    expect('tier' in result).toBe(false);
+    expect('vertexRequestType' in result).toBe(false);
   });
 
-  it('parses ?tier=flex', () => {
-    const spec = 'vertex:gemini-3.1-flash-lite?tier=flex' as LLMModelSpec;
+  it('parses vertex.tier=flex', () => {
+    const spec = 'vertex:gemini-3.1-flash-lite?vertex.tier=flex' as LLMModelSpec;
     const result = parseModelSpec(spec);
     expect(result.key).toBe('vertex:gemini-3.1-flash-lite');
-    expect(result.tier).toBe('flex');
+    expect(result.vertex?.tier).toBe('flex');
   });
 
-  it('parses ?tier=priority', () => {
-    const spec = 'vertex:gemini-2.5-flash?tier=priority' as LLMModelSpec;
+  it('parses vertex.tier=priority', () => {
+    const spec = 'vertex:gemini-2.5-flash?vertex.tier=priority' as LLMModelSpec;
     const result = parseModelSpec(spec);
-    expect(result.tier).toBe('priority');
+    expect(result.vertex?.tier).toBe('priority');
   });
 
-  it('parses ?tier=standard', () => {
-    const spec = 'vertex:gemini-2.5-flash?tier=standard' as LLMModelSpec;
+  it('parses vertex.tier=standard', () => {
+    const spec = 'vertex:gemini-2.5-flash?vertex.tier=standard' as LLMModelSpec;
     const result = parseModelSpec(spec);
-    expect(result.tier).toBe('standard');
+    expect(result.vertex?.tier).toBe('standard');
   });
 
-  it('returns undefined when no ?tier= in spec', () => {
+  it('returns undefined when no vertex.tier is present', () => {
     const spec = 'vertex:gemini-2.5-flash' as LLMModelSpec;
     const result = parseModelSpec(spec);
-    expect(result.tier).toBeUndefined();
+    expect(result.vertex?.tier).toBeUndefined();
   });
 
   it('returns undefined for invalid tier value (warns and ignores)', () => {
-    const spec = 'vertex:gemini-2.5-flash?tier=platinum' as LLMModelSpec;
+    const spec = 'vertex:gemini-2.5-flash?vertex.tier=platinum' as LLMModelSpec;
     const result = parseModelSpec(spec);
-    expect(result.tier).toBeUndefined();
+    expect(result.vertex?.tier).toBeUndefined();
   });
 
   it('coexists with other spec params (reason + tier)', () => {
-    const spec = 'vertex:gemini-3.1-flash-lite?reason=low&tier=flex' as LLMModelSpec;
+    const spec = 'vertex:gemini-3.1-flash-lite?reason=low&vertex.tier=flex' as LLMModelSpec;
     const result = parseModelSpec(spec);
     expect(result.thinking).toBe('low');
-    expect(result.tier).toBe('flex');
+    expect(result.vertex?.tier).toBe('flex');
   });
 
   it('coexists with fallback params', () => {
-    const spec = 'vertex:gemini-3.1-flash-lite?tier=flex&fallback=openrouter:gemini-2.5-flash-lite' as LLMModelSpec;
+    const spec =
+      'vertex:gemini-3.1-flash-lite?vertex.tier=flex&fallback=openrouter:gemini-2.5-flash-lite' as LLMModelSpec;
     const result = parseModelSpec(spec);
-    expect(result.tier).toBe('flex');
+    expect(result.vertex?.tier).toBe('flex');
     expect(result.fallbackModels).toContain('openrouter:gemini-2.5-flash-lite');
   });
 
-  it('parses vertexRequestType=shared for shared/on-demand only routing', () => {
-    const spec = 'vertex:gemini-2.5-flash?tier=priority&vertexRequestType=shared' as LLMModelSpec;
+  it('parses vertex.requestType=shared for shared/on-demand only routing', () => {
+    const spec = 'vertex:gemini-2.5-flash?vertex.tier=priority&vertex.requestType=shared' as LLMModelSpec;
     const result = parseModelSpec(spec);
-    expect(result.tier).toBe('priority');
-    expect(result.vertexRequestType).toBe('shared');
+    expect(result.vertex?.tier).toBe('priority');
+    expect(result.vertex?.requestType).toBe('shared');
   });
 
-  it('returns undefined for invalid vertexRequestType value (warns and ignores)', () => {
-    const spec = 'vertex:gemini-2.5-flash?tier=priority&vertexRequestType=dedicated' as LLMModelSpec;
+  it('returns undefined for invalid vertex.requestType value (warns and ignores)', () => {
+    const spec = 'vertex:gemini-2.5-flash?vertex.tier=priority&vertex.requestType=dedicated' as LLMModelSpec;
     const result = parseModelSpec(spec);
-    expect(result.tier).toBe('priority');
-    expect(result.vertexRequestType).toBeUndefined();
+    expect(result.vertex?.tier).toBe('priority');
+    expect(result.vertex?.requestType).toBeUndefined();
   });
 
   it('ignores namespaced vertex options on non-vertex providers', () => {
     const spec = 'openrouter:claude-sonnet-4.5?vertex.tier=flex&vertex.requestType=shared' as LLMModelSpec;
     const result = parseModelSpec(spec);
     expect(result.key).toBe('openrouter:claude-sonnet-4.5');
-    expect(result.tier).toBeUndefined();
-    expect(result.vertexRequestType).toBeUndefined();
+    expect(result.vertex?.tier).toBeUndefined();
+    expect(result.vertex?.requestType).toBeUndefined();
     expect(result.vertex).toBeUndefined();
+  });
+
+  it('rejects removed tier with the canonical replacement', () => {
+    const spec = 'vertex:gemini-3.1-flash-lite?tier=flex' as LLMModelSpec;
+
+    expect(() => parseModelSpec(spec)).toThrow(/"tier" has been removed; use "vertex\.tier"/);
+    expect(LLMModelSpecSchema.safeParse(spec).success).toBe(false);
+  });
+
+  it('rejects removed vertexRequestType with the canonical replacement', () => {
+    const spec = 'vertex:gemini-2.5-flash?vertex.tier=priority&vertexRequestType=shared' as LLMModelSpec;
+
+    expect(() => parseModelSpec(spec)).toThrow(/"vertexRequestType" has been removed; use "vertex\.requestType"/);
+    expect(LLMModelSpecSchema.safeParse(spec).success).toBe(false);
   });
 });
 
@@ -153,7 +171,7 @@ describe('getSupportedTiers', () => {
   });
 
   it('works with spec query params in the input', () => {
-    const tiers = getSupportedTiers('vertex:gemini-3.1-flash-lite?tier=flex' as LLMModelSpec);
+    const tiers = getSupportedTiers('vertex:gemini-3.1-flash-lite?vertex.tier=flex' as LLMModelSpec);
     expect(tiers).toEqual(['standard', 'flex', 'priority']);
   });
 });

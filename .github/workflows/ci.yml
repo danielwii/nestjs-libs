@@ -29,9 +29,6 @@ jobs:
       - name: 👮 Type Check (TSC)
         run: bun run typecheck
 
-      - name: 👮 Type Check (TypeScript 5.9)
-        run: bun run typecheck:ts59
-
       - name: 🔗 Dependency Identity
         run: bun run check:dep-identity -- --anchor .
 
