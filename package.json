@@ -9,7 +9,6 @@
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
-    "check:dep-identity": "bun scripts/check-dep-identity.ts",
     "prepare": "husky"
   },
   "lint-staged": {
