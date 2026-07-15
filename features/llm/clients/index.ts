@@ -10,7 +10,7 @@
  *
  * // streamText
  * await llm('openrouter:gemini-2.5-flash')
- *   .system('You are helpful')
+ *   .instructions('You are helpful')
  *   .noThinking()
  *   .messages([{ role: 'user', content: 'Hello' }])
  *   .streamText();
@@ -18,7 +18,7 @@
  * // generateObject
  * const Schema = z.object({ type: z.string(), color: z.string() });
  * const { object } = await llm('google:gemini-2.5-flash')
- *   .system('Analyze the image')
+ *   .instructions('Analyze the image')
  *   .thinking('low')
  *   .messages([{ role: 'user', content: [...] }])
  *   .generateObject(Schema);

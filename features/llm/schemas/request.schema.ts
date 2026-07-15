@@ -45,7 +45,7 @@ export const LLMRequestSchema = z.object({
   maxOutputTokens: z.number().positive().optional(),
   topP: z.number().min(0).max(1).optional(),
   stream: z.boolean().optional(),
-  system: z.string().optional(),
+  instructions: z.string().optional(),
   reasoning: LLMReasoningOptionsSchema.optional(),
 });
 

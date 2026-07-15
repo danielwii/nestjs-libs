@@ -121,7 +121,7 @@ export interface LLMRequest {
   maxOutputTokens?: number;
   topP?: number;
   stream?: boolean;
-  system?: string;
+  instructions?: string;
   signal?: AbortSignal;
   /** 超时时间（毫秒），未传 signal 时生效，默认 60000 */
   timeout?: number;
