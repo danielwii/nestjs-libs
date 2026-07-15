@@ -4,12 +4,19 @@
   "description": "Shadcn-style CLI for nestjs-libs",
   "type": "module",
   "scripts": {
-    "lint": "eslint . --fix",
+    "lint": "eslint . --no-fix",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write \"{nest,utils,env,features}/**/*.ts\"",
     "test": "bun test",
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
+    "typecheck:ts59": "bun ./node_modules/typescript-5-9/bin/tsc --noEmit",
+    "check:dep-identity": "bun scripts/check-dep-identity.ts",
     "prepare": "husky"
+  },
+  "overrides": {
+    "@ai-sdk/provider-utils": "5.0.10",
+    "zod": "4.4.3"
   },
   "lint-staged": {
     "*.ts": [
@@ -34,6 +41,7 @@
     "@ai-sdk/otel": "^1.0.28",
     "@ai-sdk/provider": "^4.0.1",
     "@ai-sdk/provider-utils": "^5.0.2",
+    "@langfuse/otel": "^4.6.1",
     "@logtape/logtape": "^2.0.5",
     "@nestjs/common": "^11.1.19",
     "@nestjs/core": "^11.1.19",
@@ -43,7 +51,13 @@
     "@nestjs/throttler": "^6.5.0",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/core": ">=2.6.1 <3",
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
+    "@opentelemetry/instrumentation-grpc": ">=0.211.0 <0.221.0",
+    "@opentelemetry/instrumentation-http": ">=0.211.0 <0.221.0",
+    "@opentelemetry/sdk-node": ">=0.211.0 <0.221.0",
+    "@opentelemetry/sdk-trace-base": ">=2.6.1 <3",
+    "@opentelemetry/sdk-trace-node": ">=2.6.1 <3",
     "@sentry/nestjs": "^10.45.0",
     "ai": "^7.0.28",
     "class-transformer": "^0.5.1",
@@ -83,6 +97,9 @@
     "@ai-sdk/provider-utils": {
       "optional": true
     },
+    "@langfuse/otel": {
+      "optional": true
+    },
     "@openrouter/ai-sdk-provider": {
       "optional": true
     },
@@ -101,7 +118,25 @@
     "@opentelemetry/api": {
       "optional": true
     },
+    "@opentelemetry/core": {
+      "optional": true
+    },
     "@opentelemetry/exporter-trace-otlp-http": {
+      "optional": true
+    },
+    "@opentelemetry/instrumentation-grpc": {
+      "optional": true
+    },
+    "@opentelemetry/instrumentation-http": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-node": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-trace-base": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-trace-node": {
       "optional": true
     },
     "@sentry/nestjs": {
@@ -154,7 +189,7 @@
     "@ai-sdk/google": "^4.0.14",
     "@ai-sdk/google-vertex": "^5.0.18",
     "@ai-sdk/openai": "^4.0.13",
-    "@ai-sdk/otel": "^1.0.28",
+    "@ai-sdk/otel": "1.0.28",
     "@ai-sdk/provider": "^4.0.3",
     "@ai-sdk/provider-utils": "^5.0.9",
     "@eslint/js": "^10.0.1",
@@ -163,6 +198,7 @@
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@jest/globals": "^30.4.1",
     "@logtape/logtape": "^2.2.4",
+    "@langfuse/otel": "4.6.1",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
     "@nestjs/graphql": "^13.4.2",
@@ -171,7 +207,10 @@
     "@nestjs/throttler": "^6.5.0",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/core": "2.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
+    "@opentelemetry/instrumentation-grpc": "0.220.0",
+    "@opentelemetry/instrumentation-http": "0.220.0",
     "@opentelemetry/sdk-node": "^0.220.0",
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@opentelemetry/sdk-trace-node": "^2.9.0",
@@ -188,7 +227,7 @@
     "@types/number-to-words": "^1.2.3",
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.1",
-    "ai": "^7.0.28",
+    "ai": "7.0.28",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
@@ -214,6 +253,7 @@
     "response-time": "^2.3.4",
     "rxjs": "^7.8.2",
     "typescript": "^6.0.3",
+    "typescript-5-9": "npm:typescript@5.9.3",
     "typescript-eslint": "^8.64.0",
     "zod": "^4.4.3"
   }

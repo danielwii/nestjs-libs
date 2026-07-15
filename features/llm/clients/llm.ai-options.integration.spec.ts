@@ -29,11 +29,13 @@ interface CapturedRequest {
 
 let capturedRequests: CapturedRequest[] = [];
 let responseStatuses: number[] = [];
+let streamResponse: string | undefined;
 const originalFetch = ApiFetcher.fetch;
 
 beforeEach(() => {
   capturedRequests = [];
   responseStatuses = [400];
+  streamResponse = undefined;
   (ApiFetcher as unknown as { fetch: typeof fetch }).fetch = (async (
     url: string | URL | Request,
     init?: RequestInit,
@@ -43,6 +45,13 @@ beforeEach(() => {
       headers: new Headers(init?.headers),
       body: typeof init?.body === 'string' ? init.body : undefined,
     });
+
+    if (streamResponse !== undefined) {
+      return new Response(streamResponse, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    }
 
     const status = responseStatuses.shift() ?? 400;
     return new Response(JSON.stringify({ error: { code: 400, message: 'mock-fetch' } }), {
@@ -80,9 +89,86 @@ const SIMPLE_MESSAGE = [{ role: 'user' as const, content: 'test' }];
 const lookupTool = tool({
   description: 'Lookup a city',
   inputSchema: z.object({ city: z.string() }),
+  execute: async ({ city }) => ({ city }),
 });
 
+function openRouterToolStream(): string {
+  const chunks = [
+    {
+      id: 'chatcmpl-stop-when',
+      object: 'chat.completion.chunk',
+      created: 0,
+      model: 'fixture-model',
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: 'assistant',
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call-stop-when',
+                type: 'function',
+                function: { name: 'lookup', arguments: '' },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      id: 'chatcmpl-stop-when',
+      object: 'chat.completion.chunk',
+      created: 0,
+      model: 'fixture-model',
+      choices: [
+        {
+          index: 0,
+          delta: { tool_calls: [{ index: 0, function: { arguments: '{"city":"Taipei"}' } }] },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      id: 'chatcmpl-stop-when',
+      object: 'chat.completion.chunk',
+      created: 0,
+      model: 'fixture-model',
+      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+      usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+    },
+  ];
+
+  return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`;
+}
+
 describe('LLM ai namespace', () => {
+  it('passes the canonical stopWhen condition to AI SDK execution', async () => {
+    streamResponse = openRouterToolStream();
+    let stopChecks = 0;
+
+    const stream = LLM.streamText({
+      id: 'ai-stop-when',
+      model: 'openrouter:grok-4.1-fast',
+      messages: SIMPLE_MESSAGE,
+      maxRetries: 0,
+      ai: {
+        tools: { lookup: lookupTool },
+        stopWhen: () => {
+          stopChecks += 1;
+          return true;
+        },
+      },
+    });
+
+    for await (const _chunk of stream.textStream) {
+      // consume the provider stream so AI SDK evaluates the stop condition
+    }
+
+    expect(stopChecks).toBe(1);
+  });
+
   it('generateText passes ai.tools and ai.toolChoice to AI SDK', async () => {
     await callIgnoringError(() =>
       LLM.generateText({

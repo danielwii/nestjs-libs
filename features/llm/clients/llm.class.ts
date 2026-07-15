@@ -34,6 +34,7 @@ import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
+import { llmCaptureSchema } from '../schemas/capture.schema';
 import { EMBEDDING_MODELS } from '../types/embedding.types';
 import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
@@ -41,6 +42,8 @@ import { model as createModel, parseProvider } from './auto.client';
 import { getOpenAI, getOpenRouter } from './llm.clients';
 import { mergeOpenRouterOptions, resolveOpenRouterOptions } from './openrouter.client';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
+import { createStreamLifecycle } from './stream-lifecycle';
+import { DEFAULT_LLM_TELEMETRY as DEFAULT_TELEMETRY } from './telemetry-policy';
 
 import { Temporal } from '@js-temporal/polyfill';
 import * as Sentry from '@sentry/nestjs';
@@ -58,6 +61,7 @@ import {
   zodSchema,
 } from 'ai';
 import { ResultAsync } from 'neverthrow';
+import { z } from 'zod';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
 import type {
@@ -87,11 +91,12 @@ import type {
   PrepareStepFunction,
   PrepareStepResult,
   StopCondition,
+  StreamTextResult,
   TelemetryOptions,
+  ToolChoice,
   ToolSet,
 } from 'ai';
 import type * as NodeFs from 'node:fs';
-import type { z } from 'zod';
 
 /**
  * `buildProviderOptions` 的精确返回类型：仅包含实际使用的 provider 键，
@@ -106,12 +111,6 @@ type ProviderOptionsSurface = {
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
 // ═══════════════════════════════════════════════════════════════════════════
-
-/** 默认开启 telemetry，OTel exporter 未配置时无副作用 */
-const DEFAULT_TELEMETRY: TelemetryOptions = {
-  isEnabled: true,
-  includeRuntimeContext: { tags: true },
-};
 
 /** 仅这些模型启用 JSON 代码块剥离中间件 */
 const MODELS_NEEDING_EXTRACT_JSON = new Set<LLMModelKey>(['openrouter:kimi-k2.5', 'openrouter:moonshotai/kimi-k2.5']);
@@ -150,7 +149,7 @@ export interface TokenUsage {
 /** OpenRouter Provider 排序策略 */
 export type ProviderSort = OpenRouterProviderSort;
 
-type LLMReservedAIKeys = 'model' | 'providerOptions';
+type LLMReservedAIKeys = 'model' | 'providerOptions' | 'output';
 /**
  * 在 `ai` namespace 中被禁止的键：
  * - prompt owner 字段（instructions/system/prompt/messages）由 wrapper 顶层参数唯一拥有，
@@ -174,7 +173,7 @@ export interface LLMPrepareStepOptions {
 }
 
 export type LLMPrepareStepResult<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context> =
-  | (Omit<NonNullable<PrepareStepResult<TOOLS, RUNTIME_CONTEXT>>, LLMReservedAIKeys> & {
+  | (Omit<NonNullable<PrepareStepResult<TOOLS, RUNTIME_CONTEXT>>, LLMReservedAIKeys | 'system'> & {
       llm?: LLMPrepareStepOptions;
     })
   | undefined;
@@ -196,6 +195,13 @@ export type LLMStreamTextAIOptions<TOOLS extends ToolSet = ToolSet, RUNTIME_CONT
 > & {
   prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
 };
+
+/** Canonical AI SDK v7 stream result. The deprecated `fullStream` alias is intentionally hidden. */
+export type LLMStreamTextResult<
+  TOOLS extends ToolSet = ToolSet,
+  RUNTIME_CONTEXT extends Context = Context,
+  OUTPUT extends Output.Output = Output.Output,
+> = Omit<StreamTextResult<TOOLS, RUNTIME_CONTEXT, OUTPUT>, 'fullStream'>;
 
 /**
  * Web 搜索来源引用
@@ -722,6 +728,11 @@ function createManagedSignal(
   };
 }
 
+function observeStreamFailure(usage: PromiseLike<unknown>, onFailure: (error: unknown) => void): void {
+  // Fatal streams can reject usage without an onEnd/onAbort terminal callback.
+  void Promise.resolve(usage).catch(onFailure);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Retry & Fallback
 // ═══════════════════════════════════════════════════════════════════════════
@@ -877,14 +888,19 @@ export class LLM {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('node:fs') as typeof NodeFs;
 
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
-    // 兼容旧 capture 文件的 `system` 字段（文件格式内部兼容，不是公共 API alias）
+    const rawData: unknown = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const parsedCapture = llmCaptureSchema.safeParse(rawData);
+    if (!parsedCapture.success) {
+      throw new Error(`Invalid AI SDK v7 capture file:\n${z.prettifyError(parsedCapture.error)}`);
+    }
+
+    const data = parsedCapture.data;
     const { id, method, model: modelKey, messages, jsonSchema: schemaObj, toolName, toolDescription } = data;
-    const instructions = (data.instructions ?? data.system) as string | undefined;
+    const { instructions } = data;
 
     LLM.logger.info`[LLM:replay] id=${id}, method=${method}, model=${modelKey}`;
 
-    const schema = wrapJsonSchema(schemaObj as Record<string, unknown>);
+    const schema = wrapJsonSchema(schemaObj);
     const languageModel = createModel(modelKey as LLMModelKey);
     const startTime = Date.now();
 
@@ -897,35 +913,35 @@ export class LLM {
         model: languageModel,
         output: Output.object({ schema }),
         instructions,
-        messages: messages as Message[],
+        messages,
       });
 
       const duration = Date.now() - startTime;
-      const cost = getCostFromUsage(result.usage, modelKey as string);
+      const cost = getCostFromUsage(result.usage, modelKey);
       LLM.logger
         .info`[LLM:replay:end] duration=${duration}ms, tokens=${result.usage.totalTokens ?? '-'}, cost=${cost !== null ? `$${cost.toFixed(6)}` : 'N/A'}`;
 
       output = result.output;
       usage = { ...result.usage, cost };
-    } else if (method === 'generateObjectViaTool' || method === 'streamObjectViaTool') {
-      const tName = (toolName ?? 'extract') as string;
-      const tools = {
+    } else {
+      const tName = toolName ?? 'extract';
+      const tools: ToolSet = {
         [tName]: tool({
-          description: (toolDescription ?? 'Extract structured data') as string,
+          description: toolDescription ?? 'Extract structured data',
           inputSchema: schema,
         }),
       };
+      const toolChoice: ToolChoice<typeof tools> = { type: 'tool', toolName: tName };
       const result = await generateText({
         model: languageModel,
         instructions,
-        messages: messages as Message[],
+        messages,
         tools,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        toolChoice: { type: 'tool' as const, toolName: tName } as any,
+        toolChoice,
       });
 
       const duration = Date.now() - startTime;
-      const cost = getCostFromUsage(result.usage, modelKey as string);
+      const cost = getCostFromUsage(result.usage, modelKey);
       LLM.logger
         .info`[LLM:replay:end] duration=${duration}ms, tokens=${result.usage.totalTokens ?? '-'}, cost=${cost !== null ? `$${cost.toFixed(6)}` : 'N/A'}`;
 
@@ -935,8 +951,6 @@ export class LLM {
       }
       output = toolCall.input;
       usage = { ...result.usage, cost };
-    } else {
-      throw new Error(`Unsupported method for replay: ${method as string}`);
     }
 
     return { output, usage };
@@ -1035,6 +1049,10 @@ export class LLM {
       });
       Sentry.captureException(error instanceof Error ? error : new Error(message));
     });
+  }
+
+  private static logErrorEvent(id: string, method: string, modelKey: string, error: unknown): void {
+    LLM.logger.warning`[LLM:error-event] id=${id}, method=${method}, model=${modelKey} ${error}`;
   }
 
   private static toResult<T>(promise: Promise<T>, modelSpec: LLMModelKey | LLMModelSpec): ResultAsync<T, OopsError> {
@@ -1371,7 +1389,7 @@ export class LLM {
    */
   static streamObject<T, TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
     params: StreamObjectParams<T, TOOLS, RUNTIME_CONTEXT>,
-  ) {
+  ): LLMStreamTextResult<TOOLS, RUNTIME_CONTEXT, ReturnType<typeof Output.object<T>>> {
     const startTime = Date.now();
     const {
       model: modelSpec,
@@ -1402,7 +1420,8 @@ export class LLM {
       openrouter: openrouterOptions,
       extractJson: true,
     });
-    const telemetry = callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
+    const telemetry: TelemetryOptions<RUNTIME_CONTEXT, TOOLS> =
+      callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
     const { key: modelKey } = spec;
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObject — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
@@ -1437,6 +1456,39 @@ export class LLM {
       ...restAiOptions
     } = aiOptions ?? {};
 
+    const lifecycle = createStreamLifecycle<StreamOnErrorEvent, StreamOnEndEvent, StreamOnAbortEvent>(
+      {
+        onError: callerOnError,
+        onEnd: callerOnEnd,
+        onAbort: callerOnAbort,
+      },
+      {
+        cleanup,
+        logErrorEvent: (event) => {
+          LLM.logErrorEvent(id, 'streamObject', modelKey, event.error);
+        },
+        logSuccess: (event) => {
+          LLM.logEnd(
+            id,
+            'streamObject',
+            modelKey,
+            startTime,
+            event.usage,
+            undefined,
+            spec.tier,
+            spec.vertexRequestType,
+          );
+        },
+        logAbort: () => {
+          LLM.logger
+            .info`[LLM:abort] id=${id}, method=streamObject, model=${modelKey}, duration=${Date.now() - startTime}ms`;
+        },
+        logFailure: (error) => {
+          LLM.logError(id, 'streamObject', modelKey, error);
+        },
+      },
+    );
+
     const output = Output.object({ schema });
     const streamRequest = {
       ...restAiOptions,
@@ -1452,12 +1504,8 @@ export class LLM {
       maxRetries: spec.maxRetries,
       abortSignal: signal,
       telemetry: withProvenanceTelemetry(telemetry),
-      runtimeContext: mergeProvenanceRuntimeContext(aiOptions?.runtimeContext),
-      onError: async (event: StreamOnErrorEvent) => {
-        await callerOnError?.(event);
-        cleanup();
-        LLM.logError(id, 'streamObject', modelKey, event.error);
-      },
+      runtimeContext: mergeProvenanceRuntimeContext<RUNTIME_CONTEXT>(aiOptions?.runtimeContext),
+      onError: lifecycle.onError,
       onChunk: async (event: StreamOnChunkEvent) => {
         await callerOnChunk?.(event);
         if (!ttftLogged) {
@@ -1465,22 +1513,20 @@ export class LLM {
           ttftLogged = true;
         }
       },
-      onAbort: async (event: StreamOnAbortEvent) => {
-        await callerOnAbort?.(event);
-        cleanup();
-        LLM.logger
-          .info`[LLM:abort] id=${id}, method=streamObject, model=${modelKey}, duration=${Date.now() - startTime}ms`;
-      },
-      onEnd: async (event: StreamOnEndEvent) => {
-        await callerOnEnd?.(event);
-        cleanup();
-        LLM.logEnd(id, 'streamObject', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
-      },
-    } as unknown as Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, typeof output>>[0];
+      onAbort: lifecycle.onAbort,
+      onEnd: lifecycle.onEnd,
+    } as Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, typeof output>>[0];
 
-    const result = streamText<TOOLS, RUNTIME_CONTEXT, typeof output>(streamRequest);
-
-    return result;
+    try {
+      const result = streamText<TOOLS, RUNTIME_CONTEXT, typeof output>(streamRequest);
+      observeStreamFailure(result.usage, (error) => {
+        lifecycle.fail(error);
+      });
+      return result;
+    } catch (error) {
+      lifecycle.fail(error);
+      throw error;
+    }
   }
 
   /**
@@ -1500,7 +1546,7 @@ export class LLM {
    */
   static streamText<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
     params: StreamTextParams<TOOLS, RUNTIME_CONTEXT>,
-  ) {
+  ): LLMStreamTextResult<TOOLS, RUNTIME_CONTEXT, Output.Output<string, string, never>> {
     const startTime = Date.now();
     const {
       model: modelSpec,
@@ -1529,7 +1575,8 @@ export class LLM {
       providerSort,
       openrouter: openrouterOptions,
     });
-    const telemetry = callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
+    const telemetry: TelemetryOptions<RUNTIME_CONTEXT, TOOLS> =
+      callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
     const { key: modelKey } = spec;
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamText — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
@@ -1559,7 +1606,31 @@ export class LLM {
       ...restAiOptions
     } = aiOptions ?? {};
 
-    const streamRequest = {
+    const lifecycle = createStreamLifecycle<StreamOnErrorEvent, StreamOnEndEvent, StreamOnAbortEvent>(
+      {
+        onError: callerOnError,
+        onEnd: callerOnEnd,
+        onAbort: callerOnAbort,
+      },
+      {
+        cleanup,
+        logErrorEvent: (event) => {
+          LLM.logErrorEvent(id, 'streamText', modelKey, event.error);
+        },
+        logSuccess: (event) => {
+          LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
+        },
+        logAbort: () => {
+          LLM.logger
+            .info`[LLM:abort] id=${id}, method=streamText, model=${modelKey}, duration=${Date.now() - startTime}ms`;
+        },
+        logFailure: (error) => {
+          LLM.logError(id, 'streamText', modelKey, error);
+        },
+      },
+    );
+
+    const streamRequest: Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT>>[0] = {
       ...restAiOptions,
       model: languageModel,
       ...(instructions !== undefined ? { instructions } : {}),
@@ -1572,12 +1643,8 @@ export class LLM {
       maxRetries: spec.maxRetries,
       abortSignal: signal,
       telemetry: withProvenanceTelemetry(telemetry),
-      runtimeContext: mergeProvenanceRuntimeContext(aiOptions?.runtimeContext),
-      onError: async (event: StreamOnErrorEvent) => {
-        await callerOnError?.(event);
-        cleanup();
-        LLM.logError(id, 'streamText', modelKey, event.error);
-      },
+      runtimeContext: mergeProvenanceRuntimeContext<RUNTIME_CONTEXT>(aiOptions?.runtimeContext),
+      onError: lifecycle.onError,
       onChunk: async (event: StreamOnChunkEvent) => {
         await callerOnChunk?.(event);
         if (!ttftLogged) {
@@ -1585,22 +1652,20 @@ export class LLM {
           ttftLogged = true;
         }
       },
-      onAbort: async (event: StreamOnAbortEvent) => {
-        await callerOnAbort?.(event);
-        cleanup();
-        LLM.logger
-          .info`[LLM:abort] id=${id}, method=streamText, model=${modelKey}, duration=${Date.now() - startTime}ms`;
-      },
-      onEnd: async (event: StreamOnEndEvent) => {
-        await callerOnEnd?.(event);
-        cleanup();
-        LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
-      },
-    } as unknown as Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT>>[0];
+      onAbort: lifecycle.onAbort,
+      onEnd: lifecycle.onEnd,
+    };
 
-    const result = streamText<TOOLS, RUNTIME_CONTEXT>(streamRequest);
-
-    return result;
+    try {
+      const result = streamText<TOOLS, RUNTIME_CONTEXT>(streamRequest);
+      observeStreamFailure(result.usage, (error) => {
+        lifecycle.fail(error);
+      });
+      return result;
+    } catch (error) {
+      lifecycle.fail(error);
+      throw error;
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1876,8 +1941,7 @@ export class LLM {
       telemetry: withProvenanceTelemetry(telemetry),
       runtimeContext: mergeProvenanceRuntimeContext(),
       onError: ({ error }) => {
-        cleanup();
-        LLM.logError(id, 'streamObjectViaTool', modelKey, error);
+        LLM.logErrorEvent(id, 'streamObjectViaTool', modelKey, error);
       },
     });
 
@@ -1887,39 +1951,44 @@ export class LLM {
     let jsonBuffer = '';
     let lastPartial: Partial<T> | null = null;
 
-    // 遍历 v7 canonical stream 获取 tool-input 相关事件
-    for await (const event of result.stream) {
-      if (!ttftLogged) {
-        LLM.logTTFT(id, startTime);
-        ttftLogged = true;
-      }
-
-      if (event.type === 'tool-input-start') {
-        // Tool input 开始
-        jsonBuffer = '';
-        yield { type: 'start', toolCallId: event.id };
-      } else if (event.type === 'tool-input-delta') {
-        // 增量 JSON 参数
-        const delta: string = event.delta;
-        jsonBuffer += delta;
-
-        // 尝试解析部分 JSON
-        const partial = tryParsePartialJson<T>(jsonBuffer);
-        if (partial && JSON.stringify(partial) !== JSON.stringify(lastPartial)) {
-          lastPartial = partial;
-          yield { type: 'partial', object: partial };
+    try {
+      // 遍历 v7 canonical stream 获取 tool-input 相关事件
+      for await (const event of result.stream) {
+        if (!ttftLogged) {
+          LLM.logTTFT(id, startTime);
+          ttftLogged = true;
         }
-      } else if (event.type === 'tool-call') {
-        // Tool call 完成，获取完整参数
-        yield { type: 'complete', object: event.input as T, toolCallId: event.toolCallId };
-      }
-    }
 
-    // 获取 usage
-    const usage = await result.usage;
-    cleanup();
-    LLM.logEnd(id, 'streamObjectViaTool', modelKey, startTime, usage, undefined, spec.tier, spec.vertexRequestType);
-    yield { type: 'usage', usage };
+        if (event.type === 'tool-input-start') {
+          // Tool input 开始
+          jsonBuffer = '';
+          yield { type: 'start', toolCallId: event.id };
+        } else if (event.type === 'tool-input-delta') {
+          // 增量 JSON 参数
+          const delta: string = event.delta;
+          jsonBuffer += delta;
+
+          // 尝试解析部分 JSON
+          const partial = tryParsePartialJson<T>(jsonBuffer);
+          if (partial && JSON.stringify(partial) !== JSON.stringify(lastPartial)) {
+            lastPartial = partial;
+            yield { type: 'partial', object: partial };
+          }
+        } else if (event.type === 'tool-call') {
+          // Tool call 完成，获取完整参数
+          yield { type: 'complete', object: event.input as T, toolCallId: event.toolCallId };
+        }
+      }
+
+      const usage = await result.usage;
+      LLM.logEnd(id, 'streamObjectViaTool', modelKey, startTime, usage, undefined, spec.tier, spec.vertexRequestType);
+      yield { type: 'usage', usage };
+    } catch (error) {
+      LLM.logError(id, 'streamObjectViaTool', modelKey, error);
+      throw error;
+    } finally {
+      cleanup();
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
