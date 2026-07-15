@@ -5,29 +5,21 @@
  *
  * @example
  * ```typescript
- * import { llm } from '@app/llm-core';
+ * import { LLM } from '@app/llm-core';
  * import { z } from 'zod';
  *
  * // streamText
- * await llm('openrouter:gemini-2.5-flash')
- *   .system('You are helpful')
- *   .noThinking()
- *   .messages([{ role: 'user', content: 'Hello' }])
- *   .streamText();
+ * LLM.streamText({ id: 'example', model: 'openrouter:gemini-2.5-flash', instructions: 'You are helpful', messages });
  *
  * // generateObject
  * const Schema = z.object({ type: z.string(), color: z.string() });
- * const { object } = await llm('google:gemini-2.5-flash')
- *   .system('Analyze the image')
- *   .thinking('low')
- *   .messages([{ role: 'user', content: [...] }])
- *   .generateObject(Schema);
+ * const { object } = await LLM.generateObject({ id: 'example', model: 'google:gemini-2.5-flash', instructions: 'Analyze the image', messages, schema: Schema });
  * ```
  */
 
 // Builder 模式（已废弃，使用 LLM 静态类代替）
 // 自动路由（需要更多控制时）
-export { autoOpts, type LLMOpts, llm, model, parseProvider, type TelemetryMeta } from './auto.client';
+export { autoOpts, type LLMOpts, model, parseProvider, type TelemetryMeta } from './auto.client';
 export { createGoogleClient, googleOptions } from './google.client';
 export { createVertex, vertexOptions } from './vertex.client';
 // 预配置单例

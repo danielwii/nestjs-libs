@@ -60,7 +60,7 @@ import {
 } from '@app/nest/boot/otlp-trace-exporter';
 import { configureLogging } from '@app/nest/logging';
 
-import { isFullStackExtraScope } from './instrument-helpers';
+import { isDefaultLangfuseLlmScope, isFullStackExtraScope } from './instrument-helpers';
 
 import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
@@ -131,6 +131,33 @@ const otelLogger = getLogger(['instrument', 'OpenTelemetry']);
 const langfuseLogger = getLogger(['instrument', 'Langfuse']);
 const sentryLogger = getLogger(['instrument', 'Sentry']);
 
+const AI_SDK_OTEL_REGISTERED = Symbol.for('@danielwii/nestjs-libs/ai-sdk-otel-registered');
+
+/**
+ * Register the AI SDK OTel integration only after the process tracer provider is live.
+ * The AI SDK appends global integrations, so a process-global marker is required to
+ * keep preload re-entry from duplicating every AI span.
+ */
+function registerAiSdkOtel(): void {
+  const globals = globalThis as Record<PropertyKey, unknown>;
+  if (globals[AI_SDK_OTEL_REGISTERED] === true) {
+    otelLogger.debug`${'AI SDK OTel integration already registered'}`;
+    return;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional AI dependency
+    const { registerTelemetry } = require('ai') as { registerTelemetry: (...integrations: unknown[]) => void };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional AI dependency
+    const { OpenTelemetry } = require('@ai-sdk/otel') as { OpenTelemetry: new (options?: unknown) => unknown };
+    registerTelemetry(new OpenTelemetry({ runtimeContext: true, usage: true, providerMetadata: true }));
+    globals[AI_SDK_OTEL_REGISTERED] = true;
+    otelLogger.info`${'AI SDK OTel integration registered'}`;
+  } catch {
+    otelLogger.debug`${'AI SDK OTel integration skipped because ai or @ai-sdk/otel is not installed'}`;
+  }
+}
+
 // ==================== Helpers ====================
 
 /**
@@ -175,7 +202,7 @@ function createLangfuseProcessor(): unknown | null {
   const fullStack = getStringFromEnv('LANGFUSE_EXPORT_FULL_STACK') === 'true';
   langfuseLogger.info`${`enabled host=${baseUrl} env=${environmentTag} fullStack=${fullStack}`}`;
 
-  // Default: only export scope='ai' spans (LLM / Vercel AI SDK telemetry).
+  // Default: export LLM telemetry scopes: legacy `ai` and AI SDK v7 `gen_ai`.
   // Opt-in LANGFUSE_EXPORT_FULL_STACK=true also exports gRPC client + HTTP +
   // Prisma spans so cross-service traces show the full request path in Langfuse.
   const shouldExportSpan = ({ otelSpan }: { otelSpan: Record<string, unknown> }) => {
@@ -189,7 +216,7 @@ function createLangfuseProcessor(): unknown | null {
     const scope = typeof span.instrumentationScope?.name === 'string' ? span.instrumentationScope.name : '';
     const spanName = span.name ?? 'unknown';
     const traceId = span.spanContext?.()?.traceId ?? span._spanContext?.traceId ?? ''; // eslint-disable-line @typescript-eslint/no-unnecessary-condition -- runtime shape varies
-    const shouldExport = scope === 'ai' || (fullStack && isFullStackExtraScope(scope));
+    const shouldExport = isDefaultLangfuseLlmScope(scope) || (fullStack && isFullStackExtraScope(scope));
     if (shouldExport) {
       const hasTraceInput = !!span.attributes?.['langfuse.trace.input'];
       const hasTraceName = !!span.attributes?.['langfuse.trace.name'];
@@ -337,6 +364,7 @@ function bootstrapOtel(langfuseProcessor: unknown | null, otlpProcessor: unknown
 
   try {
     sdk.start();
+    registerAiSdkOtel();
     const httpLabel = httpInstrumentationEnabled && HttpInstrumentation ? ' + HTTP' : '';
     const otlpLabel = otlpProcessor ? ' + OTLP' : '';
     otelLogger.info`${`started service=${serviceName}${GrpcInstrumentation ? ' + gRPC' : ''}${httpLabel}${langfuseProcessor ? ' + Langfuse' : ''}${otlpLabel}`}`;

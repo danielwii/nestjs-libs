@@ -1161,19 +1161,19 @@ interface ProviderConfigRequirement {
   configured: () => boolean;
 }
 
-/** Provider → 配置需求映射（兼容未迁移的项目） */
+/** Provider → canonical configuration requirement mapping. */
 const providerConfigRequirements: Partial<Record<string, ProviderConfigRequirement>> = {
   openrouter: {
     envVar: 'AI_OPENROUTER_API_KEY',
-    configured: () => !!(SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY),
+    configured: () => !!SysEnv.AI_OPENROUTER_API_KEY,
   },
   google: {
     envVar: 'AI_GOOGLE_API_KEY',
-    configured: () => !!(SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY),
+    configured: () => !!SysEnv.AI_GOOGLE_API_KEY,
   },
   vertex: {
     envVar: 'AI_GOOGLE_VERTEX_API_KEY',
-    configured: () => !!(SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY),
+    configured: () => !!SysEnv.AI_GOOGLE_VERTEX_API_KEY,
   },
   'vertex-global': {
     envVar: 'GOOGLE_VERTEX_PROJECT',
@@ -1181,7 +1181,7 @@ const providerConfigRequirements: Partial<Record<string, ProviderConfigRequireme
   },
   openai: {
     envVar: 'AI_OPENAI_API_KEY',
-    configured: () => !!(SysEnv.AI_OPENAI_API_KEY ?? SysEnv.OPENAI_API_KEY),
+    configured: () => !!SysEnv.AI_OPENAI_API_KEY,
   },
 };
 

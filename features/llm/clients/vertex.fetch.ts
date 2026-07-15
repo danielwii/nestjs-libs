@@ -39,15 +39,13 @@ function stripContentFunctionIds(content: unknown): { content: unknown; stripped
   }
 
   let stripped = 0;
-  let changed = false;
   const parts = content.parts.map((part) => {
     const result = stripPartFunctionIds(part);
     stripped += result.stripped;
-    changed ||= result.part !== part;
     return result.part;
   });
 
-  if (!changed) {
+  if (stripped === 0) {
     return { content, stripped: 0 };
   }
 
@@ -60,15 +58,13 @@ export function stripUnsupportedVertexFunctionIds(body: unknown): VertexFunction
   }
 
   let stripped = 0;
-  let changed = false;
   const contents = body.contents.map((content) => {
     const result = stripContentFunctionIds(content);
     stripped += result.stripped;
-    changed ||= result.content !== content;
     return result.content;
   });
 
-  if (!changed) {
+  if (stripped === 0) {
     return { body, stripped: 0 };
   }
 

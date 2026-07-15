@@ -13,7 +13,7 @@
  * const { object } = await LLM.generateObject({
  *   model: 'openrouter:grok-4.1-fast',
  *   schema: MySchema,
- *   system: 'You are...',
+ *   instructions: 'You are...',
  *   messages: [{ role: 'user', content: 'Hello' }],
  * });
  *
@@ -151,7 +151,14 @@ export interface TokenUsage {
 export type ProviderSort = OpenRouterProviderSort;
 
 type LLMReservedAIKeys = 'model' | 'providerOptions';
-type LLMWrappedAIKeys = LLMReservedAIKeys | 'prepareStep';
+/**
+ * 在 `ai` namespace 中被禁止的键：
+ * - prompt owner 字段（instructions/system/prompt/messages）由 wrapper 顶层参数唯一拥有，
+ *   不允许通过 ai namespace 出现第二个 owner
+ * - onFinish 是 v7 的 deprecated alias，公共面只暴露 onEnd
+ */
+type LLMBannedAIKeys = 'instructions' | 'system' | 'prompt' | 'messages' | 'onFinish';
+type LLMWrappedAIKeys = LLMReservedAIKeys | LLMBannedAIKeys | 'prepareStep';
 
 export interface LLMPrepareStepOptions {
   /** Step-level model spec. Translated through LLM's normal model/provider normalization. */
@@ -208,8 +215,8 @@ interface BaseParams {
   id: string;
   /** LLM Model Spec，如 'openrouter:grok-4.1-fast' 或 'openrouter:grok-4.1-fast?reason=low' */
   model: LLMModelSpec;
-  /** System prompt */
-  system?: string;
+  /** System prompt（AI SDK v7 词汇：instructions） */
+  instructions?: string;
   /** 消息列表 */
   messages: Message[];
   /** Thinking 强度，默认 'none' */
@@ -252,28 +259,6 @@ interface GenerateTextParams<
   ai?: LLMGenerateTextAIOptions<TOOLS, RUNTIME_CONTEXT>;
 
   /**
-   * 可选工具集（如 provider-defined tools）
-   *
-   * 用于 Web Search 等场景，模型可在生成文本的同时调用 provider 工具。
-   * 工具返回的引用会通过 `sources` 字段传递。
-   *
-   * @example
-   * ```typescript
-   * import { getGoogleProvider } from '@app/features/llm/clients';
-   * const google = getGoogleProvider();
-   *
-   * const { text, sources } = await LLM.generateText({
-   *   id: 'web-search',
-   *   model: 'google:gemini-2.5-flash',
-   *   messages,
-   *   tools: { googleSearch: google.tools.googleSearch({}) },
-   * });
-   * ```
-   */
-  /** @deprecated use `ai.tools` */
-  tools?: TOOLS;
-
-  /**
    * Model ID 后缀
    *
    * 拼接到 LLMModelRegistry 中的 modelId 后面，用于 provider 特定功能。
@@ -285,7 +270,7 @@ interface GenerateTextParams<
   modelIdSuffix?: string;
 }
 
-interface StreamTextParams<
+export interface StreamTextParams<
   TOOLS extends ToolSet = ToolSet,
   RUNTIME_CONTEXT extends Context = Context,
 > extends BaseParams {
@@ -298,21 +283,8 @@ interface StreamObjectParams<
   TOOLS extends ToolSet = ToolSet,
   RUNTIME_CONTEXT extends Context = Context,
 > extends GenerateObjectParams<T> {
-  /** AI SDK 原生参数，LLM 保留 model/providerOptions/output 并转译 prepareStep.llm */
+  /** AI SDK 原生参数（tools/toolChoice/stopWhen 均经此传入），LLM 保留 model/providerOptions/output 并转译 prepareStep.llm */
   ai?: LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>;
-  /** 可选的工具集，模型可在生成结构化输出的同时调用这些工具 */
-  tools?: TOOLS;
-  /**
-   * 多步工具调用的停止条件
-   *
-   * 当传入 tools 时，模型可能先调用工具再生成最终输出，需要多步。
-   * 默认 stepCountIs(1)（只运行 1 步，工具结果不会回传给模型）。
-   *
-   * 推荐：有 tools 时设为 stepCountIs(3) 或更高。
-   *
-   * @default stepCountIs(1)
-   */
-  stopWhen?: StopCondition<TOOLS, RUNTIME_CONTEXT> | Array<StopCondition<TOOLS, RUNTIME_CONTEXT>>;
 }
 
 /** generateObject 返回值 */
@@ -458,11 +430,9 @@ function buildProviderOptions(
     return thinkingOptions;
   }
 
-  const routingOptions = resolveOpenRouterOptions(
-    openrouter,
-    (name) =>
-      { aiLogger.warning`[buildProviderOptions] unknown OpenRouter routing profile="${name}" (model=${modelKey}), ignoring`; },
-  );
+  const routingOptions = resolveOpenRouterOptions(openrouter, (name) => {
+    aiLogger.warning`[buildProviderOptions] unknown OpenRouter routing profile="${name}" (model=${modelKey}), ignoring`;
+  });
 
   if (routingOptions?.openrouter) {
     return {
@@ -550,11 +520,6 @@ interface ResolveAIOptionsContext {
   extractJson?: boolean;
 }
 
-interface LegacyAIOptions<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context> {
-  tools?: TOOLS;
-  stopWhen?: StopCondition<TOOLS, RUNTIME_CONTEXT> | Array<StopCondition<TOOLS, RUNTIME_CONTEXT>>;
-}
-
 function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>(
   prepareStep: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT> | undefined,
   context: ResolveAIOptionsContext,
@@ -616,26 +581,16 @@ function resolveLLMAIOptions<
     stopWhen?: StopCondition<TOOLS, RUNTIME_CONTEXT> | Array<StopCondition<TOOLS, RUNTIME_CONTEXT>>;
     prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
   },
->(
-  ai: OPTIONS | undefined,
-  context: ResolveAIOptionsContext,
-  legacy?: LegacyAIOptions<TOOLS, RUNTIME_CONTEXT>,
-): OPTIONS | undefined {
-  if (!ai && !legacy?.tools && !legacy?.stopWhen) return undefined;
+>(ai: OPTIONS | undefined, context: ResolveAIOptionsContext): OPTIONS | undefined {
+  if (!ai) return undefined;
 
-  const source = (ai ?? {}) as Record<string, unknown>;
+  const source = ai as Record<string, unknown>;
   if ('model' in source || 'providerOptions' in source) {
     aiLogger.warning`[options] id=${context.id}, method=${context.method}: raw model/providerOptions are managed by LLM and ignored`;
   }
 
   const { model: _model, providerOptions: _providerOptions, ...safe } = source;
   const merged = { ...safe } as Record<string, unknown>;
-  if (merged.tools === undefined && legacy?.tools !== undefined) {
-    merged.tools = legacy.tools;
-  }
-  if (merged.stopWhen === undefined && legacy?.stopWhen !== undefined) {
-    merged.stopWhen = legacy.stopWhen;
-  }
   if (merged.prepareStep) {
     merged.prepareStep = wrapPrepareStep(merged.prepareStep as LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>, context);
   }
@@ -869,7 +824,7 @@ export class LLM {
   /**
    * CLI 模式下自动保存 LLM 完整请求到文件
    *
-   * 包含重放所需的一切：system prompt、messages、完整 JSON Schema、model。
+   * 包含重放所需的一切：instructions（system prompt）、messages、完整 JSON Schema、model。
    * 任何项目都能用 `LLM.replayFromFile()` 重放，不需要项目代码。
    *
    * 保存路径：/tmp/llm-{id}.request.json
@@ -880,7 +835,7 @@ export class LLM {
     modelKey: string,
     schema: z.ZodType,
     messages: Message[],
-    system?: string,
+    instructions?: string,
     extra?: Record<string, unknown>,
   ): void {
     if (!SysEnv.isCliMode) return;
@@ -896,7 +851,7 @@ export class LLM {
             id,
             method,
             model: modelKey,
-            system,
+            instructions,
             messages,
             jsonSchema: jsonSchemaObj,
             ...extra,
@@ -923,7 +878,9 @@ export class LLM {
     const fs = require('node:fs') as typeof NodeFs;
 
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
-    const { id, method, model: modelKey, system, messages, jsonSchema: schemaObj, toolName, toolDescription } = data;
+    // 兼容旧 capture 文件的 `system` 字段（文件格式内部兼容，不是公共 API alias）
+    const { id, method, model: modelKey, messages, jsonSchema: schemaObj, toolName, toolDescription } = data;
+    const instructions = (data.instructions ?? data.system) as string | undefined;
 
     LLM.logger.info`[LLM:replay] id=${id}, method=${method}, model=${modelKey}`;
 
@@ -939,7 +896,7 @@ export class LLM {
       const result = await generateText({
         model: languageModel,
         output: Output.object({ schema }),
-        system: system as string,
+        instructions,
         messages: messages as Message[],
       });
 
@@ -960,7 +917,7 @@ export class LLM {
       };
       const result = await generateText({
         model: languageModel,
-        system: system as string,
+        instructions,
         messages: messages as Message[],
         tools,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -990,7 +947,7 @@ export class LLM {
    *
    * 帮助排查"空 schema"等结构性问题，不需要开 Proxyman。
    */
-  private static logInputSummary(id: string, schema: z.ZodType, messages: Message[], system?: string): void {
+  private static logInputSummary(id: string, schema: z.ZodType, messages: Message[], instructions?: string): void {
     // schema top-level keys（不依赖 z 运行时，直接检查 shape 属性）
     const schemaKeys =
       'shape' in schema && typeof schema.shape === 'object' && schema.shape !== null
@@ -1005,9 +962,10 @@ export class LLM {
       })
       .join(', ');
 
-    const systemPart = system ? `, system=${system.length}ch` : '';
+    const instructionsPart = instructions ? `, instructions=${instructions.length}ch` : '';
 
-    LLM.logger.debug`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${systemPart}`;
+    LLM.logger
+      .debug`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${instructionsPart}`;
   }
 
   private static logEnd(
@@ -1090,25 +1048,7 @@ export class LLM {
   /**
    * 结构化对象生成（Promise 版，throws on error）
    *
-   * @deprecated 使用 `safeGenerateObject`（返回 ResultAsync）替代。
-   *
-   * 迁移：
-   * ```typescript
-   * // before
-   * const { object } = await LLM.generateObject({...});
-   *
-   * // after — 链式传播（推荐）
-   * return LLM.safeGenerateObject({...}).map(({ object }) => object);
-   *
-   * // after — 降级
-   * const value = await LLM.safeGenerateObject({...}).unwrapOr(fallback);
-   *
-   * // after — 边界处转 throw
-   * const result = await LLM.safeGenerateObject({...});
-   * result.match(v => v, e => { throw e; });
-   * ```
-   *
-   * 最终目标：删除此方法，`safeGenerateObject` rename 为 `generateObject`。
+   * Internal throwing implementation used by the Result boundary adapter.
    * @see neverthrow-result-pattern skill
    */
   private static async generateObjectCore<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
@@ -1116,7 +1056,7 @@ export class LLM {
       model: modelSpec,
       id,
       schema,
-      system,
+      instructions,
       messages,
       thinking: callerThinking = 'none',
       providerSort,
@@ -1135,8 +1075,8 @@ export class LLM {
     return withFallback(id, 'generateObject', spec, async (modelKey, fb) => {
       const startTime = Date.now();
       LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
-      LLM.logInputSummary(id, schema, messages, system);
-      LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, system);
+      LLM.logInputSummary(id, schema, messages, instructions);
+      LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, instructions);
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
@@ -1149,7 +1089,7 @@ export class LLM {
         const result = await generateText({
           model: languageModel,
           output: Output.object({ schema }),
-          system,
+          instructions,
           messages,
           providerOptions,
           headers: tierHeaders,
@@ -1326,7 +1266,7 @@ export class LLM {
     const {
       model: modelSpec,
       id,
-      system,
+      instructions,
       messages,
       thinking: callerThinking = 'none',
       providerSort,
@@ -1338,7 +1278,6 @@ export class LLM {
       maxRetries: callerMaxRetries,
       telemetry: callerTelemetry,
       ai,
-      tools,
       modelIdSuffix,
     } = params;
 
@@ -1361,7 +1300,6 @@ export class LLM {
           providerSort,
           openrouter: openrouterOptions,
         },
-        { tools },
       );
       const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
@@ -1376,7 +1314,7 @@ export class LLM {
         const result = await generateText({
           ...(aiOptions ?? {}),
           model: languageModel,
-          ...(system !== undefined ? { system } : {}),
+          ...(instructions !== undefined ? { instructions } : {}),
           prompt: undefined,
           messages,
           providerOptions,
@@ -1439,7 +1377,7 @@ export class LLM {
       model: modelSpec,
       id,
       schema,
-      system,
+      instructions,
       messages,
       thinking: callerThinking = 'none',
       providerSort,
@@ -1451,33 +1389,27 @@ export class LLM {
       maxRetries: callerMaxRetries,
       telemetry: callerTelemetry,
       ai,
-      tools,
-      stopWhen,
     } = params;
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
     const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, providerSort, openrouter);
-    const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
-      ai,
-      {
-        id,
-        method: 'streamObject',
-        modelSpec,
-        thinking: spec.thinking,
-        providerSort,
-        openrouter: openrouterOptions,
-        extractJson: true,
-      },
-      { tools, stopWhen },
-    );
+    const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(ai, {
+      id,
+      method: 'streamObject',
+      modelSpec,
+      thinking: spec.thinking,
+      providerSort,
+      openrouter: openrouterOptions,
+      extractJson: true,
+    });
     const telemetry = callerTelemetry ?? aiOptions?.telemetry ?? DEFAULT_TELEMETRY;
     const { key: modelKey } = spec;
     if (spec.fallbackModels.length > 0) {
       fallbackLogger.warning`[LLM:fallback-ignored] id=${id}, method=streamObject — stream methods do not support fallback, only primary model=${modelKey} will be used. fallback=[${spec.fallbackModels.join(',')}]`;
     }
     LLM.logStart(id, 'streamObject', modelKey, spec.thinking, undefined, spec.tier, spec.vertexRequestType);
-    LLM.logInputSummary(id, schema, messages, system);
-    LLM.captureRequest(id, 'streamObject', modelKey, schema, messages, system);
+    LLM.logInputSummary(id, schema, messages, instructions);
+    LLM.captureRequest(id, 'streamObject', modelKey, schema, messages, instructions);
 
     const model = createLanguageModelForCall(modelKey, undefined, { extractJson: true });
 
@@ -1492,14 +1424,25 @@ export class LLM {
 
     type StreamOnErrorEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onError']>>[0];
     type StreamOnChunkEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onChunk']>>[0];
-    type StreamOnFinishEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onFinish']>>[0];
+    type StreamOnEndEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onEnd']>>[0];
+    type StreamOnAbortEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onAbort']>>[0];
+
+    // spread 前剥离 caller 的原始生命周期回调，统一在下方组合为单一 handler，
+    // 保证 caller 回调 → managed-signal cleanup → 内部日志各恰好执行一次
+    const {
+      onEnd: callerOnEnd,
+      onError: callerOnError,
+      onChunk: callerOnChunk,
+      onAbort: callerOnAbort,
+      ...restAiOptions
+    } = aiOptions ?? {};
 
     const output = Output.object({ schema });
     const streamRequest = {
-      ...(aiOptions ?? {}),
+      ...restAiOptions,
       model,
       output,
-      ...(system !== undefined ? { system } : {}),
+      ...(instructions !== undefined ? { instructions } : {}),
       prompt: undefined,
       messages,
       providerOptions,
@@ -1511,19 +1454,25 @@ export class LLM {
       telemetry: withProvenanceTelemetry(telemetry),
       runtimeContext: mergeProvenanceRuntimeContext(aiOptions?.runtimeContext),
       onError: async (event: StreamOnErrorEvent) => {
-        await aiOptions?.onError?.(event);
+        await callerOnError?.(event);
         cleanup();
         LLM.logError(id, 'streamObject', modelKey, event.error);
       },
       onChunk: async (event: StreamOnChunkEvent) => {
-        await aiOptions?.onChunk?.(event);
+        await callerOnChunk?.(event);
         if (!ttftLogged) {
           LLM.logTTFT(id, startTime);
           ttftLogged = true;
         }
       },
-      onFinish: async (event: StreamOnFinishEvent) => {
-        await aiOptions?.onFinish?.(event);
+      onAbort: async (event: StreamOnAbortEvent) => {
+        await callerOnAbort?.(event);
+        cleanup();
+        LLM.logger
+          .info`[LLM:abort] id=${id}, method=streamObject, model=${modelKey}, duration=${Date.now() - startTime}ms`;
+      },
+      onEnd: async (event: StreamOnEndEvent) => {
+        await callerOnEnd?.(event);
         cleanup();
         LLM.logEnd(id, 'streamObject', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
       },
@@ -1556,7 +1505,7 @@ export class LLM {
     const {
       model: modelSpec,
       id,
-      system,
+      instructions,
       messages,
       thinking: callerThinking = 'none',
       providerSort,
@@ -1599,12 +1548,21 @@ export class LLM {
 
     type StreamOnErrorEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onError']>>[0];
     type StreamOnChunkEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onChunk']>>[0];
-    type StreamOnFinishEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onFinish']>>[0];
+    type StreamOnEndEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onEnd']>>[0];
+    type StreamOnAbortEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onAbort']>>[0];
+
+    const {
+      onEnd: callerOnEnd,
+      onError: callerOnError,
+      onChunk: callerOnChunk,
+      onAbort: callerOnAbort,
+      ...restAiOptions
+    } = aiOptions ?? {};
 
     const streamRequest = {
-      ...(aiOptions ?? {}),
+      ...restAiOptions,
       model: languageModel,
-      ...(system !== undefined ? { system } : {}),
+      ...(instructions !== undefined ? { instructions } : {}),
       prompt: undefined,
       messages,
       providerOptions,
@@ -1616,19 +1574,25 @@ export class LLM {
       telemetry: withProvenanceTelemetry(telemetry),
       runtimeContext: mergeProvenanceRuntimeContext(aiOptions?.runtimeContext),
       onError: async (event: StreamOnErrorEvent) => {
-        await aiOptions?.onError?.(event);
+        await callerOnError?.(event);
         cleanup();
         LLM.logError(id, 'streamText', modelKey, event.error);
       },
       onChunk: async (event: StreamOnChunkEvent) => {
-        await aiOptions?.onChunk?.(event);
+        await callerOnChunk?.(event);
         if (!ttftLogged) {
           LLM.logTTFT(id, startTime);
           ttftLogged = true;
         }
       },
-      onFinish: async (event: StreamOnFinishEvent) => {
-        await aiOptions?.onFinish?.(event);
+      onAbort: async (event: StreamOnAbortEvent) => {
+        await callerOnAbort?.(event);
+        cleanup();
+        LLM.logger
+          .info`[LLM:abort] id=${id}, method=streamText, model=${modelKey}, duration=${Date.now() - startTime}ms`;
+      },
+      onEnd: async (event: StreamOnEndEvent) => {
+        await callerOnEnd?.(event);
         cleanup();
         LLM.logEnd(id, 'streamText', modelKey, startTime, event.usage, undefined, spec.tier, spec.vertexRequestType);
       },
@@ -1646,16 +1610,7 @@ export class LLM {
   /**
    * 通过 Tool Calling 生成结构化对象（Promise 版，throws on error）
    *
-   * @deprecated 使用 `safeGenerateObjectViaTool`（返回 ResultAsync）替代。
-   * 迁移方式同 `generateObject`，参见其 JSDoc。
-   *
-   * 与 generateObject 的区别：
-   * - generateObject: 使用 Structured Output 模式（Output.object）
-   * - generateObjectViaTool: 使用 Tool Calling 模式
-   *
-   * Tool Calling 模式优势：
-   * - 某些模型（如 Gemini 3 Flash）在 Tool Calling 上表现更好
-   * - Schema 复杂时结构更稳定
+   * Internal throwing implementation used by the Result boundary adapter.
    */
   private static async generateObjectViaToolCore<T>(
     params: GenerateObjectParams<T> & {
@@ -1677,7 +1632,7 @@ export class LLM {
       model: modelSpec,
       id,
       schema,
-      system,
+      instructions,
       messages,
       thinking: callerThinking = 'none',
       providerSort,
@@ -1699,8 +1654,8 @@ export class LLM {
     return withFallback(id, 'generateObjectViaTool', spec, async (modelKey, fb) => {
       const startTime = Date.now();
       LLM.logStart(id, 'generateObjectViaTool', modelKey, spec.thinking, fb, spec.tier, spec.vertexRequestType);
-      LLM.logInputSummary(id, schema, messages, system);
-      LLM.captureRequest(id, 'generateObjectViaTool', modelKey, schema, messages, system, {
+      LLM.logInputSummary(id, schema, messages, instructions);
+      LLM.captureRequest(id, 'generateObjectViaTool', modelKey, schema, messages, instructions, {
         toolName,
         toolDescription,
       });
@@ -1738,7 +1693,7 @@ export class LLM {
       try {
         const result = await generateText({
           model: languageModel,
-          system,
+          instructions,
           messages,
           tools,
           toolChoice,
@@ -1865,7 +1820,7 @@ export class LLM {
       model: modelSpec,
       id,
       schema,
-      system,
+      instructions,
       messages,
       thinking: callerThinking = 'none',
       providerSort,
@@ -1908,7 +1863,7 @@ export class LLM {
 
     const result = streamText({
       model: languageModel,
-      system,
+      instructions,
       messages,
       tools,
       toolChoice,
@@ -1932,8 +1887,8 @@ export class LLM {
     let jsonBuffer = '';
     let lastPartial: Partial<T> | null = null;
 
-    // 遍历 fullStream 获取 tool-input 相关事件
-    for await (const event of result.fullStream) {
+    // 遍历 v7 canonical stream 获取 tool-input 相关事件
+    for await (const event of result.stream) {
       if (!ttftLogged) {
         LLM.logTTFT(id, startTime);
         ttftLogged = true;
@@ -2053,7 +2008,7 @@ export class LLM {
       }
 
       case 'jina': {
-        const apiKey = SysEnv.AI_JINA_API_KEY ?? SysEnv.JINA_API_KEY;
+        const apiKey = SysEnv.AI_JINA_API_KEY;
         if (!apiKey) {
           throw Oops.Panic.Config('AI_JINA_API_KEY is not configured');
         }
@@ -2108,7 +2063,7 @@ export class LLM {
       }
 
       case 'voyage': {
-        const apiKey = SysEnv.AI_VOYAGE_API_KEY ?? SysEnv.VOYAGE_API_KEY;
+        const apiKey = SysEnv.AI_VOYAGE_API_KEY;
         if (!apiKey) {
           throw Oops.Panic.Config('AI_VOYAGE_API_KEY is not configured');
         }

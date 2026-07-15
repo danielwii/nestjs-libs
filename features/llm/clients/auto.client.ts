@@ -245,7 +245,7 @@ export interface LLMOpts {
  * LLM Builder - 链式调用
  *
  * 设计原则：
- * - 核心参数链式：model, system, thinking, messages
+ * - 核心参数链式：model, instructions, thinking, messages
  * - 其他参数通过 opts() 一次传入
  *
  * @example
@@ -259,9 +259,9 @@ export interface LLMOpts {
  *   .messages([{ role: 'user', content: 'Hello' }])
  *   .streamText();
  *
- * // streamText - 带 system
+ * // streamText - 带 instructions
  * await llm('openrouter:gemini-2.5-flash')
- *   .system('You are a fashion expert')
+ *   .instructions('You are a fashion expert')
  *   .noThinking()
  *   .messages([{ role: 'user', content: 'Analyze this outfit' }])
  *   .streamText();
@@ -274,7 +274,7 @@ export interface LLMOpts {
  * });
  *
  * const { output } = await llm('google:gemini-2.5-flash')
- *   .system('Analyze the garment in the image')
+ *   .instructions('Analyze the garment in the image')
  *   .thinking('low')
  *   .messages([
  *     { role: 'user', content: [
@@ -300,7 +300,7 @@ class LLMBuilder {
   private readonly _key: LLMModelKey;
   private readonly _provider: LLMProviderType;
   private _messages: ModelMessage[] = [];
-  private _system?: string;
+  private _instructions?: string;
   private _opts: LLMOpts = {};
   private _thinkingOptions: Record<string, unknown> = {};
   private _signal?: AbortSignal;
@@ -316,9 +316,9 @@ class LLMBuilder {
 
   // ========== 核心链式方法 ==========
 
-  /** 设置 system prompt */
-  system(prompt: string): this {
-    this._system = prompt;
+  /** 设置 instructions prompt */
+  instructions(prompt: string): this {
+    this._instructions = prompt;
     return this;
   }
 
@@ -425,7 +425,7 @@ class LLMBuilder {
     return aiStreamText<NoTools, BuilderTelemetryContext>({
       model: this._model,
       messages: this._messages,
-      system: this._system,
+      instructions: this._instructions,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
@@ -441,7 +441,7 @@ class LLMBuilder {
     return aiGenerateText<NoTools, BuilderTelemetryContext, TextOutput>({
       model: this._model,
       messages: this._messages,
-      system: this._system,
+      instructions: this._instructions,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
@@ -460,7 +460,7 @@ class LLMBuilder {
       model: this._model,
       output: Output.object({ schema }),
       messages: this._messages,
-      system: this._system,
+      instructions: this._instructions,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
@@ -477,7 +477,7 @@ class LLMBuilder {
       model: this._model,
       output: Output.object({ schema }),
       messages: this._messages,
-      system: this._system,
+      instructions: this._instructions,
       providerOptions: this._buildProviderOptions(),
       temperature: this._opts.temperature,
       maxOutputTokens: this._opts.maxOutputTokens,
