@@ -673,7 +673,7 @@ describe('toErrorDescriptor', () => {
   });
 
   it('error-descriptor does not import optional throttler at module scope', () => {
-    const source = readFileSync(join(process.cwd(), 'nest/src/exceptions/error-descriptor.ts'), 'utf8');
+    const source = readFileSync(join(import.meta.dir, 'error-descriptor.ts'), 'utf8');
 
     expect(source).not.toContain('@nestjs/throttler');
   });

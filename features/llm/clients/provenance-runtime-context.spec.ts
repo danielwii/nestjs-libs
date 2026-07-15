@@ -96,8 +96,14 @@ describe('LLM provenance runtime context', () => {
   it('keeps LLM client provenance formatting independent from tracing span helpers', () => {
     const autoClient = readFileSync(join(import.meta.dir, 'auto.client.ts'), 'utf8');
     const llmClass = readFileSync(join(import.meta.dir, 'llm.class.ts'), 'utf8');
-    const provenanceContext = readFileSync(join(process.cwd(), 'nest/src/trace/provenance-context.ts'), 'utf8');
-    const provenanceFormat = readFileSync(join(process.cwd(), 'nest/src/trace/provenance-format.ts'), 'utf8');
+    const provenanceContext = readFileSync(
+      join(import.meta.dir, '../../../nest/src/trace/provenance-context.ts'),
+      'utf8',
+    );
+    const provenanceFormat = readFileSync(
+      join(import.meta.dir, '../../../nest/src/trace/provenance-format.ts'),
+      'utf8',
+    );
 
     expect(autoClient).not.toContain('@app/nest/trace/provenance-tags');
     expect(llmClass).not.toContain('@app/nest/trace/provenance-tags');
