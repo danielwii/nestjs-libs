@@ -6,7 +6,7 @@
  * here directly — single source of truth, no drift risk.
  */
 
-import { isFullStackExtraScope } from './instrument-helpers';
+import { isDefaultLangfuseLlmScope, isFullStackExtraScope } from './instrument-helpers';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -34,5 +34,18 @@ describe('isFullStackExtraScope', () => {
     expect(isFullStackExtraScope('@nestjs/common')).toBe(false);
     expect(isFullStackExtraScope('app')).toBe(false);
     expect(isFullStackExtraScope('@opentelemetry/sdk-node')).toBe(false);
+  });
+});
+
+describe('isDefaultLangfuseLlmScope', () => {
+  it('matches legacy and AI SDK v7 LLM telemetry scopes', () => {
+    expect(isDefaultLangfuseLlmScope('ai')).toBe(true);
+    expect(isDefaultLangfuseLlmScope('gen_ai')).toBe(true);
+  });
+
+  it('rejects non-LLM telemetry scopes', () => {
+    expect(isDefaultLangfuseLlmScope('')).toBe(false);
+    expect(isDefaultLangfuseLlmScope('@opentelemetry/instrumentation-http')).toBe(false);
+    expect(isDefaultLangfuseLlmScope('prisma')).toBe(false);
   });
 });

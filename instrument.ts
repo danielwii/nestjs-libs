@@ -60,7 +60,7 @@ import {
 } from '@app/nest/boot/otlp-trace-exporter';
 import { configureLogging } from '@app/nest/logging';
 
-import { isFullStackExtraScope } from './instrument-helpers';
+import { isDefaultLangfuseLlmScope, isFullStackExtraScope } from './instrument-helpers';
 
 import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
@@ -202,7 +202,7 @@ function createLangfuseProcessor(): unknown | null {
   const fullStack = getStringFromEnv('LANGFUSE_EXPORT_FULL_STACK') === 'true';
   langfuseLogger.info`${`enabled host=${baseUrl} env=${environmentTag} fullStack=${fullStack}`}`;
 
-  // Default: only export scope='ai' spans (LLM / Vercel AI SDK telemetry).
+  // Default: export LLM telemetry scopes: legacy `ai` and AI SDK v7 `gen_ai`.
   // Opt-in LANGFUSE_EXPORT_FULL_STACK=true also exports gRPC client + HTTP +
   // Prisma spans so cross-service traces show the full request path in Langfuse.
   const shouldExportSpan = ({ otelSpan }: { otelSpan: Record<string, unknown> }) => {
@@ -216,7 +216,7 @@ function createLangfuseProcessor(): unknown | null {
     const scope = typeof span.instrumentationScope?.name === 'string' ? span.instrumentationScope.name : '';
     const spanName = span.name ?? 'unknown';
     const traceId = span.spanContext?.()?.traceId ?? span._spanContext?.traceId ?? ''; // eslint-disable-line @typescript-eslint/no-unnecessary-condition -- runtime shape varies
-    const shouldExport = scope === 'ai' || (fullStack && isFullStackExtraScope(scope));
+    const shouldExport = isDefaultLangfuseLlmScope(scope) || (fullStack && isFullStackExtraScope(scope));
     if (shouldExport) {
       const hasTraceInput = !!span.attributes?.['langfuse.trace.input'];
       const hasTraceName = !!span.attributes?.['langfuse.trace.name'];

@@ -7,8 +7,9 @@
  */
 
 /**
- * Span scope matchers that are NOT scope='ai' but still useful for cross-service
- * trace correlation in Langfuse. Opt-in via LANGFUSE_EXPORT_FULL_STACK=true.
+ * Span scope matchers that are not default LLM telemetry but remain useful for
+ * cross-service trace correlation in Langfuse. Opt-in via
+ * LANGFUSE_EXPORT_FULL_STACK=true.
  *
  * Coverage:
  * - `@opentelemetry/instrumentation-grpc` — auto-registered by instrument.ts
@@ -27,4 +28,12 @@ export function isFullStackExtraScope(scope: string): boolean {
     scope === 'prisma' ||
     scope.startsWith('@prisma/')
   );
+}
+
+/**
+ * Default LLM telemetry scopes. `ai` is the legacy Vercel AI SDK scope and
+ * `gen_ai` is the OpenTelemetry scope used by @ai-sdk/otel in AI SDK v7.
+ */
+export function isDefaultLangfuseLlmScope(scope: string): boolean {
+  return scope === 'ai' || scope === 'gen_ai';
 }
