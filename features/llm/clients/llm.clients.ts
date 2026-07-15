@@ -84,7 +84,7 @@ const clientLogger = getAppLogger('features', 'LLM', 'clients');
  */
 export function getOpenRouter() {
   if (!_openrouter) {
-    const apiKey = SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY;
+    const apiKey = SysEnv.AI_OPENROUTER_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_OPENROUTER_API_KEY is not configured');
     }
@@ -141,7 +141,7 @@ export const OPENROUTER_DEFAULTS = {
  */
 function getGoogle() {
   if (!_google) {
-    const apiKey = SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY;
+    const apiKey = SysEnv.AI_GOOGLE_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_GOOGLE_API_KEY is not configured');
     }
@@ -195,7 +195,7 @@ export function getGoogleProvider() {
  */
 function getVertex() {
   if (!_vertex) {
-    const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY;
+    const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_GOOGLE_VERTEX_API_KEY is not configured');
     }
@@ -256,7 +256,7 @@ function getVertexGlobal() {
     const project = getVertexGlobalProject();
     const location = getVertexGlobalLocation();
     const encodedProject = encodeURIComponent(project);
-    const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY;
+    const apiKey = SysEnv.AI_GOOGLE_VERTEX_API_KEY;
     const auth = apiKey ? 'api-key' : 'adc-or-service-account';
     const baseURL = `https://aiplatform.googleapis.com/v1/projects/${encodedProject}/locations/${location}/publishers/google`;
 
@@ -293,15 +293,15 @@ export const vertexGlobal = (modelId: string): LanguageModel => getVertexGlobal(
 export function getLLMClientStatus() {
   return {
     openrouter: {
-      configured: !!(SysEnv.AI_OPENROUTER_API_KEY ?? SysEnv.OPENROUTER_API_KEY),
+      configured: !!SysEnv.AI_OPENROUTER_API_KEY,
       initialized: !!_openrouter,
     },
     google: {
-      configured: !!(SysEnv.AI_GOOGLE_API_KEY ?? SysEnv.GOOGLE_GENERATIVE_AI_API_KEY),
+      configured: !!SysEnv.AI_GOOGLE_API_KEY,
       initialized: !!_google,
     },
     vertex: {
-      configured: !!(SysEnv.AI_GOOGLE_VERTEX_API_KEY ?? SysEnv.GOOGLE_VERTEX_API_KEY),
+      configured: !!SysEnv.AI_GOOGLE_VERTEX_API_KEY,
       initialized: !!_vertex,
     },
     vertexGlobal: {
@@ -340,7 +340,7 @@ export function resetLLMClients() {
  */
 export function getOpenAI() {
   if (!_openai) {
-    const apiKey = SysEnv.AI_OPENAI_API_KEY ?? SysEnv.OPENAI_API_KEY;
+    const apiKey = SysEnv.AI_OPENAI_API_KEY;
     if (!apiKey) {
       throw Oops.Panic.Config('AI_OPENAI_API_KEY is not configured');
     }

@@ -1048,25 +1048,7 @@ export class LLM {
   /**
    * 结构化对象生成（Promise 版，throws on error）
    *
-   * @deprecated 使用 `safeGenerateObject`（返回 ResultAsync）替代。
-   *
-   * 迁移：
-   * ```typescript
-   * // before
-   * const { object } = await LLM.generateObject({...});
-   *
-   * // after — 链式传播（推荐）
-   * return LLM.safeGenerateObject({...}).map(({ object }) => object);
-   *
-   * // after — 降级
-   * const value = await LLM.safeGenerateObject({...}).unwrapOr(fallback);
-   *
-   * // after — 边界处转 throw
-   * const result = await LLM.safeGenerateObject({...});
-   * result.match(v => v, e => { throw e; });
-   * ```
-   *
-   * 最终目标：删除此方法，`safeGenerateObject` rename 为 `generateObject`。
+   * Internal throwing implementation used by the Result boundary adapter.
    * @see neverthrow-result-pattern skill
    */
   private static async generateObjectCore<T>(params: GenerateObjectParams<T>): Promise<GenerateObjectResult<T>> {
@@ -1628,16 +1610,7 @@ export class LLM {
   /**
    * 通过 Tool Calling 生成结构化对象（Promise 版，throws on error）
    *
-   * @deprecated 使用 `safeGenerateObjectViaTool`（返回 ResultAsync）替代。
-   * 迁移方式同 `generateObject`，参见其 JSDoc。
-   *
-   * 与 generateObject 的区别：
-   * - generateObject: 使用 Structured Output 模式（Output.object）
-   * - generateObjectViaTool: 使用 Tool Calling 模式
-   *
-   * Tool Calling 模式优势：
-   * - 某些模型（如 Gemini 3 Flash）在 Tool Calling 上表现更好
-   * - Schema 复杂时结构更稳定
+   * Internal throwing implementation used by the Result boundary adapter.
    */
   private static async generateObjectViaToolCore<T>(
     params: GenerateObjectParams<T> & {
@@ -2035,7 +2008,7 @@ export class LLM {
       }
 
       case 'jina': {
-        const apiKey = SysEnv.AI_JINA_API_KEY ?? SysEnv.JINA_API_KEY;
+        const apiKey = SysEnv.AI_JINA_API_KEY;
         if (!apiKey) {
           throw Oops.Panic.Config('AI_JINA_API_KEY is not configured');
         }
@@ -2090,7 +2063,7 @@ export class LLM {
       }
 
       case 'voyage': {
-        const apiKey = SysEnv.AI_VOYAGE_API_KEY ?? SysEnv.VOYAGE_API_KEY;
+        const apiKey = SysEnv.AI_VOYAGE_API_KEY;
         if (!apiKey) {
           throw Oops.Panic.Config('AI_VOYAGE_API_KEY is not configured');
         }
