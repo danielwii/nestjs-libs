@@ -61,7 +61,12 @@ import {
 } from '@app/nest/boot/otlp-trace-exporter';
 import { configureLogging } from '@app/nest/logging';
 
-import { isDefaultLangfuseLlmScope, isFullStackExtraScope, resolveLangfuseBaseUrl } from './instrument-helpers';
+import {
+  isDefaultLangfuseLlmScope,
+  isFullStackExtraScope,
+  resolveAiSdkOtelMissingDependencyDiagnostic,
+  resolveLangfuseBaseUrl,
+} from './instrument-helpers';
 
 import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
@@ -344,7 +349,12 @@ function bootstrapOtel(langfuseProcessor: unknown | null, otlpProcessor: unknown
     } else if (aiSdkOtel.status === 'already_registered') {
       otelLogger.debug`${'AI SDK OTel integration already registered'}`;
     } else if (aiSdkOtel.status === 'dependency_missing') {
-      otelLogger.debug`${`AI SDK OTel integration skipped because ${aiSdkOtel.packageName} is not installed`}`;
+      const diagnostic = resolveAiSdkOtelMissingDependencyDiagnostic(aiSdkOtel.packageName, langfuseProcessor !== null);
+      if (diagnostic.severity === 'warning') {
+        otelLogger.warning`${diagnostic.message}`;
+      } else {
+        otelLogger.debug`${diagnostic.message}`;
+      }
     } else {
       otelLogger.error`AI SDK OTel integration failed: ${aiSdkOtel.error}`;
     }

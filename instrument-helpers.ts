@@ -51,3 +51,25 @@ export function resolveLangfuseBaseUrl(
 
   return baseUrl;
 }
+
+export interface AiSdkOtelMissingDependencyDiagnostic {
+  severity: 'debug' | 'warning';
+  message: string;
+}
+
+/** Make a missing optional AI integration visible when Langfuse depends on it. */
+export function resolveAiSdkOtelMissingDependencyDiagnostic(
+  packageName: string,
+  langfuseActive: boolean,
+): AiSdkOtelMissingDependencyDiagnostic {
+  const message = `AI SDK OTel integration skipped because ${packageName} is not installed`;
+
+  if (!langfuseActive) {
+    return { severity: 'debug', message };
+  }
+
+  return {
+    severity: 'warning',
+    message: `${message}; Langfuse is active, but AI SDK LLM spans from this integration will not be produced or exported`,
+  };
+}

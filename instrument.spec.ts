@@ -6,7 +6,12 @@
  * here directly — single source of truth, no drift risk.
  */
 
-import { isDefaultLangfuseLlmScope, isFullStackExtraScope, resolveLangfuseBaseUrl } from './instrument-helpers';
+import {
+  isDefaultLangfuseLlmScope,
+  isFullStackExtraScope,
+  resolveAiSdkOtelMissingDependencyDiagnostic,
+  resolveLangfuseBaseUrl,
+} from './instrument-helpers';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -69,5 +74,22 @@ describe('resolveLangfuseBaseUrl', () => {
     expect(() => resolveLangfuseBaseUrl('https://langfuse.example.com', 'https://legacy.example.com')).toThrow(
       'LANGFUSE_BASEURL has been removed; use LANGFUSE_BASE_URL',
     );
+  });
+});
+
+describe('resolveAiSdkOtelMissingDependencyDiagnostic', () => {
+  it('keeps an optional missing integration at debug when Langfuse is inactive', () => {
+    expect(resolveAiSdkOtelMissingDependencyDiagnostic('@ai-sdk/otel', false)).toEqual({
+      severity: 'debug',
+      message: 'AI SDK OTel integration skipped because @ai-sdk/otel is not installed',
+    });
+  });
+
+  it('warns that LLM spans are unavailable when Langfuse is active', () => {
+    expect(resolveAiSdkOtelMissingDependencyDiagnostic('@ai-sdk/otel', true)).toEqual({
+      severity: 'warning',
+      message:
+        'AI SDK OTel integration skipped because @ai-sdk/otel is not installed; Langfuse is active, but AI SDK LLM spans from this integration will not be produced or exported',
+    });
   });
 });
