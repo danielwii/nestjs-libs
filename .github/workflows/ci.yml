@@ -29,6 +29,9 @@ jobs:
       - name: 👮 Type Check (TSC)
         run: bun run typecheck
 
+      - name: 🔗 Dependency Identity
+        run: bun run check:dep-identity -- --anchor .
+
       - name: 🧪 Run Tests & Coverage
         run: |
           # 运行测试并将输出捕获到文件，同时保留退出码

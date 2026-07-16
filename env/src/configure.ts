@@ -215,27 +215,9 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() GOOGLE_VERTEX_PROJECT?: string;
   /** Vertex AI location；Priority/Flex PayGo 文档要求使用 global */
   @IsString() @IsOptional() GOOGLE_VERTEX_LOCATION?: string;
-  /** Google Cloud project id（Google SDK 文档变量名，作为 GOOGLE_VERTEX_PROJECT fallback） */
-  @IsString() @IsOptional() GOOGLE_CLOUD_PROJECT?: string;
-  /** Google Cloud location（Google SDK 文档变量名，作为 GOOGLE_VERTEX_LOCATION fallback） */
-  @IsString() @IsOptional() GOOGLE_CLOUD_LOCATION?: string;
   @IsString() @IsOptional() AI_OPENAI_API_KEY?: string;
   @IsString() @IsOptional() AI_JINA_API_KEY?: string;
   @IsString() @IsOptional() AI_VOYAGE_API_KEY?: string;
-
-  // ── 旧名字兼容（其他项目迁移前保留）──
-  /** @deprecated use AI_OPENROUTER_API_KEY */
-  @IsString() @IsOptional() OPENROUTER_API_KEY?: string;
-  /** @deprecated use AI_GOOGLE_API_KEY */
-  @IsString() @IsOptional() GOOGLE_GENERATIVE_AI_API_KEY?: string;
-  /** @deprecated use AI_GOOGLE_VERTEX_API_KEY */
-  @IsString() @IsOptional() GOOGLE_VERTEX_API_KEY?: string;
-  /** @deprecated use AI_OPENAI_API_KEY */
-  @IsString() @IsOptional() OPENAI_API_KEY?: string;
-  /** @deprecated use AI_JINA_API_KEY */
-  @IsString() @IsOptional() JINA_API_KEY?: string;
-  /** @deprecated use AI_VOYAGE_API_KEY */
-  @IsString() @IsOptional() VOYAGE_API_KEY?: string;
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境）。值须为已注册的 LLMModelKey（如 'openrouter:gemini-2.5-flash'） */
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string;
 

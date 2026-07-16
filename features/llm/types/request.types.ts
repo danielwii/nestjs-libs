@@ -53,8 +53,6 @@ export interface LLMProviderOptionsRegistry {
     route?: 'fallback' | string;
     /** 模型转换 */
     transforms?: string[];
-    /** Provider 偏好顺序 */
-    providerOrder?: string[];
     /** Provider routing options */
     provider?: OpenRouterProviderRouting;
     /** 额外透传参数 */

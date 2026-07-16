@@ -29,7 +29,7 @@ interface ModelPricing {
  * OpenRouter Provider 定价差异：
  * 同一模型不同 provider 定价不同，本表取最低价（如 DeepInfra）。
  * 实际成本随 OpenRouter 路由结果波动，Vertex 等 provider 可能贵 2-4x。
- * 选型时可通过 providerSort: 'price' 优先低价 provider。
+ * 选型时可通过 openrouter.provider.sort: 'price' 优先低价 provider。
  *
  * 更新频率：每月检查一次
  */

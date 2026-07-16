@@ -1,7 +1,7 @@
 /**
  * LLM SDK Client Helpers
  *
- * 激进设计：零配置 + Builder 链式调用
+ * Canonical AI SDK v7 client and provider helpers
  *
  * @example
  * ```typescript
@@ -17,9 +17,8 @@
  * ```
  */
 
-// Builder 模式（已废弃，使用 LLM 静态类代替）
 // 自动路由（需要更多控制时）
-export { autoOpts, type LLMOpts, model, parseProvider, type TelemetryMeta } from './auto.client';
+export { autoOpts, model, parseProvider } from './auto.client';
 export { createGoogleClient, googleOptions } from './google.client';
 export { createVertex, vertexOptions } from './vertex.client';
 // 预配置单例
@@ -55,7 +54,9 @@ export {
   type LLMPrepareStepOptions,
   type LLMPrepareStepResult,
   type LLMStreamTextAIOptions,
+  type LLMStreamTextResult,
   type Message,
+  type StreamTextParams,
   type ThinkingEffort,
   type TokenUsage,
   type WebSource,

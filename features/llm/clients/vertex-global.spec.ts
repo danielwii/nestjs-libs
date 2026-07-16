@@ -16,32 +16,22 @@ interface InspectableLanguageModel {
 const sysEnvMut = SysEnv as unknown as Record<string, string | undefined>;
 
 const originalSysEnv = {
+  AI_GOOGLE_VERTEX_API_KEY: sysEnvMut.AI_GOOGLE_VERTEX_API_KEY,
   GOOGLE_VERTEX_PROJECT: sysEnvMut.GOOGLE_VERTEX_PROJECT,
   GOOGLE_VERTEX_LOCATION: sysEnvMut.GOOGLE_VERTEX_LOCATION,
-  GOOGLE_CLOUD_PROJECT: sysEnvMut.GOOGLE_CLOUD_PROJECT,
-  GOOGLE_CLOUD_LOCATION: sysEnvMut.GOOGLE_CLOUD_LOCATION,
 };
-const originalProcessGoogleVertexApiKey = process.env.GOOGLE_VERTEX_API_KEY;
 
 beforeEach(() => {
+  sysEnvMut.AI_GOOGLE_VERTEX_API_KEY = 'test-express-mode-key';
   sysEnvMut.GOOGLE_VERTEX_PROJECT = 'test-project';
   sysEnvMut.GOOGLE_VERTEX_LOCATION = 'global';
-  delete sysEnvMut.GOOGLE_CLOUD_PROJECT;
-  delete sysEnvMut.GOOGLE_CLOUD_LOCATION;
-  process.env.GOOGLE_VERTEX_API_KEY = 'test-express-mode-key';
   resetLLMClients();
 });
 
 afterEach(() => {
+  sysEnvMut.AI_GOOGLE_VERTEX_API_KEY = originalSysEnv.AI_GOOGLE_VERTEX_API_KEY;
   sysEnvMut.GOOGLE_VERTEX_PROJECT = originalSysEnv.GOOGLE_VERTEX_PROJECT;
   sysEnvMut.GOOGLE_VERTEX_LOCATION = originalSysEnv.GOOGLE_VERTEX_LOCATION;
-  sysEnvMut.GOOGLE_CLOUD_PROJECT = originalSysEnv.GOOGLE_CLOUD_PROJECT;
-  sysEnvMut.GOOGLE_CLOUD_LOCATION = originalSysEnv.GOOGLE_CLOUD_LOCATION;
-  if (originalProcessGoogleVertexApiKey === undefined) {
-    delete process.env.GOOGLE_VERTEX_API_KEY;
-  } else {
-    process.env.GOOGLE_VERTEX_API_KEY = originalProcessGoogleVertexApiKey;
-  }
   resetLLMClients();
 });
 

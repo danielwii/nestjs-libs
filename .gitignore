@@ -27,5 +27,8 @@ yarn-error.log*
 .serena/
 git-town.toml
 
+# Local documentation
+docs/
+
 # Local testing
 example/

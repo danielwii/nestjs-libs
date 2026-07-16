@@ -29,7 +29,7 @@
  * - LANGFUSE_ENABLED: 启用 Langfuse（需要 @langfuse/otel）
  * - LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL: Langfuse 配置
  * - LANGFUSE_EXPORT_FULL_STACK: opt-in 'true' 让 grpc / http / prisma scope 的 span
- *     也导出到 Langfuse（默认仅 scope='ai'）。用于全栈 trace 关联 / RCA 场景。
+ *     也导出到 Langfuse（默认仅 scope='gen_ai'）。用于全栈 trace 关联 / RCA 场景。
  *     注意: prisma scope 由 caller 自己创 (manual `trace.getTracer('prisma')` 或
  *     `@opentelemetry/instrumentation-prisma`)，此文件不自动注册 Prisma instrumentation。
  *     http scope 依赖 APP_OTEL_HTTP_INSTRUMENTATION_ENABLED 同时打开 — 只设
@@ -51,6 +51,7 @@
 // ==================== Env Loading ====================
 // 必须最先执行：加载 .env 文件到 process.env
 // 在所有 Schema.Config / getLogger 之前
+import { registerAiSdkOtel } from '@app/nest/boot/ai-sdk-otel';
 import {
   createOtlpTraceProcessor,
   describeOtlpEndpoint,
@@ -60,7 +61,12 @@ import {
 } from '@app/nest/boot/otlp-trace-exporter';
 import { configureLogging } from '@app/nest/logging';
 
-import { isDefaultLangfuseLlmScope, isFullStackExtraScope } from './instrument-helpers';
+import {
+  isDefaultLangfuseLlmScope,
+  isFullStackExtraScope,
+  resolveAiSdkOtelMissingDependencyDiagnostic,
+  resolveLangfuseBaseUrl,
+} from './instrument-helpers';
 
 import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
@@ -131,33 +137,6 @@ const otelLogger = getLogger(['instrument', 'OpenTelemetry']);
 const langfuseLogger = getLogger(['instrument', 'Langfuse']);
 const sentryLogger = getLogger(['instrument', 'Sentry']);
 
-const AI_SDK_OTEL_REGISTERED = Symbol.for('@danielwii/nestjs-libs/ai-sdk-otel-registered');
-
-/**
- * Register the AI SDK OTel integration only after the process tracer provider is live.
- * The AI SDK appends global integrations, so a process-global marker is required to
- * keep preload re-entry from duplicating every AI span.
- */
-function registerAiSdkOtel(): void {
-  const globals = globalThis as Record<PropertyKey, unknown>;
-  if (globals[AI_SDK_OTEL_REGISTERED] === true) {
-    otelLogger.debug`${'AI SDK OTel integration already registered'}`;
-    return;
-  }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional AI dependency
-    const { registerTelemetry } = require('ai') as { registerTelemetry: (...integrations: unknown[]) => void };
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional AI dependency
-    const { OpenTelemetry } = require('@ai-sdk/otel') as { OpenTelemetry: new (options?: unknown) => unknown };
-    registerTelemetry(new OpenTelemetry({ runtimeContext: true, usage: true, providerMetadata: true }));
-    globals[AI_SDK_OTEL_REGISTERED] = true;
-    otelLogger.info`${'AI SDK OTel integration registered'}`;
-  } catch {
-    otelLogger.debug`${'AI SDK OTel integration skipped because ai or @ai-sdk/otel is not installed'}`;
-  }
-}
-
 // ==================== Helpers ====================
 
 /**
@@ -185,6 +164,7 @@ function configureDiagLogLevel() {
 function createLangfuseProcessor(): unknown | null {
   const enabled = getStringFromEnv('LANGFUSE_ENABLED');
   if (enabled !== 'true') return null;
+  const baseUrl = resolveLangfuseBaseUrl(getStringFromEnv('LANGFUSE_BASE_URL'), getStringFromEnv('LANGFUSE_BASEURL'));
   if (!LangfuseSpanProcessor) {
     langfuseLogger.warning`${'@langfuse/otel not available'}`;
     return null;
@@ -192,7 +172,6 @@ function createLangfuseProcessor(): unknown | null {
 
   const publicKey = getStringFromEnv('LANGFUSE_PUBLIC_KEY');
   const secretKey = getStringFromEnv('LANGFUSE_SECRET_KEY');
-  const baseUrl = getStringFromEnv('LANGFUSE_BASE_URL') ?? getStringFromEnv('LANGFUSE_BASEURL');
   if (!publicKey || !secretKey || !baseUrl) {
     langfuseLogger.warning`${'missing credentials'}`;
     return null;
@@ -202,7 +181,7 @@ function createLangfuseProcessor(): unknown | null {
   const fullStack = getStringFromEnv('LANGFUSE_EXPORT_FULL_STACK') === 'true';
   langfuseLogger.info`${`enabled host=${baseUrl} env=${environmentTag} fullStack=${fullStack}`}`;
 
-  // Default: export LLM telemetry scopes: legacy `ai` and AI SDK v7 `gen_ai`.
+  // Default: export the AI SDK v7 `gen_ai` telemetry scope.
   // Opt-in LANGFUSE_EXPORT_FULL_STACK=true also exports gRPC client + HTTP +
   // Prisma spans so cross-service traces show the full request path in Langfuse.
   const shouldExportSpan = ({ otelSpan }: { otelSpan: Record<string, unknown> }) => {
@@ -295,7 +274,7 @@ function bootstrapSentry() {
 
 /**
  * 独立的 OTel pipeline，不受 Sentry 采样率影响。
- * 所有 span 100% recording → shouldExportSpan 只导出 scope='ai' 给 Langfuse。
+ * 所有 span 100% recording → shouldExportSpan 默认只导出 scope='gen_ai' 给 Langfuse。
  */
 function bootstrapOtel(langfuseProcessor: unknown | null, otlpProcessor: unknown | null) {
   const spanProcessors: unknown[] = [];
@@ -364,7 +343,21 @@ function bootstrapOtel(langfuseProcessor: unknown | null, otlpProcessor: unknown
 
   try {
     sdk.start();
-    registerAiSdkOtel();
+    const aiSdkOtel = registerAiSdkOtel();
+    if (aiSdkOtel.status === 'registered') {
+      otelLogger.info`${'AI SDK OTel integration registered'}`;
+    } else if (aiSdkOtel.status === 'already_registered') {
+      otelLogger.debug`${'AI SDK OTel integration already registered'}`;
+    } else if (aiSdkOtel.status === 'dependency_missing') {
+      const diagnostic = resolveAiSdkOtelMissingDependencyDiagnostic(aiSdkOtel.packageName, langfuseProcessor !== null);
+      if (diagnostic.severity === 'warning') {
+        otelLogger.warning`${diagnostic.message}`;
+      } else {
+        otelLogger.debug`${diagnostic.message}`;
+      }
+    } else {
+      otelLogger.error`AI SDK OTel integration failed: ${aiSdkOtel.error}`;
+    }
     const httpLabel = httpInstrumentationEnabled && HttpInstrumentation ? ' + HTTP' : '';
     const otlpLabel = otlpProcessor ? ' + OTLP' : '';
     otelLogger.info`${`started service=${serviceName}${GrpcInstrumentation ? ' + gRPC' : ''}${httpLabel}${langfuseProcessor ? ' + Langfuse' : ''}${otlpLabel}`}`;

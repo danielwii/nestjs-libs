@@ -30,10 +30,46 @@ export function isFullStackExtraScope(scope: string): boolean {
   );
 }
 
-/**
- * Default LLM telemetry scopes. `ai` is the legacy Vercel AI SDK scope and
- * `gen_ai` is the OpenTelemetry scope used by @ai-sdk/otel in AI SDK v7.
- */
+/** Default AI SDK v7 OpenTelemetry scope exported to Langfuse. */
 export function isDefaultLangfuseLlmScope(scope: string): boolean {
-  return scope === 'ai' || scope === 'gen_ai';
+  return scope === 'gen_ai';
+}
+
+/**
+ * Resolve the one supported Langfuse endpoint setting.
+ *
+ * The removed spelling is an input contract violation, not a fallback source:
+ * accepting it here would keep configuration drift invisible during startup.
+ */
+export function resolveLangfuseBaseUrl(
+  baseUrl: string | undefined,
+  removedBaseUrl: string | undefined,
+): string | undefined {
+  if (removedBaseUrl !== undefined) {
+    throw new Error('LANGFUSE_BASEURL has been removed; use LANGFUSE_BASE_URL');
+  }
+
+  return baseUrl;
+}
+
+export interface AiSdkOtelMissingDependencyDiagnostic {
+  severity: 'debug' | 'warning';
+  message: string;
+}
+
+/** Make a missing optional AI integration visible when Langfuse depends on it. */
+export function resolveAiSdkOtelMissingDependencyDiagnostic(
+  packageName: string,
+  langfuseActive: boolean,
+): AiSdkOtelMissingDependencyDiagnostic {
+  const message = `AI SDK OTel integration skipped because ${packageName} is not installed`;
+
+  if (!langfuseActive) {
+    return { severity: 'debug', message };
+  }
+
+  return {
+    severity: 'warning',
+    message: `${message}; Langfuse is active, but AI SDK LLM spans from this integration will not be produced or exported`,
+  };
 }

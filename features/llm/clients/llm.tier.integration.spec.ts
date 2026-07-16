@@ -3,7 +3,7 @@
  *
  * 目的：
  * 验证六个 LLM 静态方法（generateObject / generateText / streamText / streamObject /
- * generateObjectViaTool / streamObjectViaTool）在给定带 `?tier=` 的 model spec 时，
+ * generateObjectViaTool / streamObjectViaTool）在给定带 `?vertex.tier=` 的 model spec 时，
  * **最终发出的 HTTP 请求确实带了 Vertex tier / request-type headers**。
  *
  * 实现方式：
@@ -115,7 +115,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'integration-generateText',
-        model: 'vertex:gemini-3.1-flash-lite?tier=flex',
+        model: 'vertex:gemini-3.1-flash-lite?vertex.tier=flex',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
       }),
@@ -127,7 +127,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(() =>
       LLM.generateObject({
         id: 'integration-generateObject',
-        model: 'vertex:gemini-3.1-flash-lite?tier=flex',
+        model: 'vertex:gemini-3.1-flash-lite?vertex.tier=flex',
         messages: SIMPLE_MESSAGE,
         schema: SIMPLE_SCHEMA,
         maxRetries: 0,
@@ -140,7 +140,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(() =>
       LLM.generateObjectViaTool({
         id: 'integration-generateObjectViaTool',
-        model: 'vertex:gemini-2.5-flash-lite?tier=priority',
+        model: 'vertex:gemini-2.5-flash-lite?vertex.tier=priority',
         messages: SIMPLE_MESSAGE,
         schema: SIMPLE_SCHEMA,
         maxRetries: 0,
@@ -153,7 +153,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(async () => {
       const stream = LLM.streamText({
         id: 'integration-streamText',
-        model: 'vertex:gemini-2.5-flash?tier=priority',
+        model: 'vertex:gemini-2.5-flash?vertex.tier=priority',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
       });
@@ -169,7 +169,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(async () => {
       const stream = LLM.streamObject({
         id: 'integration-streamObject',
-        model: 'vertex:gemini-3-flash-preview?tier=flex',
+        model: 'vertex:gemini-3-flash-preview?vertex.tier=flex',
         messages: SIMPLE_MESSAGE,
         schema: SIMPLE_SCHEMA,
         maxRetries: 0,
@@ -185,7 +185,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(async () => {
       const gen = LLM.streamObjectViaTool({
         id: 'integration-streamObjectViaTool',
-        model: 'vertex:gemini-3.1-flash-lite?tier=flex',
+        model: 'vertex:gemini-3.1-flash-lite?vertex.tier=flex',
         messages: SIMPLE_MESSAGE,
         schema: SIMPLE_SCHEMA,
         maxRetries: 0,
@@ -201,7 +201,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'integration-generateText-priority-only',
-        model: 'vertex:gemini-2.5-flash?tier=priority&vertexRequestType=shared',
+        model: 'vertex:gemini-2.5-flash?vertex.tier=priority&vertex.requestType=shared',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
       }),
@@ -216,11 +216,11 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('LLM tier headers: downgrade does not send header', () => {
-  it('generateText on openrouter with ?tier=flex → no tier header sent', async () => {
+  it('generateText on openrouter with ?vertex.tier=flex → no tier header sent', async () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'integration-openrouter-downgrade',
-        model: 'openrouter:gemini-2.5-flash?tier=flex' as never,
+        model: 'openrouter:gemini-2.5-flash?vertex.tier=flex' as never,
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
       }),
@@ -237,7 +237,7 @@ describe('LLM tier headers: downgrade does not send header', () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'integration-vertex-downgrade',
-        model: 'vertex:gemini-2.5-flash-lite?tier=flex',
+        model: 'vertex:gemini-2.5-flash-lite?vertex.tier=flex',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
       }),
