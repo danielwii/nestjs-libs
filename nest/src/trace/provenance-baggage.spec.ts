@@ -2,10 +2,12 @@ import { contextWithProvenanceBaggage, PROVENANCE_BAGGAGE_KEY, readProvenanceBag
 import { getProvenanceTags, setProvenanceTags } from './provenance-tags';
 import { RequestContext } from './request-context';
 
+import { configure, reset } from '@logtape/logtape';
 import { defaultTextMapGetter, defaultTextMapSetter, propagation, ROOT_CONTEXT } from '@opentelemetry/api';
 import { W3CBaggagePropagator } from '@opentelemetry/core';
 import { describe, expect, it } from 'bun:test';
 
+import type { LogRecord } from '@logtape/logtape';
 import type { Context } from '@opentelemetry/api';
 
 function contextWithBaggage(entries: Record<string, { value: string }>): Context {
@@ -99,6 +101,35 @@ describe('provenance baggage', () => {
       'fixture.scenario': 'case-1',
       'fixture.source': 'new',
     });
+  });
+
+  it('warns when the tag limit drops additional outbound provenance', async () => {
+    const records: LogRecord[] = [];
+    await configure({
+      reset: true,
+      sinks: {
+        recorder: (record) => records.push(record),
+      },
+      loggers: [
+        { category: [], sinks: ['recorder'], lowestLevel: 'warning' },
+        { category: ['logtape', 'meta'], sinks: [] },
+      ],
+    });
+
+    try {
+      const fullContext = contextWithProvenanceBaggage(
+        Object.fromEntries(Array.from({ length: 16 }, (_, index) => [`upstream.tag_${index}`, String(index)])),
+      );
+
+      const propagatedContext = contextWithProvenanceBaggage({ 'local.source': 'service' }, fullContext);
+
+      expect(readProvenanceBaggage(propagatedContext)['local.source']).toBeUndefined();
+      expect(records.map((record) => record.message.map(String).join(''))).toContain(
+        'Dropped 1 invalid or excess provenance tag(s)',
+      );
+    } finally {
+      await reset();
+    }
   });
 
   it('removes an empty provenance entry without dropping unrelated baggage', () => {

@@ -43,7 +43,7 @@ function normalizeValue(value: unknown): string | undefined {
 
 function warnDropped(dropped: number): void {
   if (dropped > 0) {
-    logger.warning`Dropped ${dropped} invalid provenance tag(s)`;
+    logger.warning`Dropped ${dropped} invalid or excess provenance tag(s)`;
   }
 }
 

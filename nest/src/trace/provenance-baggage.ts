@@ -44,10 +44,13 @@ export function contextWithProvenanceBaggage(
   activeContext: Context = context.active(),
 ): Context {
   const baggage = propagation.getBaggage(activeContext);
-  const merged = sanitizeProvenanceTags({
-    ...readProvenanceBaggage(activeContext),
-    ...tags,
-  });
+  const merged = sanitizeProvenanceTags(
+    {
+      ...readProvenanceBaggage(activeContext),
+      ...tags,
+    },
+    { warn: true },
+  );
 
   if (Object.keys(merged).length === 0) {
     return baggage ? propagation.setBaggage(activeContext, baggage.removeEntry(PROVENANCE_BAGGAGE_KEY)) : activeContext;
