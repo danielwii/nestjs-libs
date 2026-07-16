@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 
+import { contextWithProvenanceBaggage, readProvenanceBaggage } from '@app/nest/trace/provenance-baggage';
 import { setProvenanceTags } from '@app/nest/trace/provenance-tags';
 import { RequestContext } from '@app/nest/trace/request-context';
 
@@ -34,6 +35,26 @@ describe('LLM provenance runtime context', () => {
     const callerContext = { parentObservationId: 'parent-1' };
 
     expect(mergeProvenanceRuntimeContext(callerContext)).toBe(callerContext);
+  });
+
+  it('projects propagated provenance into AI SDK v7 runtime context', () => {
+    const propagatedContext = contextWithProvenanceBaggage({
+      'fixture.origin': 'synthetic',
+      'fixture.source': 'eval',
+    });
+
+    const normalizedBaggage = readProvenanceBaggage(propagatedContext);
+    const runtimeContext = RequestContext.run({}, () => {
+      // Boundary acceptance is explicit: normalization alone does not establish source trust.
+      setProvenanceTags(normalizedBaggage);
+      return mergeProvenanceRuntimeContext({
+        tags: ['task:reply'],
+      });
+    });
+
+    expect(runtimeContext).toEqual({
+      tags: ['task:reply', 'fixture.origin:synthetic', 'fixture.source:eval'],
+    });
   });
 
   it('keeps LLM client provenance formatting independent from tracing span helpers', () => {
