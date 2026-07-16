@@ -103,6 +103,18 @@ describe('provenance baggage', () => {
     });
   });
 
+  it('does not let invalid local tags erase valid propagated provenance', () => {
+    const baseContext = contextWithProvenanceBaggage({
+      'fixture.source': 'eval',
+    });
+
+    const propagatedContext = contextWithProvenanceBaggage({ 'fixture.source': ' ' }, baseContext);
+
+    expect(readProvenanceBaggage(propagatedContext)).toEqual({
+      'fixture.source': 'eval',
+    });
+  });
+
   it('warns when the tag limit drops additional outbound provenance', async () => {
     const records: LogRecord[] = [];
     await configure({
