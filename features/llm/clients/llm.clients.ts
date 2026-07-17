@@ -108,6 +108,27 @@ function loadBedrockFactory(): typeof createAmazonBedrock {
 
 const clientLogger = getAppLogger('features', 'LLM', 'clients');
 
+/**
+ * Bedrock 凭证缺失时的场景化提示。
+ *
+ * credential chain（IRSA/ECS instance role、AWS CLI profile）目前未接线
+ * （spec 明确 defer：`@aws-sdk/credential-providers` 为额外依赖），
+ * 检测到这些环境时给出针对性指引而不是泛泛的“未配置”。
+ */
+function bedrockCredentialHint(): string {
+  if (
+    process.env.AWS_WEB_IDENTITY_TOKEN_FILE ??
+    process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ??
+    process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI
+  ) {
+    return ' IAM role credentials detected (IRSA/ECS/EC2); credential chain support via @aws-sdk/credential-providers is intentionally not wired yet — use AI_BEDROCK_API_KEY or static SigV4 env keys for now.';
+  }
+  if (process.env.AWS_PROFILE) {
+    return ' AWS_PROFILE is set but the provider does not resolve CLI profiles; export static credentials (aws configure export-credentials --format env) or set AI_BEDROCK_API_KEY.';
+  }
+  return '';
+}
+
 // ============================================================================
 // OpenRouter 客户端
 // ============================================================================
@@ -345,7 +366,7 @@ function getBedrock() {
     const hasSigV4 = !!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY;
     if (!apiKey && !hasBearerToken && !hasSigV4) {
       throw Oops.Panic.Config(
-        'AWS Bedrock credentials are not configured. Set AI_BEDROCK_API_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY',
+        `AWS Bedrock credentials are not configured. Set AI_BEDROCK_API_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY.${bedrockCredentialHint()}`,
       );
     }
     const region = SysEnv.AI_BEDROCK_REGION ?? process.env.AWS_REGION ?? 'us-east-1';

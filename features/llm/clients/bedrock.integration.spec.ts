@@ -29,7 +29,16 @@ interface CapturedRequest {
 let capturedRequests: CapturedRequest[] = [];
 const originalFetch = ApiFetcher.fetch;
 
-const AWS_ENV_KEYS = ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION'] as const;
+const AWS_ENV_KEYS = [
+  'AWS_BEARER_TOKEN_BEDROCK',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_REGION',
+  'AWS_PROFILE',
+  'AWS_WEB_IDENTITY_TOKEN_FILE',
+  'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
+  'AWS_CONTAINER_CREDENTIALS_FULL_URI',
+] as const;
 let savedAwsEnv: Record<string, string | undefined> = {};
 let savedBedrockApiKey: string | undefined;
 let savedBedrockRegion: string | undefined;
@@ -115,6 +124,18 @@ describe('bedrock client', () => {
     expect(() => model('bedrock:claude-haiku-4.5')).toThrow(
       /AI_BEDROCK_API_KEY.*AWS_BEARER_TOKEN_BEDROCK.*AWS_ACCESS_KEY_ID/s,
     );
+  });
+
+  it('M6: error hints at profile export when only AWS_PROFILE is set', () => {
+    delete sysEnvMut.AI_BEDROCK_API_KEY;
+    process.env.AWS_PROFILE = 'mission-ai-v2';
+    expect(() => model('bedrock:claude-haiku-4.5')).toThrow(/AWS_PROFILE.*export static credentials/s);
+  });
+
+  it('M6: error names deferred credential chain when IRSA env is detected', () => {
+    delete sysEnvMut.AI_BEDROCK_API_KEY;
+    process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/eks.amazonaws.com/serviceaccount/token';
+    expect(() => model('bedrock:claude-haiku-4.5')).toThrow(/IAM role credentials detected.*not wired yet/s);
   });
 
   it('M6/S2: SigV4 env credentials alone are accepted and used for signing', async () => {
