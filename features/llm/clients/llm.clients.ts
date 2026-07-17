@@ -15,6 +15,12 @@
  * | 复杂推理 | `google('gemini-2.5-pro')` | 推理能力强，thinking tokens 免费 |
  * | 大上下文 | `openrouter('x-ai/grok-4.1-fast')` | 2M context window |
  *
+ * ## Provider 选择：bedrock vs openrouter
+ *
+ * 同一模型家族（Claude/Kimi/DeepSeek/MiniMax）两边都有时的取舍：
+ * - `bedrock:*`：企业合规/数据驻留（流量不进第三方代理）、AWS 账单整合、serviceTier 分层
+ * - `openrouter:*`：模型更全、无需 AWS 凭证、定价透明
+ *
  * ## 价格参考（2026-01）
  *
  * | 模型 | Input | Output | 备注 |
@@ -52,11 +58,15 @@ import '@app/nest/exceptions/oops-factories';
 
 import { createVertexFetch } from './vertex.fetch';
 
+import { createRequire } from 'node:module';
+
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
+// type-only：编译期即被擦除，不会触发运行时模块解析（optional peer 惰性加载见下方 loadBedrockFactory）
+import type { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import type { LanguageModel } from 'ai';
 
 // ============================================================================
@@ -68,8 +78,56 @@ let _google: ReturnType<typeof createGoogleGenerativeAI> | null = null;
 let _vertex: ReturnType<typeof createVertex> | null = null;
 let _vertexGlobal: ReturnType<typeof createVertex> | null = null;
 let _openai: ReturnType<typeof createOpenAI> | null = null;
+let _bedrock: ReturnType<typeof createAmazonBedrock> | null = null;
+
+// ============================================================================
+// Optional peer 惰性加载
+// ============================================================================
+
+/**
+ * `@ai-sdk/amazon-bedrock` 是 optional peer 且 ESM-only。
+ * 静态 import 会让未安装该包的既有使用者在加载本模块时就 ERR_MODULE_NOT_FOUND，
+ * 因此改为首次使用 bedrock 时才经 require(esm) 同步加载（Node ≥22.12 / bun 均支持）。
+ */
+let _createAmazonBedrock: typeof createAmazonBedrock | null = null;
+
+function loadBedrockFactory(): typeof createAmazonBedrock {
+  if (!_createAmazonBedrock) {
+    try {
+      const req = createRequire(import.meta.url);
+      const mod = req('@ai-sdk/amazon-bedrock') as { createAmazonBedrock: typeof createAmazonBedrock };
+      _createAmazonBedrock = mod.createAmazonBedrock;
+    } catch {
+      throw Oops.Panic.Config(
+        'bedrock:* models require the optional peer "@ai-sdk/amazon-bedrock". Install it first (e.g. bun add @ai-sdk/amazon-bedrock).',
+      );
+    }
+  }
+  return _createAmazonBedrock;
+}
 
 const clientLogger = getAppLogger('features', 'LLM', 'clients');
+
+/**
+ * Bedrock 凭证缺失时的场景化提示。
+ *
+ * credential chain（IRSA/ECS instance role、AWS CLI profile）目前未接线
+ * （spec 明确 defer：`@aws-sdk/credential-providers` 为额外依赖），
+ * 检测到这些环境时给出针对性指引而不是泛泛的“未配置”。
+ */
+function bedrockCredentialHint(): string {
+  if (
+    process.env.AWS_WEB_IDENTITY_TOKEN_FILE ??
+    process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ??
+    process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI
+  ) {
+    return ' IAM role credentials detected (IRSA/ECS/EC2); credential chain support via @aws-sdk/credential-providers is intentionally not wired yet — use AI_BEDROCK_API_KEY or static SigV4 env keys for now.';
+  }
+  if (process.env.AWS_PROFILE) {
+    return ' AWS_PROFILE is set but the provider does not resolve CLI profiles; export static credentials (aws configure export-credentials --format env) or set AI_BEDROCK_API_KEY.';
+  }
+  return '';
+}
 
 // ============================================================================
 // OpenRouter 客户端
@@ -284,6 +342,64 @@ function getVertexGlobal() {
 export const vertexGlobal = (modelId: string): LanguageModel => getVertexGlobal()(modelId);
 
 // ============================================================================
+// AWS Bedrock 客户端
+// ============================================================================
+
+/**
+ * 获取 AWS Bedrock 客户端单例
+ *
+ * 认证优先级（与 @ai-sdk/amazon-bedrock 一致）：
+ * 1. SysEnv.AI_BEDROCK_API_KEY（Bearer API key）
+ * 2. AWS_BEARER_TOKEN_BEDROCK 环境变量（provider 自身 fallback）
+ * 3. AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY（SigV4）
+ *
+ * 注意：provider 的 env fallback 只读 process env，不解析 AWS CLI profile；
+ * 本地用 `aws configure export-credentials --profile <name> --format env` 导出。
+ *
+ * Region 优先级：SysEnv.AI_BEDROCK_REGION > AWS_REGION > us-east-1；
+ * `us.*` inference profile（Claude 全系）需美国区域端点。
+ */
+function getBedrock() {
+  if (!_bedrock) {
+    const apiKey = SysEnv.AI_BEDROCK_API_KEY;
+    const hasBearerToken = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
+    const hasSigV4 = !!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY;
+    if (!apiKey && !hasBearerToken && !hasSigV4) {
+      throw Oops.Panic.Config(
+        `AWS Bedrock credentials are not configured. Set AI_BEDROCK_API_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY.${bedrockCredentialHint()}`,
+      );
+    }
+    const region = SysEnv.AI_BEDROCK_REGION ?? process.env.AWS_REGION ?? 'us-east-1';
+    const auth = apiKey ? 'api-key' : hasBearerToken ? 'aws-bearer-token-env' : 'aws-sigv4-env';
+    clientLogger.info`[bedrock:init] region=${region}, auth=${auth}, baseURL=default`;
+    _bedrock = loadBedrockFactory()({
+      ...(apiKey ? { apiKey } : {}),
+      region,
+      fetch: ApiFetcher.fetch,
+    });
+  }
+  return _bedrock;
+}
+
+/**
+ * AWS Bedrock 模型选择器
+ *
+ * @example
+ * ```typescript
+ * bedrock('us.anthropic.claude-sonnet-4-5-20250929-v1:0')
+ * bedrock('moonshotai.kimi-k2.5')
+ * ```
+ */
+export const bedrock = (modelId: string): LanguageModel => getBedrock()(modelId);
+
+/**
+ * 获取 Bedrock Provider 实例（含 provider-defined tools）
+ */
+export function getBedrockProvider() {
+  return getBedrock();
+}
+
+// ============================================================================
 // 客户端状态检查
 // ============================================================================
 
@@ -308,6 +424,13 @@ export function getLLMClientStatus() {
       configured: !!SysEnv.GOOGLE_VERTEX_PROJECT,
       initialized: !!_vertexGlobal,
     },
+    bedrock: {
+      configured:
+        !!SysEnv.AI_BEDROCK_API_KEY ||
+        !!process.env.AWS_BEARER_TOKEN_BEDROCK ||
+        (!!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY),
+      initialized: !!_bedrock,
+    },
 
     proxy: {
       enabled: SysEnv.APP_PROXY_ENABLED ?? false,
@@ -325,6 +448,7 @@ export function resetLLMClients() {
   _vertex = null;
   _vertexGlobal = null;
   _openai = null;
+  _bedrock = null;
 }
 
 // ============================================================================

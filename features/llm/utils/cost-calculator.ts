@@ -8,7 +8,29 @@
  * 价格数据来源：llm.clients.ts（2026-01）
  */
 
-import type { LLMModelKey } from '../types/model.types';
+import { getModel, isModelRegistered } from '../types/model.types';
+
+import type { BedrockServiceTier, LLMModelKey } from '../types/model.types';
+
+/**
+ * Bedrock service tier 价格系数（相对 standard on-demand）。
+ *
+ * 来源：AWS Bedrock pricing — Flex 为 on-demand 的 50%，Priority 为 +75%（1.75x）。
+ * `reserved` 为承诺吞吐（非按 token 计费），不在此表，按 token 估算会误导，返回 null。
+ *
+ * @see https://aws.amazon.com/bedrock/pricing/
+ */
+const BEDROCK_SERVICE_TIER_MULTIPLIER: Record<Exclude<BedrockServiceTier, 'reserved'>, number> = {
+  default: 1,
+  flex: 0.5,
+  priority: 1.75,
+};
+
+/** getCostFromUsage 的可选上下文 */
+export interface CostContext {
+  /** Bedrock service tier（来自 model spec 的 `bedrock.serviceTier` 参数） */
+  bedrockServiceTier?: BedrockServiceTier;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 价格表（每百万 tokens）
@@ -102,6 +124,22 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'openai/gpt-5.4-mini': { input: 0.75, output: 4.5 },
   'openai/gpt-5.4-nano': { input: 0.2, output: 1.25 },
   'openai/gpt-5.5': { input: 5.0, output: 30.0 },
+
+  // ==================== AWS Bedrock（key 为 registry 中的 Bedrock modelId）====================
+  // 定价来源：AWS Bedrock pricing（经 models.dev 镜像核对，2026-07-17）
+  // Claude us.* inference profile 与区域价格一致
+  'us.anthropic.claude-haiku-4-5-20251001-v1:0': { input: 1.0, output: 5.0 },
+  'us.anthropic.claude-sonnet-4-5-20250929-v1:0': { input: 3.0, output: 15.0 },
+  'us.anthropic.claude-sonnet-4-6': { input: 3.0, output: 15.0 },
+  'us.anthropic.claude-opus-4-5-20251101-v1:0': { input: 5.0, output: 25.0 },
+  'us.anthropic.claude-opus-4-6-v1': { input: 5.0, output: 25.0 },
+  'moonshotai.kimi-k2.5': { input: 0.6, output: 3.0 },
+  'moonshot.kimi-k2-thinking': { input: 0.6, output: 2.5 },
+  'deepseek.v3.2': { input: 0.62, output: 1.85 },
+  'minimax.minimax-m2.5': { input: 0.3, output: 1.2 },
+  'us.amazon.nova-pro-v1:0': { input: 0.8, output: 3.2 },
+  'us.amazon.nova-lite-v1:0': { input: 0.06, output: 0.24 },
+  'us.amazon.nova-2-lite-v1:0': { input: 0.33, output: 2.75 },
 };
 
 /**
@@ -121,14 +159,14 @@ function getPricing(modelId: string): ModelPricing | null {
 /**
  * 计算 LLM 调用成本（内部使用）
  */
-function calculateCost(modelId: string, promptTokens: number, completionTokens: number): number | null {
+function calculateCost(modelId: string, promptTokens: number, completionTokens: number, multiplier = 1): number | null {
   const pricing = getPricing(modelId);
   if (!pricing) return null;
 
   const inputCost = (promptTokens / 1_000_000) * pricing.input;
   const outputCost = (completionTokens / 1_000_000) * pricing.output;
 
-  return inputCost + outputCost;
+  return (inputCost + outputCost) * multiplier;
 }
 
 /**
@@ -138,6 +176,7 @@ function calculateCostFromKey(
   modelKey: LLMModelKey | string,
   promptTokens: number,
   completionTokens: number,
+  context?: CostContext,
 ): number | null {
   // 如果包含 ':'，说明是 LLMModelKey 格式
   if (modelKey.includes(':')) {
@@ -147,6 +186,7 @@ function calculateCostFromKey(
     const modelName = modelParts.join(':');
 
     let modelId: string;
+    let multiplier = 1;
     if (provider === 'openrouter') {
       // 全称格式（含 '/'）：'z-ai/glm-5' 已是完整 modelId，直接使用
       if (modelName.includes('/')) {
@@ -176,11 +216,19 @@ function calculateCostFromKey(
     } else if (provider === 'google') {
       // Google 直连格式是 'gemini-xxx'
       modelId = modelName;
+    } else if (provider === 'bedrock') {
+      // Bedrock key 的 modelId 无法从 key 字符串推导（如 bedrock:claude-sonnet-4.5 →
+      // us.anthropic.claude-sonnet-4-5-20250929-v1:0），必须查 registry
+      if (!isModelRegistered(modelKey)) return null;
+      modelId = getModel(modelKey).modelId;
+      // reserved 为承诺吞吐（非按 token 计费），按标准价估算会误导，返回 null
+      if (context?.bedrockServiceTier === 'reserved') return null;
+      multiplier = BEDROCK_SERVICE_TIER_MULTIPLIER[context?.bedrockServiceTier ?? 'default'];
     } else {
       return null;
     }
 
-    return calculateCost(modelId, promptTokens, completionTokens);
+    return calculateCost(modelId, promptTokens, completionTokens, multiplier);
   }
 
   // 否则当作 modelId 直接使用
@@ -196,7 +244,11 @@ function calculateCostFromKey(
  * @param modelKey - LLMModelKey（fallback 计算用）
  * @returns 成本（美元），如果无法计算返回 null
  */
-export function getCostFromUsage(usage: unknown, modelKey?: LLMModelKey | string): number | null {
+export function getCostFromUsage(
+  usage: unknown,
+  modelKey?: LLMModelKey | string,
+  context?: CostContext,
+): number | null {
   if (!usage || typeof usage !== 'object') return null;
   const usageObj = usage as Record<string, unknown>;
 
@@ -219,7 +271,7 @@ export function getCostFromUsage(usage: unknown, modelKey?: LLMModelKey | string
         : typeof usageObj.completionTokens === 'number'
           ? usageObj.completionTokens
           : 0;
-    return calculateCostFromKey(modelKey, inputTokens, outputTokens);
+    return calculateCostFromKey(modelKey, inputTokens, outputTokens, context);
   }
 
   return null;

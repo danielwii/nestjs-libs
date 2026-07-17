@@ -26,13 +26,30 @@
 import { Oops } from '@app/nest/exceptions/oops';
 
 import { getModel } from '../types/model.types';
-import { google, openrouter, vertex, vertexGlobal } from './llm.clients';
+import { bedrockThinkingOptions } from './bedrock.client';
+import { bedrock, google, openrouter, vertex, vertexGlobal } from './llm.clients';
 
 import '@app/nest/exceptions/oops-factories';
+
+import { getAppLogger } from '@app/utils/app-logger';
 
 import type { LLMModelKey, LLMModelSpec, LLMProviderType } from '../types/model.types';
 import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import type { LanguageModel } from 'ai';
+
+const autoOptsLogger = getAppLogger('features', 'LLM', 'autoOpts');
+
+/**
+ * autoOpts 的 Bedrock 分支需要 modelId 判断 reasoning 配置形式（budget vs effort）。
+ * 裸 provider 名（'bedrock'）无法推断家族，warn + 返回空 options。
+ */
+function resolveBedrockModelId(key: LLMModelKey | string): string | undefined {
+  if (!key.includes(':')) {
+    autoOptsLogger.warning`[autoOpts] bare provider name "${key}" cannot infer Bedrock model family; pass a full model key (e.g. bedrock:claude-haiku-4.5). Returning empty options`;
+    return undefined;
+  }
+  return getModel(key as LLMModelSpec).modelId;
+}
 
 // ============================================================================
 // 自动路由客户端
@@ -63,6 +80,8 @@ export function model(key: LLMModelSpec, modelIdSuffix?: string): LanguageModel 
       return vertex(modelId);
     case 'vertex-global':
       return vertexGlobal(modelId);
+    case 'bedrock':
+      return bedrock(modelId);
     default:
       throw Oops.Panic.Config(`Unknown provider: ${provider as string} for model: ${key}`);
   }
@@ -85,7 +104,7 @@ export function model(key: LLMModelSpec, modelIdSuffix?: string): LanguageModel 
  */
 export function parseProvider(key: string): LLMProviderType {
   // 支持直接传 provider 名（如 'openrouter'）
-  const validProviders: LLMProviderType[] = ['openrouter', 'google', 'vertex', 'vertex-global'];
+  const validProviders: LLMProviderType[] = ['openrouter', 'google', 'vertex', 'vertex-global', 'bedrock'];
   if (validProviders.includes(key as LLMProviderType)) {
     return key as LLMProviderType;
   }
@@ -138,6 +157,11 @@ export const autoOpts = {
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
       case 'vertex-global':
         return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+      case 'bedrock': {
+        // Bedrock reasoningConfig 按模型家族区分；不支持的家族返回空 options
+        const modelId = resolveBedrockModelId(key);
+        return modelId ? bedrockThinkingOptions(modelId, 'none') : {};
+      }
       default:
         return {};
     }
@@ -157,6 +181,11 @@ export const autoOpts = {
       case 'vertex': // Vertex 使用与 Google 相同的 providerOptions 格式
       case 'vertex-global':
         return { google: { thinkingConfig: { thinkingBudget: budgetMap[effort] } } };
+      case 'bedrock': {
+        // anthropic 家族 → budgetTokens；nova 2 家族 → maxReasoningEffort；其他 → warn + 空
+        const modelId = resolveBedrockModelId(key);
+        return modelId ? bedrockThinkingOptions(modelId, effort) : {};
+      }
       default:
         return {};
     }

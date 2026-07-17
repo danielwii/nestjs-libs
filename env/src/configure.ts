@@ -216,6 +216,10 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   /** Vertex AI location；Priority/Flex PayGo 文档要求使用 global */
   @IsString() @IsOptional() GOOGLE_VERTEX_LOCATION?: string;
   @IsString() @IsOptional() AI_OPENAI_API_KEY?: string;
+  /** AWS Bedrock API key（Bearer 认证；未设置时由 provider 回落 AWS_BEARER_TOKEN_BEDROCK 或 SigV4 静态凭证 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY） */
+  @IsString() @IsOptional() AI_BEDROCK_API_KEY?: string;
+  /** AWS Bedrock region（优先级：AI_BEDROCK_REGION > AWS_REGION > 默认 us-east-1；本项目验证区域为 us-east-2，`us.*` inference profile 需美国区域端点） */
+  @IsString() @IsOptional() AI_BEDROCK_REGION?: string;
   @IsString() @IsOptional() AI_JINA_API_KEY?: string;
   @IsString() @IsOptional() AI_VOYAGE_API_KEY?: string;
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境）。值须为已注册的 LLMModelKey（如 'openrouter:gemini-2.5-flash'） */

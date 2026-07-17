@@ -4,13 +4,14 @@
  * 提供常用场景的便利函数，自动处理不同 Provider 的差异
  */
 
+import { bedrockThinkingOptions } from './bedrock.client';
 import { googleOptions } from './google.client';
 import { openrouterOptions } from './openrouter.client';
 
 /**
  * Provider 类型
  */
-export type ProviderType = 'openrouter' | 'google' | 'vertex' | 'vertex-global';
+export type ProviderType = 'openrouter' | 'google' | 'vertex' | 'vertex-global' | 'bedrock';
 
 /**
  * 根据 Provider 类型生成禁用 Thinking 的 options
@@ -32,7 +33,7 @@ export type ProviderType = 'openrouter' | 'google' | 'vertex' | 'vertex-global';
  * });
  * ```
  */
-export function disableThinkingOptions(provider: ProviderType) {
+export function disableThinkingOptions(provider: ProviderType, modelId?: string) {
   switch (provider) {
     case 'openrouter':
       return openrouterOptions({ disableThinking: true });
@@ -40,6 +41,9 @@ export function disableThinkingOptions(provider: ProviderType) {
     case 'vertex':
     case 'vertex-global':
       return googleOptions({ disableThinking: true });
+    case 'bedrock':
+      // Bedrock 需要 modelId 判断家族；缺 modelId 时不下发 disable（与裸 provider 调用兼容）
+      return modelId ? bedrockThinkingOptions(modelId, 'none') : {};
     default:
       return {};
   }
@@ -57,7 +61,7 @@ export function disableThinkingOptions(provider: ProviderType) {
  * });
  * ```
  */
-export function reasoningEffortOptions(provider: ProviderType, effort: 'low' | 'medium' | 'high') {
+export function reasoningEffortOptions(provider: ProviderType, effort: 'low' | 'medium' | 'high', modelId?: string) {
   switch (provider) {
     case 'openrouter':
       return openrouterOptions({ reasoningEffort: effort });
@@ -69,6 +73,9 @@ export function reasoningEffortOptions(provider: ProviderType, effort: 'low' | '
       const budgetMap = { low: 1024, medium: 4096, high: 8192 };
       return googleOptions({ thinkingBudget: budgetMap[effort] });
     }
+    case 'bedrock':
+      // anthropic → budgetTokens；nova 2 → maxReasoningEffort；其他家族内部 warn + 空
+      return modelId ? bedrockThinkingOptions(modelId, effort) : {};
     default:
       return {};
   }

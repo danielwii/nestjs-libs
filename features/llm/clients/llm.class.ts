@@ -39,6 +39,7 @@ import { EMBEDDING_MODELS } from '../types/embedding.types';
 import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
+import { bedrockServiceTierOptions } from './bedrock.client';
 import { getOpenAI, getOpenRouter } from './llm.clients';
 import { resolveOpenRouterOptions } from './openrouter.client';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
@@ -65,6 +66,8 @@ import { z } from 'zod';
 
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
 import type {
+  BedrockModelOptions,
+  BedrockServiceTier,
   LLMModelKey,
   LLMModelSpec,
   OpenRouterModelOptions,
@@ -106,6 +109,7 @@ type ProviderOptionsSurface = {
   openrouter?: JSONObject;
   google?: JSONObject;
   vertex?: JSONObject;
+  bedrock?: JSONObject;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -323,6 +327,8 @@ interface ResolvedSpec {
   vertex: VertexModelOptions | undefined;
   /** OpenRouter provider-namespaced options. */
   openrouter: OpenRouterModelOptions | undefined;
+  /** Bedrock provider-namespaced options. */
+  bedrock: BedrockModelOptions | undefined;
 }
 
 const specLogger = getAppLogger('features', 'LLM', 'spec');
@@ -347,6 +353,7 @@ function resolveSpec(
   const fallbackModels = parsed.fallbackModels;
   const vertex = parsed.vertex;
   const openrouter = parsed.openrouter;
+  const bedrock = parsed.bedrock;
 
   // 有非默认参数时打印生效值，方便排查
   const hasSpecParams =
@@ -355,7 +362,8 @@ function resolveSpec(
     parsed.timeout !== undefined ||
     fallbackModels.length > 0 ||
     vertex !== undefined ||
-    openrouter !== undefined;
+    openrouter !== undefined ||
+    bedrock !== undefined;
   if (hasSpecParams) {
     const parts: string[] = [];
     if (thinking !== 'none') parts.push(`thinking=${thinking}`);
@@ -365,6 +373,7 @@ function resolveSpec(
     if (vertex?.tier !== undefined) parts.push(`vertex.tier=${vertex.tier}`);
     if (vertex?.requestType !== undefined) parts.push(`vertex.requestType=${vertex.requestType}`);
     if (openrouter?.routing !== undefined) parts.push(`openrouter.routing=${openrouter.routing}`);
+    if (bedrock?.serviceTier !== undefined) parts.push(`bedrock.serviceTier=${bedrock.serviceTier}`);
     specLogger.info`[resolveSpec] ${parsed.key} → ${parts.join(', ')}`;
   }
 
@@ -377,6 +386,7 @@ function resolveSpec(
     fallbackModels,
     vertex,
     openrouter,
+    bedrock,
   };
 }
 
@@ -398,14 +408,30 @@ function buildProviderOptions(
   thinking: ThinkingEffort,
   modelKey: LLMModelKey,
   openrouter?: OpenRouterModelOptions,
+  bedrock?: BedrockModelOptions,
 ): ProviderOptionsSurface {
   const modelConfig = getModel(modelKey);
   const thinkingOptions: ProviderOptionsSurface =
     thinking === 'none'
       ? modelConfig.reasoningRequired
         ? {}
-        : disableThinkingOptions(provider)
-      : reasoningEffortOptions(provider, thinking);
+        : disableThinkingOptions(provider, modelConfig.modelId)
+      : reasoningEffortOptions(provider, thinking, modelConfig.modelId);
+
+  if (provider === 'bedrock') {
+    if (!bedrock?.serviceTier) return thinkingOptions;
+    const serviceTierOptions = bedrockServiceTierOptions(bedrock.serviceTier);
+    return {
+      bedrock: {
+        ...thinkingOptions.bedrock,
+        ...serviceTierOptions.bedrock,
+      },
+    };
+  }
+
+  if (bedrock) {
+    aiLogger.warning`[buildProviderOptions] bedrock options requested for non-bedrock provider=${provider} (model=${modelKey}), ignoring`;
+  }
 
   if (provider !== 'openrouter') {
     if (openrouter) {
@@ -551,7 +577,13 @@ function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>
       model: createLanguageModelForCall(stepSpec.key, targetModelIdSuffix, {
         extractJson: context.extractJson,
       }),
-      providerOptions: buildProviderOptions(provider, stepSpec.thinking, stepSpec.key, stepOpenRouter),
+      providerOptions: buildProviderOptions(
+        provider,
+        stepSpec.thinking,
+        stepSpec.key,
+        stepOpenRouter,
+        stepSpec.bedrock,
+      ),
     };
   };
 }
@@ -968,19 +1000,21 @@ export class LLM {
     fb?: FallbackAttempt,
     tier?: VertexTier,
     vertexRequestType?: VertexRequestType,
+    bedrockServiceTier?: BedrockServiceTier,
   ): void {
     const duration = Date.now() - startTime;
     const inputTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
     const outputTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
     const totalTokens = inputTokens + outputTokens;
-    const cost = getCostFromUsage(usage, modelKey);
+    const cost = getCostFromUsage(usage, modelKey, { bedrockServiceTier });
     const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}` : '';
     const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
     const trafficType = extractTrafficType(usage);
     const trafficPart = trafficType ? `, trafficType=${trafficType}` : '';
     const tierPart = formatTierLogPart(tier, vertexRequestType);
+    const serviceTierPart = bedrockServiceTier ? `, bedrockServiceTier=${bedrockServiceTier}` : '';
     LLM.logger
-      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}${trafficPart}`;
+      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}${serviceTierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}${trafficPart}`;
   }
 
   private static logTTFT(id: string, startTime: number): void {
@@ -1074,7 +1108,7 @@ export class LLM {
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
-      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
+      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
       const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
@@ -1105,6 +1139,7 @@ export class LLM {
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
+          spec.bedrock?.serviceTier,
         );
 
         return {
@@ -1302,7 +1337,7 @@ export class LLM {
       );
       const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
-      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
+      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
       const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
       const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
@@ -1342,6 +1377,7 @@ export class LLM {
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
+          spec.bedrock?.serviceTier,
         );
 
         return {
@@ -1421,7 +1457,7 @@ export class LLM {
     const model = createLanguageModelForCall(modelKey, undefined, { extractJson: true });
 
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
     const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
@@ -1465,6 +1501,7 @@ export class LLM {
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
+            spec.bedrock?.serviceTier,
           );
         },
         logAbort: () => {
@@ -1571,7 +1608,7 @@ export class LLM {
 
     const languageModel = createLanguageModelForCall(modelKey, undefined);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
     const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
@@ -1613,6 +1650,7 @@ export class LLM {
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
+            spec.bedrock?.serviceTier,
           );
         },
         logAbort: () => {
@@ -1729,7 +1767,13 @@ export class LLM {
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
-      const baseProviderOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
+      const baseProviderOptions = buildProviderOptions(
+        provider,
+        spec.thinking,
+        modelKey,
+        openrouterOptions,
+        spec.bedrock,
+      );
 
       // OpenRouter 支持 parallelToolCalls 参数控制并行 tool call
       const providerOptions =
@@ -1784,6 +1828,7 @@ export class LLM {
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
+          spec.bedrock?.serviceTier,
         );
 
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
@@ -1919,7 +1964,7 @@ export class LLM {
 
     const languageModel = createModel(modelKey);
     const provider = parseProvider(modelKey);
-    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions);
+    const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
     const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
 
     // 创建 Tool，将 Schema 作为 inputSchema
@@ -1999,6 +2044,7 @@ export class LLM {
         undefined,
         spec.vertex?.tier,
         spec.vertex?.requestType,
+        spec.bedrock?.serviceTier,
       );
       yield { type: 'usage', usage };
     } catch (error) {
