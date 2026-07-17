@@ -17,6 +17,16 @@ describe('inferBedrockReasoningFamily', () => {
     expect(inferBedrockReasoningFamily('anthropic.claude-opus-4-6-v1')).toBe('anthropic');
   });
 
+  it('should detect adaptive-only anthropic models (Opus 4.7+, Sonnet 5, Fable 5)', () => {
+    expect(inferBedrockReasoningFamily('us.anthropic.claude-opus-4-7')).toBe('anthropic-adaptive');
+    expect(inferBedrockReasoningFamily('us.anthropic.claude-opus-4-8')).toBe('anthropic-adaptive');
+    expect(inferBedrockReasoningFamily('us.anthropic.claude-sonnet-5')).toBe('anthropic-adaptive');
+    expect(inferBedrockReasoningFamily('us.anthropic.claude-fable-5')).toBe('anthropic-adaptive');
+    // 4.6 及更早仍然支持 enabled + budgetTokens（live 验证通过）
+    expect(inferBedrockReasoningFamily('us.anthropic.claude-opus-4-6-v1')).toBe('anthropic');
+    expect(inferBedrockReasoningFamily('us.anthropic.claude-sonnet-4-6')).toBe('anthropic');
+  });
+
   it('should detect amazon nova 2 family', () => {
     expect(inferBedrockReasoningFamily('us.amazon.nova-2-lite-v1:0')).toBe('amazon-nova');
     expect(inferBedrockReasoningFamily('amazon.nova-2-lite-v1:0')).toBe('amazon-nova');
@@ -60,6 +70,15 @@ describe('bedrockThinkingOptions', () => {
     });
   });
 
+  it('effort maps to adaptive + maxReasoningEffort for adaptive-only Claude models', () => {
+    expect(bedrockThinkingOptions('us.anthropic.claude-opus-4-7', 'low')).toEqual({
+      bedrock: { reasoningConfig: { type: 'adaptive', maxReasoningEffort: 'low' } },
+    });
+    expect(bedrockThinkingOptions('us.anthropic.claude-opus-4-8', 'high')).toEqual({
+      bedrock: { reasoningConfig: { type: 'adaptive', maxReasoningEffort: 'high' } },
+    });
+  });
+
   it('M10: effort on unsupported family is dropped with warning', () => {
     expect(bedrockThinkingOptions('moonshotai.kimi-k2.5', 'low')).toEqual({});
     expect(bedrockThinkingOptions('deepseek.v3.2', 'high')).toEqual({});
@@ -92,6 +111,12 @@ describe('autoOpts bedrock branch', () => {
   it('M9: thinking maps to maxReasoningEffort for nova 2 keys', () => {
     expect(autoOpts.thinking('bedrock:nova-2-lite', 'medium')).toEqual({
       bedrock: { reasoningConfig: { type: 'enabled', maxReasoningEffort: 'medium' } },
+    });
+  });
+
+  it('thinking maps to adaptive for the registered opus-4.7 key', () => {
+    expect(autoOpts.thinking('bedrock:claude-opus-4.7', 'low')).toEqual({
+      bedrock: { reasoningConfig: { type: 'adaptive', maxReasoningEffort: 'low' } },
     });
   });
 

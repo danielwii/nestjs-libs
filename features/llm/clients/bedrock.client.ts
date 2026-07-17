@@ -2,7 +2,9 @@
  * AWS Bedrock Provider Options Helpers
  *
  * Bedrock Converse API 的 reasoningConfig 支持按模型家族区分：
- * - Anthropic Claude（含 us./global. inference profile 前缀）：budgetTokens（min 1024）
+ * - Anthropic Claude ≤4.6（含 us./global. inference profile 前缀）：budgetTokens（min 1024）
+ * - Anthropic Claude Opus 4.7+ / Sonnet 5 / Fable 5：仅支持 adaptive thinking，
+ *   `type: "enabled" + budget_tokens` 会 400，必须用 `type: "adaptive"` + `output_config.effort`
  * - Amazon Nova 2 系列：maxReasoningEffort（low/medium/high）
  * - 其他家族（kimi/deepseek/minimax/nova 1 代等）：不支持 reasoningConfig，
  *   发送会被 Converse 校验拒绝，因此一律不下发（显式请求 effort 时 warning）
@@ -18,7 +20,18 @@ import type { JSONObject } from '@ai-sdk/provider';
 const bedrockOptionsLogger = getAppLogger('features', 'LLM', 'bedrock');
 
 /** 支持 reasoningConfig 的模型家族 */
-export type BedrockReasoningFamily = 'anthropic' | 'amazon-nova' | 'other';
+export type BedrockReasoningFamily = 'anthropic' | 'anthropic-adaptive' | 'amazon-nova' | 'other';
+
+/**
+ * 仅支持 adaptive thinking 的 Claude 模型（Opus 4.7 起）。
+ *
+ * 这些模型对旧式 `thinking.type: "enabled" + budget_tokens` 返回 400：
+ * "Use thinking.type.adaptive and output_config.effort to control thinking behavior."
+ * 与 @ai-sdk/amazon-bedrock 内部的 special-case 列表（opus-4-7/4-8、sonnet-5、fable-5）对齐。
+ *
+ * @see https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html （Opus 4.7 model card）
+ */
+const ADAPTIVE_ONLY_PATTERN = /claude-(opus-4-[78]|sonnet-5|fable-5)/;
 
 /**
  * 从 Bedrock modelId 推断 reasoning 配置形式
@@ -27,7 +40,9 @@ export type BedrockReasoningFamily = 'anthropic' | 'amazon-nova' | 'other';
  * 只有 Nova 2 系列支持 maxReasoningEffort。
  */
 export function inferBedrockReasoningFamily(modelId: string): BedrockReasoningFamily {
-  if (modelId.includes('anthropic.')) return 'anthropic';
+  if (modelId.includes('anthropic.')) {
+    return ADAPTIVE_ONLY_PATTERN.test(modelId) ? 'anthropic-adaptive' : 'anthropic';
+  }
   if (/amazon\.nova-2/.test(modelId)) return 'amazon-nova';
   return 'other';
 }
@@ -55,6 +70,9 @@ export function bedrockThinkingOptions(
   switch (family) {
     case 'anthropic':
       return { bedrock: { reasoningConfig: { type: 'enabled', budgetTokens: BEDROCK_BUDGET_MAP[effort] } } };
+    case 'anthropic-adaptive':
+      // Opus 4.7+：thinking.type=adaptive + output_config.effort（budget_tokens 会 400）
+      return { bedrock: { reasoningConfig: { type: 'adaptive', maxReasoningEffort: effort } } };
     case 'amazon-nova':
       return { bedrock: { reasoningConfig: { type: 'enabled', maxReasoningEffort: effort } } };
     default:

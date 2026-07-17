@@ -247,6 +247,24 @@ describe('bedrock request payload', () => {
     expect(body.serviceTier).toBeUndefined();
   });
 
+  it('adaptive-only model (opus-4.7) emits thinking.type=adaptive + output_config.effort', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'bedrock-adaptive-thinking',
+        model: 'bedrock:claude-opus-4.7?reason=low',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+
+    const body = firstJsonBody();
+    const additional = body.additionalModelRequestFields as Record<string, unknown>;
+    // Opus 4.7+ 对 enabled+budget_tokens 返回 400，必须是 adaptive + output_config.effort
+    expect(additional.thinking).toEqual({ type: 'adaptive' });
+    expect(additional.output_config).toEqual({ effort: 'low' });
+    expect(JSON.stringify(additional)).not.toContain('budget_tokens');
+  });
+
   it('M12: reasoningRequired model with reason=none never receives disable options', async () => {
     await callIgnoringError(() =>
       LLM.generateText({
