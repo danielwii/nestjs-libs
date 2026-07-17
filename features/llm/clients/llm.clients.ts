@@ -335,7 +335,7 @@ export const vertexGlobal = (modelId: string): LanguageModel => getVertexGlobal(
  * 注意：provider 的 env fallback 只读 process env，不解析 AWS CLI profile；
  * 本地用 `aws configure export-credentials --profile <name> --format env` 导出。
  *
- * Region：SysEnv.AI_BEDROCK_REGION，默认 us-east-1；
+ * Region 优先级：SysEnv.AI_BEDROCK_REGION > AWS_REGION > us-east-1；
  * `us.*` inference profile（Claude 全系）需美国区域端点。
  */
 function getBedrock() {
@@ -348,7 +348,7 @@ function getBedrock() {
         'AWS Bedrock credentials are not configured. Set AI_BEDROCK_API_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY',
       );
     }
-    const region = SysEnv.AI_BEDROCK_REGION ?? 'us-east-1';
+    const region = SysEnv.AI_BEDROCK_REGION ?? process.env.AWS_REGION ?? 'us-east-1';
     const auth = apiKey ? 'api-key' : hasBearerToken ? 'aws-bearer-token-env' : 'aws-sigv4-env';
     clientLogger.info`[bedrock:init] region=${region}, auth=${auth}, baseURL=default`;
     _bedrock = loadBedrockFactory()({

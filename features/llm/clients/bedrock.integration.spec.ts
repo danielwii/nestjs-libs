@@ -29,9 +29,10 @@ interface CapturedRequest {
 let capturedRequests: CapturedRequest[] = [];
 const originalFetch = ApiFetcher.fetch;
 
-const AWS_ENV_KEYS = ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'] as const;
+const AWS_ENV_KEYS = ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION'] as const;
 let savedAwsEnv: Record<string, string | undefined> = {};
 let savedBedrockApiKey: string | undefined;
+let savedBedrockRegion: string | undefined;
 let savedOpenRouterApiKey: string | undefined;
 
 beforeEach(() => {
@@ -44,6 +45,8 @@ beforeEach(() => {
   }
   savedBedrockApiKey = sysEnvMut.AI_BEDROCK_API_KEY;
   sysEnvMut.AI_BEDROCK_API_KEY = 'test-bedrock-key';
+  savedBedrockRegion = sysEnvMut.AI_BEDROCK_REGION;
+  delete sysEnvMut.AI_BEDROCK_REGION;
   // prepareStep 测试的 base model 走 openrouter
   savedOpenRouterApiKey = sysEnvMut.AI_OPENROUTER_API_KEY;
   sysEnvMut.AI_OPENROUTER_API_KEY = 'test-openrouter-key';
@@ -73,6 +76,8 @@ afterEach(() => {
   }
   if (savedBedrockApiKey === undefined) delete sysEnvMut.AI_BEDROCK_API_KEY;
   else sysEnvMut.AI_BEDROCK_API_KEY = savedBedrockApiKey;
+  if (savedBedrockRegion === undefined) delete sysEnvMut.AI_BEDROCK_REGION;
+  else sysEnvMut.AI_BEDROCK_REGION = savedBedrockRegion;
   if (savedOpenRouterApiKey === undefined) delete sysEnvMut.AI_OPENROUTER_API_KEY;
   else sysEnvMut.AI_OPENROUTER_API_KEY = savedOpenRouterApiKey;
   resetLLMClients();
@@ -130,6 +135,53 @@ describe('bedrock client', () => {
     const authorization = capturedRequests[0]!.headers.get('authorization') ?? '';
     expect(authorization).toContain('AWS4-HMAC-SHA256');
     expect(authorization).toContain('test-akid');
+  });
+
+  it('region: AWS_REGION is honored when AI_BEDROCK_REGION is unset', async () => {
+    process.env.AWS_REGION = 'us-west-2';
+
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'bedrock-aws-region',
+        model: 'bedrock:claude-haiku-4.5',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+
+    expect(capturedRequests.length).toBeGreaterThanOrEqual(1);
+    expect(capturedRequests[0]!.url).toContain('bedrock-runtime.us-west-2');
+  });
+
+  it('region: AI_BEDROCK_REGION takes precedence over AWS_REGION', async () => {
+    sysEnvMut.AI_BEDROCK_REGION = 'us-east-2';
+    process.env.AWS_REGION = 'us-west-2';
+
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'bedrock-region-precedence',
+        model: 'bedrock:claude-haiku-4.5',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+
+    expect(capturedRequests.length).toBeGreaterThanOrEqual(1);
+    expect(capturedRequests[0]!.url).toContain('bedrock-runtime.us-east-2');
+  });
+
+  it('region: defaults to us-east-1 when nothing is configured', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'bedrock-region-default',
+        model: 'bedrock:claude-haiku-4.5',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+
+    expect(capturedRequests.length).toBeGreaterThanOrEqual(1);
+    expect(capturedRequests[0]!.url).toContain('bedrock-runtime.us-east-1');
   });
 });
 
