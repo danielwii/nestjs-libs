@@ -67,6 +67,7 @@ import { z } from 'zod';
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
 import type {
   BedrockModelOptions,
+  BedrockServiceTier,
   LLMModelKey,
   LLMModelSpec,
   OpenRouterModelOptions,
@@ -999,19 +1000,21 @@ export class LLM {
     fb?: FallbackAttempt,
     tier?: VertexTier,
     vertexRequestType?: VertexRequestType,
+    bedrockServiceTier?: BedrockServiceTier,
   ): void {
     const duration = Date.now() - startTime;
     const inputTokens = usage.inputTokens ?? usage.promptTokens ?? 0;
     const outputTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
     const totalTokens = inputTokens + outputTokens;
-    const cost = getCostFromUsage(usage, modelKey);
+    const cost = getCostFromUsage(usage, modelKey, { bedrockServiceTier });
     const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}` : '';
     const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
     const trafficType = extractTrafficType(usage);
     const trafficPart = trafficType ? `, trafficType=${trafficType}` : '';
     const tierPart = formatTierLogPart(tier, vertexRequestType);
+    const serviceTierPart = bedrockServiceTier ? `, bedrockServiceTier=${bedrockServiceTier}` : '';
     LLM.logger
-      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}${trafficPart}`;
+      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}${serviceTierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}${trafficPart}`;
   }
 
   private static logTTFT(id: string, startTime: number): void {
@@ -1136,6 +1139,7 @@ export class LLM {
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
+          spec.bedrock?.serviceTier,
         );
 
         return {
@@ -1373,6 +1377,7 @@ export class LLM {
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
+          spec.bedrock?.serviceTier,
         );
 
         return {
@@ -1496,6 +1501,7 @@ export class LLM {
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
+            spec.bedrock?.serviceTier,
           );
         },
         logAbort: () => {
@@ -1644,6 +1650,7 @@ export class LLM {
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
+            spec.bedrock?.serviceTier,
           );
         },
         logAbort: () => {
@@ -1821,6 +1828,7 @@ export class LLM {
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
+          spec.bedrock?.serviceTier,
         );
 
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
@@ -2036,6 +2044,7 @@ export class LLM {
         undefined,
         spec.vertex?.tier,
         spec.vertex?.requestType,
+        spec.bedrock?.serviceTier,
       );
       yield { type: 'usage', usage };
     } catch (error) {

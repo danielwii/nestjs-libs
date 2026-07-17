@@ -10,7 +10,27 @@
 
 import { getModel, isModelRegistered } from '../types/model.types';
 
-import type { LLMModelKey } from '../types/model.types';
+import type { BedrockServiceTier, LLMModelKey } from '../types/model.types';
+
+/**
+ * Bedrock service tier 价格系数（相对 standard on-demand）。
+ *
+ * 来源：AWS Bedrock pricing — Flex 为 on-demand 的 50%，Priority 为 +75%（1.75x）。
+ * `reserved` 为承诺吞吐（非按 token 计费），不在此表，按 token 估算会误导，返回 null。
+ *
+ * @see https://aws.amazon.com/bedrock/pricing/
+ */
+const BEDROCK_SERVICE_TIER_MULTIPLIER: Record<Exclude<BedrockServiceTier, 'reserved'>, number> = {
+  default: 1,
+  flex: 0.5,
+  priority: 1.75,
+};
+
+/** getCostFromUsage 的可选上下文 */
+export interface CostContext {
+  /** Bedrock service tier（来自 model spec 的 `bedrock.serviceTier` 参数） */
+  bedrockServiceTier?: BedrockServiceTier;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 价格表（每百万 tokens）
@@ -139,14 +159,14 @@ function getPricing(modelId: string): ModelPricing | null {
 /**
  * 计算 LLM 调用成本（内部使用）
  */
-function calculateCost(modelId: string, promptTokens: number, completionTokens: number): number | null {
+function calculateCost(modelId: string, promptTokens: number, completionTokens: number, multiplier = 1): number | null {
   const pricing = getPricing(modelId);
   if (!pricing) return null;
 
   const inputCost = (promptTokens / 1_000_000) * pricing.input;
   const outputCost = (completionTokens / 1_000_000) * pricing.output;
 
-  return inputCost + outputCost;
+  return (inputCost + outputCost) * multiplier;
 }
 
 /**
@@ -156,6 +176,7 @@ function calculateCostFromKey(
   modelKey: LLMModelKey | string,
   promptTokens: number,
   completionTokens: number,
+  context?: CostContext,
 ): number | null {
   // 如果包含 ':'，说明是 LLMModelKey 格式
   if (modelKey.includes(':')) {
@@ -165,6 +186,7 @@ function calculateCostFromKey(
     const modelName = modelParts.join(':');
 
     let modelId: string;
+    let multiplier = 1;
     if (provider === 'openrouter') {
       // 全称格式（含 '/'）：'z-ai/glm-5' 已是完整 modelId，直接使用
       if (modelName.includes('/')) {
@@ -199,11 +221,14 @@ function calculateCostFromKey(
       // us.anthropic.claude-sonnet-4-5-20250929-v1:0），必须查 registry
       if (!isModelRegistered(modelKey)) return null;
       modelId = getModel(modelKey).modelId;
+      // reserved 为承诺吞吐（非按 token 计费），按标准价估算会误导，返回 null
+      if (context?.bedrockServiceTier === 'reserved') return null;
+      multiplier = BEDROCK_SERVICE_TIER_MULTIPLIER[context?.bedrockServiceTier ?? 'default'];
     } else {
       return null;
     }
 
-    return calculateCost(modelId, promptTokens, completionTokens);
+    return calculateCost(modelId, promptTokens, completionTokens, multiplier);
   }
 
   // 否则当作 modelId 直接使用
@@ -219,7 +244,11 @@ function calculateCostFromKey(
  * @param modelKey - LLMModelKey（fallback 计算用）
  * @returns 成本（美元），如果无法计算返回 null
  */
-export function getCostFromUsage(usage: unknown, modelKey?: LLMModelKey | string): number | null {
+export function getCostFromUsage(
+  usage: unknown,
+  modelKey?: LLMModelKey | string,
+  context?: CostContext,
+): number | null {
   if (!usage || typeof usage !== 'object') return null;
   const usageObj = usage as Record<string, unknown>;
 
@@ -242,7 +271,7 @@ export function getCostFromUsage(usage: unknown, modelKey?: LLMModelKey | string
         : typeof usageObj.completionTokens === 'number'
           ? usageObj.completionTokens
           : 0;
-    return calculateCostFromKey(modelKey, inputTokens, outputTokens);
+    return calculateCostFromKey(modelKey, inputTokens, outputTokens, context);
   }
 
   return null;

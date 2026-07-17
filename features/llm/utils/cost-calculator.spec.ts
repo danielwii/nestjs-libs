@@ -33,4 +33,28 @@ describe('getCostFromUsage bedrock', () => {
     const usage = { cost: 0.123, inputTokens: 1_000_000, outputTokens: 1_000_000 };
     expect(getCostFromUsage(usage, 'bedrock:claude-sonnet-4.5')).toBe(0.123);
   });
+
+  it('applies flex tier multiplier (50% of on-demand)', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    // $3/$15 standard → flex: $1.5/$7.5
+    expect(getCostFromUsage(usage, 'bedrock:claude-sonnet-4.5', { bedrockServiceTier: 'flex' })).toBe(9);
+  });
+
+  it('applies priority tier multiplier (1.75x of on-demand)', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    // $3/$15 standard → priority: $5.25/$26.25
+    expect(getCostFromUsage(usage, 'bedrock:claude-sonnet-4.5', { bedrockServiceTier: 'priority' })).toBe(31.5);
+  });
+
+  it('returns null for reserved tier (commitment-based, not per-token)', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    expect(getCostFromUsage(usage, 'bedrock:claude-sonnet-4.5', { bedrockServiceTier: 'reserved' })).toBeNull();
+  });
+
+  it('default tier keeps standard pricing and non-bedrock providers ignore tier context', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    expect(getCostFromUsage(usage, 'bedrock:claude-sonnet-4.5', { bedrockServiceTier: 'default' })).toBe(18);
+    // openrouter key 不受 bedrockServiceTier 影响（google/gemini-3.5-flash: $1.5/$9）
+    expect(getCostFromUsage(usage, 'openrouter:gemini-3.5-flash', { bedrockServiceTier: 'flex' })).toBeCloseTo(10.5);
+  });
 });
