@@ -114,6 +114,15 @@ export function resolveGrpcProvider(options?: Pick<BootstrapOptions, 'grpc' | 'g
   );
 }
 
+/**
+ * Hybrid microservices share the root application's DI container. Their listener
+ * registration must not defer initialization, otherwise the microservice and the
+ * root HTTP app each run the same provider lifecycle hooks.
+ */
+export function resolveGrpcHybridAppOptions(mode: BootstrapMode): { inheritAppConfig: boolean } {
+  return { inheritAppConfig: mode === 'grpc' };
+}
+
 function createGlobalValidationPipe(): ValidationPipe {
   return new ValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS);
 }
@@ -395,7 +404,7 @@ export async function bootstrap(
   if (options?.grpc) {
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
-    const inheritAppConfig = isGrpc;
+    const hybridAppOptions = resolveGrpcHybridAppOptions(mode);
 
     const grpcMs = app.connectMicroservice<MicroserviceOptions>(
       {
@@ -416,9 +425,9 @@ export async function bootstrap(
             : undefined,
         },
       },
-      { inheritAppConfig, deferInitialization: !inheritAppConfig },
+      hybridAppOptions,
     );
-    if (!inheritAppConfig) {
+    if (!hybridAppOptions.inheritAppConfig) {
       configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), grpcProvider);
     }
     setGrpcMicroserviceRef(grpcMs, grpcPort);

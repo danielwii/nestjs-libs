@@ -1,5 +1,5 @@
-import { ValidationPipe } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { NestFactory, Reflector } from '@nestjs/core';
 
 import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
 import { GrpcServiceTokenGuard } from '@app/nest/guards';
@@ -10,10 +10,14 @@ import {
   assertGrpcServiceTokenConfiguredForMode,
   configureGrpcMicroserviceBoundary,
   hasGrpcMicroserviceConfigured,
+  resolveGrpcHybridAppOptions,
   resolveGrpcProvider,
 } from './bootstrap';
 
 import { afterEach, describe, expect, it } from 'bun:test';
+
+import type { OnModuleInit } from '@nestjs/common';
+import type { CustomTransportStrategy } from '@nestjs/microservices';
 
 const ORIGINAL_TOKEN = process.env.GRPC_SERVICE_TOKEN;
 const GRPC_BOOTSTRAP_OPTIONS = {
@@ -48,6 +52,25 @@ class GrpcBoundaryRecorder {
     this.pipes.push(...pipes);
     return this;
   }
+}
+
+let sharedInitHookCalls = 0;
+
+class SharedLifecycleProbe implements OnModuleInit {
+  onModuleInit(): void {
+    sharedInitHookCalls += 1;
+  }
+}
+
+@Module({ providers: [SharedLifecycleProbe] })
+class HybridLifecycleTestModule {}
+
+class NoopTransportStrategy implements CustomTransportStrategy {
+  listen(callback: () => void): void {
+    callback();
+  }
+
+  close(): void {}
 }
 
 function restoreToken() {
@@ -98,6 +121,23 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
     expect(target.interceptors).toHaveLength(2);
     expect(target.interceptors[0]).toBeInstanceOf(GraphqlAwareClassSerializerInterceptor);
     expect(target.interceptors[1]).toBeInstanceOf(LoggerInterceptor);
+  });
+
+  it('initializes shared providers once when an api app attaches a grpc microservice', async () => {
+    sharedInitHookCalls = 0;
+    const app = await NestFactory.create(HybridLifecycleTestModule, { logger: false });
+    app.connectMicroservice({ strategy: new NoopTransportStrategy() }, resolveGrpcHybridAppOptions('api'));
+
+    try {
+      await app.startAllMicroservices();
+      await app.init();
+
+      expect(resolveGrpcHybridAppOptions('api')).toEqual({ inheritAppConfig: false });
+      expect(resolveGrpcHybridAppOptions('grpc')).toEqual({ inheritAppConfig: true });
+      expect(sharedInitHookCalls).toBe(1);
+    } finally {
+      await app.close();
+    }
   });
 
   it('does not require GRPC_SERVICE_TOKEN outside grpc mode', () => {
