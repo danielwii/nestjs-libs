@@ -15,6 +15,12 @@
  * | 复杂推理 | `google('gemini-2.5-pro')` | 推理能力强，thinking tokens 免费 |
  * | 大上下文 | `openrouter('x-ai/grok-4.1-fast')` | 2M context window |
  *
+ * ## Provider 选择：bedrock vs openrouter
+ *
+ * 同一模型家族（Claude/Kimi/DeepSeek/MiniMax）两边都有时的取舍：
+ * - `bedrock:*`：企业合规/数据驻留（流量不进第三方代理）、AWS 账单整合、serviceTier 分层
+ * - `openrouter:*`：模型更全、无需 AWS 凭证、定价透明
+ *
  * ## 价格参考（2026-01）
  *
  * | 模型 | Input | Output | 备注 |
@@ -52,6 +58,7 @@ import '@app/nest/exceptions/oops-factories';
 
 import { createVertexFetch } from './vertex.fetch';
 
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -68,6 +75,7 @@ let _google: ReturnType<typeof createGoogleGenerativeAI> | null = null;
 let _vertex: ReturnType<typeof createVertex> | null = null;
 let _vertexGlobal: ReturnType<typeof createVertex> | null = null;
 let _openai: ReturnType<typeof createOpenAI> | null = null;
+let _bedrock: ReturnType<typeof createAmazonBedrock> | null = null;
 
 const clientLogger = getAppLogger('features', 'LLM', 'clients');
 
@@ -284,6 +292,64 @@ function getVertexGlobal() {
 export const vertexGlobal = (modelId: string): LanguageModel => getVertexGlobal()(modelId);
 
 // ============================================================================
+// AWS Bedrock 客户端
+// ============================================================================
+
+/**
+ * 获取 AWS Bedrock 客户端单例
+ *
+ * 认证优先级（与 @ai-sdk/amazon-bedrock 一致）：
+ * 1. SysEnv.AI_BEDROCK_API_KEY（Bearer API key）
+ * 2. AWS_BEARER_TOKEN_BEDROCK 环境变量（provider 自身 fallback）
+ * 3. AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY（SigV4）
+ *
+ * 注意：provider 的 env fallback 只读 process env，不解析 AWS CLI profile；
+ * 本地用 `aws configure export-credentials --profile <name> --format env` 导出。
+ *
+ * Region：SysEnv.AI_BEDROCK_REGION，默认 us-east-1；
+ * `us.*` inference profile（Claude 全系）需美国区域端点。
+ */
+function getBedrock() {
+  if (!_bedrock) {
+    const apiKey = SysEnv.AI_BEDROCK_API_KEY;
+    const hasBearerToken = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
+    const hasSigV4 = !!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY;
+    if (!apiKey && !hasBearerToken && !hasSigV4) {
+      throw Oops.Panic.Config(
+        'AWS Bedrock credentials are not configured. Set AI_BEDROCK_API_KEY, AWS_BEARER_TOKEN_BEDROCK, or AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY',
+      );
+    }
+    const region = SysEnv.AI_BEDROCK_REGION ?? 'us-east-1';
+    const auth = apiKey ? 'api-key' : hasBearerToken ? 'aws-bearer-token-env' : 'aws-sigv4-env';
+    clientLogger.info`[bedrock:init] region=${region}, auth=${auth}, baseURL=default`;
+    _bedrock = createAmazonBedrock({
+      ...(apiKey ? { apiKey } : {}),
+      region,
+      fetch: ApiFetcher.fetch,
+    });
+  }
+  return _bedrock;
+}
+
+/**
+ * AWS Bedrock 模型选择器
+ *
+ * @example
+ * ```typescript
+ * bedrock('us.anthropic.claude-sonnet-4-5-20250929-v1:0')
+ * bedrock('moonshotai.kimi-k2.5')
+ * ```
+ */
+export const bedrock = (modelId: string): LanguageModel => getBedrock()(modelId);
+
+/**
+ * 获取 Bedrock Provider 实例（含 provider-defined tools）
+ */
+export function getBedrockProvider() {
+  return getBedrock();
+}
+
+// ============================================================================
 // 客户端状态检查
 // ============================================================================
 
@@ -308,6 +374,13 @@ export function getLLMClientStatus() {
       configured: !!SysEnv.GOOGLE_VERTEX_PROJECT,
       initialized: !!_vertexGlobal,
     },
+    bedrock: {
+      configured:
+        !!SysEnv.AI_BEDROCK_API_KEY ||
+        !!process.env.AWS_BEARER_TOKEN_BEDROCK ||
+        (!!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY),
+      initialized: !!_bedrock,
+    },
 
     proxy: {
       enabled: SysEnv.APP_PROXY_ENABLED ?? false,
@@ -325,6 +398,7 @@ export function resetLLMClients() {
   _vertex = null;
   _vertexGlobal = null;
   _openai = null;
+  _bedrock = null;
 }
 
 // ============================================================================

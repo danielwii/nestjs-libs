@@ -19,10 +19,13 @@
 
 // 自动路由（需要更多控制时）
 export { autoOpts, model, parseProvider } from './auto.client';
+export { bedrockServiceTierOptions, bedrockThinkingOptions, inferBedrockReasoningFamily } from './bedrock.client';
 export { createGoogleClient, googleOptions } from './google.client';
 export { createVertex, vertexOptions } from './vertex.client';
 // 预配置单例
 export {
+  bedrock,
+  getBedrockProvider,
   getGoogleProvider,
   getLLMClientStatus,
   google,

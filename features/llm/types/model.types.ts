@@ -90,6 +90,21 @@ export interface VertexModelOptions {
 }
 
 /**
+ * AWS Bedrock service tier（per-request inference 服务层级）。
+ *
+ * 通过 `bedrock.serviceTier` model-spec 参数传递，映射到 Converse API 的 serviceTier。
+ * 各模型的可用层级以 AWS 官方文档为准。
+ *
+ * @see https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html
+ */
+export type BedrockServiceTier = 'default' | 'reserved' | 'priority' | 'flex';
+
+/** Bedrock-specific options parsed from model specs. */
+export interface BedrockModelOptions {
+  serviceTier?: BedrockServiceTier;
+}
+
+/**
  * Model 配置接口
  */
 export interface ModelConfig<P extends string = string> {
@@ -581,6 +596,40 @@ export interface LLMModelRegistry {
   'vertex-global:gemini-3.1-flash-lite': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.5-flash': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.1-pro-preview': ModelConfig<'vertex-global'>;
+
+  // ==================== AWS Bedrock ====================
+  // 模型可用性已在 mission-ai-v2（account 421454274824）/ us-east-2 验证（2026-07-17）。
+  // Claude 全系为 inference-profile only，modelId 使用 us.anthropic.* 前缀。
+  /**
+   * Claude Haiku 4.5 - 低价快速
+   *
+   * @see https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
+   */
+  'bedrock:claude-haiku-4.5': ModelConfig<'bedrock'>;
+  /** Claude Sonnet 4.5 */
+  'bedrock:claude-sonnet-4.5': ModelConfig<'bedrock'>;
+  /** Claude Sonnet 4.6 */
+  'bedrock:claude-sonnet-4.6': ModelConfig<'bedrock'>;
+  /** Claude Opus 4.5 */
+  'bedrock:claude-opus-4.5': ModelConfig<'bedrock'>;
+  /** Claude Opus 4.6 */
+  'bedrock:claude-opus-4.6': ModelConfig<'bedrock'>;
+  /** Claude Opus 4.7 */
+  'bedrock:claude-opus-4.7': ModelConfig<'bedrock'>;
+  /** Kimi K2.5（on-demand，moonshotai.kimi-k2.5） */
+  'bedrock:kimi-k2.5': ModelConfig<'bedrock'>;
+  /** Kimi K2 Thinking（on-demand；reasoning 强制开启，无法关闭） */
+  'bedrock:kimi-k2-thinking': ModelConfig<'bedrock'>;
+  /** DeepSeek V3.2（on-demand） */
+  'bedrock:deepseek-v3.2': ModelConfig<'bedrock'>;
+  /** MiniMax M2.5（on-demand；reasoning 强制开启，无法关闭） */
+  'bedrock:minimax-m2.5': ModelConfig<'bedrock'>;
+  /** Amazon Nova Pro（inference profile） */
+  'bedrock:nova-pro': ModelConfig<'bedrock'>;
+  /** Amazon Nova Lite（inference profile / on-demand） */
+  'bedrock:nova-lite': ModelConfig<'bedrock'>;
+  /** Amazon Nova 2 Lite（inference profile；支持 maxReasoningEffort） */
+  'bedrock:nova-2-lite': ModelConfig<'bedrock'>;
 }
 
 /**
@@ -632,11 +681,14 @@ export interface ParsedModelSpec {
   vertex: VertexModelOptions | undefined;
   /** Provider-namespaced OpenRouter options. */
   openrouter: OpenRouterModelOptions | undefined;
+  /** Provider-namespaced Bedrock options. */
+  bedrock: BedrockModelOptions | undefined;
 }
 
 const VALID_THINKING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high']);
 const VALID_VERTEX_TIERS = new Set<string>(['standard', 'flex', 'priority']);
 const VALID_VERTEX_REQUEST_TYPES = new Set<string>(['shared']);
+const VALID_BEDROCK_SERVICE_TIERS = new Set<string>(['default', 'reserved', 'priority', 'flex']);
 const REMOVED_MODEL_SPEC_PARAMS = new Map([
   ['tier', 'vertex.tier'],
   ['vertexRequestType', 'vertex.requestType'],
@@ -676,6 +728,7 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
       fallbackModels: [],
       vertex: undefined,
       openrouter: undefined,
+      bedrock: undefined,
     };
   }
   const key = spec.slice(0, qIdx) as LLMModelKey;
@@ -774,6 +827,21 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
     }
   }
 
+  // bedrock.serviceTier → Bedrock service tier.
+  const serviceTierRaw = params.get('bedrock.serviceTier');
+  let serviceTier: BedrockServiceTier | undefined;
+  if (serviceTierRaw !== null) {
+    if (provider !== 'bedrock') {
+      logger.warning`[parseModelSpec] bedrock.serviceTier requested for non-bedrock provider=${provider} in "${spec}", ignoring`;
+    } else if (VALID_BEDROCK_SERVICE_TIERS.has(serviceTierRaw)) {
+      serviceTier = serviceTierRaw as BedrockServiceTier;
+    } else {
+      logger.warning`[parseModelSpec] Invalid bedrock.serviceTier "${serviceTierRaw}" in "${spec}", ignoring. Valid: ${[...VALID_BEDROCK_SERVICE_TIERS].join(', ')}`;
+    }
+  }
+
+  const bedrock = serviceTier !== undefined ? { serviceTier } : undefined;
+
   const vertex =
     tier !== undefined || vertexRequestType !== undefined
       ? {
@@ -782,7 +850,7 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
         }
       : undefined;
 
-  return { key, provider, thinking, maxRetries, timeout, fallbackModels, vertex, openrouter };
+  return { key, provider, thinking, maxRetries, timeout, fallbackModels, vertex, openrouter, bedrock };
 }
 
 /**
@@ -1020,6 +1088,24 @@ const modelRegistry = new Map<string, ModelConfig>([
       supportedTiers: ['standard', 'flex', 'priority'],
     },
   ],
+
+  // AWS Bedrock 模型
+  // 可用性已在 mission-ai-v2 (account 421454274824) / us-east-2 验证（2026-07-17）。
+  // Claude 全系为 inference-profile only，modelId 必须带 us. 前缀；
+  // 区域需为美国区域端点（us-east-1/us-east-2/us-west-2…），见 specs/2026-07-17-llm-bedrock-provider.tpdd.md。
+  ['bedrock:claude-haiku-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0' }],
+  ['bedrock:claude-sonnet-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }],
+  ['bedrock:claude-sonnet-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-sonnet-4-6' }],
+  ['bedrock:claude-opus-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-5-20251101-v1:0' }],
+  ['bedrock:claude-opus-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-6-v1' }],
+  ['bedrock:claude-opus-4.7', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-7' }],
+  ['bedrock:kimi-k2.5', { provider: 'bedrock', modelId: 'moonshotai.kimi-k2.5' }],
+  ['bedrock:kimi-k2-thinking', { provider: 'bedrock', modelId: 'moonshot.kimi-k2-thinking', reasoningRequired: true }],
+  ['bedrock:deepseek-v3.2', { provider: 'bedrock', modelId: 'deepseek.v3.2' }],
+  ['bedrock:minimax-m2.5', { provider: 'bedrock', modelId: 'minimax.minimax-m2.5', reasoningRequired: true }],
+  ['bedrock:nova-pro', { provider: 'bedrock', modelId: 'us.amazon.nova-pro-v1:0' }],
+  ['bedrock:nova-lite', { provider: 'bedrock', modelId: 'us.amazon.nova-lite-v1:0' }],
+  ['bedrock:nova-2-lite', { provider: 'bedrock', modelId: 'us.amazon.nova-2-lite-v1:0' }],
 ]);
 
 // ==================== 注册函数 ====================
@@ -1170,6 +1256,14 @@ const providerConfigRequirements: Partial<Record<string, ProviderConfigRequireme
   'vertex-global': {
     envVar: 'GOOGLE_VERTEX_PROJECT',
     configured: () => !!SysEnv.GOOGLE_VERTEX_PROJECT,
+  },
+  bedrock: {
+    // 认证优先级：AI_BEDROCK_API_KEY > AWS_BEARER_TOKEN_BEDROCK > SigV4 静态凭证（与 @ai-sdk/amazon-bedrock 一致）
+    envVar: 'AI_BEDROCK_API_KEY',
+    configured: () =>
+      !!SysEnv.AI_BEDROCK_API_KEY ||
+      !!process.env.AWS_BEARER_TOKEN_BEDROCK ||
+      (!!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY),
   },
   openai: {
     envVar: 'AI_OPENAI_API_KEY',

@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 
+import { SysEnv } from '@app/env';
+
 import {
   getModel,
   getModelId,
@@ -258,5 +260,141 @@ describe('validateModelKey', () => {
     const result = validateModelKey('nonexistent:model');
     expect(result.valid).toBe(false);
     expect(result.error).toContain('not registered');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AWS Bedrock provider
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('bedrock model keys', () => {
+  it('M1: should parse and resolve a bedrock key to its registry modelId', () => {
+    const result = parseModelSpec('bedrock:claude-sonnet-4.5');
+    expect(result.provider).toBe('bedrock');
+    expect(result.bedrock).toBeUndefined();
+
+    const config = getModel('bedrock:claude-sonnet-4.5');
+    expect(config.provider).toBe('bedrock');
+    expect(config.modelId).toBe('us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+  });
+
+  it('M1: should register the full initial bedrock model set', () => {
+    const expected: Partial<Record<LLMModelKey, string>> = {
+      'bedrock:claude-haiku-4.5': 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      'bedrock:claude-sonnet-4.5': 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      'bedrock:claude-sonnet-4.6': 'us.anthropic.claude-sonnet-4-6',
+      'bedrock:claude-opus-4.5': 'us.anthropic.claude-opus-4-5-20251101-v1:0',
+      'bedrock:claude-opus-4.6': 'us.anthropic.claude-opus-4-6-v1',
+      'bedrock:claude-opus-4.7': 'us.anthropic.claude-opus-4-7',
+      'bedrock:kimi-k2.5': 'moonshotai.kimi-k2.5',
+      'bedrock:kimi-k2-thinking': 'moonshot.kimi-k2-thinking',
+      'bedrock:deepseek-v3.2': 'deepseek.v3.2',
+      'bedrock:minimax-m2.5': 'minimax.minimax-m2.5',
+      'bedrock:nova-pro': 'us.amazon.nova-pro-v1:0',
+      'bedrock:nova-lite': 'us.amazon.nova-lite-v1:0',
+      'bedrock:nova-2-lite': 'us.amazon.nova-2-lite-v1:0',
+    };
+    for (const [key, modelId] of Object.entries(expected)) {
+      expect(isModelRegistered(key)).toBe(true);
+      expect(getModelId(key as LLMModelKey)).toBe(modelId);
+    }
+  });
+
+  it('M1: should mark kimi-k2-thinking and minimax-m2.5 as reasoningRequired', () => {
+    expect(getModel('bedrock:kimi-k2-thinking').reasoningRequired).toBe(true);
+    expect(getModel('bedrock:minimax-m2.5').reasoningRequired).toBe(true);
+  });
+
+  it('M2: should parse bedrock.serviceTier as provider-namespaced options', () => {
+    const spec = 'bedrock:claude-haiku-4.5?bedrock.serviceTier=flex' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.provider).toBe('bedrock');
+    expect(result.bedrock).toEqual({ serviceTier: 'flex' });
+    expect(result.vertex).toBeUndefined();
+    expect(result.openrouter).toBeUndefined();
+  });
+
+  it('M2: should parse all valid bedrock.serviceTier values', () => {
+    for (const tier of ['default', 'reserved', 'priority', 'flex'] as const) {
+      const result = parseModelSpec(`bedrock:claude-haiku-4.5?bedrock.serviceTier=${tier}` as LLMModelSpec);
+      expect(result.bedrock).toEqual({ serviceTier: tier });
+    }
+  });
+
+  it('M3: should ignore bedrock.serviceTier on non-bedrock providers with warning', () => {
+    const spec = 'openrouter:claude-sonnet-4.5?bedrock.serviceTier=flex' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.provider).toBe('openrouter');
+    expect(result.bedrock).toBeUndefined();
+  });
+
+  it('M4: should ignore invalid bedrock.serviceTier value with warning', () => {
+    const spec = 'bedrock:claude-haiku-4.5?bedrock.serviceTier=turbo' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.provider).toBe('bedrock');
+    expect(result.bedrock).toBeUndefined();
+  });
+
+  it('N2: should keep a bedrock fallback model in the chain', () => {
+    const spec = 'openrouter:gemini-3.5-flash?fallback=bedrock:claude-haiku-4.5' as LLMModelSpec;
+    const result = parseModelSpec(spec);
+    expect(result.fallbackModels).toEqual(['bedrock:claude-haiku-4.5']);
+  });
+
+  it('M13: validateModelKey should fail a bedrock key when no credentials are configured', () => {
+    const sysEnvMut = SysEnv as unknown as Record<string, string | undefined>;
+    const savedSysKey = sysEnvMut.AI_BEDROCK_API_KEY;
+    const savedBearer = process.env.AWS_BEARER_TOKEN_BEDROCK;
+    const savedAkid = process.env.AWS_ACCESS_KEY_ID;
+    const savedSecret = process.env.AWS_SECRET_ACCESS_KEY;
+    delete sysEnvMut.AI_BEDROCK_API_KEY;
+    delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    delete process.env.AWS_ACCESS_KEY_ID;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+    try {
+      const result = validateModelKey('bedrock:claude-haiku-4.5');
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('bedrock');
+      expect(result.error).toContain('AI_BEDROCK_API_KEY');
+    } finally {
+      if (savedSysKey !== undefined) sysEnvMut.AI_BEDROCK_API_KEY = savedSysKey;
+      if (savedBearer !== undefined) process.env.AWS_BEARER_TOKEN_BEDROCK = savedBearer;
+      if (savedAkid !== undefined) process.env.AWS_ACCESS_KEY_ID = savedAkid;
+      if (savedSecret !== undefined) process.env.AWS_SECRET_ACCESS_KEY = savedSecret;
+    }
+  });
+
+  it('M13: validateModelKey should pass a bedrock key when AI_BEDROCK_API_KEY is set', () => {
+    const sysEnvMut = SysEnv as unknown as Record<string, string | undefined>;
+    const savedSysKey = sysEnvMut.AI_BEDROCK_API_KEY;
+    sysEnvMut.AI_BEDROCK_API_KEY = 'test-bedrock-key';
+    try {
+      const result = validateModelKey('bedrock:claude-haiku-4.5');
+      expect(result.valid).toBe(true);
+    } finally {
+      if (savedSysKey === undefined) delete sysEnvMut.AI_BEDROCK_API_KEY;
+      else sysEnvMut.AI_BEDROCK_API_KEY = savedSysKey;
+    }
+  });
+
+  it('M13: validateModelKey should pass a bedrock key when SigV4 env credentials are set', () => {
+    const sysEnvMut = SysEnv as unknown as Record<string, string | undefined>;
+    const savedSysKey = sysEnvMut.AI_BEDROCK_API_KEY;
+    const savedAkid = process.env.AWS_ACCESS_KEY_ID;
+    const savedSecret = process.env.AWS_SECRET_ACCESS_KEY;
+    delete sysEnvMut.AI_BEDROCK_API_KEY;
+    delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    process.env.AWS_ACCESS_KEY_ID = 'test-akid';
+    process.env.AWS_SECRET_ACCESS_KEY = 'test-secret';
+    try {
+      const result = validateModelKey('bedrock:claude-haiku-4.5');
+      expect(result.valid).toBe(true);
+    } finally {
+      if (savedSysKey !== undefined) sysEnvMut.AI_BEDROCK_API_KEY = savedSysKey;
+      if (savedAkid === undefined) delete process.env.AWS_ACCESS_KEY_ID;
+      else process.env.AWS_ACCESS_KEY_ID = savedAkid;
+      if (savedSecret === undefined) delete process.env.AWS_SECRET_ACCESS_KEY;
+      else process.env.AWS_SECRET_ACCESS_KEY = savedSecret;
+    }
   });
 });

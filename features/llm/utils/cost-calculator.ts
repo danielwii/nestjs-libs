@@ -8,6 +8,8 @@
  * 价格数据来源：llm.clients.ts（2026-01）
  */
 
+import { getModel, isModelRegistered } from '../types/model.types';
+
 import type { LLMModelKey } from '../types/model.types';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -102,6 +104,23 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'openai/gpt-5.4-mini': { input: 0.75, output: 4.5 },
   'openai/gpt-5.4-nano': { input: 0.2, output: 1.25 },
   'openai/gpt-5.5': { input: 5.0, output: 30.0 },
+
+  // ==================== AWS Bedrock（key 为 registry 中的 Bedrock modelId）====================
+  // 定价来源：AWS Bedrock pricing（经 models.dev 镜像核对，2026-07-17）
+  // Claude us.* inference profile 与区域价格一致
+  'us.anthropic.claude-haiku-4-5-20251001-v1:0': { input: 1.0, output: 5.0 },
+  'us.anthropic.claude-sonnet-4-5-20250929-v1:0': { input: 3.0, output: 15.0 },
+  'us.anthropic.claude-sonnet-4-6': { input: 3.0, output: 15.0 },
+  'us.anthropic.claude-opus-4-5-20251101-v1:0': { input: 5.0, output: 25.0 },
+  'us.anthropic.claude-opus-4-6-v1': { input: 5.0, output: 25.0 },
+  'us.anthropic.claude-opus-4-7': { input: 5.0, output: 25.0 },
+  'moonshotai.kimi-k2.5': { input: 0.6, output: 3.0 },
+  'moonshot.kimi-k2-thinking': { input: 0.6, output: 2.5 },
+  'deepseek.v3.2': { input: 0.62, output: 1.85 },
+  'minimax.minimax-m2.5': { input: 0.3, output: 1.2 },
+  'us.amazon.nova-pro-v1:0': { input: 0.8, output: 3.2 },
+  'us.amazon.nova-lite-v1:0': { input: 0.06, output: 0.24 },
+  'us.amazon.nova-2-lite-v1:0': { input: 0.33, output: 2.75 },
 };
 
 /**
@@ -176,6 +195,11 @@ function calculateCostFromKey(
     } else if (provider === 'google') {
       // Google 直连格式是 'gemini-xxx'
       modelId = modelName;
+    } else if (provider === 'bedrock') {
+      // Bedrock key 的 modelId 无法从 key 字符串推导（如 bedrock:claude-sonnet-4.5 →
+      // us.anthropic.claude-sonnet-4-5-20250929-v1:0），必须查 registry
+      if (!isModelRegistered(modelKey)) return null;
+      modelId = getModel(modelKey).modelId;
     } else {
       return null;
     }

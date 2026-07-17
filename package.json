@@ -34,6 +34,7 @@
     "radash": "^12.1.1"
   },
   "peerDependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.0",
     "@ai-sdk/google": "^4.0.3",
     "@ai-sdk/google-vertex": "^5.0.4",
     "@ai-sdk/openai": "^4.0.4",
@@ -78,6 +79,9 @@
     "zod": "^4.3.6"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/amazon-bedrock": {
+      "optional": true
+    },
     "@ai-sdk/google": {
       "optional": true
     },
@@ -185,6 +189,7 @@
     }
   },
   "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.23",
     "@ai-sdk/google": "^4.0.14",
     "@ai-sdk/google-vertex": "^5.0.18",
     "@ai-sdk/openai": "^4.0.13",
