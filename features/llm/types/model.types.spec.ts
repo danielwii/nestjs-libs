@@ -285,7 +285,6 @@ describe('bedrock model keys', () => {
       'bedrock:claude-sonnet-4.6': 'us.anthropic.claude-sonnet-4-6',
       'bedrock:claude-opus-4.5': 'us.anthropic.claude-opus-4-5-20251101-v1:0',
       'bedrock:claude-opus-4.6': 'us.anthropic.claude-opus-4-6-v1',
-      'bedrock:claude-opus-4.7': 'us.anthropic.claude-opus-4-7',
       'bedrock:kimi-k2.5': 'moonshotai.kimi-k2.5',
       'bedrock:kimi-k2-thinking': 'moonshot.kimi-k2-thinking',
       'bedrock:deepseek-v3.2': 'deepseek.v3.2',

@@ -614,8 +614,6 @@ export interface LLMModelRegistry {
   'bedrock:claude-opus-4.5': ModelConfig<'bedrock'>;
   /** Claude Opus 4.6 */
   'bedrock:claude-opus-4.6': ModelConfig<'bedrock'>;
-  /** Claude Opus 4.7 */
-  'bedrock:claude-opus-4.7': ModelConfig<'bedrock'>;
   /** Kimi K2.5（on-demand，moonshotai.kimi-k2.5） */
   'bedrock:kimi-k2.5': ModelConfig<'bedrock'>;
   /** Kimi K2 Thinking（on-demand；reasoning 强制开启，无法关闭） */
@@ -1098,7 +1096,6 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['bedrock:claude-sonnet-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-sonnet-4-6' }],
   ['bedrock:claude-opus-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-5-20251101-v1:0' }],
   ['bedrock:claude-opus-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-6-v1' }],
-  ['bedrock:claude-opus-4.7', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-7' }],
   ['bedrock:kimi-k2.5', { provider: 'bedrock', modelId: 'moonshotai.kimi-k2.5' }],
   ['bedrock:kimi-k2-thinking', { provider: 'bedrock', modelId: 'moonshot.kimi-k2-thinking', reasoningRequired: true }],
   ['bedrock:deepseek-v3.2', { provider: 'bedrock', modelId: 'deepseek.v3.2' }],

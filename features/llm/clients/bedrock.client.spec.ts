@@ -114,12 +114,6 @@ describe('autoOpts bedrock branch', () => {
     });
   });
 
-  it('thinking maps to adaptive for the registered opus-4.7 key', () => {
-    expect(autoOpts.thinking('bedrock:claude-opus-4.7', 'low')).toEqual({
-      bedrock: { reasoningConfig: { type: 'adaptive', maxReasoningEffort: 'low' } },
-    });
-  });
-
   it('M10: thinking on unsupported family returns empty options', () => {
     expect(autoOpts.thinking('bedrock:kimi-k2.5', 'low')).toEqual({});
   });

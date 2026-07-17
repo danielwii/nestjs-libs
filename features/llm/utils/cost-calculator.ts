@@ -113,7 +113,6 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'us.anthropic.claude-sonnet-4-6': { input: 3.0, output: 15.0 },
   'us.anthropic.claude-opus-4-5-20251101-v1:0': { input: 5.0, output: 25.0 },
   'us.anthropic.claude-opus-4-6-v1': { input: 5.0, output: 25.0 },
-  'us.anthropic.claude-opus-4-7': { input: 5.0, output: 25.0 },
   'moonshotai.kimi-k2.5': { input: 0.6, output: 3.0 },
   'moonshot.kimi-k2-thinking': { input: 0.6, output: 2.5 },
   'deepseek.v3.2': { input: 0.62, output: 1.85 },

@@ -12,11 +12,14 @@ import 'reflect-metadata';
 import { SysEnv } from '@app/env';
 import { ApiFetcher } from '@app/utils/fetch';
 
+import { registerModel } from '../types/model.types';
 import { model } from './auto.client';
 import { LLM } from './llm.class';
 import { resetLLMClients } from './llm.clients';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+
+import type { LLMModelSpec } from '../types/model.types';
 
 const sysEnvMut = SysEnv as unknown as Record<string, string | undefined>;
 
@@ -247,11 +250,15 @@ describe('bedrock request payload', () => {
     expect(body.serviceTier).toBeUndefined();
   });
 
-  it('adaptive-only model (opus-4.7) emits thinking.type=adaptive + output_config.effort', async () => {
+  it('adaptive-only model emits thinking.type=adaptive + output_config.effort', async () => {
+    // 注册的 12 个 key 均非 adaptive-only（opus-4.7 因账户未开通已移除），
+    // 用 registerModel 扩展点注册测试专用 key 覆盖 adaptive 家族 wire shape。
+    registerModel('bedrock:test-adaptive-only', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-8' });
+
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'bedrock-adaptive-thinking',
-        model: 'bedrock:claude-opus-4.7?reason=low',
+        model: 'bedrock:test-adaptive-only?reason=low' as LLMModelSpec,
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
       }),
