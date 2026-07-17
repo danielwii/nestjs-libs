@@ -58,12 +58,15 @@ import '@app/nest/exceptions/oops-factories';
 
 import { createVertexFetch } from './vertex.fetch';
 
-import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import { createRequire } from 'node:module';
+
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
+// type-only：编译期即被擦除，不会触发运行时模块解析（optional peer 惰性加载见下方 loadBedrockFactory）
+import type { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import type { LanguageModel } from 'ai';
 
 // ============================================================================
@@ -76,6 +79,32 @@ let _vertex: ReturnType<typeof createVertex> | null = null;
 let _vertexGlobal: ReturnType<typeof createVertex> | null = null;
 let _openai: ReturnType<typeof createOpenAI> | null = null;
 let _bedrock: ReturnType<typeof createAmazonBedrock> | null = null;
+
+// ============================================================================
+// Optional peer 惰性加载
+// ============================================================================
+
+/**
+ * `@ai-sdk/amazon-bedrock` 是 optional peer 且 ESM-only。
+ * 静态 import 会让未安装该包的既有使用者在加载本模块时就 ERR_MODULE_NOT_FOUND，
+ * 因此改为首次使用 bedrock 时才经 require(esm) 同步加载（Node ≥22.12 / bun 均支持）。
+ */
+let _createAmazonBedrock: typeof createAmazonBedrock | null = null;
+
+function loadBedrockFactory(): typeof createAmazonBedrock {
+  if (!_createAmazonBedrock) {
+    try {
+      const req = createRequire(import.meta.url);
+      const mod = req('@ai-sdk/amazon-bedrock') as { createAmazonBedrock: typeof createAmazonBedrock };
+      _createAmazonBedrock = mod.createAmazonBedrock;
+    } catch {
+      throw Oops.Panic.Config(
+        'bedrock:* models require the optional peer "@ai-sdk/amazon-bedrock". Install it first (e.g. bun add @ai-sdk/amazon-bedrock).',
+      );
+    }
+  }
+  return _createAmazonBedrock;
+}
 
 const clientLogger = getAppLogger('features', 'LLM', 'clients');
 
@@ -322,7 +351,7 @@ function getBedrock() {
     const region = SysEnv.AI_BEDROCK_REGION ?? 'us-east-1';
     const auth = apiKey ? 'api-key' : hasBearerToken ? 'aws-bearer-token-env' : 'aws-sigv4-env';
     clientLogger.info`[bedrock:init] region=${region}, auth=${auth}, baseURL=default`;
-    _bedrock = createAmazonBedrock({
+    _bedrock = loadBedrockFactory()({
       ...(apiKey ? { apiKey } : {}),
       region,
       fetch: ApiFetcher.fetch,
