@@ -59,6 +59,12 @@ describe('parseModelSpec', () => {
     const result = parseModelSpec(spec);
     expect(result.key).toBe(KNOWN_KEY);
     expect(result.thinking).toBeUndefined();
+    expect(result.invalidReason).toBe('ultra');
+  });
+
+  it('should leave invalidReason undefined for valid or omitted reason', () => {
+    expect(parseModelSpec(KNOWN_KEY).invalidReason).toBeUndefined();
+    expect(parseModelSpec(`${KNOWN_KEY}?reason=low` as LLMModelSpec).invalidReason).toBeUndefined();
   });
 
   it('should parse retry param', () => {
@@ -328,6 +334,33 @@ describe('reasoning policy: openrouter vs vertex gemini-3.5-flash', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues[0]?.code).toBe('UNKNOWN_MODEL');
+  });
+
+  it('N4: invalid reason=ultra is reported as REASONING_EFFORT_UNSUPPORTED', () => {
+    const result = validateModelSpec(`${KNOWN_KEY}?reason=ultra`);
+    const issues = result.ok ? result.warnings : result.issues;
+    const w = issues.find((i) => i.code === 'REASONING_EFFORT_UNSUPPORTED');
+    expect(w).toBeDefined();
+    expect(w?.message).toContain('ultra');
+    // runtime treats as omitted — not a hard fail from the typo alone
+    if (result.ok) {
+      expect(result.parsed.invalidReason).toBe('ultra');
+      expect(result.parsed.thinking).toBeUndefined();
+    } else {
+      // provider may be unconfigured in CI; typo warning still present
+      expect(result.issues.some((i) => i.code === 'REASONING_EFFORT_UNSUPPORTED')).toBe(true);
+    }
+  });
+
+  it('N5: invalid reason on mandatory model does not emit REASONING_DISABLE_FORBIDDEN', () => {
+    const result = validateModelSpec('openrouter:gemini-3.5-flash?reason=ultra');
+    const issues = result.ok ? result.warnings : result.issues;
+    expect(issues.some((i) => i.code === 'REASONING_EFFORT_UNSUPPORTED')).toBe(true);
+    expect(issues.some((i) => i.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
+    if (result.ok) {
+      // param-fallback still applies for effective effort (request path)
+      expect(result.effectiveThinking).toBe('low');
+    }
   });
 });
 

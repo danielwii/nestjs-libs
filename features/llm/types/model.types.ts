@@ -678,6 +678,11 @@ export interface ParsedModelSpec {
   key: LLMModelKey;
   provider: LLMProviderType;
   thinking: ThinkingEffortLevel | undefined;
+  /**
+   * Raw `reason` query when present but not in VALID_THINKING_EFFORTS.
+   * Runtime still ignores it (`thinking` stays undefined); validateModelSpec reports it.
+   */
+  invalidReason: string | undefined;
   /** 最大重试次数（覆盖 AI_LLM_MAX_RETRIES） */
   maxRetries: number | undefined;
   /** 超时毫秒（覆盖 AI_LLM_TIMEOUT_MS） */
@@ -730,6 +735,7 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
       key,
       provider: parseProviderFromKey(key),
       thinking: undefined,
+      invalidReason: undefined,
       maxRetries: undefined,
       timeout: undefined,
       fallbackModels: [],
@@ -747,13 +753,15 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
     throw new Error(`Model spec parameter "${removed}" has been removed; use "${canonical}" in "${spec}"`);
   }
 
-  // reason → thinking effort（无效值 warning + 忽略，不阻断）
+  // reason → thinking effort（无效值 warning + 忽略，不阻断；invalidReason 留给 validate）
   const reason = params.get('reason');
   let thinking: ThinkingEffortLevel | undefined;
+  let invalidReason: string | undefined;
   if (reason !== null) {
     if (VALID_THINKING_EFFORTS.has(reason)) {
       thinking = reason as ThinkingEffortLevel;
     } else {
+      invalidReason = reason;
       logger.warning`[parseModelSpec] Invalid reason "${reason}" in "${spec}", ignoring. Valid: ${[...VALID_THINKING_EFFORTS].join(', ')}`;
     }
   }
@@ -857,7 +865,18 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
         }
       : undefined;
 
-  return { key, provider, thinking, maxRetries, timeout, fallbackModels, vertex, openrouter, bedrock };
+  return {
+    key,
+    provider,
+    thinking,
+    invalidReason,
+    maxRetries,
+    timeout,
+    fallbackModels,
+    vertex,
+    openrouter,
+    bedrock,
+  };
 }
 
 /**
@@ -1432,10 +1451,21 @@ export function validateModelSpec(spec: string, options?: { thinking?: ThinkingE
   const parsed = parseModelSpec(spec);
   const warnings: ModelSpecIssue[] = [];
 
+  // Typo / unknown reason= value: report before treating as omitted (runtime still ignores)
+  if (parsed.invalidReason !== undefined) {
+    warnings.push({
+      code: 'REASONING_EFFORT_UNSUPPORTED',
+      message:
+        `Invalid reason "${parsed.invalidReason}" in "${spec}". ` +
+        `Valid: ${[...VALID_THINKING_EFFORTS].join(', ')}. Treated as omitted at runtime.`,
+    });
+  }
+
   const requested: ThinkingEffortLevel = options?.thinking ?? parsed.thinking ?? 'none';
   const { thinking: effectiveThinking, paramFallbackApplied } = resolveThinkingForModel(parsed.key, requested);
 
-  if (paramFallbackApplied) {
+  // Skip disable warning when the root cause was an invalid reason= typo (not an intentional none)
+  if (paramFallbackApplied && parsed.invalidReason === undefined) {
     const suggestion = buildParamFallbackSuggestion(parsed.key);
     warnings.push({
       code: 'REASONING_DISABLE_FORBIDDEN',
