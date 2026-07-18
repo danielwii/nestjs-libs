@@ -19,6 +19,8 @@ type FreeStringIsKey = IsAssignable<string, SysEnvConfigKey>;
 type EnvironmentIsKey = IsAssignable<'environment', SysEnvConfigKey>;
 type IsNodeDevIsKey = IsAssignable<'isNodeDevelopment', SysEnvConfigKey>;
 type NodeNameIsKey = IsAssignable<'NODE_NAME', SysEnvConfigKey>;
+type HostIndexIsKey = IsAssignable<'hostIndex', SysEnvConfigKey>;
+type IsCliModeIsKey = IsAssignable<'isCliMode', SysEnvConfigKey>;
 
 type _vertex = AssertTrue<VertexIsKey>;
 type _openrouter = AssertTrue<OpenRouterIsKey>;
@@ -27,6 +29,8 @@ type _free = AssertFalse<FreeStringIsKey>;
 type _env = AssertFalse<EnvironmentIsKey>;
 type _isNode = AssertFalse<IsNodeDevIsKey>;
 type _nodeName = AssertFalse<NodeNameIsKey>;
+type _hostIndex = AssertFalse<HostIndexIsKey>;
+type _isCli = AssertFalse<IsCliModeIsKey>;
 
 describe('SysEnvConfigKey type contract', () => {
   it('accepts known scalar config keys at the value level', () => {
