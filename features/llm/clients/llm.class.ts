@@ -319,6 +319,12 @@ interface GenerateTextResult {
 interface ResolvedSpec {
   key: LLMModelKey;
   provider: ProviderType;
+  /**
+   * Caller/spec intent before per-key mandatory param fallback.
+   * Each fallback modelKey re-resolves via resolveThinkingForModel(modelKey, requestedThinking).
+   */
+  requestedThinking: ThinkingEffort;
+  /** Effective thinking for the primary key only (after param fallback if any). */
   thinking: ThinkingEffort;
   maxRetries: number;
   timeout: number;
@@ -387,6 +393,7 @@ function resolveSpec(
   return {
     key: parsed.key,
     provider: parsed.provider,
+    requestedThinking,
     thinking,
     maxRetries,
     timeout,
@@ -757,12 +764,12 @@ const fallbackLogger = getAppLogger('features', 'LLM', 'fallback');
 
 /** Reasoning-policy 400s: after param-level fallback still fails → allow provider fallback chain */
 function isReasoningPolicyError(error: unknown): boolean {
-  const msg =
-    error instanceof Error
+  // APICallError extends Error — check it first so responseBody is included
+  const msg = APICallError.isInstance(error)
+    ? `${error.message} ${error.responseBody ?? ''}`
+    : error instanceof Error
       ? error.message
-      : APICallError.isInstance(error)
-        ? `${error.message} ${error.responseBody ?? ''}`
-        : String(error);
+      : String(error);
   return /reasoning is mandatory/i.test(msg) || /cannot be disabled/i.test(msg);
 }
 
@@ -1127,8 +1134,8 @@ export class LLM {
 
     return withFallback(id, 'generateObject', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      // Per-key reasoning policy (param fallback may differ on each fallback model)
-      const effectiveThinking = resolveThinkingForModel(modelKey, spec.thinking).thinking;
+      // Per-key policy from original intent (not primary's already-fallback'd thinking)
+      const effectiveThinking = resolveThinkingForModel(modelKey, spec.requestedThinking).thinking;
       LLM.logStart(id, 'generateObject', modelKey, effectiveThinking, fb, spec.vertex?.tier, spec.vertex?.requestType);
       LLM.logInputSummary(id, schema, messages, instructions);
       LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, instructions);
@@ -1355,7 +1362,8 @@ export class LLM {
 
     return withFallback(id, 'generateText', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateText', modelKey, spec.thinking, fb, spec.vertex?.tier, spec.vertex?.requestType);
+      const effectiveThinking = resolveThinkingForModel(modelKey, spec.requestedThinking).thinking;
+      LLM.logStart(id, 'generateText', modelKey, effectiveThinking, fb, spec.vertex?.tier, spec.vertex?.requestType);
 
       const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMGenerateTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(
         ai,
@@ -1364,13 +1372,19 @@ export class LLM {
           method: 'generateText',
           modelSpec: modelKey,
           modelIdSuffix,
-          thinking: spec.thinking,
+          thinking: effectiveThinking,
           openrouter: openrouterOptions,
         },
       );
       const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
       const provider = parseProvider(modelKey);
-      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
+      const providerOptions = buildProviderOptions(
+        provider,
+        effectiveThinking,
+        modelKey,
+        openrouterOptions,
+        spec.bedrock,
+      );
       const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
       const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
@@ -1783,11 +1797,12 @@ export class LLM {
 
     return withFallback(id, 'generateObjectViaTool', spec, async (modelKey, fb) => {
       const startTime = Date.now();
+      const effectiveThinking = resolveThinkingForModel(modelKey, spec.requestedThinking).thinking;
       LLM.logStart(
         id,
         'generateObjectViaTool',
         modelKey,
-        spec.thinking,
+        effectiveThinking,
         fb,
         spec.vertex?.tier,
         spec.vertex?.requestType,
@@ -1802,7 +1817,7 @@ export class LLM {
       const provider = parseProvider(modelKey);
       const baseProviderOptions = buildProviderOptions(
         provider,
-        spec.thinking,
+        effectiveThinking,
         modelKey,
         openrouterOptions,
         spec.bedrock,
