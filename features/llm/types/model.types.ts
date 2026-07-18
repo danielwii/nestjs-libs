@@ -117,10 +117,19 @@ export interface ModelConfig<P extends string = string> {
   /**
    * 模型强制启用 reasoning，无法关闭
    *
-   * 标记为 true 时，LLM class 不会发送 disableThinking 选项。
-   * 例：MiniMax M2.5（400 "Reasoning is mandatory"）、Grok 4.1 Fast（参数无效）
+   * 标记为 true 时：
+   * - 默认/显式 thinking=none 会做**参数层 fallback**（见 `reasoningDefaultEffort`，默认 `low`）并 warn
+   * - 不会发送 disableThinking / effort:none（避免 400 "Reasoning is mandatory"）
+   * - validateModelSpec 可报告 REASONING_DISABLE_FORBIDDEN + suggestions
+   *
+   * 例：OpenRouter `google/gemini-3.5-flash`（mandatory）、MiniMax M2.5
    */
   reasoningRequired?: boolean;
+  /**
+   * mandatory 模型在调用方想 disable 时，参数层 fallback 使用的 effort（默认 low）。
+   * 不得为 none。
+   */
+  reasoningDefaultEffort?: 'low' | 'medium' | 'high';
   /**
    * 该模型支持的 Vertex tier 列表（仅 vertex / vertex-global provider 相关）
    *
@@ -669,6 +678,11 @@ export interface ParsedModelSpec {
   key: LLMModelKey;
   provider: LLMProviderType;
   thinking: ThinkingEffortLevel | undefined;
+  /**
+   * Raw `reason` query when present but not in VALID_THINKING_EFFORTS.
+   * Runtime still ignores it (`thinking` stays undefined); validateModelSpec reports it.
+   */
+  invalidReason: string | undefined;
   /** 最大重试次数（覆盖 AI_LLM_MAX_RETRIES） */
   maxRetries: number | undefined;
   /** 超时毫秒（覆盖 AI_LLM_TIMEOUT_MS） */
@@ -721,6 +735,7 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
       key,
       provider: parseProviderFromKey(key),
       thinking: undefined,
+      invalidReason: undefined,
       maxRetries: undefined,
       timeout: undefined,
       fallbackModels: [],
@@ -738,13 +753,15 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
     throw new Error(`Model spec parameter "${removed}" has been removed; use "${canonical}" in "${spec}"`);
   }
 
-  // reason → thinking effort（无效值 warning + 忽略，不阻断）
+  // reason → thinking effort（无效值 warning + 忽略，不阻断；invalidReason 留给 validate）
   const reason = params.get('reason');
   let thinking: ThinkingEffortLevel | undefined;
+  let invalidReason: string | undefined;
   if (reason !== null) {
     if (VALID_THINKING_EFFORTS.has(reason)) {
       thinking = reason as ThinkingEffortLevel;
     } else {
+      invalidReason = reason;
       logger.warning`[parseModelSpec] Invalid reason "${reason}" in "${spec}", ignoring. Valid: ${[...VALID_THINKING_EFFORTS].join(', ')}`;
     }
   }
@@ -848,7 +865,18 @@ export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
         }
       : undefined;
 
-  return { key, provider, thinking, maxRetries, timeout, fallbackModels, vertex, openrouter, bedrock };
+  return {
+    key,
+    provider,
+    thinking,
+    invalidReason,
+    maxRetries,
+    timeout,
+    fallbackModels,
+    vertex,
+    openrouter,
+    bedrock,
+  };
 }
 
 /**
@@ -925,9 +953,25 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:gemini-3.1-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite' }],
   ['openrouter:google/gemini-3.1-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite' }],
 
-  // Gemini 3.5 Flash
-  ['openrouter:gemini-3.5-flash', { provider: 'openrouter', modelId: 'google/gemini-3.5-flash' }],
-  ['openrouter:google/gemini-3.5-flash', { provider: 'openrouter', modelId: 'google/gemini-3.5-flash' }],
+  // Gemini 3.5 Flash via OpenRouter — reasoning.mandatory=true (no effort:none); param-fallback to low
+  [
+    'openrouter:gemini-3.5-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.5-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+  [
+    'openrouter:google/gemini-3.5-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.5-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
 
   // Gemini 3.1 Pro Preview
   ['openrouter:gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
@@ -1326,6 +1370,136 @@ export function validateModelKey(modelKey: string): { valid: boolean; error?: st
   }
 
   return { valid: true };
+}
+
+// ==================== Model Spec Validation (reasoning policy) ====================
+
+export type ModelSpecIssueCode =
+  | 'UNKNOWN_MODEL'
+  | 'PROVIDER_NOT_CONFIGURED'
+  | 'REASONING_DISABLE_FORBIDDEN'
+  | 'REASONING_EFFORT_UNSUPPORTED'
+  | 'REMOVED_PARAM';
+
+export interface ModelSpecIssue {
+  code: ModelSpecIssueCode;
+  message: string;
+  /** Advisory alternate specs (registered keys / key?reason=); not auto-applied */
+  suggestions?: string[];
+}
+
+export type ModelSpecValidation =
+  | { ok: true; parsed: ParsedModelSpec; warnings: ModelSpecIssue[]; effectiveThinking: ThinkingEffortLevel }
+  | { ok: false; issues: ModelSpecIssue[] };
+
+const DEFAULT_MANDATORY_REASONING_EFFORT: Exclude<ThinkingEffortLevel, 'none'> = 'low';
+
+/**
+ * Whether this model forbids disabling reasoning (gateway/model contract).
+ */
+export function isReasoningMandatory(key: LLMModelKey): boolean {
+  return getModel(key).reasoningRequired === true;
+}
+
+/**
+ * Param-level fallback when caller wants thinking=none on a mandatory-reasoning model.
+ * Returns the effort that should be sent (never none when mandatory).
+ */
+export function resolveThinkingForModel(
+  key: LLMModelKey,
+  requested: ThinkingEffortLevel,
+): { thinking: ThinkingEffortLevel; paramFallbackApplied: boolean } {
+  if (requested !== 'none') {
+    return { thinking: requested, paramFallbackApplied: false };
+  }
+  const config = getModel(key);
+  if (!config.reasoningRequired) {
+    return { thinking: 'none', paramFallbackApplied: false };
+  }
+  const effort = config.reasoningDefaultEffort ?? DEFAULT_MANDATORY_REASONING_EFFORT;
+  return { thinking: effort, paramFallbackApplied: true };
+}
+
+function buildParamFallbackSuggestion(key: LLMModelKey): string {
+  const effort = getModel(key).reasoningDefaultEffort ?? DEFAULT_MANDATORY_REASONING_EFFORT;
+  return `${key}?reason=${effort}`;
+}
+
+/**
+ * Typed validation of an LLMModelSpec + optional thinking intent.
+ *
+ * - Configuration validation: pass `{ thinking: 'none' }` (framework default) to catch
+ *   mandatory-reasoning models that cannot disable thinking.
+ * - Does not auto-switch providers; `suggestions` are advisory only.
+ * - When disable is forbidden, `ok` is still true if the model is registered and provider
+ *   configured — with a REASONING_DISABLE_FORBIDDEN **warning** and `effectiveThinking`
+ *   after param-level fallback (runtime will use that effort).
+ */
+export function validateModelSpec(spec: string, options?: { thinking?: ThinkingEffortLevel }): ModelSpecValidation {
+  if (!isModelSpecValid(spec)) {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: 'UNKNOWN_MODEL',
+          message: `Model "${spec}" is not registered. Available: ${getRegisteredModels().join(', ')}`,
+        },
+      ],
+    };
+  }
+
+  const parsed = parseModelSpec(spec);
+  const warnings: ModelSpecIssue[] = [];
+
+  // Typo / unknown reason= value: report before treating as omitted (runtime still ignores)
+  if (parsed.invalidReason !== undefined) {
+    warnings.push({
+      code: 'REASONING_EFFORT_UNSUPPORTED',
+      message:
+        `Invalid reason "${parsed.invalidReason}" in "${spec}". ` +
+        `Valid: ${[...VALID_THINKING_EFFORTS].join(', ')}. Treated as omitted at runtime.`,
+    });
+  }
+
+  const requested: ThinkingEffortLevel = options?.thinking ?? parsed.thinking ?? 'none';
+  const { thinking: effectiveThinking, paramFallbackApplied } = resolveThinkingForModel(parsed.key, requested);
+
+  // Skip disable warning when the root cause was an invalid reason= typo (not an intentional none)
+  if (paramFallbackApplied && parsed.invalidReason === undefined) {
+    const suggestion = buildParamFallbackSuggestion(parsed.key);
+    warnings.push({
+      code: 'REASONING_DISABLE_FORBIDDEN',
+      message:
+        `Model "${parsed.key}" requires reasoning and cannot use thinking=none / effort:none; ` +
+        `param-fallback to reason=${effectiveThinking}. ` +
+        `If the call still fails with 400, configure ?fallback=… for provider fallback.`,
+      suggestions: [suggestion],
+    });
+  }
+
+  if (requested !== 'none' && requested !== effectiveThinking && !paramFallbackApplied) {
+    warnings.push({
+      code: 'REASONING_EFFORT_UNSUPPORTED',
+      message: `Thinking effort "${requested}" adjusted to "${effectiveThinking}" for "${parsed.key}".`,
+    });
+  }
+
+  // Provider credentials after policy checks so CI without keys still exercises reasoning warnings
+  if (!isProviderConfigured(parsed.provider)) {
+    const requirement = providerConfigRequirements[parsed.provider];
+    return {
+      ok: false,
+      issues: [
+        ...warnings,
+        {
+          code: 'PROVIDER_NOT_CONFIGURED',
+          message: `Provider "${parsed.provider}" for model "${spec}" is not configured. Set ${requirement?.envVar ?? parsed.provider}.`,
+        },
+      ],
+    };
+  }
+
+  return { ok: true, parsed, warnings, effectiveThinking };
 }
 
 /**
