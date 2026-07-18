@@ -36,7 +36,7 @@ import { ApiFetcher } from '@app/utils/fetch';
 
 import { llmCaptureSchema } from '../schemas/capture.schema';
 import { EMBEDDING_MODELS } from '../types/embedding.types';
-import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec } from '../types/model.types';
+import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec, resolveThinkingForModel } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { bedrockServiceTierOptions } from './bedrock.client';
@@ -347,7 +347,13 @@ function resolveSpec(
   const parsed = parseModelSpec(modelSpec);
   // 调用方显式传了非 'none' 的 thinking → 用调用方的
   // 调用方用默认 'none' 且 spec 有 reason → 用 spec 的
-  const thinking = callerThinking !== 'none' ? callerThinking : (parsed.thinking ?? 'none');
+  const requestedThinking = callerThinking !== 'none' ? callerThinking : (parsed.thinking ?? 'none');
+  // mandatory-reasoning keys: none → param-level fallback (default low) + warn
+  const { thinking, paramFallbackApplied } = resolveThinkingForModel(parsed.key, requestedThinking);
+  if (paramFallbackApplied) {
+    const alt = getModel(parsed.key).preferredAlternativeWhenDisabling;
+    specLogger.warning`[resolveSpec] ${parsed.key} forbids thinking=none; param-fallback to thinking=${thinking}${alt ? `; consider ${alt}` : ''}`;
+  }
   const maxRetries = callerMaxRetries ?? parsed.maxRetries ?? SysEnv.AI_LLM_MAX_RETRIES;
   const timeout = callerTimeout ?? parsed.timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;
   const fallbackModels = parsed.fallbackModels;
@@ -363,10 +369,12 @@ function resolveSpec(
     fallbackModels.length > 0 ||
     vertex !== undefined ||
     openrouter !== undefined ||
-    bedrock !== undefined;
+    bedrock !== undefined ||
+    paramFallbackApplied;
   if (hasSpecParams) {
     const parts: string[] = [];
     if (thinking !== 'none') parts.push(`thinking=${thinking}`);
+    if (paramFallbackApplied) parts.push('reasoningParamFallback=true');
     parts.push(`retry=${maxRetries}`);
     parts.push(`timeout=${timeout}ms`);
     if (fallbackModels.length > 0) parts.push(`fallback=[${fallbackModels.join(',')}]`);
@@ -748,22 +756,40 @@ function observeStreamFailure(usage: PromiseLike<unknown>, onFailure: (error: un
 
 const fallbackLogger = getAppLogger('features', 'LLM', 'fallback');
 
-/** 判断错误是否值得 fallback（429/5xx/timeout/生成失败），非 retryable 的直接抛 */
+/** Reasoning-policy 400s: after param-level fallback still fails → allow provider fallback chain */
+function isReasoningPolicyError(error: unknown): boolean {
+  const msg =
+    error instanceof Error
+      ? error.message
+      : APICallError.isInstance(error)
+        ? `${error.message} ${error.responseBody ?? ''}`
+        : String(error);
+  return /reasoning is mandatory/i.test(msg) || /cannot be disabled/i.test(msg);
+}
+
+/** 判断错误是否值得 fallback（429/5xx/timeout/生成失败/reasoning 策略 400），非 retryable 的直接抛 */
 export function isRetryableError(error: unknown): boolean {
   if (error instanceof Oops || error instanceof Oops.Block || error instanceof Oops.Panic) {
     const cause = error.cause;
     if (cause !== undefined) return isRetryableError(cause);
-    return error instanceof Oops.Block && error.httpStatus === 429;
+    if (error instanceof Oops.Block && error.httpStatus === 429) return true;
+    // AI model error wrapper may carry reasoning-mandatory 400 in message
+    if (isReasoningPolicyError(error)) return true;
+    return false;
   }
   if (APICallError.isInstance(error)) {
     const status = error.statusCode;
-    return status === 429 || (status !== undefined && status >= 500);
+    if (status === 429 || (status !== undefined && status >= 500)) return true;
+    // Param fallback already applied at resolveSpec; remaining reasoning 400s → next provider in chain
+    if (status === 400 && isReasoningPolicyError(error)) return true;
+    return false;
   }
   // NoObjectGeneratedError：模型生成了文本但无法解析为合法 JSON。
   // HTTP 层面是 200 OK，但实际上是模型能力或格式问题，应 fallback 到其他模型重试。
   if (NoObjectGeneratedError.isInstance(error)) return true;
   if (error instanceof DOMException && error.name === 'TimeoutError') return true;
   if (error instanceof Error && error.message.includes('timed out')) return true;
+  if (isReasoningPolicyError(error)) return true;
   return false;
 }
 
@@ -1102,13 +1128,21 @@ export class LLM {
 
     return withFallback(id, 'generateObject', spec, async (modelKey, fb) => {
       const startTime = Date.now();
-      LLM.logStart(id, 'generateObject', modelKey, spec.thinking, fb, spec.vertex?.tier, spec.vertex?.requestType);
+      // Per-key reasoning policy (param fallback may differ on each fallback model)
+      const effectiveThinking = resolveThinkingForModel(modelKey, spec.thinking).thinking;
+      LLM.logStart(id, 'generateObject', modelKey, effectiveThinking, fb, spec.vertex?.tier, spec.vertex?.requestType);
       LLM.logInputSummary(id, schema, messages, instructions);
       LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, instructions);
 
       const languageModel = createModel(modelKey);
       const provider = parseProvider(modelKey);
-      const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
+      const providerOptions = buildProviderOptions(
+        provider,
+        effectiveThinking,
+        modelKey,
+        openrouterOptions,
+        spec.bedrock,
+      );
       const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);

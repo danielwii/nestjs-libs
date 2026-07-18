@@ -9,7 +9,9 @@ import {
   isModelRegistered,
   isModelSpecValid,
   parseModelSpec,
+  resolveThinkingForModel,
   validateModelKey,
+  validateModelSpec,
 } from './model.types';
 
 import { describe, expect, it } from 'bun:test';
@@ -260,6 +262,73 @@ describe('validateModelKey', () => {
     const result = validateModelKey('nonexistent:model');
     expect(result.valid).toBe(false);
     expect(result.error).toContain('not registered');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// validateModelSpec / reasoning policy (OR gemini-3.5-flash)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('reasoning policy: openrouter vs vertex gemini-3.5-flash', () => {
+  it('M1: marks openrouter gemini-3.5-flash as reasoningRequired', () => {
+    expect(getModel('openrouter:gemini-3.5-flash').reasoningRequired).toBe(true);
+    expect(getModel('openrouter:google/gemini-3.5-flash').reasoningRequired).toBe(true);
+    expect(getModel('openrouter:gemini-3.5-flash').preferredAlternativeWhenDisabling).toBe('vertex:gemini-3.5-flash');
+  });
+
+  it('M5: vertex gemini-3.5-flash is not reasoningRequired', () => {
+    expect(getModel('vertex:gemini-3.5-flash').reasoningRequired).not.toBe(true);
+  });
+
+  it('resolveThinkingForModel param-fallbacks none → low on OR 3.5-flash', () => {
+    const { thinking, paramFallbackApplied } = resolveThinkingForModel('openrouter:gemini-3.5-flash', 'none');
+    expect(paramFallbackApplied).toBe(true);
+    expect(thinking).toBe('low');
+  });
+
+  it('resolveThinkingForModel keeps none on vertex 3.5-flash', () => {
+    const { thinking, paramFallbackApplied } = resolveThinkingForModel('vertex:gemini-3.5-flash', 'none');
+    expect(paramFallbackApplied).toBe(false);
+    expect(thinking).toBe('none');
+  });
+
+  it('M2/M3: validateModelSpec disable intent warns with suggestions', () => {
+    const result = validateModelSpec('openrouter:gemini-3.5-flash', { thinking: 'none' });
+    const issues = result.ok ? result.warnings : result.issues;
+    const w = issues.find((i) => i.code === 'REASONING_DISABLE_FORBIDDEN');
+    expect(w).toBeDefined();
+    expect(w?.suggestions).toContain('vertex:gemini-3.5-flash');
+    expect(w?.suggestions?.some((s) => s.includes('reason=low'))).toBe(true);
+    if (result.ok) {
+      expect(result.effectiveThinking).toBe('low');
+    }
+  });
+
+  it('M4: validateModelSpec reason=low has no disable warning', () => {
+    const result = validateModelSpec('openrouter:gemini-3.5-flash?reason=low');
+    const issues = result.ok ? result.warnings : result.issues;
+    expect(issues.some((i) => i.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
+    if (result.ok) {
+      expect(result.effectiveThinking).toBe('low');
+    }
+  });
+
+  it('M5: validateModelSpec vertex allows thinking none', () => {
+    const result = validateModelSpec('vertex:gemini-3.5-flash', { thinking: 'none' });
+    // may fail PROVIDER_NOT_CONFIGURED in CI without keys
+    if (!result.ok) {
+      expect(result.issues[0]?.code).toBe('PROVIDER_NOT_CONFIGURED');
+      return;
+    }
+    expect(result.effectiveThinking).toBe('none');
+    expect(result.warnings.some((w) => w.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
+  });
+
+  it('N3: unknown model fails validation', () => {
+    const result = validateModelSpec('nonexistent:model');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.code).toBe('UNKNOWN_MODEL');
   });
 });
 
