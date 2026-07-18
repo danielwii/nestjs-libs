@@ -14,7 +14,7 @@
     "prepare": "husky"
   },
   "overrides": {
-    "@ai-sdk/provider-utils": "5.0.10",
+    "@ai-sdk/provider-utils": "5.0.11",
     "zod": "4.4.3"
   },
   "lint-staged": {
@@ -40,7 +40,7 @@
     "@ai-sdk/openai": "^4.0.4",
     "@ai-sdk/otel": "^1.0.28",
     "@ai-sdk/provider": "^4.0.1",
-    "@ai-sdk/provider-utils": "^5.0.2",
+    "@ai-sdk/provider-utils": "^5.0.11",
     "@langfuse/otel": "^4.6.1",
     "@logtape/logtape": "^2.0.5",
     "@nestjs/common": "^11.1.19",
@@ -59,7 +59,7 @@
     "@opentelemetry/sdk-trace-base": ">=2.6.1 <3",
     "@opentelemetry/sdk-trace-node": ">=2.6.1 <3",
     "@sentry/nestjs": "^10.45.0",
-    "ai": "^7.0.28",
+    "ai": "^7.0.31",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
@@ -189,13 +189,13 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/amazon-bedrock": "^5.0.23",
-    "@ai-sdk/google": "^4.0.14",
-    "@ai-sdk/google-vertex": "^5.0.18",
-    "@ai-sdk/openai": "^4.0.13",
-    "@ai-sdk/otel": "1.0.30",
+    "@ai-sdk/amazon-bedrock": "^5.0.24",
+    "@ai-sdk/google": "^4.0.18",
+    "@ai-sdk/google-vertex": "^5.0.22",
+    "@ai-sdk/openai": "^4.0.16",
+    "@ai-sdk/otel": "1.0.31",
     "@ai-sdk/provider": "^4.0.3",
-    "@ai-sdk/provider-utils": "^5.0.9",
+    "@ai-sdk/provider-utils": "^5.0.11",
     "@eslint/js": "^10.0.1",
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",
@@ -231,7 +231,7 @@
     "@types/number-to-words": "^1.2.3",
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.1",
-    "ai": "7.0.30",
+    "ai": "7.0.31",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
