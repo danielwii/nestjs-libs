@@ -351,8 +351,7 @@ function resolveSpec(
   // mandatory-reasoning keys: none → param-level fallback (default low) + warn
   const { thinking, paramFallbackApplied } = resolveThinkingForModel(parsed.key, requestedThinking);
   if (paramFallbackApplied) {
-    const alt = getModel(parsed.key).preferredAlternativeWhenDisabling;
-    specLogger.warning`[resolveSpec] ${parsed.key} forbids thinking=none; param-fallback to thinking=${thinking}${alt ? `; consider ${alt}` : ''}`;
+    specLogger.warning`[resolveSpec] ${parsed.key} forbids thinking=none; param-fallback to thinking=${thinking}`;
   }
   const maxRetries = callerMaxRetries ?? parsed.maxRetries ?? SysEnv.AI_LLM_MAX_RETRIES;
   const timeout = callerTimeout ?? parsed.timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;

@@ -273,7 +273,7 @@ describe('reasoning policy: openrouter vs vertex gemini-3.5-flash', () => {
   it('M1: marks openrouter gemini-3.5-flash as reasoningRequired', () => {
     expect(getModel('openrouter:gemini-3.5-flash').reasoningRequired).toBe(true);
     expect(getModel('openrouter:google/gemini-3.5-flash').reasoningRequired).toBe(true);
-    expect(getModel('openrouter:gemini-3.5-flash').preferredAlternativeWhenDisabling).toBe('vertex:gemini-3.5-flash');
+    expect(getModel('openrouter:gemini-3.5-flash').reasoningDefaultEffort).toBe('low');
   });
 
   it('M5: vertex gemini-3.5-flash is not reasoningRequired', () => {
@@ -292,13 +292,12 @@ describe('reasoning policy: openrouter vs vertex gemini-3.5-flash', () => {
     expect(thinking).toBe('none');
   });
 
-  it('M2/M3: validateModelSpec disable intent warns with suggestions', () => {
+  it('M2/M3: validateModelSpec disable intent warns with param-fallback suggestion', () => {
     const result = validateModelSpec('openrouter:gemini-3.5-flash', { thinking: 'none' });
     const issues = result.ok ? result.warnings : result.issues;
     const w = issues.find((i) => i.code === 'REASONING_DISABLE_FORBIDDEN');
     expect(w).toBeDefined();
-    expect(w?.suggestions).toContain('vertex:gemini-3.5-flash');
-    expect(w?.suggestions?.some((s) => s.includes('reason=low'))).toBe(true);
+    expect(w?.suggestions).toEqual(['openrouter:gemini-3.5-flash?reason=low']);
     if (result.ok) {
       expect(result.effectiveThinking).toBe('low');
     }

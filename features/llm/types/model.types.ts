@@ -131,11 +131,6 @@ export interface ModelConfig<P extends string = string> {
    */
   reasoningDefaultEffort?: 'low' | 'medium' | 'high';
   /**
-   * 想 disable 但 mandatory 时，建议改用的 LLMModelKey（仅提示 / suggestion，不自动切换）。
-   * 例：openrouter:gemini-3.5-flash → vertex:gemini-3.5-flash
-   */
-  preferredAlternativeWhenDisabling?: string;
-  /**
    * 该模型支持的 Vertex tier 列表（仅 vertex / vertex-global provider 相关）
    *
    * - 未填 = 默认只支持 `standard`
@@ -939,7 +934,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:gemini-3.1-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite' }],
   ['openrouter:google/gemini-3.1-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite' }],
 
-  // Gemini 3.5 Flash via OpenRouter — reasoning.mandatory=true (no effort:none); prefer vertex to disable thinking
+  // Gemini 3.5 Flash via OpenRouter — reasoning.mandatory=true (no effort:none); param-fallback to low
   [
     'openrouter:gemini-3.5-flash',
     {
@@ -947,7 +942,6 @@ const modelRegistry = new Map<string, ModelConfig>([
       modelId: 'google/gemini-3.5-flash',
       reasoningRequired: true,
       reasoningDefaultEffort: 'low',
-      preferredAlternativeWhenDisabling: 'vertex:gemini-3.5-flash',
     },
   ],
   [
@@ -957,7 +951,6 @@ const modelRegistry = new Map<string, ModelConfig>([
       modelId: 'google/gemini-3.5-flash',
       reasoningRequired: true,
       reasoningDefaultEffort: 'low',
-      preferredAlternativeWhenDisabling: 'vertex:gemini-3.5-flash',
     },
   ],
 
@@ -1408,16 +1401,9 @@ export function resolveThinkingForModel(
   return { thinking: effort, paramFallbackApplied: true };
 }
 
-function buildDisableForbiddenSuggestions(key: LLMModelKey): string[] {
-  const config = getModel(key);
-  const suggestions: string[] = [];
-  const alt = config.preferredAlternativeWhenDisabling;
-  if (alt && isModelRegistered(alt)) {
-    suggestions.push(alt);
-  }
-  const effort = config.reasoningDefaultEffort ?? DEFAULT_MANDATORY_REASONING_EFFORT;
-  suggestions.push(`${key}?reason=${effort}`);
-  return suggestions;
+function buildParamFallbackSuggestion(key: LLMModelKey): string {
+  const effort = getModel(key).reasoningDefaultEffort ?? DEFAULT_MANDATORY_REASONING_EFFORT;
+  return `${key}?reason=${effort}`;
 }
 
 /**
@@ -1450,14 +1436,14 @@ export function validateModelSpec(spec: string, options?: { thinking?: ThinkingE
   const { thinking: effectiveThinking, paramFallbackApplied } = resolveThinkingForModel(parsed.key, requested);
 
   if (paramFallbackApplied) {
-    const suggestions = buildDisableForbiddenSuggestions(parsed.key);
+    const suggestion = buildParamFallbackSuggestion(parsed.key);
     warnings.push({
       code: 'REASONING_DISABLE_FORBIDDEN',
       message:
         `Model "${parsed.key}" requires reasoning and cannot use thinking=none / effort:none; ` +
         `param-fallback to reason=${effectiveThinking}. ` +
-        (suggestions[0] ? `Consider ${suggestions.join(' or ')}.` : ''),
-      suggestions,
+        `If the call still fails with 400, configure ?fallback=… for provider fallback.`,
+      suggestions: [suggestion],
     });
   }
 
