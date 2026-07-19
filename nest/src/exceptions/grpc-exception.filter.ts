@@ -19,21 +19,6 @@ const MIN_GRPC_STATUS_CODE: number = status.OK;
 const MAX_GRPC_STATUS_CODE: number = status.UNAUTHENTICATED;
 
 /**
- * OopsException 接口
- * 兼容 contract 层的 BusinessException 和 FatalException
- */
-interface IOopsException extends Error {
-  httpStatus: number;
-  errorCode: string;
-  businessCode: string;
-  userMessage: string;
-  internalDetails?: string;
-  provider?: string;
-  isFatal(): boolean;
-  getCombinedCode(): string;
-}
-
-/**
  * GrpcError 结构
  * 与 contract/exceptions/grpc-error.ts 中的 GrpcErrorSchema 保持一致
  */
@@ -56,13 +41,16 @@ interface RpcExceptionPayload {
 /**
  * gRPC 异常过滤器
  *
- * 错误分类策略：
- * - BusinessException (isFatal=false) → gRPC OK + x-business-error header
- *   传输层视角：服务正常处理了请求，Istio metrics 不计为错误
- *   客户端通过 businessErrorMiddleware 读取 header 还原异常
+ * ## 业务异常契约（熵减）
+ * - **唯一**业务异常类型：`OopsError`（`instanceof` 识别）
+ * - 手搓 / 自定义「长得像」的异常：不走 Oops 路径，走 unexpected / 协议映射
  *
- * - FatalException (isFatal=true) → gRPC INTERNAL + details JSON
- *   传输层视角：服务出了问题，Istio metrics 计为错误，触发 Sentry
+ * 传输语义：
+ * - Oops (422, isFatal=false) → gRPC OK + x-oops-error-bin metadata  
+ *   传输层视角：服务正常处理了请求，Istio metrics 不计为错误  
+ *   客户端通过 middleware 读取 header 还原业务错误
+ * - Oops.Block (4xx) → 具体 gRPC status + details JSON
+ * - Oops.Panic (5xx) → gRPC 错误 status + Sentry
  *
  * @example
  * // 在 grpc-bootstrap.ts 中注册
@@ -76,14 +64,8 @@ export class GrpcExceptionFilter implements ExceptionFilter {
   constructor(private readonly provider: string) {}
 
   catch(exception: unknown, host: ArgumentsHost): Observable<unknown> {
-    // OopsError V2: instanceof 检测（优先）
     if (exception instanceof OopsError) {
-      return this.handleOopsErrorV2(exception, host);
-    }
-
-    // Legacy: duck-typing 检测（向后兼容）
-    if (this.isOopsException(exception)) {
-      return this.handleOopsException(exception, host);
+      return this.handleOopsError(exception, host);
     }
 
     // Zod 验证错误
@@ -101,19 +83,6 @@ export class GrpcExceptionFilter implements ExceptionFilter {
 
     // 其他未知错误
     return this.handleUnexpectedError(exception, host);
-  }
-
-  private isOopsException(error: unknown): error is IOopsException {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'httpStatus' in error &&
-      'errorCode' in error &&
-      'businessCode' in error &&
-      'userMessage' in error &&
-      'isFatal' in error &&
-      typeof (error as IOopsException).isFatal === 'function'
-    );
   }
 
   /**
@@ -156,55 +125,14 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     });
   }
 
-  private handleOopsException(exception: IOopsException, host: ArgumentsHost): Observable<unknown> {
-    const isFatal = exception.isFatal();
-
-    const grpcError: GrpcError = {
-      httpStatus: exception.httpStatus,
-      errorCode: exception.errorCode,
-      businessCode: exception.businessCode,
-      userMessage: exception.userMessage,
-      internalDetails: exception.internalDetails,
-      provider: exception.provider ?? this.provider,
-    };
-
-    const details = JSON.stringify(grpcError);
-
-    if (isFatal) {
-      this.logger
-        .error`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails} ${exception}`;
-      this.captureFatalToSentry(exception, host);
-
-      const grpcStatus = this.httpStatusToGrpcStatus(exception.httpStatus);
-      // 直接抛出 { code, details } 而非 RpcException
-      // 原因：@grpc/grpc-js 的 serverErrorToStatus() 检查 error.code（顶层属性）
-      return throwError(() => ({ code: grpcStatus, details }));
-    }
-
-    // 业务错误：gRPC OK + initial metadata 携带错误详情
-    // 传输层返回 OK → Istio/Kiali 不计为错误
-    // 客户端 businessErrorMiddleware 读取 x-oops-error header → 还原 BusinessException
-    this.logger.warning`[${exception.getCombinedCode()}] ${exception.userMessage} | ${exception.internalDetails}`;
-
-    // host.getArgByIndex(2) = gRPC call 对象，NestJS 适配层传递 [request, metadata, call]
-    const call = host.getArgByIndex(2);
-    if (call?.sendMetadata) {
-      const metadata = new GrpcMetadata();
-      metadata.set(OOPS_ERROR_METADATA_KEY, Buffer.from(details, 'utf-8'));
-      call.sendMetadata(metadata);
-    }
-
-    return of({});
-  }
-
   /**
-   * OopsError V2 处理
+   * OopsError 处理（唯一业务异常路径）
    *
-   * - Panic (500): gRPC INTERNAL + Sentry
+   * - Panic (500): gRPC 错误 status + Sentry
    * - Block (4xx): 映射到具体 gRPC status（客户端错误，不用 OK pattern）
    * - Oops (422): gRPC OK + metadata（业务拒绝，Istio 不计为错误）
    */
-  private handleOopsErrorV2(exception: OopsError, host: ArgumentsHost): Observable<unknown> {
+  private handleOopsError(exception: OopsError, host: ArgumentsHost): Observable<unknown> {
     const grpcError: GrpcError = {
       httpStatus: exception.httpStatus,
       errorCode: exception.errorCode,
@@ -217,7 +145,8 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     const details = JSON.stringify(grpcError);
 
     if (exception.isFatal()) {
-      // Panic: gRPC INTERNAL + Sentry
+      // 直接抛出 { code, details } 而非 RpcException
+      // 原因：@grpc/grpc-js 的 serverErrorToStatus() 检查 error.code（顶层属性）
       this.logger
         .error`[${exception.getCombinedCode()}] Oops.Panic ${exception.userMessage} | ${exception.internalDetails} ${exception}`;
       this.captureFatalToSentry(exception, host);
@@ -227,7 +156,6 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     }
 
     if (exception instanceof Oops.Block) {
-      // Block: 映射到具体 gRPC status，不用 OK pattern
       this.logger
         .warning`[${exception.getCombinedCode()}] Oops.Block(${exception.httpStatus}) ${exception.userMessage} | ${exception.internalDetails}`;
 
@@ -236,8 +164,10 @@ export class GrpcExceptionFilter implements ExceptionFilter {
     }
 
     // Oops (422): OK pattern + metadata
+    // 客户端 middleware 读取 x-oops-error-bin → 还原业务错误
     this.logger.warning`[${exception.getCombinedCode()}] Oops ${exception.userMessage} | ${exception.internalDetails}`;
 
+    // host.getArgByIndex(2) = gRPC call 对象，NestJS 适配层传递 [request, metadata, call]
     const call = host.getArgByIndex(2);
     if (call?.sendMetadata) {
       const metadata = new GrpcMetadata();

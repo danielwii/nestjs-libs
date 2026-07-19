@@ -15,32 +15,18 @@ import type { ArgumentsHost } from '@nestjs/common';
 
 // ==================== Test Helpers ====================
 
-/** 模拟 BusinessException (isFatal=false) */
-function mockBusinessException(overrides?: Partial<{ businessCode: string; userMessage: string }>) {
-  return Object.assign(new Error('business error'), {
-    httpStatus: 422,
-    errorCode: '0x0302',
-    businessCode: overrides?.businessCode ?? 'MG40001',
+function makeOops422(overrides?: Partial<{ oopsCode: string; userMessage: string }>) {
+  return new Oops({
+    errorCode: ErrorCodes.EXTERNAL_API_UNAVAILABLE,
+    oopsCode: overrides?.oopsCode ?? 'MG40001',
     userMessage: overrides?.userMessage ?? '设备不在线',
     internalDetails: 'device offline',
     provider: 'marsgate',
-    isFatal: () => false,
-    getCombinedCode: () => '0x0302MG40001',
   });
 }
 
-/** 模拟 FatalException (isFatal=true) */
-function mockFatalException() {
-  return Object.assign(new Error('fatal error'), {
-    httpStatus: 500,
-    errorCode: '0x0305',
-    businessCode: 'EXTERNAL_ERROR',
-    userMessage: '服务暂时不可用',
-    internalDetails: 'connection refused',
-    provider: 'marsgate',
-    isFatal: () => true,
-    getCombinedCode: () => '0x0305EXTERNAL_ERROR',
-  });
+function makeOopsPanic() {
+  return Oops.Panic.ExternalService('marsgate', 'connection refused');
 }
 
 /** 模拟 ArgumentsHost（gRPC 上下文） */
@@ -70,10 +56,10 @@ function mockGrpcHost() {
 describe('GrpcExceptionFilter', () => {
   const filter = new GrpcExceptionFilter('test-provider');
 
-  describe('BusinessException (isFatal=false)', () => {
+  describe('Oops (422, isFatal=false)', () => {
     it('should return OK status with x-oops-error-bin metadata', async () => {
       const { host, sentMetadata } = mockGrpcHost();
-      const exception = mockBusinessException();
+      const exception = makeOops422();
 
       const result$ = filter.catch(exception, host);
       const response = await firstValueFrom(result$);
@@ -95,10 +81,10 @@ describe('GrpcExceptionFilter', () => {
     });
   });
 
-  describe('FatalException (isFatal=true)', () => {
+  describe('Oops.Panic (isFatal=true)', () => {
     it('should throw gRPC error with non-OK status code', async () => {
       const { host } = mockGrpcHost();
-      const exception = mockFatalException();
+      const exception = makeOopsPanic();
 
       const result$ = filter.catch(exception, host);
 
@@ -110,6 +96,31 @@ describe('GrpcExceptionFilter', () => {
         expect(grpcError.code).toBe(status.INTERNAL);
         const parsed = JSON.parse(grpcError.details);
         expect(parsed.httpStatus).toBe(500);
+      }
+    });
+  });
+
+  describe('plain shape is not a business exception', () => {
+    it('hand-rolled object → unexpected INTERNAL path', async () => {
+      const { host, sentMetadata } = mockGrpcHost();
+      const exception = Object.assign(new Error('business error'), {
+        httpStatus: 422,
+        errorCode: '0x0302',
+        businessCode: 'MG40001',
+        userMessage: '设备不在线',
+        isFatal: () => false,
+        getCombinedCode: () => '0x0302MG40001',
+      });
+
+      const result$ = filter.catch(exception, host);
+
+      try {
+        await firstValueFrom(result$);
+        expect.unreachable('expected unexpected path');
+      } catch (error: unknown) {
+        const grpcError = error as { code: number };
+        expect(grpcError.code).toBe(status.INTERNAL);
+        expect(sentMetadata).toHaveLength(0);
       }
     });
   });

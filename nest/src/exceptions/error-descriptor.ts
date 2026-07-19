@@ -85,8 +85,8 @@ function isThrottlerException(exception: unknown): exception is HttpException {
  * HttpErrorDescriptor。返回 `null` 表示这是未识别的异常，调用方应走 500 兜底 + Sentry。
  *
  * 设计决策：
- * - OopsError / Legacy BusinessException **不**进入此函数 —— 它们走各协议自己的 Oops
- *   处理逻辑，这些方法会做 i18n 翻译 + 细分日志，映射规则不同。
+ * - OopsError **不**进入此函数 —— 它走各协议 filter 的 `instanceof OopsError` 路径
+ *  （i18n 翻译 + 细分日志，映射规则不同）。
  * - Pure function，不做日志、不触发 Sentry，仅做数据转换。副作用由调用方执行，便于单元测试。
  * - 新增异常类型时只需在此添加一个 branch，HTTP/GraphQL/gRPC 响应路径自动对齐。
  */

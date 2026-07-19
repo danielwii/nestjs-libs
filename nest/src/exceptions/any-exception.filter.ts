@@ -23,14 +23,6 @@ import type { Response } from 'express';
 export { toErrorDescriptor } from './error-descriptor';
 export type { HttpErrorDescriptor } from './error-descriptor';
 
-/** OopsError 或兼容旧 OopsLike 的鸭子类型 */
-type OopsLike = {
-  readonly httpStatus: number;
-  readonly userMessage: string;
-  getCombinedCode(): string;
-  getInternalDetails(): string;
-};
-
 type LocaleRequestLike = Omit<IdentityRequest, 'headers'> & {
   headers?: IdentityRequest['headers'];
 };
@@ -68,6 +60,16 @@ type LocaleRequestLike = Omit<IdentityRequest, 'headers'> & {
  * 4. 测试确保错误处理正常工作
  */
 
+/**
+ * 全局异常边界（HTTP / GraphQL）。
+ *
+ * ## 业务异常契约（熵减）
+ * - **唯一**业务异常类型：`OopsError`（`Oops` / `Oops.Block` / `Oops.Panic`）
+ * - 识别方式：**仅** `instanceof OopsError`（共享同一 class 身份）
+ * - 手搓 plain object / 自定义「长得像」的异常：**不**走业务路径，走 descriptor 或 500 兜底
+ *
+ * 调用方应 `throw Oops.*` / `throw new Oops.Block(...)`，不要依赖形状兼容。
+ */
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = getAppLogger('AnyExceptionFilter');
@@ -102,19 +104,12 @@ export class AnyExceptionFilter implements ExceptionFilter {
     }
 
     if (isGraphqlRequest) {
-      // OopsError V2: instanceof 检测（优先）
       if (exception instanceof OopsError) {
         return this.handleGraphqlBusinessException(exception, request, host);
       }
 
-      // Legacy: duck-typing 检测（向后兼容）
-      if (this.isBusinessException(exception)) {
-        return this.handleGraphqlBusinessException(exception, request, host);
-      }
-
-      // 非 Oops 异常：通过 toErrorDescriptor 映射成带 extensions 的 GraphQLError
-      // 这里是 iOS 客户端依赖 extensions.httpStatus 触发自动登出等行为的关键路径，
-      // 过去直接 throw 原始异常会让 Apollo 默认只带 message，没有 httpStatus。
+      // 非 Oops：toErrorDescriptor 映射成带 extensions 的 GraphQLError
+      // iOS 依赖 extensions.httpStatus 做自动登出等；裸 throw 不会带 httpStatus。
       const descriptor = toErrorDescriptor(exception);
       if (descriptor) {
         this.logMappedException(exception, request, descriptor, true);
@@ -147,17 +142,11 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
     const response = rawResponse as Response;
 
-    // OopsError V2: instanceof 检测（优先）
     if (exception instanceof OopsError) {
       return this.handleBusinessException(exception, request, response, host);
     }
 
-    // Legacy: duck-typing 检测（向后兼容）
-    if (this.isBusinessException(exception)) {
-      return this.handleBusinessException(exception, request, response, host);
-    }
-
-    // 非 Oops 异常：通过 toErrorDescriptor 统一映射（与 GraphQL 分支共享规则）
+    // 非 Oops：toErrorDescriptor 统一映射（与 GraphQL 分支共享规则）
     const descriptor = toErrorDescriptor(exception);
     if (descriptor) {
       this.logMappedException(exception, request, descriptor, false);
@@ -218,22 +207,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
   }
 
   /**
-   * 判断是否为 BusinessException
-   */
-  private isBusinessException(exception: unknown): exception is OopsLike {
-    return (
-      typeof exception === 'object' &&
-      exception !== null &&
-      'httpStatus' in exception &&
-      'userMessage' in exception &&
-      'getCombinedCode' in exception &&
-      typeof (exception as { getCombinedCode: unknown }).getCombinedCode === 'function'
-    );
-  }
-
-  /**
    * 选择性捕获异常到 Sentry
-   * 业务异常（422）不应该被 Sentry 捕获，因为这些是预期的业务逻辑
+   * 业务异常（4xx Oops / Block）不应该被 Sentry 捕获，因为这些是预期的业务逻辑
    */
   @SentryExceptionCaptured()
   private captureExceptionBySentry(_exception: unknown, _host: ArgumentsHost): void {
@@ -242,35 +217,29 @@ export class AnyExceptionFilter implements ExceptionFilter {
   }
 
   /**
-   * 处理 BusinessException / FatalException，支持国际化翻译
+   * 处理 OopsError，支持国际化翻译
    *
-   * - httpStatus < 500: BusinessException，warn 日志，不触发 Sentry
-   * - httpStatus >= 500: FatalException，error 日志，触发 Sentry
+   * - httpStatus < 500: Oops / Block，warn 日志，不触发 Sentry
+   * - httpStatus >= 500: Panic，error 日志，触发 Sentry
    */
   private async handleBusinessException(
-    exception: OopsLike,
+    exception: OopsError,
     request: IdentityRequest | undefined,
     response: Response,
     host: ArgumentsHost,
   ) {
-    const isFatal = exception.httpStatus >= 500;
-
-    if (isFatal) {
-      // Panic / FatalException: error 日志 + Sentry
+    if (exception.isFatal()) {
       this.captureExceptionBySentry(exception, host);
       this.logger
         .error`(${request?.user?.uid})[${request?.ip}] Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
-    } else if (exception.httpStatus !== 422 && exception instanceof OopsError) {
-      // Block (4xx non-422)
+    } else if (exception.httpStatus !== 422) {
       this.logger
         .warning`(${request?.user?.uid})[${request?.ip}] Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     } else {
-      // Oops (422) / legacy BusinessException
       this.logger
         .warning`(${request?.user?.uid})[${request?.ip}] Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     }
 
-    // 获取翻译后的错误消息
     const translatedMessage = await this.getTranslatedMessage(exception, request);
 
     return response.status(exception.httpStatus).json(
@@ -285,46 +254,36 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * GraphQL extensions 契约（所有 GraphQL 错误路径都遵循）：
    * `{ code: string, httpStatus: number, userMessage: string, ...extras }`
    * iOS 客户端统一通过 extensions.httpStatus 判断登出/重试等行为，不依赖具体异常类型。
-   * Oops 路径额外带 errorCode / businessCode；non-Oops 路径可能带 errors（Zod issues 等）。
+   * Oops 路径额外带 errorCode / businessCode（= oopsCode）；non-Oops 路径可能带 errors。
    */
   private async handleGraphqlBusinessException(
-    exception: OopsLike,
+    exception: OopsError,
     request: IdentityRequest | undefined,
     host: ArgumentsHost,
   ): Promise<never> {
-    const isFatal = exception.httpStatus >= 500;
-
-    if (isFatal) {
-      // Panic / FatalException: error 日志 + Sentry
+    if (exception.isFatal()) {
       this.captureExceptionBySentry(exception, host);
       this.logger
         .error`(${request?.user?.uid})[${request?.ip}] GraphQL Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
-    } else if (exception.httpStatus !== 422 && exception instanceof OopsError) {
-      // Block (4xx non-422)
+    } else if (exception.httpStatus !== 422) {
       this.logger
         .warning`(${request?.user?.uid})[${request?.ip}] GraphQL Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     } else {
-      // Oops (422) / legacy BusinessException
       this.logger
         .warning`(${request?.user?.uid})[${request?.ip}] GraphQL Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     }
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);
 
-    const extensions: Record<string, unknown> = {
-      code: exception.getCombinedCode(),
-      httpStatus: exception.httpStatus,
-      userMessage: translatedMessage,
-    };
-
-    if ('errorCode' in exception) {
-      extensions.errorCode = Reflect.get(exception, 'errorCode');
-    }
-    if ('businessCode' in exception) {
-      extensions.businessCode = Reflect.get(exception, 'businessCode');
-    }
-
-    throw new GraphQLError(translatedMessage, { extensions: extensions });
+    throw new GraphQLError(translatedMessage, {
+      extensions: {
+        code: exception.getCombinedCode(),
+        httpStatus: exception.httpStatus,
+        userMessage: translatedMessage,
+        errorCode: exception.errorCode,
+        businessCode: exception.oopsCode,
+      },
+    });
   }
 
   /**
@@ -374,7 +333,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * - 不做任何语言判断、规范化
    * - 所有语言逻辑交给 i18nService.translateErrorMessage 统一处理
    */
-  private async getTranslatedMessage(exception: OopsLike, request?: LocaleRequestLike): Promise<string> {
+  private async getTranslatedMessage(exception: OopsError, request?: LocaleRequestLike): Promise<string> {
     try {
       const i18nService = this.getI18nService();
       if (!i18nService) {
