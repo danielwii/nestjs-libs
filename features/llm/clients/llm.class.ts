@@ -1587,6 +1587,7 @@ export class LLM {
       abortSignal: signal,
       telemetry: withProvenanceTelemetry(telemetry),
       runtimeContext: mergeProvenanceRuntimeContext<RUNTIME_CONTEXT>(aiOptions?.runtimeContext),
+      allowSystemInMessages: allowsSystemInMessages(modelKey),
       onError: lifecycle.onError,
       onChunk: async (event: StreamOnChunkEvent) => {
         await callerOnChunk?.(event);
@@ -1734,6 +1735,7 @@ export class LLM {
       abortSignal: signal,
       telemetry: withProvenanceTelemetry(telemetry),
       runtimeContext: mergeProvenanceRuntimeContext<RUNTIME_CONTEXT>(aiOptions?.runtimeContext),
+      allowSystemInMessages: allowsSystemInMessages(modelKey),
       onError: lifecycle.onError,
       onChunk: async (event: StreamOnChunkEvent) => {
         await callerOnChunk?.(event);
