@@ -1,9 +1,13 @@
 import type { ErrorCodeValue } from './error-codes';
 
 /**
- * Oops 异常基类
+ * Oops 异常基类 — 业务异常的**唯一**一等类型。
  *
- * 所有业务异常的抽象基类，提供：
+ * Exception filter（HTTP/GraphQL/gRPC）只认 `instanceof OopsError`。
+ * 手搓 plain object 或「长得像」的自定义 Error **不会**获得业务异常语义
+ * （不会按 422/Block 路径处理），这是有意的契约边界，不是遗漏。
+ *
+ * 提供：
  * - 统一的错误码体系（errorCode + oopsCode）
  * - 用户友好消息与内部详情分离
  * - isFatal() 判断是否需要告警

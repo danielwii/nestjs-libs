@@ -170,37 +170,21 @@ describe('AnyExceptionFilter', () => {
     });
   });
 
-  // ==================== HTTP: Legacy duck-typing ====================
+  // ==================== HTTP: 非 OopsError 不走业务路径 ====================
 
-  describe('HTTP: isBusinessException duck-typing', () => {
-    it('完整 OopsLike 对象 → 按 httpStatus 响应', async () => {
+  describe('HTTP: plain shape is not a business exception', () => {
+    it('凑齐字段的 plain object → 不按 422 业务路径处理', async () => {
       const { host, response } = createHttpHost();
       const exception = {
         httpStatus: 422,
-        userMessage: 'legacy error',
+        userMessage: 'hand-rolled',
         getCombinedCode: () => '0x0201LEGACY',
         getInternalDetails: () => 'internal',
       };
 
       await filter.catch(exception, host);
 
-      expect(response.status).toHaveBeenCalledWith(422);
-      const body = getResponseBody(response);
-      expect(body.code).toBe('0x0201LEGACY');
-      expect(body.message).toBe('legacy error');
-    });
-
-    it('缺少 getCombinedCode → 不走 BusinessException 路径', async () => {
-      const { host, response } = createHttpHost();
-      const exception = {
-        httpStatus: 422,
-        userMessage: 'incomplete',
-        // 缺少 getCombinedCode
-      };
-
-      await filter.catch(exception, host);
-
-      // 走到兜底，不是 422 BusinessException
+      // 契约：仅 instanceof OopsError 获得业务语义；手搓形状走兜底
       expect(response.status).toHaveBeenCalledWith(500);
     });
   });
@@ -431,16 +415,24 @@ describe('AnyExceptionFilter', () => {
       }
     });
 
-    it('Legacy duck-typing → throw GraphQLError', async () => {
+    it('plain shape → GraphQL 兜底 500，不带业务 code', async () => {
       const { host } = createGraphqlHost();
       const exception = {
         httpStatus: 422,
-        userMessage: 'legacy graphql',
+        userMessage: 'hand-rolled graphql',
         getCombinedCode: () => '0x0201LEGACY',
         getInternalDetails: () => 'detail',
       };
 
-      await expect(filter.catch(exception, host)).rejects.toThrow();
+      try {
+        await filter.catch(exception, host);
+        expect.unreachable('should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(GraphQLError);
+        const gqlError = e as GraphQLError;
+        expect(gqlError.extensions.httpStatus).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+        expect(gqlError.extensions.code).toBe(ErrorCodes.SYSTEM_INTERNAL_ERROR);
+      }
     });
 
     it('UnauthorizedException → GraphQLError + extensions.httpStatus=401 (iOS auto-logout 依赖)', async () => {

@@ -1,5 +1,6 @@
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import { OopsError } from '@app/nest/exceptions/oops-error';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 
@@ -15,23 +16,15 @@ import type { Request } from 'express';
 import type { Observable } from 'rxjs';
 
 /**
- * 判断是否是 BusinessException（IOopsException + httpStatus < 500）。
+ * 是否为「预期业务异常」：`OopsError` 且非 fatal（httpStatus < 500）。
  *
- * 设计选择：基于 httpStatus property 而非调 isFatal() method。
- * - Oops 契约：BusinessException httpStatus < 500，FatalException ≥ 500
- * - 不调 method 避免 logging 路径触发外部对象副作用（neverthrow 哲学：
- *   日志/错误处理是横切关注点，不应承担"可能失败"的语义）
+ * 与 exception filter 契约一致：只认 `instanceof OopsError`，不看 plain shape。
+ * 用 `httpStatus` 字段判断 fatal，避免在 logging 路径调用可能带副作用的 method。
  *
  * @internal exported for testing
  */
 export function isOopsBusinessException(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'httpStatus' in error &&
-    typeof error.httpStatus === 'number' &&
-    (error as { httpStatus: number }).httpStatus < 500
-  );
+  return error instanceof OopsError && error.httpStatus < 500;
 }
 
 export class LoggerInterceptor implements NestInterceptor {

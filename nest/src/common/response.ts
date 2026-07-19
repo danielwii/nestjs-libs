@@ -44,8 +44,7 @@ export const ApiRes = {
    *
    * // ✅ 正确
    * throw Oops.UserNotFound(userId);
-   * // 或
-   * throw new BusinessException({ httpStatus: 422, errorCode: '0x0103', ... });
+   * // 或 throw new Oops({ ... }) / Oops.Block / Oops.Panic
    * ```
    */
   failure: ({ code, message, errors }: { code?: string; message: string; errors?: unknown }): ApiRes<never> => ({
