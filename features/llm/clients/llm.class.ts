@@ -36,7 +36,13 @@ import { ApiFetcher } from '@app/utils/fetch';
 
 import { llmCaptureSchema } from '../schemas/capture.schema';
 import { EMBEDDING_MODELS } from '../types/embedding.types';
-import { DEFAULT_SUPPORTED_TIERS, getModel, parseModelSpec, resolveThinkingForModel } from '../types/model.types';
+import {
+  allowsSystemInMessages,
+  DEFAULT_SUPPORTED_TIERS,
+  getModel,
+  parseModelSpec,
+  resolveThinkingForModel,
+} from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { model as createModel, parseProvider } from './auto.client';
 import { bedrockServiceTierOptions } from './bedrock.client';
@@ -955,6 +961,7 @@ export class LLM {
         output: Output.object({ schema }),
         instructions,
         messages,
+        allowSystemInMessages: allowsSystemInMessages(modelKey as LLMModelKey),
       });
 
       const duration = Date.now() - startTime;
@@ -979,6 +986,7 @@ export class LLM {
         messages,
         tools,
         toolChoice,
+        allowSystemInMessages: allowsSystemInMessages(modelKey as LLMModelKey),
       });
 
       const duration = Date.now() - startTime;
@@ -1167,6 +1175,7 @@ export class LLM {
           abortSignal: signal,
           telemetry: withProvenanceTelemetry(telemetry),
           runtimeContext: mergeProvenanceRuntimeContext(),
+          allowSystemInMessages: allowsSystemInMessages(modelKey),
         });
 
         cleanup();
@@ -1406,6 +1415,7 @@ export class LLM {
           abortSignal: signal,
           telemetry: withProvenanceTelemetry(telemetry),
           ...(runtimeContext !== undefined ? { runtimeContext } : {}),
+          allowSystemInMessages: allowsSystemInMessages(modelKey),
         });
 
         cleanup();
@@ -1864,6 +1874,7 @@ export class LLM {
           abortSignal: signal,
           telemetry: withProvenanceTelemetry(telemetry),
           runtimeContext: mergeProvenanceRuntimeContext(),
+          allowSystemInMessages: allowsSystemInMessages(modelKey),
         });
 
         cleanup();
@@ -2042,6 +2053,7 @@ export class LLM {
       abortSignal: signal,
       telemetry: withProvenanceTelemetry(telemetry),
       runtimeContext: mergeProvenanceRuntimeContext(),
+      allowSystemInMessages: allowsSystemInMessages(modelKey),
       onError: ({ error }) => {
         LLM.logErrorEvent(id, 'streamObjectViaTool', modelKey, error);
       },

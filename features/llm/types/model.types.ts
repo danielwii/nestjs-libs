@@ -131,6 +131,17 @@ export interface ModelConfig<P extends string = string> {
    */
   reasoningDefaultEffort?: 'low' | 'medium' | 'high';
   /**
+   * 该模型端到端是否接受 messages 数组里的 system 条目（事实标记，缺省 = true）。
+   *
+   * 背景（2026-07-19 UNEE-SERVER-PQ）：ai@7.0.31 的 standardizePrompt 默认
+   * `allowSystemInMessages=false`，客户端侧拒绝 system-in-messages——但多数
+   * provider 适配层本来就会翻译（gemini → systemInstruction 等），历史流量普遍可用。
+   * 因此缺省 true（ libs 调用 SDK 时透传 allowSystemInMessages: true ）；
+   * 仅当实测 / 线上 400 证明某模型后端确实不接受时，单独标 `false`。
+   * 事实来源：`features/llm/clients/system-in-messages.spec.ts`（e2e 探针）。
+   */
+  systemInMessages?: boolean;
+  /**
    * 该模型支持的 Vertex tier 列表（仅 vertex / vertex-global provider 相关）
    *
    * - 未填 = 默认只支持 `standard`
@@ -1399,6 +1410,15 @@ const DEFAULT_MANDATORY_REASONING_EFFORT: Exclude<ThinkingEffortLevel, 'none'> =
  */
 export function isReasoningMandatory(key: LLMModelKey): boolean {
   return getModel(key).reasoningRequired === true;
+}
+
+/**
+ * Whether this model end-to-end accepts system entries inside messages (default true).
+ * libs 调用 AI SDK 时据此透传 `allowSystemInMessages`；仅实测/线上 400 证明
+ * 后端不接受的模型在 registry 单独标 `systemInMessages: false`。
+ */
+export function allowsSystemInMessages(key: LLMModelKey): boolean {
+  return getModel(key).systemInMessages !== false;
 }
 
 /**
