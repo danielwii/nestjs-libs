@@ -75,4 +75,30 @@ describeLive('bedrock live smoke (LLM_LIVE_TEST=1)', () => {
 
     expect(failures).toEqual([]);
   }, 600_000);
+
+  it('default tier: anthropic model works without serviceTier (不下发 tier 字段)', async () => {
+    // Claude 全系不支持 flex/priority(live 实证 2026-07-20),default 调用是其在生产上的唯一形态。
+    const r = await LLM.generateText({
+      id: 'live-default-tier',
+      model: 'bedrock:claude-haiku-4.5',
+      messages: [{ role: 'user', content: 'Reply with exactly: ok' }],
+      maxRetries: 0,
+      timeout: 45_000,
+    });
+    expect(r.text.length).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('serviceTier availability matrix: probe and report for this account/region', async () => {
+    // tier 支持度随账号/区域动态变化,不写死预期,只验证探测机制完整并打印矩阵供人工核对。
+    const matrix = await LLM.checkBedrockServiceTierSupport({ tiers: ['flex'] });
+    expect(matrix.length).toBeGreaterThan(0);
+    for (const row of matrix) {
+      console.log(
+        `[live-smoke] ${row.key} (${row.modelId}) flex=${row.flex}${row.errors ? ' err=' + JSON.stringify(row.errors) : ''}`,
+      );
+    }
+    // 每个注册的 bedrock key 都必须有明确判定(true/false),unknown 视为探测链路故障
+    const unknowns = matrix.filter((r) => r.flex === 'unknown');
+    expect(unknowns).toEqual([]);
+  }, 600_000);
 });

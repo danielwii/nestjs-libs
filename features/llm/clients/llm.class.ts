@@ -40,6 +40,7 @@ import {
   allowsSystemInMessages,
   DEFAULT_SUPPORTED_TIERS,
   getModel,
+  getRegisteredModels,
   parseModelSpec,
   resolveThinkingForModel,
 } from '../types/model.types';
@@ -856,6 +857,30 @@ async function withFallback<T>(
 // ═══════════════════════════════════════════════════════════════════════════
 // LLM Class
 // ═══════════════════════════════════════════════════════════════════════════
+
+/** checkBedrockServiceTierSupport 的单行结果 */
+export interface BedrockServiceTierAvailability {
+  /** registry key(如 'bedrock:kimi-k2.5') */
+  key: string;
+  /** Bedrock modelId(如 'moonshotai.kimi-k2.5') */
+  modelId: string;
+  flex: boolean | 'unknown';
+  priority: boolean | 'unknown';
+  /** 判定为 unknown 时的错误信息 */
+  errors?: { flex?: string; priority?: string };
+}
+
+/** checkBedrockServiceTierSupport 的选项 */
+export interface CheckBedrockServiceTierSupportOptions {
+  /** 要探测的 key,默认全部注册的 bedrock:* */
+  keys?: LLMModelKey[];
+  /** 要探测的 tier,默认 ['flex', 'priority'] */
+  tiers?: Array<'flex' | 'priority'>;
+  /** 单次探测超时(毫秒),默认 45000 */
+  timeoutMs?: number;
+  /** 可注入的探测执行器(测试用),默认走真实 generateText */
+  probe?: (spec: string) => Promise<void>;
+}
 
 export class LLM {
   private static readonly logger = getAppLogger('features', 'LLM');
@@ -2372,6 +2397,65 @@ export class LLM {
   static model(key: LLMModelSpec): LanguageModel {
     const { key: baseKey } = parseModelSpec(key);
     return createModel(baseKey);
+  }
+
+  /**
+   * 探测当前账号/区域下各 bedrock 模型的 serviceTier 支持矩阵(live 调用)。
+   *
+   * tier 支持度随账号/区域/AWS 扩容动态变化(2026-07-20 实证:Claude 全系与 nova-lite
+   * 在 us-east-1/us-east-2 均不接受 flex/priority,kimi/deepseek/minimax/nova-pro/
+   * nova-2 接受),因此库内不写死矩阵,由使用方在目标账号/区域自查。
+   * 每次探测对每个 key 的每个 tier 发一次最小 generateText(maxRetries=0),
+   * "service tier is not supported" 判定为不支持,其余错误标 unknown 并附错误信息。
+   *
+   * @example
+   * ```ts
+   * const matrix = await LLM.checkBedrockServiceTierSupport();
+   * console.table(matrix);
+   * ```
+   */
+  static async checkBedrockServiceTierSupport(
+    options?: CheckBedrockServiceTierSupportOptions,
+  ): Promise<BedrockServiceTierAvailability[]> {
+    const keys = options?.keys ?? (getRegisteredModels().filter((k) => k.startsWith('bedrock:')) as LLMModelKey[]);
+    const tiers = options?.tiers ?? ['flex', 'priority'];
+    const probe =
+      options?.probe ??
+      (async (spec: string) => {
+        await LLM.generateText({
+          id: 'bedrock-tier-availability-probe',
+          model: spec as LLMModelSpec,
+          messages: [{ role: 'user', content: 'Reply with exactly: ok' }],
+          maxRetries: 0,
+          timeout: options?.timeoutMs ?? 45_000,
+        });
+      });
+
+    const matrix: BedrockServiceTierAvailability[] = [];
+    for (const key of keys) {
+      const row: BedrockServiceTierAvailability = {
+        key,
+        modelId: getModel(key).modelId,
+        flex: 'unknown',
+        priority: 'unknown',
+      };
+      for (const tier of tiers) {
+        try {
+          await probe(`${key}?bedrock.serviceTier=${tier}`);
+          row[tier] = true;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (/service tier is not supported/i.test(message)) {
+            row[tier] = false;
+          } else {
+            row[tier] = 'unknown';
+            row.errors = { ...row.errors, [tier]: message.slice(0, 200) };
+          }
+        }
+      }
+      matrix.push(row);
+    }
+    return matrix;
   }
 }
 
