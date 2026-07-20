@@ -11,7 +11,8 @@
     "test:cov": "bun test --coverage",
     "typecheck": "tsc --noEmit",
     "check:dep-identity": "bun scripts/check-dep-identity.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:bedrock-tiers": "bun scripts/check-bedrock-service-tiers.ts"
   },
   "overrides": {
     "@ai-sdk/provider-utils": "5.0.11",

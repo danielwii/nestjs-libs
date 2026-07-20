@@ -210,11 +210,11 @@ describe('bedrock client', () => {
 });
 
 describe('bedrock request payload', () => {
-  it('M11/S2: serviceTier + reasoning budget land in the Converse payload via ApiFetcher', async () => {
+  it('M11a/S2: serviceTier lands in the Converse payload for tier-capable models', async () => {
     await callIgnoringError(() =>
       LLM.generateText({
-        id: 'bedrock-service-tier-reason',
-        model: 'bedrock:claude-sonnet-4.5?bedrock.serviceTier=flex&reason=low',
+        id: 'bedrock-service-tier-capable',
+        model: 'bedrock:kimi-k2.5?bedrock.serviceTier=flex',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
       }),
@@ -224,13 +224,44 @@ describe('bedrock request payload', () => {
     const first = capturedRequests[0]!;
     // 请求经 ApiFetcher.fetch 发出（被本测试捕获即证明 S2）
     expect(first.url).toContain('bedrock-runtime.');
-    expect(first.url).toContain('us.anthropic.claude-sonnet-4-5');
+    expect(first.url).toContain('moonshotai.kimi-k2.5');
     expect(first.headers.get('authorization')).toBe('Bearer test-bedrock-key');
 
     const body = firstJsonBody();
     expect(body.serviceTier).toEqual({ type: 'flex' });
+  });
+
+  it('M11b: reasoning budget lands for anthropic models without serviceTier', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'bedrock-reason-budget',
+        model: 'bedrock:claude-sonnet-4.5?reason=low',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+
+    const first = capturedRequests[0]!;
+    expect(first.url).toContain('us.anthropic.claude-sonnet-4-5');
+    const body = firstJsonBody();
+    expect(body.serviceTier).toBeUndefined();
     const additional = body.additionalModelRequestFields as Record<string, unknown>;
     expect(additional.thinking).toEqual({ type: 'enabled', budget_tokens: 1024 });
+  });
+
+  it('M11c: tier 参数全透传——Claude 请求 flex 也照样下发(用户自由,AWS 侧自行裁决)', async () => {
+    await callIgnoringError(() =>
+      LLM.generateText({
+        id: 'bedrock-tier-passthrough',
+        model: 'bedrock:claude-sonnet-4.5?bedrock.serviceTier=flex',
+        messages: SIMPLE_MESSAGE,
+        maxRetries: 0,
+      }),
+    );
+
+    // 库不做家族拦截:支持与否由目标账号/区域决定(LLM.checkBedrockServiceTierSupport 自查)
+    const body = firstJsonBody();
+    expect(body.serviceTier).toEqual({ type: 'flex' });
   });
 
   it('M11: thinking=none emits reasoningConfig disabled for anthropic keys', async () => {
