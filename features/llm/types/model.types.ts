@@ -412,6 +412,23 @@ export interface LLMModelRegistry {
   'openrouter:google/gemini-3.5-flash': ModelConfig<'openrouter'>;
 
   /**
+   * Gemini 3.6 Flash - GA
+   *
+   * OpenRouter 定价（2026-07-21）：
+   * - Standard: Input $1.50/M, Output $7.50/M
+   * - Flex: Input $0.75/M, Output $3.75/M
+   * - Priority: Input $2.70/M, Output $13.50/M
+   * - Context 1,048,576；Max output 65,536
+   *
+   * OpenRouter endpoint 强制 reasoning，provider 默认 medium，支持 minimal/low/medium/high。
+   * Library 对 no-thinking intent 以 low fallback；live probe：effort:none 返回 400，low 可调用。
+   *
+   * @see https://openrouter.ai/google/gemini-3.6-flash
+   */
+  'openrouter:gemini-3.6-flash': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-3.6-flash': ModelConfig<'openrouter'>;
+
+  /**
    * Gemini 3.1 Pro Preview
    *
    * 定价参考（2026.04）：Input $2/M, Output $12/M, Context 1M
@@ -606,6 +623,9 @@ export interface LLMModelRegistry {
   'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3.5-flash': ModelConfig<'vertex'>;
+
+  /** Direct Vertex live probe confirms thinkingBudget=0 is supported. */
+  'vertex:gemini-3.6-flash': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>;
 
   // ==================== Vertex AI (project/global mode) ====================
@@ -984,6 +1004,26 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
+  // Gemini 3.6 Flash via OpenRouter — metadata + live 400 confirm reasoning is mandatory
+  [
+    'openrouter:gemini-3.6-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.6-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+  [
+    'openrouter:google/gemini-3.6-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.6-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+
   // Gemini 3.1 Pro Preview
   ['openrouter:gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
   ['openrouter:google/gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
@@ -1094,6 +1134,8 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex:gemini-3.5-flash',
     { provider: 'vertex', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
   ],
+  // Direct Vertex live probe confirms thinkingBudget=0 is accepted (reasoningTokens=0).
+  ['vertex:gemini-3.6-flash', { provider: 'vertex', modelId: 'gemini-3.6-flash' }],
   [
     'vertex:gemini-3.1-pro-preview',
     {
@@ -1543,6 +1585,7 @@ export function validateLLMConfiguration(): LLMConfigurationValidationResult {
 
   // 获取所有标记了 @LLMModelField() 的字段
   const llmModelFields = getLLMModelFields();
+  const envValues = SysEnv as unknown as Record<string, string | undefined>;
 
   // 如果没有任何 LLM model 字段，跳过验证
   if (llmModelFields.length === 0) {
@@ -1551,7 +1594,7 @@ export function validateLLMConfiguration(): LLMConfigurationValidationResult {
 
   // 验证每个配置的 model
   for (const fieldName of llmModelFields) {
-    const modelKey = SysEnv[fieldName as keyof typeof SysEnv] as string | undefined;
+    const modelKey = envValues[fieldName];
 
     // 跳过未配置的字段
     if (!modelKey) {

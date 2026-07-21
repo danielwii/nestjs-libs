@@ -57,4 +57,11 @@ describe('getCostFromUsage bedrock', () => {
     // openrouter key 不受 bedrockServiceTier 影响（google/gemini-3.5-flash: $1.5/$9）
     expect(getCostFromUsage(usage, 'openrouter:gemini-3.5-flash', { bedrockServiceTier: 'flex' })).toBeCloseTo(10.5);
   });
+
+  it('uses OpenRouter standard pricing for both Gemini 3.6 Flash aliases', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    // OpenRouter 2026-07-21 standard: $1.50/M input + $7.50/M output.
+    expect(getCostFromUsage(usage, 'openrouter:gemini-3.6-flash')).toBeCloseTo(9);
+    expect(getCostFromUsage(usage, 'openrouter:google/gemini-3.6-flash')).toBeCloseTo(9);
+  });
 });

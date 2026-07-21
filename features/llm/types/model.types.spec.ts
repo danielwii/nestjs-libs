@@ -272,18 +272,52 @@ describe('validateModelKey', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// validateModelSpec / reasoning policy (OR gemini-3.5-flash)
+// validateModelSpec / reasoning policy (Gemini 3.5/3.6 Flash)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('reasoning policy: openrouter vs vertex gemini-3.5-flash', () => {
+describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
   it('M1: marks openrouter gemini-3.5-flash as reasoningRequired', () => {
     expect(getModel('openrouter:gemini-3.5-flash').reasoningRequired).toBe(true);
     expect(getModel('openrouter:google/gemini-3.5-flash').reasoningRequired).toBe(true);
     expect(getModel('openrouter:gemini-3.5-flash').reasoningDefaultEffort).toBe('low');
   });
 
-  it('M5: vertex gemini-3.5-flash is not reasoningRequired', () => {
+  it('registers both OpenRouter gemini-3.6-flash aliases with mandatory reasoning', () => {
+    for (const key of ['openrouter:gemini-3.6-flash', 'openrouter:google/gemini-3.6-flash'] as const) {
+      const config = getModel(key);
+      expect(config.modelId).toBe('google/gemini-3.6-flash');
+      expect(config.reasoningRequired).toBe(true);
+      expect(config.reasoningDefaultEffort).toBe('low');
+    }
+  });
+
+  it('keeps direct Vertex Gemini Flash models non-mandatory', () => {
     expect(getModel('vertex:gemini-3.5-flash').reasoningRequired).not.toBe(true);
+    expect(getModel('vertex:gemini-3.6-flash')).toMatchObject({
+      provider: 'vertex',
+      modelId: 'gemini-3.6-flash',
+    });
+    expect(getModel('vertex:gemini-3.6-flash').reasoningRequired).not.toBe(true);
+  });
+
+  it('param-fallbacks OpenRouter 3.6 none → low but keeps direct Vertex none', () => {
+    expect(resolveThinkingForModel('openrouter:gemini-3.6-flash', 'none')).toEqual({
+      thinking: 'low',
+      paramFallbackApplied: true,
+    });
+    expect(resolveThinkingForModel('vertex:gemini-3.6-flash', 'none')).toEqual({
+      thinking: 'none',
+      paramFallbackApplied: false,
+    });
+  });
+
+  it('warns and suggests reason=low for OpenRouter 3.6 no-thinking intent', () => {
+    const result = validateModelSpec('openrouter:gemini-3.6-flash', { thinking: 'none' });
+    const issues = result.ok ? result.warnings : result.issues;
+    expect(issues.find((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')?.suggestions).toEqual([
+      'openrouter:gemini-3.6-flash?reason=low',
+    ]);
+    if (result.ok) expect(result.effectiveThinking).toBe('low');
   });
 
   it('resolveThinkingForModel param-fallbacks none → low on OR 3.5-flash', () => {
