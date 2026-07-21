@@ -65,3 +65,28 @@ describe('getCostFromUsage bedrock', () => {
     expect(getCostFromUsage(usage, 'openrouter:google/gemini-3.6-flash')).toBeCloseTo(9);
   });
 });
+
+describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
+  const pricingCases = [
+    {
+      keys: ['openrouter:gemini-3.5-flash-lite', 'openrouter:google/gemini-3.5-flash-lite'],
+      expected: 0.28,
+    },
+    { keys: ['openrouter:claude-sonnet-5', 'openrouter:anthropic/claude-sonnet-5'], expected: 1.2 },
+    { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 0.7 },
+    { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 1.75 },
+    { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 3.5 },
+    { keys: ['openrouter:grok-4.5', 'openrouter:x-ai/grok-4.5'], expected: 0.8 },
+    { keys: ['openrouter:kimi-k3', 'openrouter:moonshotai/kimi-k3'], expected: 1.8 },
+  ] as const;
+
+  it('uses standard per-token fallback pricing for shorthand and canonical aliases', () => {
+    // 100K input stays below the GPT-5.6/Grok long-context thresholds.
+    const usage = { inputTokens: 100_000, outputTokens: 100_000 };
+    for (const { keys, expected } of pricingCases) {
+      for (const key of keys) {
+        expect(getCostFromUsage(usage, key)).toBeCloseTo(expected);
+      }
+    }
+  });
+});

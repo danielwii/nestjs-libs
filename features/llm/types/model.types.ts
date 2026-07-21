@@ -412,6 +412,17 @@ export interface LLMModelRegistry {
   'openrouter:google/gemini-3.5-flash': ModelConfig<'openrouter'>;
 
   /**
+   * Gemini 3.5 Flash-Lite - GA
+   *
+   * OpenRouter standard: Input $0.30/M, Output $2.50/M, Context 1,048,576, Max output 65,536.
+   * OpenRouter endpoint 强制 reasoning，provider 默认 minimal；library 对 no-thinking intent 以 low fallback。
+   *
+   * @see https://openrouter.ai/google/gemini-3.5-flash-lite
+   */
+  'openrouter:gemini-3.5-flash-lite': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-3.5-flash-lite': ModelConfig<'openrouter'>;
+
+  /**
    * Gemini 3.6 Flash - GA
    *
    * OpenRouter 定价（2026-07-21）：
@@ -457,6 +468,16 @@ export interface LLMModelRegistry {
    */
   'openrouter:claude-sonnet-4.6': ModelConfig<'openrouter'>;
   'openrouter:anthropic/claude-sonnet-4.6': ModelConfig<'openrouter'>;
+  /**
+   * Claude Sonnet 5 - 1M context / adaptive reasoning
+   *
+   * OpenRouter standard: Input $2/M, Output $10/M, Max output 128K.
+   * Reasoning 可关闭；provider 默认 medium，library 支持 low/medium/high 子集。
+   *
+   * @see https://openrouter.ai/anthropic/claude-sonnet-5
+   */
+  'openrouter:claude-sonnet-5': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-sonnet-5': ModelConfig<'openrouter'>;
   /**
    * Claude Opus 4.6
    *
@@ -531,6 +552,23 @@ export interface LLMModelRegistry {
    */
   'openrouter:gpt-5.5': ModelConfig<'openrouter'>;
   'openrouter:openai/gpt-5.5': ModelConfig<'openrouter'>;
+  /**
+   * GPT-5.6 family - 1.05M context / 128K max output
+   *
+   * OpenRouter standard (≤272K input tokens):
+   * - Luna: Input $1/M, Output $6/M
+   * - Terra: Input $2.50/M, Output $15/M
+   * - Sol: Input $5/M, Output $30/M
+   *
+   * >272K input tokens 使用 OpenRouter long-context override；API-returned cost 优先于静态估算。
+   * Reasoning 支持 none/low/medium/high（provider 另支持 xhigh/max）。
+   */
+  'openrouter:gpt-5.6-luna': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-5.6-luna': ModelConfig<'openrouter'>;
+  'openrouter:gpt-5.6-terra': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-5.6-terra': ModelConfig<'openrouter'>;
+  'openrouter:gpt-5.6-sol': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-5.6-sol': ModelConfig<'openrouter'>;
 
   // ---- xAI Grok (4.20+) ----
   /**
@@ -551,6 +589,16 @@ export interface LLMModelRegistry {
    */
   'openrouter:grok-4.3': ModelConfig<'openrouter'>;
   'openrouter:x-ai/grok-4.3': ModelConfig<'openrouter'>;
+  /**
+   * Grok 4.5 - 500K context
+   *
+   * OpenRouter standard (≤200K input tokens): Input $2/M, Output $6/M；long context 为 $4/$12。
+   * Reasoning 强制开启，provider 默认 high；library 对 no-thinking intent 以 low fallback。
+   *
+   * @see https://openrouter.ai/x-ai/grok-4.5
+   */
+  'openrouter:grok-4.5': ModelConfig<'openrouter'>;
+  'openrouter:x-ai/grok-4.5': ModelConfig<'openrouter'>;
 
   // ---- DeepSeek / MoonshotAI Kimi / Qwen ----
   /**
@@ -589,6 +637,16 @@ export interface LLMModelRegistry {
    */
   'openrouter:kimi-k2-thinking': ModelConfig<'openrouter'>;
   'openrouter:moonshotai/kimi-k2-thinking': ModelConfig<'openrouter'>;
+  /**
+   * Kimi K3 - 2.8T open-weight multimodal reasoning model
+   *
+   * OpenRouter standard: Input $3/M, Output $15/M, Context 1,048,576.
+   * Reasoning metadata 为非强制，provider 默认 max；library 支持 low/high 子集。
+   *
+   * @see https://openrouter.ai/moonshotai/kimi-k3
+   */
+  'openrouter:kimi-k3': ModelConfig<'openrouter'>;
+  'openrouter:moonshotai/kimi-k3': ModelConfig<'openrouter'>;
   /**
    * Qwen3.6 Flash - 高性价比
    *
@@ -1004,6 +1062,26 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
+  // Gemini 3.5 Flash-Lite via OpenRouter — metadata says reasoning is mandatory; minimal is not in public effort type
+  [
+    'openrouter:gemini-3.5-flash-lite',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.5-flash-lite',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+  [
+    'openrouter:google/gemini-3.5-flash-lite',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.5-flash-lite',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+
   // Gemini 3.6 Flash via OpenRouter — metadata + live 400 confirm reasoning is mandatory
   [
     'openrouter:gemini-3.6-flash',
@@ -1034,6 +1112,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Claude Sonnet 4.6
   ['openrouter:claude-sonnet-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.6' }],
   ['openrouter:anthropic/claude-sonnet-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.6' }],
+  // Claude Sonnet 5 — OpenRouter metadata: optional adaptive reasoning
+  ['openrouter:claude-sonnet-5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5' }],
+  ['openrouter:anthropic/claude-sonnet-5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5' }],
   // Claude Opus 4.6
   ['openrouter:claude-opus-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.6' }],
   ['openrouter:anthropic/claude-opus-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.6' }],
@@ -1059,6 +1140,13 @@ const modelRegistry = new Map<string, ModelConfig>([
   // GPT-5.5
   ['openrouter:gpt-5.5', { provider: 'openrouter', modelId: 'openai/gpt-5.5' }],
   ['openrouter:openai/gpt-5.5', { provider: 'openrouter', modelId: 'openai/gpt-5.5' }],
+  // GPT-5.6 family — OpenRouter metadata: reasoning supports none
+  ['openrouter:gpt-5.6-luna', { provider: 'openrouter', modelId: 'openai/gpt-5.6-luna' }],
+  ['openrouter:openai/gpt-5.6-luna', { provider: 'openrouter', modelId: 'openai/gpt-5.6-luna' }],
+  ['openrouter:gpt-5.6-terra', { provider: 'openrouter', modelId: 'openai/gpt-5.6-terra' }],
+  ['openrouter:openai/gpt-5.6-terra', { provider: 'openrouter', modelId: 'openai/gpt-5.6-terra' }],
+  ['openrouter:gpt-5.6-sol', { provider: 'openrouter', modelId: 'openai/gpt-5.6-sol' }],
+  ['openrouter:openai/gpt-5.6-sol', { provider: 'openrouter', modelId: 'openai/gpt-5.6-sol' }],
 
   // Grok 4.20
   ['openrouter:grok-4.20', { provider: 'openrouter', modelId: 'x-ai/grok-4.20' }],
@@ -1066,6 +1154,15 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Grok 4.3
   ['openrouter:grok-4.3', { provider: 'openrouter', modelId: 'x-ai/grok-4.3' }],
   ['openrouter:x-ai/grok-4.3', { provider: 'openrouter', modelId: 'x-ai/grok-4.3' }],
+  // Grok 4.5 — OpenRouter metadata: mandatory reasoning, lowest supported effort is low
+  [
+    'openrouter:grok-4.5',
+    { provider: 'openrouter', modelId: 'x-ai/grok-4.5', reasoningRequired: true, reasoningDefaultEffort: 'low' },
+  ],
+  [
+    'openrouter:x-ai/grok-4.5',
+    { provider: 'openrouter', modelId: 'x-ai/grok-4.5', reasoningRequired: true, reasoningDefaultEffort: 'low' },
+  ],
 
   // DeepSeek V4 Flash
   ['openrouter:deepseek-v4-flash', { provider: 'openrouter', modelId: 'deepseek/deepseek-v4-flash' }],
@@ -1085,6 +1182,9 @@ const modelRegistry = new Map<string, ModelConfig>([
     'openrouter:moonshotai/kimi-k2-thinking',
     { provider: 'openrouter', modelId: 'moonshotai/kimi-k2-thinking', reasoningRequired: true },
   ],
+  // Kimi K3 — OpenRouter metadata: reasoning optional
+  ['openrouter:kimi-k3', { provider: 'openrouter', modelId: 'moonshotai/kimi-k3' }],
+  ['openrouter:moonshotai/kimi-k3', { provider: 'openrouter', modelId: 'moonshotai/kimi-k3' }],
   // Qwen3.6 Flash
   ['openrouter:qwen3.6-flash', { provider: 'openrouter', modelId: 'qwen/qwen3.6-flash' }],
   ['openrouter:qwen/qwen3.6-flash', { provider: 'openrouter', modelId: 'qwen/qwen3.6-flash' }],

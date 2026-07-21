@@ -399,6 +399,84 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// OpenRouter catalog additions (2026-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const openRouterCatalogAdditions = [
+  {
+    keys: ['openrouter:gemini-3.5-flash-lite', 'openrouter:google/gemini-3.5-flash-lite'],
+    modelId: 'google/gemini-3.5-flash-lite',
+    reasoningRequired: true,
+  },
+  {
+    keys: ['openrouter:claude-sonnet-5', 'openrouter:anthropic/claude-sonnet-5'],
+    modelId: 'anthropic/claude-sonnet-5',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'],
+    modelId: 'openai/gpt-5.6-luna',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'],
+    modelId: 'openai/gpt-5.6-terra',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'],
+    modelId: 'openai/gpt-5.6-sol',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:grok-4.5', 'openrouter:x-ai/grok-4.5'],
+    modelId: 'x-ai/grok-4.5',
+    reasoningRequired: true,
+  },
+  {
+    keys: ['openrouter:kimi-k3', 'openrouter:moonshotai/kimi-k3'],
+    modelId: 'moonshotai/kimi-k3',
+    reasoningRequired: false,
+  },
+] as const;
+
+describe('OpenRouter 2026-07 model catalog additions', () => {
+  it('registers shorthand and canonical aliases with provider-specific reasoning metadata', () => {
+    for (const entry of openRouterCatalogAdditions) {
+      for (const key of entry.keys) {
+        expect(getModel(key)).toMatchObject({
+          provider: 'openrouter',
+          modelId: entry.modelId,
+        });
+        expect(getModel(key).reasoningRequired === true).toBe(entry.reasoningRequired);
+      }
+    }
+  });
+
+  it('falls none back to low only for mandatory-reasoning additions', () => {
+    for (const entry of openRouterCatalogAdditions) {
+      for (const key of entry.keys) {
+        expect(resolveThinkingForModel(key, 'none')).toEqual({
+          thinking: entry.reasoningRequired ? 'low' : 'none',
+          paramFallbackApplied: entry.reasoningRequired,
+        });
+      }
+    }
+  });
+
+  it('suggests the lowest public effort for mandatory Gemini and Grok keys', () => {
+    for (const key of ['openrouter:gemini-3.5-flash-lite', 'openrouter:grok-4.5'] as const) {
+      const result = validateModelSpec(key, { thinking: 'none' });
+      const issues = result.ok ? result.warnings : result.issues;
+      expect(issues.find((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')?.suggestions).toEqual([
+        `${key}?reason=low`,
+      ]);
+      if (result.ok) expect(result.effectiveThinking).toBe('low');
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AWS Bedrock provider
 // ─────────────────────────────────────────────────────────────────────────────
 

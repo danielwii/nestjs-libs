@@ -65,6 +65,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'google/gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'google/gemini-3.5-flash': { input: 1.5, output: 9.0 },
+  'google/gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
   'google/gemini-3.6-flash': { input: 1.5, output: 7.5 },
   'google/gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
   'gemini-2.5-flash': { input: 0.3, output: 2.5 },
@@ -73,6 +74,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
+  'gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
   'gemini-3.6-flash': { input: 1.5, output: 7.5 },
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
 
@@ -85,6 +87,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'anthropic/claude-4-opus': { input: 5.0, output: 25.0 },
   'anthropic/claude-haiku-4.5': { input: 1.0, output: 5.0 },
   'anthropic/claude-sonnet-4.6': { input: 3.0, output: 15.0 },
+  'anthropic/claude-sonnet-5': { input: 2.0, output: 10.0 },
   'anthropic/claude-opus-4.6': { input: 5.0, output: 25.0 },
   'anthropic/claude-opus-4.7': { input: 5.0, output: 25.0 },
 
@@ -93,6 +96,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 },
   'x-ai/grok-4.20': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.3': { input: 1.25, output: 2.5 },
+  'x-ai/grok-4.5': { input: 2.0, output: 6.0 }, // ≤200K input；>200K: $4/$12
 
   // StepFun
   'stepfun/step-3.5-flash:free': { input: 0, output: 0 },
@@ -106,6 +110,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'moonshotai/kimi-k2.5': { input: 0.23, output: 3.0 },
   'moonshotai/kimi-k2.6': { input: 0.73, output: 3.49 },
   'moonshotai/kimi-k2-thinking': { input: 0.6, output: 2.5 },
+  'moonshotai/kimi-k3': { input: 3.0, output: 15.0 },
 
   // Qwen
   'qwen/qwen3.6-flash': { input: 0.1875, output: 1.125 },
@@ -126,6 +131,10 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'openai/gpt-5.4-mini': { input: 0.75, output: 4.5 },
   'openai/gpt-5.4-nano': { input: 0.2, output: 1.25 },
   'openai/gpt-5.5': { input: 5.0, output: 30.0 },
+  // GPT-5.6 standard ≤272K input；long-context overrides are 2x input / 1.5x output.
+  'openai/gpt-5.6-luna': { input: 1.0, output: 6.0 },
+  'openai/gpt-5.6-terra': { input: 2.5, output: 15.0 },
+  'openai/gpt-5.6-sol': { input: 5.0, output: 30.0 },
 
   // ==================== AWS Bedrock（key 为 registry 中的 Bedrock modelId）====================
   // 定价来源：AWS Bedrock pricing（经 models.dev 镜像核对，2026-07-17）
