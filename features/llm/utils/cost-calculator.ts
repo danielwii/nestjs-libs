@@ -36,9 +36,14 @@ export interface CostContext {
 // 价格表（每百万 tokens）
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface ModelPricing {
+interface TokenPricing {
   input: number; // 每百万 input tokens 的成本（美元）
   output: number; // 每百万 output tokens 的成本（美元）
+}
+
+interface ModelPricing extends TokenPricing {
+  /** 当 input tokens 严格超过阈值时，整次调用使用该档费率。 */
+  longContext?: TokenPricing & { inputTokenThreshold: number };
 }
 
 /**
@@ -61,17 +66,29 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // OpenRouter 和 Vertex/Google AI 直连价格相同
   'google/gemini-2.5-flash': { input: 0.3, output: 2.5 },
   'google/gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
-  'google/gemini-2.5-pro': { input: 1.25, output: 10.0 }, // ≤200K tokens；>200K: $2.50/$15.00
+  'google/gemini-2.5-pro': {
+    input: 1.25,
+    output: 10.0,
+    longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
+  },
   'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'google/gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'google/gemini-3.5-flash': { input: 1.5, output: 9.0 },
+  'google/gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
+  'google/gemini-3.6-flash': { input: 1.5, output: 7.5 },
   'google/gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
   'gemini-2.5-flash': { input: 0.3, output: 2.5 },
   'gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
-  'gemini-2.5-pro': { input: 1.25, output: 10.0 }, // ≤200K tokens；>200K: $2.50/$15.00
+  'gemini-2.5-pro': {
+    input: 1.25,
+    output: 10.0,
+    longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
+  },
   'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
+  'gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
+  'gemini-3.6-flash': { input: 1.5, output: 7.5 },
   'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
 
   // Anthropic Claude 系列
@@ -83,6 +100,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'anthropic/claude-4-opus': { input: 5.0, output: 25.0 },
   'anthropic/claude-haiku-4.5': { input: 1.0, output: 5.0 },
   'anthropic/claude-sonnet-4.6': { input: 3.0, output: 15.0 },
+  'anthropic/claude-sonnet-5': { input: 2.0, output: 10.0 },
   'anthropic/claude-opus-4.6': { input: 5.0, output: 25.0 },
   'anthropic/claude-opus-4.7': { input: 5.0, output: 25.0 },
 
@@ -91,6 +109,11 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 },
   'x-ai/grok-4.20': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.3': { input: 1.25, output: 2.5 },
+  'x-ai/grok-4.5': {
+    input: 2.0,
+    output: 6.0,
+    longContext: { inputTokenThreshold: 200_000, input: 4.0, output: 12.0 },
+  },
 
   // StepFun
   'stepfun/step-3.5-flash:free': { input: 0, output: 0 },
@@ -104,6 +127,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'moonshotai/kimi-k2.5': { input: 0.23, output: 3.0 },
   'moonshotai/kimi-k2.6': { input: 0.73, output: 3.49 },
   'moonshotai/kimi-k2-thinking': { input: 0.6, output: 2.5 },
+  'moonshotai/kimi-k3': { input: 3.0, output: 15.0 },
 
   // Qwen
   'qwen/qwen3.6-flash': { input: 0.1875, output: 1.125 },
@@ -124,6 +148,22 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'openai/gpt-5.4-mini': { input: 0.75, output: 4.5 },
   'openai/gpt-5.4-nano': { input: 0.2, output: 1.25 },
   'openai/gpt-5.5': { input: 5.0, output: 30.0 },
+  // GPT-5.6 standard ≤272K input；long-context overrides are 2x input / 1.5x output.
+  'openai/gpt-5.6-luna': {
+    input: 1.0,
+    output: 6.0,
+    longContext: { inputTokenThreshold: 272_000, input: 2.0, output: 9.0 },
+  },
+  'openai/gpt-5.6-terra': {
+    input: 2.5,
+    output: 15.0,
+    longContext: { inputTokenThreshold: 272_000, input: 5.0, output: 22.5 },
+  },
+  'openai/gpt-5.6-sol': {
+    input: 5.0,
+    output: 30.0,
+    longContext: { inputTokenThreshold: 272_000, input: 10.0, output: 45.0 },
+  },
 
   // ==================== AWS Bedrock（key 为 registry 中的 Bedrock modelId）====================
   // 定价来源：AWS Bedrock pricing（经 models.dev 镜像核对，2026-07-17）
@@ -148,8 +188,15 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
  * @param modelId - 模型 ID（OpenRouter 格式或 Google 直连格式）
  * @returns 价格信息，如果未找到返回 null
  */
-function getPricing(modelId: string): ModelPricing | null {
-  return MODEL_PRICING[modelId] ?? null;
+function getPricing(modelId: string, promptTokens: number): TokenPricing | null {
+  const pricing = MODEL_PRICING[modelId];
+  if (!pricing) return null;
+
+  if (pricing.longContext && promptTokens > pricing.longContext.inputTokenThreshold) {
+    return pricing.longContext;
+  }
+
+  return pricing;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -160,7 +207,7 @@ function getPricing(modelId: string): ModelPricing | null {
  * 计算 LLM 调用成本（内部使用）
  */
 function calculateCost(modelId: string, promptTokens: number, completionTokens: number, multiplier = 1): number | null {
-  const pricing = getPricing(modelId);
+  const pricing = getPricing(modelId, promptTokens);
   if (!pricing) return null;
 
   const inputCost = (promptTokens / 1_000_000) * pricing.input;
@@ -216,6 +263,10 @@ function calculateCostFromKey(
     } else if (provider === 'google') {
       // Google 直连格式是 'gemini-xxx'
       modelId = modelName;
+    } else if (provider === 'vertex' || provider === 'vertex-global') {
+      // Vertex key 可能与实际 modelId 不同，统一通过 registry 解析。
+      if (!isModelRegistered(modelKey)) return null;
+      modelId = getModel(modelKey).modelId;
     } else if (provider === 'bedrock') {
       // Bedrock key 的 modelId 无法从 key 字符串推导（如 bedrock:claude-sonnet-4.5 →
       // us.anthropic.claude-sonnet-4-5-20250929-v1:0），必须查 registry
