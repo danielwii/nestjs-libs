@@ -64,6 +64,14 @@ describe('getCostFromUsage bedrock', () => {
     expect(getCostFromUsage(usage, 'openrouter:gemini-3.6-flash')).toBeCloseTo(9);
     expect(getCostFromUsage(usage, 'openrouter:google/gemini-3.6-flash')).toBeCloseTo(9);
   });
+
+  it('resolves direct Vertex pricing through the registered modelId', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    expect(getCostFromUsage(usage, 'vertex:gemini-3.6-flash')).toBeCloseTo(9);
+    expect(getCostFromUsage(usage, 'vertex:gemini-3.5-flash')).toBeCloseTo(10.5);
+    expect(getCostFromUsage(usage, 'vertex-global:gemini-3.5-flash')).toBeCloseTo(10.5);
+    expect(getCostFromUsage(usage, 'vertex:no-such-model')).toBeNull();
+  });
 });
 
 describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
@@ -88,5 +96,45 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
         expect(getCostFromUsage(usage, key)).toBeCloseTo(expected);
       }
     }
+  });
+
+  it('applies GPT-5.6 long-context rates to both aliases above 272K input tokens', () => {
+    const usage = { inputTokens: 300_000, outputTokens: 100_000 };
+    const cases = [
+      { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 1.5 },
+      { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 3.75 },
+      { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 7.5 },
+    ] as const;
+
+    for (const { keys, expected } of cases) {
+      for (const key of keys) {
+        expect(getCostFromUsage(usage, key)).toBeCloseTo(expected);
+      }
+    }
+  });
+
+  it('keeps GPT-5.6 standard rates at 272K and switches only above the threshold', () => {
+    expect(getCostFromUsage({ inputTokens: 272_000, outputTokens: 100_000 }, 'openrouter:gpt-5.6-luna')).toBeCloseTo(
+      0.872,
+    );
+    expect(getCostFromUsage({ inputTokens: 272_001, outputTokens: 100_000 }, 'openrouter:gpt-5.6-luna')).toBeCloseTo(
+      1.444002,
+    );
+  });
+
+  it('keeps Grok 4.5 standard rates at 200K and applies long-context rates above it', () => {
+    for (const key of ['openrouter:grok-4.5', 'openrouter:x-ai/grok-4.5']) {
+      expect(getCostFromUsage({ inputTokens: 200_000, outputTokens: 100_000 }, key)).toBeCloseTo(1);
+      expect(getCostFromUsage({ inputTokens: 200_001, outputTokens: 100_000 }, key)).toBeCloseTo(2.000004);
+    }
+  });
+
+  it('applies the existing Gemini 2.5 Pro long-context rates above 200K input tokens', () => {
+    expect(getCostFromUsage({ inputTokens: 200_000, outputTokens: 100_000 }, 'openrouter:gemini-2.5-pro')).toBeCloseTo(
+      1.25,
+    );
+    expect(getCostFromUsage({ inputTokens: 200_001, outputTokens: 100_000 }, 'openrouter:gemini-2.5-pro')).toBeCloseTo(
+      2.0000025,
+    );
   });
 });
