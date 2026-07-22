@@ -3,17 +3,18 @@ import 'reflect-metadata';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { parseProvider } from './auto.client';
 import { LLM } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
+
+import type { LLMModelSpec } from '../types/model.types';
 
 describe('LLM internal input error classification', () => {
   it('classifies an invalid configured model key as Panic.Config', () => {
     let thrown: unknown;
 
     try {
-      parseProvider('missing-provider-separator');
+      LLM.model('missing-provider-separator' as LLMModelSpec);
     } catch (error) {
       thrown = error;
     }
@@ -23,7 +24,7 @@ describe('LLM internal input error classification', () => {
       httpStatus: 500,
       errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
       internalDetails:
-        'Configuration error: Invalid model key format: missing-provider-separator, expected "provider:model" or provider name',
+        'Configuration error: Invalid model key format: missing-provider-separator, expected "provider:model"',
     });
   });
 

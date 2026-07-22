@@ -2,7 +2,8 @@ import 'reflect-metadata';
 
 import { SysEnv } from '@app/env';
 
-import { model, parseProvider } from './auto.client';
+import { getProvider } from '../types/model.types';
+import { LLM } from './llm.class';
 import { resetLLMClients } from './llm.clients';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -36,13 +37,12 @@ afterEach(() => {
 });
 
 describe('vertex-global provider routing', () => {
-  it('parses vertex-global as its own provider', () => {
-    expect(parseProvider('vertex-global:gemini-2.5-flash')).toBe('vertex-global');
-    expect(parseProvider('vertex-global')).toBe('vertex-global');
+  it('resolves a registered vertex-global route as its own provider', () => {
+    expect(getProvider('vertex-global:gemini-2.5-flash')).toBe('vertex-global');
   });
 
   it('uses the project/global v1 Vertex endpoint even when a Vertex API key is present', () => {
-    const languageModel = model('vertex-global:gemini-2.5-flash') as unknown as InspectableLanguageModel;
+    const languageModel = LLM.model('vertex-global:gemini-2.5-flash') as unknown as InspectableLanguageModel;
 
     expect(languageModel.config?.baseURL).toBe(
       'https://aiplatform.googleapis.com/v1/projects/test-project/locations/global/publishers/google',
@@ -53,6 +53,6 @@ describe('vertex-global provider routing', () => {
     sysEnvMut.GOOGLE_VERTEX_LOCATION = 'us-central1';
     resetLLMClients();
 
-    expect(() => model('vertex-global:gemini-2.5-flash')).toThrow(/requires GOOGLE_VERTEX_LOCATION=global/);
+    expect(() => LLM.model('vertex-global:gemini-2.5-flash')).toThrow(/requires GOOGLE_VERTEX_LOCATION=global/);
   });
 });

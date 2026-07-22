@@ -13,7 +13,6 @@ import { SysEnv } from '@app/env';
 import { ApiFetcher } from '@app/utils/fetch';
 
 import { registerModel } from '../types/model.types';
-import { model } from './auto.client';
 import { LLM } from './llm.class';
 import { resetLLMClients } from './llm.clients';
 
@@ -116,15 +115,15 @@ function firstJsonBody(): Record<string, unknown> {
 const SIMPLE_MESSAGE = [{ role: 'user' as const, content: 'test' }];
 
 describe('bedrock client', () => {
-  it('M5: model() routes bedrock keys to the bedrock provider', () => {
-    const languageModel = model('bedrock:claude-haiku-4.5') as { provider: string; modelId: string };
+  it('M5: LLM.model() routes bedrock keys to the bedrock provider', () => {
+    const languageModel = LLM.model('bedrock:claude-haiku-4.5') as { provider: string; modelId: string };
     expect(languageModel.provider).toBe('amazon-bedrock');
     expect(languageModel.modelId).toBe('us.anthropic.claude-haiku-4-5-20251001-v1:0');
   });
 
-  it('M6: model() fails fast with actionable error when no credentials exist', () => {
+  it('M6: LLM.model() fails fast with actionable error when no credentials exist', () => {
     delete sysEnvMut.AI_BEDROCK_API_KEY;
-    expect(() => model('bedrock:claude-haiku-4.5')).toThrow(
+    expect(() => LLM.model('bedrock:claude-haiku-4.5')).toThrow(
       /AI_BEDROCK_API_KEY.*AWS_BEARER_TOKEN_BEDROCK.*AWS_ACCESS_KEY_ID/s,
     );
   });
@@ -132,13 +131,13 @@ describe('bedrock client', () => {
   it('M6: error hints at profile export when only AWS_PROFILE is set', () => {
     delete sysEnvMut.AI_BEDROCK_API_KEY;
     process.env.AWS_PROFILE = 'mission-ai-v2';
-    expect(() => model('bedrock:claude-haiku-4.5')).toThrow(/AWS_PROFILE.*export static credentials/s);
+    expect(() => LLM.model('bedrock:claude-haiku-4.5')).toThrow(/AWS_PROFILE.*export static credentials/s);
   });
 
   it('M6: error names deferred credential chain when IRSA env is detected', () => {
     delete sysEnvMut.AI_BEDROCK_API_KEY;
     process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/eks.amazonaws.com/serviceaccount/token';
-    expect(() => model('bedrock:claude-haiku-4.5')).toThrow(/IAM role credentials detected.*not wired yet/s);
+    expect(() => LLM.model('bedrock:claude-haiku-4.5')).toThrow(/IAM role credentials detected.*not wired yet/s);
   });
 
   it('M6/S2: SigV4 env credentials alone are accepted and used for signing', async () => {

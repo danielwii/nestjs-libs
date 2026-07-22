@@ -166,26 +166,6 @@ export function getOpenRouter() {
  */
 export const openrouter = (modelId: string): LanguageModel => getOpenRouter()(modelId);
 
-/**
- * OpenRouter 默认 providerOptions（禁用 reasoning/thinking）
- *
- * 默认禁用 reasoning 以节省成本。如需启用，使用 autoOpts.thinking()。
- *
- * @example
- * ```typescript
- * import { openrouter, OPENROUTER_DEFAULTS } from '@app/features/llm';
- *
- * await generateText({
- *   model: openrouter('x-ai/grok-4.1-fast'),
- *   providerOptions: OPENROUTER_DEFAULTS,
- *   // ...
- * });
- * ```
- */
-export const OPENROUTER_DEFAULTS = {
-  openrouter: { reasoning: { effort: 'none' as const } },
-};
-
 // ============================================================================
 // Google AI 客户端
 // ============================================================================

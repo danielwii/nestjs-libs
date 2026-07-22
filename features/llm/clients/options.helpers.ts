@@ -1,19 +1,15 @@
 /**
- * 场景化 Options Helpers
+ * Internal model-aware thinking option builders.
  *
- * 提供常用场景的便利函数，自动处理不同 Provider 的差异
+ * Public direct-AI-SDK callers should use explicit provider-native helpers.
+ * Managed calls derive these options through `LLM` and the model registry.
  */
 
 import { bedrockThinkingOptions } from './bedrock.client';
 import { googleOptions } from './google.client';
 import { openrouterOptions } from './openrouter.client';
 
-import type { GoogleThinkingMode } from '../types/model.types';
-
-/**
- * Provider 类型
- */
-export type ProviderType = 'openrouter' | 'google' | 'vertex' | 'vertex-global' | 'bedrock';
+import type { GoogleThinkingMode, LLMProviderType } from '../types/model.types';
 
 /**
  * 根据 Provider 类型生成禁用 Thinking 的 options
@@ -35,7 +31,7 @@ export type ProviderType = 'openrouter' | 'google' | 'vertex' | 'vertex-global' 
  * });
  * ```
  */
-export function disableThinkingOptions(provider: ProviderType, modelId?: string) {
+export function disableThinkingOptions(provider: LLMProviderType, modelId?: string) {
   switch (provider) {
     case 'openrouter':
       return openrouterOptions({ disableThinking: true });
@@ -64,7 +60,7 @@ export function disableThinkingOptions(provider: ProviderType, modelId?: string)
  * ```
  */
 export function reasoningEffortOptions(
-  provider: ProviderType,
+  provider: LLMProviderType,
   effort: 'low' | 'medium' | 'high',
   modelId?: string,
   googleThinkingMode: GoogleThinkingMode = 'budget',
@@ -89,34 +85,4 @@ export function reasoningEffortOptions(
     default:
       return {};
   }
-}
-
-/**
- * 合并多个 providerOptions
- *
- * @example
- * ```typescript
- * await streamText({
- *   model: openrouter('google/gemini-2.5-flash'),
- *   messages: [...],
- *   providerOptions: mergeProviderOptions(
- *     openrouterOptions({ disableThinking: true }),
- *     openrouterOptions({ route: 'fallback' }),
- *   ),
- * });
- * ```
- */
-export function mergeProviderOptions(
-  ...options: Array<Record<string, Record<string, unknown>>>
-): Record<string, Record<string, unknown>> {
-  const result: Record<string, Record<string, unknown>> = {};
-
-  for (const opt of options) {
-    for (const [provider, config] of Object.entries(opt)) {
-      result[provider] ??= {};
-      Object.assign(result[provider], config);
-    }
-  }
-
-  return result;
 }

@@ -105,9 +105,38 @@ type RemovedParsedTier = ParsedModelSpec['tier'];
 // @ts-expect-error parsed Vertex options have one owner: vertex.requestType
 type RemovedParsedVertexRequestType = ParsedModelSpec['vertexRequestType'];
 
-type AutoClientModule = typeof import('./auto.client');
-// @ts-expect-error the deep-import builder was deleted instead of retained as a migration bridge
-type RemovedLlmBuilder = AutoClientModule['llm'];
+type PublicClientModule = typeof import('./index');
+type InternalClientModule = typeof import('./llm.clients');
+
+// Hard-retired automatic-routing surfaces must not return through the public barrel.
+// @ts-expect-error use LLM.model()
+type RemovedStandaloneModel = PublicClientModule['model'];
+// @ts-expect-error model-aware execution belongs to LLM
+type RemovedAutoOpts = PublicClientModule['autoOpts'];
+// @ts-expect-error provider resolution belongs to the model registry
+type RemovedParseProvider = PublicClientModule['parseProvider'];
+// @ts-expect-error provider-only presets cannot claim model safety
+type RemovedOpts = PublicClientModule['opts'];
+// @ts-expect-error merge explicit provider-native options at the call site
+type RemovedMergeProviderOptions = PublicClientModule['mergeProviderOptions'];
+// @ts-expect-error internal thinking builders are not public API
+type RemovedDisableThinkingOptions = PublicClientModule['disableThinkingOptions'];
+// @ts-expect-error internal thinking builders are not public API
+type RemovedReasoningEffortOptions = PublicClientModule['reasoningEffortOptions'];
+// @ts-expect-error internal routing stays behind LLM.model()
+type RemovedInternalRouter = PublicClientModule['createLanguageModel'];
+// @ts-expect-error static no-thinking defaults are unsafe for mandatory-reasoning models
+type RemovedOpenRouterDefaults = InternalClientModule['OPENROUTER_DEFAULTS'];
+// @ts-expect-error duplicate provider type was replaced by LLMProviderType
+type RemovedProviderType = import('./index').ProviderType;
+
+// Old deep-import modules are deleted rather than retained as migration bridges.
+// @ts-expect-error auto.client was hard-retired
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+type RemovedAutoClientModule = typeof import('./auto.client');
+// @ts-expect-error opts.presets was hard-retired
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+type RemovedOptsPresetModule = typeof import('./opts.presets');
 
 const validTools = {
   lookup: tool({

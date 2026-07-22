@@ -5,7 +5,6 @@
  * （anthropic → budgetTokens，nova 2 → maxReasoningEffort，其他 → warn + 空）。
  */
 
-import { autoOpts } from './auto.client';
 import { bedrockServiceTierOptions, bedrockThinkingOptions, inferBedrockReasoningFamily } from './bedrock.client';
 
 import { describe, expect, it } from 'bun:test';
@@ -92,34 +91,5 @@ describe('bedrockThinkingOptions', () => {
 describe('bedrockServiceTierOptions', () => {
   it('should emit serviceTier under the bedrock namespace', () => {
     expect(bedrockServiceTierOptions('flex')).toEqual({ bedrock: { serviceTier: 'flex' } });
-  });
-});
-
-describe('autoOpts bedrock branch', () => {
-  it('M7: noThinking maps to reasoningConfig disabled', () => {
-    expect(autoOpts.noThinking('bedrock:claude-haiku-4.5')).toEqual({
-      bedrock: { reasoningConfig: { type: 'disabled' } },
-    });
-  });
-
-  it('M8: thinking maps to budgetTokens for claude keys', () => {
-    expect(autoOpts.thinking('bedrock:claude-sonnet-4.5', 'low')).toEqual({
-      bedrock: { reasoningConfig: { type: 'enabled', budgetTokens: 1024 } },
-    });
-  });
-
-  it('M9: thinking maps to maxReasoningEffort for nova 2 keys', () => {
-    expect(autoOpts.thinking('bedrock:nova-2-lite', 'medium')).toEqual({
-      bedrock: { reasoningConfig: { type: 'enabled', maxReasoningEffort: 'medium' } },
-    });
-  });
-
-  it('M10: thinking on unsupported family returns empty options', () => {
-    expect(autoOpts.thinking('bedrock:kimi-k2.5', 'low')).toEqual({});
-  });
-
-  it('bare provider name cannot infer family and returns empty options with warning', () => {
-    expect(autoOpts.noThinking('bedrock')).toEqual({});
-    expect(autoOpts.thinking('bedrock', 'low')).toEqual({});
   });
 });
