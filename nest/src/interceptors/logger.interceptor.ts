@@ -23,7 +23,7 @@ import type { Observable } from 'rxjs';
  *
  * @internal exported for testing
  */
-export function isOopsBusinessException(error: unknown): boolean {
+export function isExpectedOopsError(error: unknown): boolean {
   return error instanceof OopsError && error.httpStatus < 500;
 }
 
@@ -201,11 +201,10 @@ export class LoggerInterceptor implements NestInterceptor {
           this.logger.debug`<- ${TAG} spent ${Date.now() - now}ms`;
         }),
         catchError((e) => {
-          // BusinessException (isFatal=false) 是预期业务状态（如 MG40001 设备离线），
-          // 应该用 warn 级别避免污染 Sentry/Loki ERROR 信号。FatalException 和 unknown
-          // 异常仍按 error 级别。GrpcExceptionFilter 也会按 isFatal 路由响应。
-          if (isOopsBusinessException(e)) {
-            this.logger.warning`${TAG} business: ${e}`;
+          // 非 fatal OopsError 是预期拒绝（如 MG40001 设备离线），用 warn 级别避免
+          // 污染 Sentry/Loki ERROR 信号。Oops.Panic 和 unknown 仍按 error 级别。
+          if (isExpectedOopsError(e)) {
+            this.logger.warning`${TAG} expected: ${e}`;
           } else {
             this.logger.error`${TAG} error: ${e}`;
           }

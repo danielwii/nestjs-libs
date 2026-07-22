@@ -112,7 +112,7 @@ export function parseProvider(key: string): LLMProviderType {
   // 否则解析 provider:model 格式
   const colonIndex = key.indexOf(':');
   if (colonIndex === -1) {
-    throw Oops.Validation(`Invalid model key format: ${key}, expected "provider:model" or provider name`);
+    throw Oops.Panic.Config(`Invalid model key format: ${key}, expected "provider:model" or provider name`);
   }
   return key.slice(0, colonIndex) as LLMProviderType;
 }

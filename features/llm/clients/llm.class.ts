@@ -34,6 +34,8 @@ import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
+import '@app/nest/exceptions/oops-factories';
+
 import { llmCaptureSchema } from '../schemas/capture.schema';
 import { EMBEDDING_MODELS } from '../types/embedding.types';
 import {
@@ -2174,7 +2176,7 @@ export class LLM {
     const { id, model: modelKey, text, task, abortSignal, timeout } = params;
 
     if (!text || text.trim().length === 0) {
-      throw Oops.Validation('Embedding input text is empty', `id=${id} type=${typeof text} length=${text.length}`);
+      throw Oops.Panic.Invariant(`Embedding input text is empty: id=${id} type=${typeof text} length=${text.length}`);
     }
 
     const taskPart = task ? `, task=${task}` : '';

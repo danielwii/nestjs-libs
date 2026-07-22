@@ -5,21 +5,23 @@ import type { PanicHttpStatus } from './oops';
 
 type ExternalServicePanicOptions = { cause?: unknown; httpStatus?: PanicHttpStatus };
 
-// ==================== Oops (422) Factories ====================
+// ==================== Generic Oops Factories ====================
 
-/** 通用参数验证失败 */
-Oops.Validation = function (message: string, details?: string): Oops {
-  return new Oops({
-    errorCode: ErrorCodes.CLIENT_VALIDATION_FAILED,
+/** 外部请求参数验证失败 — 400 */
+Oops.Validation = function (message: string, details?: string): Oops.Block {
+  return new Oops.Block({
+    httpStatus: 400,
+    errorCode: ErrorCodes.CLIENT_INPUT_ERROR,
     oopsCode: 'GN01',
     userMessage: message,
     internalDetails: details,
   });
 };
 
-/** 通用资源未找到 */
-Oops.NotFound = function (resource: string, id?: string): Oops {
-  return new Oops({
+/** 通用资源未找到 — 404 */
+Oops.NotFound = function (resource: string, id?: string): Oops.Block {
+  return new Oops.Block({
+    httpStatus: 404,
     errorCode: ErrorCodes.CLIENT_INPUT_ERROR,
     oopsCode: 'GN02',
     userMessage: `${resource}不存在`,
@@ -193,14 +195,25 @@ Oops.Panic.Config = function (details: string, options?: { cause?: unknown }): O
   });
 };
 
+/** 内部调用契约/状态不变量被破坏 — 代码缺陷，不得降级成客户端 400 */
+Oops.Panic.Invariant = function (details: string, options?: { cause?: unknown }): Oops.Panic {
+  return new Oops.Panic({
+    errorCode: ErrorCodes.SYSTEM_LOGIC_ERROR,
+    oopsCode: 'GN08',
+    userMessage: '系统内部状态异常，请稍后重试',
+    internalDetails: `Invariant violation: ${details}`,
+    cause: options?.cause,
+  });
+};
+
 // ==================== Type Augmentation ====================
 
 /* eslint-disable @typescript-eslint/no-namespace -- module augmentation requires namespace syntax */
 declare module './oops' {
   namespace Oops {
     // Oops (422) factory methods
-    function Validation(message: string, details?: string): Oops;
-    function NotFound(resource: string, id?: string): Oops;
+    function Validation(message: string, details?: string): Oops.Block;
+    function NotFound(resource: string, id?: string): Oops.Block;
     function ExternalServiceExpected(provider: string, details?: string): Oops;
 
     // Block (4xx) factory methods
@@ -218,6 +231,7 @@ declare module './oops' {
       function Database(operation: string, options?: { cause?: unknown }): Oops.Panic;
       function ExternalService(service: string, details?: string, options?: ExternalServicePanicOptions): Oops.Panic;
       function Config(details: string, options?: { cause?: unknown }): Oops.Panic;
+      function Invariant(details: string, options?: { cause?: unknown }): Oops.Panic;
       function AIModelError(model: string, error: string, options?: { cause?: unknown }): Oops.Panic;
       function AIObjectGenerationFailed(
         model: string,
