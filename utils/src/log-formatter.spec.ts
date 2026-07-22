@@ -2,8 +2,10 @@ import { devFormatter, prodFormatter, setActiveTraceIdResolver } from './log-for
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import * as process from 'node:process';
 
 import { afterEach, describe, expect, it } from 'bun:test';
+import JSON5 from 'json5';
 
 import type { LogRecord } from './log-formatter';
 
@@ -11,9 +13,13 @@ const TRACE_ID = '11111111111111111111111111111111';
 const OTHER_TRACE_ID = '22222222222222222222222222222222';
 const EXPLICIT_TRACE_ID = '33333333333333333333333333333333';
 const INVALID_TRACE_ID = '00000000000000000000000000000000';
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+const ORIGINAL_NO_COLOR = process.env.NO_COLOR;
 
 afterEach(() => {
   setActiveTraceIdResolver(undefined);
+  process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  process.env.NO_COLOR = ORIGINAL_NO_COLOR;
 });
 
 function makeRecord(properties: Record<string, unknown> = {}): LogRecord {
@@ -95,5 +101,63 @@ describe('prodFormatter trace context', () => {
     const output = JSON.parse(prodFormatter(makeRecord())) as Record<string, unknown>;
 
     expect(output.traceId).toBeUndefined();
+  });
+});
+
+describe('prodFormatter message rendering', () => {
+  it('renders tagged-template object interpolations with the shared value formatter', () => {
+    process.env.NODE_ENV = 'production';
+    const output = JSON.parse(
+      prodFormatter({
+        ...makeRecord(),
+        message: ['config=', { key: 'I18N_EXCEPTION_ENABLED', value: true }, ''],
+        rawMessage: ['config=', ''] as unknown as TemplateStringsArray,
+      }),
+    ) as Record<string, unknown>;
+
+    expect(output.message).not.toContain('[object Object]');
+    const renderedConfig = JSON5.parse((output.message as string).slice('config='.length)) as Record<string, unknown>;
+    expect(renderedConfig).toEqual({
+      key: 'I18N_EXCEPTION_ENABLED',
+      value: true,
+    });
+  });
+
+  it('preserves structured Error details in production', () => {
+    process.env.NODE_ENV = 'production';
+    const error = new Error('provider unavailable');
+    error.stack = 'Error: provider unavailable\n    at transcribe (voice.ts:1:1)';
+    const output = JSON.parse(
+      prodFormatter({
+        ...makeRecord(),
+        level: 'error',
+        message: ['failed: ', error, ''],
+        rawMessage: ['failed: ', ''] as unknown as TemplateStringsArray,
+      }),
+    ) as Record<string, unknown>;
+
+    const renderedError = JSON5.parse((output.message as string).slice('failed: '.length)) as Record<string, unknown>;
+    expect(renderedError.name).toBe('Error');
+    expect(renderedError.message).toBe('provider unavailable');
+    expect(renderedError.stack).toContain('transcribe');
+  });
+
+  it('renders circular objects without throwing or emitting ANSI in production', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.NO_COLOR;
+    const circular: Record<string, unknown> = { name: 'cycle' };
+    circular.self = circular;
+
+    const output = JSON.parse(
+      prodFormatter({
+        ...makeRecord(),
+        message: ['payload=', circular, ''],
+        rawMessage: ['payload=', ''] as unknown as TemplateStringsArray,
+      }),
+    ) as Record<string, unknown>;
+
+    expect(output.message).not.toContain('[object Object]');
+    expect(output.message).not.toContain('\x1b[');
+    expect(output.message).toContain('Circular');
   });
 });

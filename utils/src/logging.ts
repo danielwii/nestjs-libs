@@ -64,7 +64,7 @@ export function r(o: unknown): string {
 }
 
 export function inspect(o: unknown, options: util.InspectOptions = { colors: true, depth: 5 }): string {
-  const colors = !process.env.NO_COLOR;
+  const colors = process.env.NODE_ENV !== 'production' && !process.env.NO_COLOR;
   return process.env.NODE_ENV === 'production'
     ? util.inspect(o, { breakLength: Infinity, ...options, colors })
     : util.inspect(o, { ...options, colors });
