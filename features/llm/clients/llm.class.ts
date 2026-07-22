@@ -439,7 +439,7 @@ function buildProviderOptions(
       ? modelConfig.reasoningRequired
         ? {}
         : disableThinkingOptions(provider, modelConfig.modelId)
-      : reasoningEffortOptions(provider, thinking, modelConfig.modelId);
+      : reasoningEffortOptions(provider, thinking, modelConfig.modelId, modelConfig.googleThinkingMode);
 
   if (provider === 'bedrock') {
     if (!bedrock?.serviceTier) return thinkingOptions;
