@@ -25,6 +25,34 @@ export interface DependencyIdentityOptions {
   include?: (packageName: string) => boolean;
 }
 
+/**
+ * Build an explicit package-name filter for dependency identity inspection.
+ *
+ * Patterns are intentionally limited to exact package names and `prefix/*`.
+ * Keeping the vocabulary closed makes evidence-isolation commands reviewable:
+ * a broad or misplaced wildcard cannot silently widen the inspected surface.
+ */
+export function createPackageNameInclude(patterns: string[]): (packageName: string) => boolean {
+  const matchers = patterns.map((pattern) => {
+    if (pattern.length === 0) throw new Error('--package requires a non-empty package name');
+
+    if (pattern.endsWith('/*')) {
+      const prefix = pattern.slice(0, -2);
+      if (prefix.length === 0 || prefix.includes('*')) {
+        throw new Error(`Invalid --package pattern: ${pattern}. Use an exact name or prefix/*.`);
+      }
+      return (packageName: string): boolean => packageName.startsWith(`${prefix}/`);
+    }
+
+    if (pattern.includes('*')) {
+      throw new Error(`Invalid --package pattern: ${pattern}. Use an exact name or prefix/*.`);
+    }
+    return (packageName: string): boolean => packageName === pattern;
+  });
+
+  return (packageName: string): boolean => matchers.some((matches) => matches(packageName));
+}
+
 export function isDefaultIdentityPackage(packageName: string): boolean {
   return (
     packageName === 'ai' ||

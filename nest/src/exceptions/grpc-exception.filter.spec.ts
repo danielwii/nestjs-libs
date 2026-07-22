@@ -8,7 +8,7 @@ import { HttpException, HttpStatus, NotFoundException, UnauthorizedException } f
 import { RpcException } from '@nestjs/microservices';
 
 import { Metadata, status } from '@grpc/grpc-js';
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import { firstValueFrom } from 'rxjs';
 
 import type { ArgumentsHost } from '@nestjs/common';
@@ -85,8 +85,11 @@ describe('GrpcExceptionFilter', () => {
     it('should throw gRPC error with non-OK status code', async () => {
       const { host } = mockGrpcHost();
       const exception = makeOopsPanic();
+      const captureFatalToSentry = mock(() => undefined);
+      const scopedFilter = new GrpcExceptionFilter('test-provider');
+      Object.assign(scopedFilter as object, { captureFatalToSentry });
 
-      const result$ = filter.catch(exception, host);
+      const result$ = scopedFilter.catch(exception, host);
 
       try {
         await firstValueFrom(result$);
@@ -97,10 +100,13 @@ describe('GrpcExceptionFilter', () => {
         const parsed = JSON.parse(grpcError.details);
         expect(parsed.httpStatus).toBe(500);
       }
+
+      expect(captureFatalToSentry).toHaveBeenCalledTimes(1);
+      expect(captureFatalToSentry).toHaveBeenCalledWith(exception, host);
     });
   });
 
-  describe('plain shape is not a business exception', () => {
+  describe('plain shape is not an OopsError', () => {
     it('hand-rolled object → unexpected INTERNAL path', async () => {
       const { host, sentMetadata } = mockGrpcHost();
       const exception = Object.assign(new Error('business error'), {
@@ -269,10 +275,15 @@ describe('GrpcExceptionFilter', () => {
     });
   });
 
-  describe('Oops V2 instances', () => {
+  describe('canonical Oops instances', () => {
     it('Oops (422) should return OK with metadata', async () => {
       const { host, sentMetadata } = mockGrpcHost();
-      const exception = Oops.Validation('bad input', 'field missing');
+      const exception = new Oops({
+        errorCode: ErrorCodes.CLIENT_INPUT_ERROR,
+        oopsCode: 'GN01',
+        userMessage: 'bad input',
+        internalDetails: 'field missing',
+      });
 
       const result$ = filter.catch(exception, host);
       const response = await firstValueFrom(result$);

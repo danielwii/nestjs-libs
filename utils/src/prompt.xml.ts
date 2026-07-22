@@ -433,10 +433,10 @@ export class PromptBuilder {
    */
   build(): Prompt {
     if (!this._role) {
-      throw Oops.Validation('PromptBuilder: role is required');
+      throw Oops.Panic.Config('PromptBuilder: role is required');
     }
     if (!this._objective) {
-      throw Oops.Validation('PromptBuilder: objective is required');
+      throw Oops.Panic.Config('PromptBuilder: objective is required');
     }
 
     const data: PromptData = {

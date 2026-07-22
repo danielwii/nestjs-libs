@@ -1,3 +1,6 @@
+import { ErrorCodes } from '@app/nest/exceptions/error-codes';
+import { Oops } from '@app/nest/exceptions/oops';
+
 import { formatLocalDateTime, TimeSensitivity } from './prompt';
 import { PromptBuilder } from './prompt.xml';
 
@@ -212,14 +215,36 @@ describe('PromptBuilder', () => {
   });
 
   it('缺少 role 应抛出错误', () => {
-    expect(() => {
+    const build = () => {
       new PromptBuilder('test', '1.0').objective('目标').build();
-    }).toThrow('PromptBuilder: role is required');
+    };
+
+    expect(build).toThrow(Oops.Panic);
+    try {
+      build();
+    } catch (error) {
+      expect(error).toMatchObject({
+        httpStatus: 500,
+        errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
+        internalDetails: 'Configuration error: PromptBuilder: role is required',
+      });
+    }
   });
 
   it('缺少 objective 应抛出错误', () => {
-    expect(() => {
+    const build = () => {
       new PromptBuilder('test', '1.0').role('角色').build();
-    }).toThrow('PromptBuilder: objective is required');
+    };
+
+    expect(build).toThrow(Oops.Panic);
+    try {
+      build();
+    } catch (error) {
+      expect(error).toMatchObject({
+        httpStatus: 500,
+        errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
+        internalDetails: 'Configuration error: PromptBuilder: objective is required',
+      });
+    }
   });
 });

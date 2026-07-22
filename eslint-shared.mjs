@@ -53,14 +53,87 @@ export function createEslintConfig({ rootDir, tsconfigPath = './tsconfig.json', 
         '@typescript-eslint/no-explicit-any': 'error',
         '@typescript-eslint/no-floating-promises': 'error',
         '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-        '@typescript-eslint/ban-ts-comment': ['error', { 'ts-ignore': 'allow-with-description', 'ts-expect-error': 'allow-with-description' }],
+        '@typescript-eslint/ban-ts-comment': [
+          'error',
+          { 'ts-ignore': 'allow-with-description', 'ts-expect-error': 'allow-with-description' },
+        ],
+        'no-restricted-imports': [
+          'error',
+          {
+            paths: [
+              {
+                name: '@app/contract/exceptions',
+                importNames: [
+                  'BusinessException',
+                  'FatalException',
+                  'OopsException',
+                  'BusinessErrorCode',
+                  'extractBusinessError',
+                  'businessErrorMiddleware',
+                ],
+                message: 'The V1 exception model is retired. Import OopsError, Oops, or OopsCode.',
+              },
+              {
+                name: '@/common/exceptions',
+                importNames: [
+                  'BusinessException',
+                  'FatalException',
+                  'OopsException',
+                  'BusinessErrorCode',
+                  'extractBusinessError',
+                  'businessErrorMiddleware',
+                ],
+                message: 'The V1 exception model is retired. Import canonical Oops symbols.',
+              },
+            ],
+            patterns: [
+              {
+                group: [
+                  '**/business-exception',
+                  '**/business-exception/**',
+                  '**/business.exception',
+                  '**/business.exception/**',
+                  '**/business.error-codes',
+                  '**/business.error-codes/**',
+                  '**/fatal-exception',
+                  '**/fatal-exception/**',
+                  '**/fatal.exception',
+                  '**/fatal.exception/**',
+                  '**/oops-exception',
+                  '**/oops-exception/**',
+                  '**/oops.exception',
+                  '**/oops.exception/**',
+                  '**/business-error-codes',
+                  '**/business-error-codes/**',
+                  '**/business-error-middleware',
+                  '**/business-error-middleware/**',
+                  '**/business.error-middleware',
+                  '**/business.error-middleware/**',
+                ],
+                message: 'The V1 exception module is retired with no compatibility import path.',
+              },
+            ],
+          },
+        ],
+        'no-restricted-syntax': [
+          'error',
+          {
+            selector:
+              'Identifier[name=/^(BusinessException|FatalException|OopsException|BusinessErrorCode|extractBusinessError|businessErrorMiddleware)$/]',
+            message:
+              'The V1 exception identifier is retired. Use the canonical Oops model with no compatibility alias.',
+          },
+        ],
 
         // ====== Deprecation（渐进迁移，不阻断） ======
         '@typescript-eslint/no-deprecated': 'warn',
 
         // ====== Code Style ======
         '@typescript-eslint/consistent-type-imports': 'error',
-        '@typescript-eslint/prefer-nullish-coalescing': ['warn', { ignoreConditionalTests: true, ignoreMixedLogicalExpressions: true }],
+        '@typescript-eslint/prefer-nullish-coalescing': [
+          'warn',
+          { ignoreConditionalTests: true, ignoreMixedLogicalExpressions: true },
+        ],
         '@typescript-eslint/prefer-optional-chain': 'warn',
         '@typescript-eslint/no-unnecessary-condition': 'warn',
         'prefer-const': 'warn',

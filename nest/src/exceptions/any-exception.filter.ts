@@ -5,7 +5,7 @@ import { SysEnv } from '@app/env';
 import { ApiRes } from '@app/nest/common/response';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { getAppLogger } from '@app/utils/app-logger';
-import { getErrorMessage, getErrorName, getErrorStatus } from '@app/utils/error';
+import { getErrorMessage, getErrorName } from '@app/utils/error';
 
 import { isServerError, toErrorDescriptor } from './error-descriptor';
 import { OopsError } from './oops-error';
@@ -105,7 +105,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
     if (isGraphqlRequest) {
       if (exception instanceof OopsError) {
-        return this.handleGraphqlBusinessException(exception, request, host);
+        return this.handleGraphqlOopsError(exception, request, host);
       }
 
       // 非 Oops：toErrorDescriptor 映射成带 extensions 的 GraphQLError
@@ -143,7 +143,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
     const response = rawResponse as Response;
 
     if (exception instanceof OopsError) {
-      return this.handleBusinessException(exception, request, response, host);
+      return this.handleOopsError(exception, request, response, host);
     }
 
     // 非 Oops：toErrorDescriptor 统一映射（与 GraphQL 分支共享规则）
@@ -170,7 +170,11 @@ export class AnyExceptionFilter implements ExceptionFilter {
       .error`(${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${getErrorMessage(exception)} ${exception}`;
 
     // unexpected error, each error should be handled
-    const status = getErrorStatus(exception, 500);
+    // Unknown errors have no authority to choose their public HTTP status.
+    // Framework-native exceptions are normalized above by toErrorDescriptor;
+    // anything reaching this branch must fail closed as 500 even if a raw or
+    // forged object happens to expose a numeric `status` field.
+    const status = HttpStatus.INTERNAL_SERVER_ERROR;
     const message = getErrorMessage(exception);
 
     response.status(status).json({
@@ -222,7 +226,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * - httpStatus < 500: Oops / Block，warn 日志，不触发 Sentry
    * - httpStatus >= 500: Panic，error 日志，触发 Sentry
    */
-  private async handleBusinessException(
+  private async handleOopsError(
     exception: OopsError,
     request: IdentityRequest | undefined,
     response: Response,
@@ -256,7 +260,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * iOS 客户端统一通过 extensions.httpStatus 判断登出/重试等行为，不依赖具体异常类型。
    * Oops 路径额外带 errorCode / businessCode（= oopsCode）；non-Oops 路径可能带 errors。
    */
-  private async handleGraphqlBusinessException(
+  private async handleGraphqlOopsError(
     exception: OopsError,
     request: IdentityRequest | undefined,
     host: ArgumentsHost,

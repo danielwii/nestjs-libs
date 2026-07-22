@@ -115,7 +115,11 @@ describe('AnyExceptionFilter', () => {
   describe('HTTP: OopsError', () => {
     it('Oops 422 → warning 级别 + 422 响应', async () => {
       const { host, response } = createHttpHost();
-      const exception = Oops.Validation('参数不合法');
+      const exception = new Oops({
+        errorCode: ErrorCodes.CLIENT_INPUT_ERROR,
+        oopsCode: 'GN01',
+        userMessage: '参数不合法',
+      });
 
       await filter.catch(exception, host);
 
@@ -170,9 +174,45 @@ describe('AnyExceptionFilter', () => {
     });
   });
 
+  describe('Oops observability routing', () => {
+    it('does not send expected Oops or Block errors to Sentry', async () => {
+      const scopedFilter = new AnyExceptionFilter();
+      const captureExceptionBySentry = mock(() => undefined);
+      Object.assign(scopedFilter as object, { captureExceptionBySentry });
+
+      await scopedFilter.catch(
+        new Oops({
+          errorCode: ErrorCodes.BUSINESS_RULE_VIOLATION,
+          oopsCode: 'GN09',
+          userMessage: 'expected rejection',
+        }),
+        createHttpHost().host,
+      );
+      await scopedFilter.catch(Oops.Block.Unauthorized('expired token'), createHttpHost().host);
+
+      expect(captureExceptionBySentry).not.toHaveBeenCalled();
+    });
+
+    it('sends HTTP and GraphQL Panic errors to Sentry exactly once per boundary event', async () => {
+      const scopedFilter = new AnyExceptionFilter();
+      const captureExceptionBySentry = mock(() => undefined);
+      Object.assign(scopedFilter as object, { captureExceptionBySentry });
+
+      const httpPanic = Oops.Panic.Database('http query');
+      await scopedFilter.catch(httpPanic, createHttpHost().host);
+      expect(captureExceptionBySentry).toHaveBeenCalledTimes(1);
+      expect(captureExceptionBySentry).toHaveBeenLastCalledWith(httpPanic, expect.anything());
+
+      const graphqlPanic = Oops.Panic.ExternalService('graphql provider');
+      await expect(scopedFilter.catch(graphqlPanic, createGraphqlHost().host)).rejects.toBeInstanceOf(GraphQLError);
+      expect(captureExceptionBySentry).toHaveBeenCalledTimes(2);
+      expect(captureExceptionBySentry).toHaveBeenLastCalledWith(graphqlPanic, expect.anything());
+    });
+  });
+
   // ==================== HTTP: 非 OopsError 不走业务路径 ====================
 
-  describe('HTTP: plain shape is not a business exception', () => {
+  describe('HTTP: plain shape is not an OopsError', () => {
     it('凑齐字段的 plain object → 不按 422 业务路径处理', async () => {
       const { host, response } = createHttpHost();
       const exception = {
@@ -367,6 +407,21 @@ describe('AnyExceptionFilter', () => {
       expect(response.status).toHaveBeenCalledWith(500);
     });
 
+    it('unknown Error 即使伪造 status 也仍为 500 + Sentry', async () => {
+      const scopedFilter = new AnyExceptionFilter();
+      const captureExceptionBySentry = mock(() => undefined);
+      Object.assign(scopedFilter as object, { captureExceptionBySentry });
+      const { host, response } = createHttpHost();
+      const exception = Object.assign(new Error('forged status'), { status: HttpStatus.UNAUTHORIZED });
+
+      await scopedFilter.catch(exception, host);
+
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(response._body).toEqual({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'forged status' });
+      expect(captureExceptionBySentry).toHaveBeenCalledTimes(1);
+      expect(captureExceptionBySentry).toHaveBeenCalledWith(exception, host);
+    });
+
     it('非 Error 对象（string）→ 500', async () => {
       const { host, response } = createHttpHost();
 
@@ -389,7 +444,11 @@ describe('AnyExceptionFilter', () => {
   describe('GraphQL', () => {
     it('OopsError → throw GraphQLError + extensions', async () => {
       const { host } = createGraphqlHost();
-      const exception = Oops.Validation('参数不合法');
+      const exception = new Oops({
+        errorCode: ErrorCodes.CLIENT_INPUT_ERROR,
+        oopsCode: 'GN01',
+        userMessage: '参数不合法',
+      });
 
       await expect(filter.catch(exception, host)).rejects.toThrow();
 
