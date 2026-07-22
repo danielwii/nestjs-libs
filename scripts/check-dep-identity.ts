@@ -1,12 +1,14 @@
-import { formatDependencyIdentityReport, inspectDependencyIdentities } from './dep-identity';
+import { createPackageNameInclude, formatDependencyIdentityReport, inspectDependencyIdentities } from './dep-identity';
 
 interface CliOptions {
   anchors: string[];
+  packages: string[];
   json: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions {
   const anchors: string[] = [];
+  const packages: string[] = [];
   let json = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -22,15 +24,23 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (argument === '--package') {
+      const packagePattern = args[index + 1];
+      if (!packagePattern) throw new Error('--package requires an exact package name or prefix/*');
+      packages.push(packagePattern);
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${argument}`);
   }
 
-  return { anchors: anchors.length > 0 ? anchors : ['.'], json };
+  return { anchors: anchors.length > 0 ? anchors : ['.'], packages, json };
 }
 
 try {
   const options = parseArgs(process.argv.slice(2));
-  const report = inspectDependencyIdentities({ anchors: options.anchors });
+  const include = options.packages.length > 0 ? createPackageNameInclude(options.packages) : undefined;
+  const report = inspectDependencyIdentities({ anchors: options.anchors, include });
   process.stdout.write(`${options.json ? JSON.stringify(report, null, 2) : formatDependencyIdentityReport(report)}\n`);
   if (report.conflicts.length > 0) process.exitCode = 1;
 } catch (error) {

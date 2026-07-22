@@ -1,4 +1,4 @@
-import { inspectDependencyIdentities } from './dep-identity';
+import { createPackageNameInclude, inspectDependencyIdentities } from './dep-identity';
 
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -105,5 +105,77 @@ describe('inspectDependencyIdentities', () => {
     expect(report.anchors).toEqual([root]);
     expect(report.occurrences).toHaveLength(1);
     expect(report.conflicts).toEqual([]);
+  });
+
+  it('matches repeated exact and prefix/* package filters without widening the package set', () => {
+    const include = createPackageNameInclude(['zod', '@nestjs/*']);
+
+    expect(include('zod')).toBe(true);
+    expect(include('zod-validation-error')).toBe(false);
+    expect(include('@nestjs/common')).toBe(true);
+    expect(include('@nestjs/core')).toBe(true);
+    expect(include('@nestjsx/core')).toBe(false);
+    expect(include('ai')).toBe(false);
+  });
+
+  it('rejects wildcard syntax outside the supported prefix/* form', () => {
+    expect(() => createPackageNameInclude(['@nestjs*'])).toThrow('Use an exact name or prefix/*.');
+    expect(() => createPackageNameInclude(['/*'])).toThrow('Use an exact name or prefix/*.');
+    expect(() => createPackageNameInclude([''])).toThrow('--package requires a non-empty package name');
+  });
+
+  it('isolates CLI evidence with repeatable --package while ignoring an unrelated AI conflict', () => {
+    const root = createRoot();
+    createPackage(root, 'node_modules/ai', 'ai', '7.0.28');
+    createPackage(root, 'node_modules/host', 'host', '1.0.0');
+    createPackage(root, 'node_modules/host/node_modules/ai', 'ai', '7.0.29');
+    createPackage(root, 'node_modules/zod', 'zod', '4.4.3');
+    createPackage(root, 'node_modules/@nestjs/common', '@nestjs/common', '11.1.28');
+    createPackage(root, 'node_modules/@nestjs/core', '@nestjs/core', '11.1.28');
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(import.meta.dir, 'check-dep-identity.ts'),
+        '--anchor',
+        root,
+        '--package',
+        'zod',
+        '--package',
+        '@nestjs/*',
+        '--json',
+      ],
+      { encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    const report = JSON.parse(result.stdout) as DependencyIdentityReport;
+    expect([...new Set(report.occurrences.map((occurrence) => occurrence.name))]).toEqual([
+      '@nestjs/common',
+      '@nestjs/core',
+      'zod',
+    ]);
+    expect(report.conflicts).toEqual([]);
+  });
+
+  it('keeps the default package set so unrelated AI drift remains visible', () => {
+    const root = createRoot();
+    createPackage(root, 'node_modules/ai', 'ai', '7.0.28');
+    createPackage(root, 'node_modules/host', 'host', '1.0.0');
+    createPackage(root, 'node_modules/host/node_modules/ai', 'ai', '7.0.29');
+    createPackage(root, 'node_modules/zod', 'zod', '4.4.3');
+
+    const result = spawnSync(
+      process.execPath,
+      [join(import.meta.dir, 'check-dep-identity.ts'), '--anchor', root, '--json'],
+      { encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('');
+    const report = JSON.parse(result.stdout) as DependencyIdentityReport;
+    expect(report.conflicts.map((conflict) => conflict.name)).toEqual(['ai']);
+    expect(report.occurrences.some((occurrence) => occurrence.name === 'zod')).toBe(true);
   });
 });
