@@ -1,5 +1,5 @@
 import { googleOptions } from './google.client';
-import { reasoningEffortOptions } from './options.helpers';
+import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 import { vertexOptions } from './vertex.client';
 
 import { describe, expect, it } from 'bun:test';
@@ -11,11 +11,21 @@ describe('Google/Vertex thinking parameter modes', () => {
     });
   });
 
-  it('maps public efforts to thinkingLevel for Gemini 3+ level routes', () => {
-    for (const effort of ['low', 'medium', 'high'] as const) {
-      expect(reasoningEffortOptions('vertex-global', effort, 'gemini-3.5-flash-lite', 'level')).toEqual({
-        google: { thinkingConfig: { thinkingLevel: effort } },
+  it('maps no-thinking to budget zero for both Vertex access profiles', () => {
+    for (const provider of ['vertex', 'vertex-global'] as const) {
+      expect(disableThinkingOptions(provider, 'gemini-3.5-flash-lite')).toEqual({
+        google: { thinkingConfig: { thinkingBudget: 0 } },
       });
+    }
+  });
+
+  it('maps public efforts to thinkingLevel for Gemini 3+ level routes', () => {
+    for (const provider of ['vertex', 'vertex-global'] as const) {
+      for (const effort of ['low', 'medium', 'high'] as const) {
+        expect(reasoningEffortOptions(provider, effort, 'gemini-3.5-flash-lite', 'level')).toEqual({
+          google: { thinkingConfig: { thinkingLevel: effort } },
+        });
+      }
     }
   });
 

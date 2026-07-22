@@ -989,6 +989,13 @@ export type LLMProviderType = LLMModelRegistry[LLMModelKey]['provider'];
 
 // ==================== 运行时 Registry ====================
 
+/** Gemini 3.5 Flash-Lite policy shared by both Vertex access profiles. */
+const GEMINI_3_5_FLASH_LITE_VERTEX_POLICY = {
+  modelId: 'gemini-3.5-flash-lite',
+  googleThinkingMode: 'level',
+  supportedTiers: ['standard', 'flex', 'priority'],
+} as const satisfies Omit<ModelConfig, 'provider'>;
+
 const modelRegistry = new Map<string, ModelConfig>([
   // OpenRouter 模型（简称 + 全称成对，按模型分组）
   // Gemini 2.5 Flash
@@ -1247,19 +1254,9 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex:gemini-3.5-flash',
     { provider: 'vertex', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
   ],
-  // Official Gemini 3.5 Flash-Lite contract uses thinkingLevel and has no public no-thinking level.
-  // `none` safely falls back to the lowest public library effort (`low`; provider default is `minimal`).
-  [
-    'vertex:gemini-3.5-flash-lite',
-    {
-      provider: 'vertex',
-      modelId: 'gemini-3.5-flash-lite',
-      reasoningRequired: true,
-      reasoningDefaultEffort: 'low',
-      googleThinkingMode: 'level',
-      supportedTiers: ['standard', 'flex', 'priority'],
-    },
-  ],
+  // Vertex Express live evidence: thinkingBudget=0 is accepted with no reasoning tokens.
+  // Non-none public efforts continue to use the official thinkingLevel contract.
+  ['vertex:gemini-3.5-flash-lite', { provider: 'vertex', ...GEMINI_3_5_FLASH_LITE_VERTEX_POLICY }],
   // Direct Vertex Express live probe confirms thinkingBudget=0 is accepted (reasoningTokens=0).
   [
     'vertex:gemini-3.6-flash',
@@ -1304,17 +1301,8 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex-global:gemini-3.5-flash',
     { provider: 'vertex-global', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
   ],
-  [
-    'vertex-global:gemini-3.5-flash-lite',
-    {
-      provider: 'vertex-global',
-      modelId: 'gemini-3.5-flash-lite',
-      reasoningRequired: true,
-      reasoningDefaultEffort: 'low',
-      googleThinkingMode: 'level',
-      supportedTiers: ['standard', 'flex', 'priority'],
-    },
-  ],
+  // Project/global changes the access profile, not the model thinking policy.
+  ['vertex-global:gemini-3.5-flash-lite', { provider: 'vertex-global', ...GEMINI_3_5_FLASH_LITE_VERTEX_POLICY }],
   // The official project/global contract exposes thinking levels; keep no-thinking conservative until live-probed.
   [
     'vertex-global:gemini-3.6-flash',
