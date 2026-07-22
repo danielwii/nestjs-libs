@@ -41,6 +41,24 @@ describe('autoOpts model-aware thinking contracts', () => {
     });
   });
 
+  it('keeps registry contracts for registered model specs with query parameters', () => {
+    expect(autoOpts.noThinking('vertex:gemini-3.5-flash-lite?reason=none')).toEqual({
+      google: { thinkingConfig: { thinkingLevel: 'low' } },
+    });
+  });
+
+  it('preserves provider-based options for unregistered provider-qualified keys', () => {
+    expect(autoOpts.noThinking('vertex:gemini-future')).toEqual({
+      google: { thinkingConfig: { thinkingBudget: 0 } },
+    });
+    expect(autoOpts.thinking('vertex-global:gemini-future', 'low')).toEqual({
+      google: { thinkingConfig: { thinkingBudget: 1024 } },
+    });
+    expect(autoOpts.noThinking('openrouter:vendor/model-future')).toEqual({
+      openrouter: { reasoning: { effort: 'none' } },
+    });
+  });
+
   it('preserves legacy provider-only behavior when no model contract is available', () => {
     expect(autoOpts.noThinking('vertex')).toEqual({
       google: { thinkingConfig: { thinkingBudget: 0 } },

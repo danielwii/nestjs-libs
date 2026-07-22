@@ -25,7 +25,7 @@
  */
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { getModel, parseModelSpec, resolveThinkingForModel } from '../types/model.types';
+import { getModel, isModelRegistered, parseModelSpec, resolveThinkingForModel } from '../types/model.types';
 import { bedrockThinkingOptions } from './bedrock.client';
 import { bedrock, google, openrouter, vertex, vertexGlobal } from './llm.clients';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
@@ -47,6 +47,7 @@ const autoOptsLogger = getAppLogger('features', 'LLM', 'autoOpts');
 function resolveAutoOptsModelContract(key: LLMModelKey | string) {
   if (!key.includes(':')) return undefined;
   const parsed = parseModelSpec(key as LLMModelSpec);
+  if (!isModelRegistered(parsed.key)) return undefined;
   return { key: parsed.key, config: getModel(parsed.key) };
 }
 
