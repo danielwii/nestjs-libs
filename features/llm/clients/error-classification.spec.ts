@@ -22,7 +22,8 @@ describe('LLM internal input error classification', () => {
     expect(thrown).toBeInstanceOf(Oops.Panic);
     expect(thrown).toMatchObject({
       httpStatus: 500,
-      errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
+      errorCode: ErrorCodes.SYSTEM_CONFIG_ERROR,
+      oopsCode: 'GN11',
       internalDetails:
         'Configuration error: Invalid model key format: missing-provider-separator, expected "provider:model"',
     });

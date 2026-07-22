@@ -2,9 +2,11 @@ import { ErrorCodes } from './error-codes';
 import { Oops } from './oops';
 import { OopsError } from './oops-error';
 
-import { describe, expect, it } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
-import './oops-factories';
+import { describe, expect, it } from 'bun:test';
 
 type OopsVariant = 'Oops' | 'Block' | 'Panic';
 
@@ -42,20 +44,6 @@ const factoryCases: FactoryCase[] = [
       oopsCode: 'GN01',
       userMessage: 'Invalid input',
       internalDetails: 'field X is missing',
-      provider: undefined,
-      cause: undefined,
-    },
-  },
-  {
-    path: 'Oops.NotFound',
-    create: () => Oops.NotFound('User', 'u_123'),
-    expected: {
-      variant: 'Block',
-      httpStatus: 404,
-      errorCode: ErrorCodes.CLIENT_INPUT_ERROR,
-      oopsCode: 'GN02',
-      userMessage: 'User不存在',
-      internalDetails: 'User not found: u_123',
       provider: undefined,
       cause: undefined,
     },
@@ -165,7 +153,7 @@ const factoryCases: FactoryCase[] = [
       variant: 'Panic',
       httpStatus: 500,
       errorCode: ErrorCodes.SYSTEM_DATABASE_ERROR,
-      oopsCode: '',
+      oopsCode: 'GN09',
       userMessage: '系统繁忙，请稍后重试',
       internalDetails: 'Database operation failed: query timeout',
       provider: undefined,
@@ -183,7 +171,7 @@ const factoryCases: FactoryCase[] = [
       variant: 'Panic',
       httpStatus: 503,
       errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
-      oopsCode: '',
+      oopsCode: 'GN10',
       userMessage: '服务暂时不可用，请稍后重试',
       internalDetails: 'External service error: Azure STT, temporarily unavailable',
       provider: 'Azure STT',
@@ -196,8 +184,8 @@ const factoryCases: FactoryCase[] = [
     expected: {
       variant: 'Panic',
       httpStatus: 500,
-      errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
-      oopsCode: '',
+      errorCode: ErrorCodes.SYSTEM_CONFIG_ERROR,
+      oopsCode: 'GN11',
       userMessage: '服务配置异常，请联系管理员',
       internalDetails: 'Configuration error: missing API key',
       provider: undefined,
@@ -263,6 +251,33 @@ function enumerableFunctionNames(owner: object): string[] {
 }
 
 describe('public generic Oops factory contract', () => {
+  it('hard-removes the historical side-effect module', () => {
+    const removedModulePath = join(import.meta.dir, 'oops-factories.ts');
+    expect(existsSync(removedModulePath)).toBe(false);
+
+    const result = spawnSync(process.execPath, ['-e', `await import(${JSON.stringify(removedModulePath)})`], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).not.toBe(0);
+  });
+
+  it('is runtime-complete from a direct Oops import in a fresh process', () => {
+    const result = spawnSync(process.execPath, [join(import.meta.dir, 'oops-direct-import.fixture.ts')], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toEqual({
+      validation: 'GN01',
+      notFound: 'GN02',
+      database: 'GN09',
+      externalService: 'GN10',
+      config: 'GN11',
+    });
+  });
+
   it('inventories every public factory exactly once', () => {
     const inventory = {
       Oops: enumerableFunctionNames(Oops).filter((name) => name !== 'Block' && name !== 'Panic'),
@@ -271,7 +286,7 @@ describe('public generic Oops factory contract', () => {
     };
 
     expect(inventory).toEqual({
-      Oops: ['ExternalServiceExpected', 'NotFound', 'Validation'],
+      Oops: ['ExternalServiceExpected', 'Validation'],
       Block: ['AIModelRateLimited', 'Conflict', 'Forbidden', 'NotFound', 'RateLimited', 'Unauthorized'],
       Panic: ['AIModelError', 'AIObjectGenerationFailed', 'Config', 'Database', 'ExternalService', 'Invariant'],
     });
@@ -285,7 +300,7 @@ describe('public generic Oops factory contract', () => {
 
     expect(new Set(coveredPaths).size).toBe(factoryCases.length);
     expect(coveredPaths).toEqual(inventoriedPaths);
-    expect(factoryCases).toHaveLength(15);
+    expect(factoryCases).toHaveLength(14);
   });
 
   for (const factoryCase of factoryCases) {

@@ -1,7 +1,5 @@
 import { Oops } from '@app/nest/exceptions/oops';
 
-import '@app/nest/exceptions/oops-factories';
-
 import type { ArgumentMetadata, PipeTransform } from '@nestjs/common';
 import type { z } from 'zod';
 

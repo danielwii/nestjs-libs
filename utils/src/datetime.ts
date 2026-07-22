@@ -9,8 +9,6 @@
 
 import { Oops } from '@app/nest/exceptions/oops';
 
-import '@app/nest/exceptions/oops-factories';
-
 import { Temporal } from '@js-temporal/polyfill';
 
 /**

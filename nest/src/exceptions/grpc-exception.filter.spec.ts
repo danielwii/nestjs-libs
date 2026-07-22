@@ -1,11 +1,9 @@
+import { HttpException, HttpStatus, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { RpcException } from '@nestjs/microservices';
+
 import { ErrorCodes } from './error-codes';
 import { GrpcExceptionFilter } from './grpc-exception.filter';
 import { Oops } from './oops';
-
-import './oops-factories';
-
-import { HttpException, HttpStatus, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { RpcException } from '@nestjs/microservices';
 
 import { Metadata, status } from '@grpc/grpc-js';
 import { describe, expect, it, mock } from 'bun:test';
@@ -375,6 +373,7 @@ describe('GrpcExceptionFilter', () => {
         const exception = new Oops.Panic({
           httpStatus,
           errorCode: '0x0303',
+          oopsCode: 'TS04',
           userMessage: 'upstream unavailable',
           internalDetails: 'dependency outage',
         });

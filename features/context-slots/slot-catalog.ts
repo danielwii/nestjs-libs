@@ -6,8 +6,6 @@
 
 import { Oops } from '@app/nest/exceptions/oops';
 
-import '@app/nest/exceptions/oops-factories';
-
 import { ContextBag } from './context-bag';
 
 import type { ContextRecipe, RecipeCatalogDescription } from './context-recipe';

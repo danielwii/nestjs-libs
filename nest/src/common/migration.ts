@@ -1,8 +1,5 @@
 import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
-
-import '@app/nest/exceptions/oops-factories';
-
 import { getAppLogger } from '@app/utils/app-logger';
 
 import { execSync } from 'node:child_process';

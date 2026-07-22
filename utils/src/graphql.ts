@@ -3,8 +3,6 @@ import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/gr
 import { Oops } from '@app/nest/exceptions/oops';
 import { isOopsError } from '@app/nest/exceptions/oops-error';
 
-import '@app/nest/exceptions/oops-factories';
-
 import { plainToInstance } from 'class-transformer';
 import { Allow } from 'class-validator';
 

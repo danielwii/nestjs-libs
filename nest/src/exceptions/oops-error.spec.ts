@@ -75,6 +75,7 @@ describe('OopsError', () => {
   it('isOopsError should detect any OopsError subclass', () => {
     const panic = new Oops.Panic({
       errorCode: '0x0305',
+      oopsCode: 'TS02',
       userMessage: 'panic',
       internalDetails: 'panic details',
     });
@@ -87,6 +88,7 @@ describe('OopsError', () => {
   it('coerceOopsError should preserve existing OopsError instances', () => {
     const existing = new Oops.Panic({
       errorCode: '0x0305',
+      oopsCode: 'TS02',
       userMessage: 'panic',
       internalDetails: 'panic details',
     });
@@ -94,6 +96,7 @@ describe('OopsError', () => {
     const fallback = () =>
       new Oops.Panic({
         errorCode: '0x0305',
+        oopsCode: 'TS03',
         userMessage: 'fallback',
         internalDetails: 'fallback details',
       });
@@ -105,6 +108,7 @@ describe('OopsError', () => {
     const fallback = (error: unknown) =>
       new Oops.Panic({
         errorCode: '0x0305',
+        oopsCode: 'TS03',
         userMessage: 'fallback',
         internalDetails: error instanceof Error ? error.message : String(error),
       });

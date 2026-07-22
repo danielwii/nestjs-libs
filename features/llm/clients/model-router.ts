@@ -9,8 +9,6 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { getModel, parseModelSpec } from '../types/model.types';
 import { bedrock, google, openrouter, vertex, vertexGlobal } from './llm.clients';
 
-import '@app/nest/exceptions/oops-factories';
-
 import type { LLMModelSpec, LLMProviderType, ModelConfig } from '../types/model.types';
 import type { LanguageModel } from 'ai';
 
