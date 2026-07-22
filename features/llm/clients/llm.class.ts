@@ -327,7 +327,7 @@ interface GenerateTextResult {
 interface ResolvedSpec {
   key: LLMModelKey;
   /**
-   * Caller/spec intent before per-key mandatory param fallback.
+   * Caller/spec intent before per-key registry fallback.
    * Each fallback modelKey re-resolves via resolveThinkingForModel(modelKey, requestedThinking).
    */
   requestedThinking: ThinkingEffort;
@@ -361,10 +361,10 @@ function resolveSpec(
   // 调用方显式传了非 'none' 的 thinking → 用调用方的
   // 调用方用默认 'none' 且 spec 有 reason → 用 spec 的
   const requestedThinking = callerThinking !== 'none' ? callerThinking : (parsed.thinking ?? 'none');
-  // mandatory-reasoning keys: none → param-level fallback (default low) + warn
+  // Per-key policy may conservatively map none to a non-none effort.
   const { thinking, paramFallbackApplied } = resolveThinkingForModel(parsed.key, requestedThinking);
   if (paramFallbackApplied) {
-    specLogger.warning`[resolveSpec] ${parsed.key} forbids thinking=none; param-fallback to thinking=${thinking}`;
+    specLogger.warning`[resolveSpec] ${parsed.key} maps thinking=none to thinking=${thinking} by registry policy`;
   }
   const maxRetries = callerMaxRetries ?? parsed.maxRetries ?? SysEnv.AI_LLM_MAX_RETRIES;
   const timeout = callerTimeout ?? parsed.timeout ?? SysEnv.AI_LLM_TIMEOUT_MS;

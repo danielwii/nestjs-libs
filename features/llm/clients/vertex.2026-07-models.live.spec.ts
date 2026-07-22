@@ -42,7 +42,7 @@ async function expectInvocable(model: LLMModelKey, expectNoThinking = false): Pr
     id: `${model.replaceAll(':', '-')}-live`,
     model,
     messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-    // Gemini 3.5 Flash-Lite Vertex routes map this intent to thinkingBudget=0.
+    // Registry policy resolves this intent per access profile before request construction.
     thinking: 'none',
     maxOutputTokens: 256,
     maxRetries: 0,
@@ -62,8 +62,8 @@ describeVertexLive('Vertex Express July 2026 models (live)', () => {
 });
 
 describeVertexGlobalLive('Vertex project/global July 2026 models (live)', () => {
-  it('invokes Gemini 3.5 Flash-Lite with reasoning disabled', async () => {
-    await expectInvocable('vertex-global:gemini-3.5-flash-lite', true);
+  it('invokes Gemini 3.5 Flash-Lite with the conservative registry policy', async () => {
+    await expectInvocable('vertex-global:gemini-3.5-flash-lite');
   }, 45_000);
 
   it('invokes Gemini 3.6 Flash', async () => {
