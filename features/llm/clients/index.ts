@@ -17,8 +17,7 @@
  * ```
  */
 
-// 自动路由（需要更多控制时）
-export { autoOpts, model, parseProvider } from './auto.client';
+// Explicit low-level provider helpers. Registered-model routing is owned by LLM / LLM.model().
 export { bedrockServiceTierOptions, bedrockThinkingOptions, inferBedrockReasoningFamily } from './bedrock.client';
 export { createGoogleClient, googleOptions } from './google.client';
 export { createVertex, vertexOptions } from './vertex.client';
@@ -42,12 +41,6 @@ export {
   registerOpenRouterRoutingProfile,
   type OpenRouterRoutingProfile,
 } from './openrouter.client';
-
-// 场景化辅助
-export * from './options.helpers';
-
-// 预设 Options
-export { opts } from './opts.presets';
 
 // LLM 统一入口
 export {

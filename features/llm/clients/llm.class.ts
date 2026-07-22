@@ -42,14 +42,15 @@ import {
   allowsSystemInMessages,
   DEFAULT_SUPPORTED_TIERS,
   getModel,
+  getProvider,
   getRegisteredModels,
   parseModelSpec,
   resolveThinkingForModel,
 } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
-import { model as createModel, parseProvider } from './auto.client';
 import { bedrockServiceTierOptions } from './bedrock.client';
 import { getOpenAI, getOpenRouter } from './llm.clients';
+import { createLanguageModel } from './model-router';
 import { resolveOpenRouterOptions } from './openrouter.client';
 import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 import { createStreamLifecycle } from './stream-lifecycle';
@@ -79,6 +80,7 @@ import type {
   BedrockServiceTier,
   LLMModelKey,
   LLMModelSpec,
+  LLMProviderType,
   OpenRouterModelOptions,
   VertexModelOptions,
   VertexRequestType,
@@ -93,7 +95,6 @@ import type {
  *
  * @see https://ai-sdk.dev/docs/reference/ai-sdk-core/extract-json-middleware
  */
-import type { ProviderType } from './options.helpers';
 import type { JSONObject } from '@ai-sdk/provider';
 import type { Context } from '@ai-sdk/provider-utils';
 import type { OopsError } from '@app/nest/exceptions/oops-error';
@@ -327,7 +328,6 @@ interface GenerateTextResult {
 /** resolveSpec 返回值 */
 interface ResolvedSpec {
   key: LLMModelKey;
-  provider: ProviderType;
   /**
    * Caller/spec intent before per-key mandatory param fallback.
    * Each fallback modelKey re-resolves via resolveThinkingForModel(modelKey, requestedThinking).
@@ -401,7 +401,6 @@ function resolveSpec(
 
   return {
     key: parsed.key,
-    provider: parsed.provider,
     requestedThinking,
     thinking,
     maxRetries,
@@ -427,7 +426,7 @@ function resolveOpenRouterCallOptions(
  * thinking='none' 时不发送 disableThinking，避免 400 错误。
  */
 function buildProviderOptions(
-  provider: ProviderType,
+  provider: LLMProviderType,
   thinking: ThinkingEffort,
   modelKey: LLMModelKey,
   openrouter?: OpenRouterModelOptions,
@@ -494,7 +493,7 @@ function createLanguageModelForCall(
   modelIdSuffix: string | undefined,
   options?: { extractJson?: boolean },
 ): LanguageModel {
-  const languageModel = createModel(modelKey, modelIdSuffix);
+  const languageModel = createLanguageModel(modelKey, modelIdSuffix);
   if (!options?.extractJson || !MODELS_NEEDING_EXTRACT_JSON.has(modelKey)) {
     return languageModel;
   }
@@ -590,7 +589,7 @@ function wrapPrepareStep<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Context>
       aiLogger.warning`[prepareStep] id=${context.id}, method=${context.method}: step-level tier/requestType is ignored because AI SDK PrepareStepResult does not support step-level headers`;
     }
 
-    const provider = parseProvider(stepSpec.key);
+    const provider = getProvider(stepSpec.key);
     const stepOpenRouter = resolveOpenRouterCallOptions(
       llmOptions.model ? stepSpec.openrouter : context.openrouter,
       llmOptions.openrouter,
@@ -975,7 +974,7 @@ export class LLM {
     LLM.logger.info`[LLM:replay] id=${id}, method=${method}, model=${modelKey}`;
 
     const schema = wrapJsonSchema(schemaObj);
-    const languageModel = createModel(modelKey as LLMModelKey);
+    const languageModel = createLanguageModel(modelKey as LLMModelKey);
     const startTime = Date.now();
 
     let output: unknown;
@@ -1175,8 +1174,8 @@ export class LLM {
       LLM.logInputSummary(id, schema, messages, instructions);
       LLM.captureRequest(id, 'generateObject', modelKey, schema, messages, instructions);
 
-      const languageModel = createModel(modelKey);
-      const provider = parseProvider(modelKey);
+      const languageModel = createLanguageModel(modelKey);
+      const provider = getProvider(modelKey);
       const providerOptions = buildProviderOptions(
         provider,
         effectiveThinking,
@@ -1413,7 +1412,7 @@ export class LLM {
         },
       );
       const languageModel = createLanguageModelForCall(modelKey, modelIdSuffix);
-      const provider = parseProvider(modelKey);
+      const provider = getProvider(modelKey);
       const providerOptions = buildProviderOptions(
         provider,
         effectiveThinking,
@@ -1540,7 +1539,7 @@ export class LLM {
 
     const model = createLanguageModelForCall(modelKey, undefined, { extractJson: true });
 
-    const provider = parseProvider(modelKey);
+    const provider = getProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
     const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
@@ -1692,7 +1691,7 @@ export class LLM {
     LLM.logStart(id, 'streamText', modelKey, spec.thinking, undefined, spec.vertex?.tier, spec.vertex?.requestType);
 
     const languageModel = createLanguageModelForCall(modelKey, undefined);
-    const provider = parseProvider(modelKey);
+    const provider = getProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
     const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
     const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
@@ -1852,8 +1851,8 @@ export class LLM {
         toolDescription,
       });
 
-      const languageModel = createModel(modelKey);
-      const provider = parseProvider(modelKey);
+      const languageModel = createLanguageModel(modelKey);
+      const provider = getProvider(modelKey);
       const baseProviderOptions = buildProviderOptions(
         provider,
         effectiveThinking,
@@ -2050,8 +2049,8 @@ export class LLM {
       spec.vertex?.requestType,
     );
 
-    const languageModel = createModel(modelKey);
-    const provider = parseProvider(modelKey);
+    const languageModel = createLanguageModel(modelKey);
+    const provider = getProvider(modelKey);
     const providerOptions = buildProviderOptions(provider, spec.thinking, modelKey, openrouterOptions, spec.bedrock);
     const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
 
@@ -2397,8 +2396,7 @@ export class LLM {
    * 用于需要直接使用 AI SDK 的场景
    */
   static model(key: LLMModelSpec): LanguageModel {
-    const { key: baseKey } = parseModelSpec(key);
-    return createModel(baseKey);
+    return createLanguageModel(key);
   }
 
   /**
