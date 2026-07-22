@@ -26,8 +26,6 @@ import { Injectable, UseGuards } from '@nestjs/common';
 
 import { Oops } from '@app/nest/exceptions/oops';
 
-import '@app/nest/exceptions/oops-factories';
-
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 

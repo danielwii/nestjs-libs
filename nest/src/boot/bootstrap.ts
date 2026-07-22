@@ -13,9 +13,6 @@ import { doMigration } from '@app/nest/common/migration';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
 import { Oops } from '@app/nest/exceptions/oops';
-
-import '@app/nest/exceptions/oops-factories';
-
 import { getConfiguredGrpcServiceToken, GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';

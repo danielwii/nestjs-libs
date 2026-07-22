@@ -1,8 +1,6 @@
 import { Oops } from '../exceptions/oops';
 import { isExpectedOopsError } from './logger.interceptor';
 
-import '../exceptions/oops-factories';
-
 import { describe, expect, it } from 'bun:test';
 
 describe('isExpectedOopsError', () => {

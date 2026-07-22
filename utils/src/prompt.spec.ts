@@ -225,7 +225,8 @@ describe('PromptBuilder', () => {
     } catch (error) {
       expect(error).toMatchObject({
         httpStatus: 500,
-        errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
+        errorCode: ErrorCodes.SYSTEM_CONFIG_ERROR,
+        oopsCode: 'GN11',
         internalDetails: 'Configuration error: PromptBuilder: role is required',
       });
     }
@@ -242,7 +243,8 @@ describe('PromptBuilder', () => {
     } catch (error) {
       expect(error).toMatchObject({
         httpStatus: 500,
-        errorCode: ErrorCodes.SYSTEM_INTERNAL_ERROR,
+        errorCode: ErrorCodes.SYSTEM_CONFIG_ERROR,
+        oopsCode: 'GN11',
         internalDetails: 'Configuration error: PromptBuilder: objective is required',
       });
     }

@@ -87,12 +87,31 @@ describe('Oops.Panic (5xx)', () => {
     }
   });
 
-  it('should default oopsCode to empty string', () => {
-    const err = new Oops.Panic({
-      errorCode: '0x0401',
-      userMessage: '系统繁忙',
-    });
-    expect(err.oopsCode).toBe('');
+  it('should require an explicit non-empty oopsCode', () => {
+    expect(() => {
+      // @ts-expect-error -- hard-retirement contract requires every direct Panic to identify itself.
+      new Oops.Panic({
+        errorCode: '0x0401',
+        userMessage: '系统繁忙',
+      });
+    }).toThrow('oopsCode must be a non-empty string');
+
+    expect(
+      () =>
+        new Oops.Panic({
+          errorCode: '0x0401',
+          oopsCode: '   ',
+          userMessage: '系统繁忙',
+        }),
+    ).toThrow('oopsCode must be a non-empty string');
+  });
+});
+
+describe('removed Oops compatibility paths', () => {
+  it('does not expose the duplicate root NotFound factory', () => {
+    expect('NotFound' in Oops).toBe(false);
+    // @ts-expect-error -- consumers must migrate to Oops.Block.NotFound.
+    expect(Oops.NotFound).toBeUndefined();
   });
 });
 

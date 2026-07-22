@@ -1,11 +1,3 @@
-import { SysEnv } from '@app/env';
-
-import { AnyExceptionFilter, toErrorDescriptor } from './any-exception.filter';
-import { ErrorCodes } from './error-codes';
-import { Oops } from './oops';
-
-import './oops-factories';
-
 import {
   BadRequestException,
   ConflictException,
@@ -16,6 +8,12 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
+
+import { SysEnv } from '@app/env';
+
+import { AnyExceptionFilter, toErrorDescriptor } from './any-exception.filter';
+import { ErrorCodes } from './error-codes';
+import { Oops } from './oops';
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -183,7 +181,7 @@ describe('AnyExceptionFilter', () => {
       await scopedFilter.catch(
         new Oops({
           errorCode: ErrorCodes.BUSINESS_RULE_VIOLATION,
-          oopsCode: 'GN09',
+          oopsCode: 'TS05',
           userMessage: 'expected rejection',
         }),
         createHttpHost().host,

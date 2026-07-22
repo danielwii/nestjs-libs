@@ -1,7 +1,5 @@
 import { Oops } from '@app/nest/exceptions/oops';
 
-import '@app/nest/exceptions/oops-factories';
-
 import JSON5 from 'json5';
 
 // Strip common markdown code fences and whitespace

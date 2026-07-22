@@ -44,8 +44,6 @@
 import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
 
-import '@app/nest/exceptions/oops-factories';
-
 import { formatLocalDateTime, TimeSensitivity } from './prompt';
 import { estimateTokens } from './tokenizer';
 

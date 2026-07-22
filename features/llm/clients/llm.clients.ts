@@ -54,8 +54,6 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
-import '@app/nest/exceptions/oops-factories';
-
 import { createVertexFetch } from './vertex.fetch';
 
 import { createRequire } from 'node:module';
