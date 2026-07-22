@@ -1,11 +1,10 @@
 /**
  * Vertex Gemini thinking policy → HTTP request regression guard.
  *
- * Gemini 3.5 Flash-Lite uses a mixed provider contract:
- * - public `none` intent uses the Vertex-compatible `thinkingBudget: 0` switch;
- * - low/medium/high use the official `thinkingLevel` field.
- *
- * Both Vertex access profiles must emit the same thinking configuration.
+ * Gemini 3.5 Flash-Lite has access-profile-specific evidence:
+ * - Express `none` uses the live-proven `thinkingBudget: 0` switch;
+ * - project/global `none` conservatively falls back to `thinkingLevel: low`;
+ * - explicit low/medium/high use the official `thinkingLevel` field.
  */
 
 import 'reflect-metadata';
@@ -67,20 +66,19 @@ async function captureThinkingConfig(model: LLMModelKey, thinking: 'none' | 'low
   return body.generationConfig?.thinkingConfig;
 }
 
-const FLASH_LITE_VERTEX_KEYS = [
-  'vertex:gemini-3.5-flash-lite',
-  'vertex-global:gemini-3.5-flash-lite',
-] as const satisfies readonly LLMModelKey[];
-
 describe('LLM Vertex Gemini 3.5 Flash-Lite thinking requests', () => {
-  it('emits thinkingBudget=0 for no-thinking on both access profiles', async () => {
-    for (const model of FLASH_LITE_VERTEX_KEYS) {
-      expect(await captureThinkingConfig(model, 'none')).toEqual({ thinkingBudget: 0 });
-    }
+  it('does not extend Express no-thinking evidence to project/global', async () => {
+    expect(await captureThinkingConfig('vertex:gemini-3.5-flash-lite', 'none')).toEqual({ thinkingBudget: 0 });
+    expect(await captureThinkingConfig('vertex-global:gemini-3.5-flash-lite', 'none')).toEqual({
+      thinkingLevel: 'low',
+    });
   });
 
   it('emits thinkingLevel for non-none effort on both access profiles', async () => {
-    for (const model of FLASH_LITE_VERTEX_KEYS) {
+    for (const model of [
+      'vertex:gemini-3.5-flash-lite',
+      'vertex-global:gemini-3.5-flash-lite',
+    ] as const satisfies readonly LLMModelKey[]) {
       expect(await captureThinkingConfig(model, 'low')).toEqual({ thinkingLevel: 'low' });
     }
   });

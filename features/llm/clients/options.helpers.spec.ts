@@ -11,12 +11,10 @@ describe('Google/Vertex thinking parameter modes', () => {
     });
   });
 
-  it('maps no-thinking to budget zero for both Vertex access profiles', () => {
-    for (const provider of ['vertex', 'vertex-global'] as const) {
-      expect(disableThinkingOptions(provider, 'gemini-3.5-flash-lite')).toEqual({
-        google: { thinkingConfig: { thinkingBudget: 0 } },
-      });
-    }
+  it('maps the live-proven Vertex Express no-thinking transport to budget zero', () => {
+    expect(disableThinkingOptions('vertex', 'gemini-3.5-flash-lite')).toEqual({
+      google: { thinkingConfig: { thinkingBudget: 0 } },
+    });
   });
 
   it('maps public efforts to thinkingLevel for Gemini 3+ level routes', () => {

@@ -129,8 +129,14 @@ export interface ModelConfig<P extends string = string> {
    */
   reasoningRequired?: boolean;
   /**
-   * mandatory 模型在调用方想 disable 时，参数层 fallback 使用的 effort（默认 low）。
-   * 不得为 none。
+   * 调用方请求 thinking=none 时，registry 要采用的非 none fallback effort。
+   *
+   * - mandatory 模型可设置它来覆盖默认的 low；
+   * - capability 尚未实证的 route 可单独设置它作为保守策略，而不把
+   *   `reasoningRequired` 错标为 true。
+   *
+   * 仅 `reasoningRequired` 表达“无法关闭 reasoning”的能力事实；本字段只表达
+   * runtime fallback policy。不得为 none。
    */
   reasoningDefaultEffort?: 'low' | 'medium' | 'high';
   /**
@@ -989,13 +995,6 @@ export type LLMProviderType = LLMModelRegistry[LLMModelKey]['provider'];
 
 // ==================== 运行时 Registry ====================
 
-/** Gemini 3.5 Flash-Lite policy shared by both Vertex access profiles. */
-const GEMINI_3_5_FLASH_LITE_VERTEX_POLICY = {
-  modelId: 'gemini-3.5-flash-lite',
-  googleThinkingMode: 'level',
-  supportedTiers: ['standard', 'flex', 'priority'],
-} as const satisfies Omit<ModelConfig, 'provider'>;
-
 const modelRegistry = new Map<string, ModelConfig>([
   // OpenRouter 模型（简称 + 全称成对，按模型分组）
   // Gemini 2.5 Flash
@@ -1256,7 +1255,15 @@ const modelRegistry = new Map<string, ModelConfig>([
   ],
   // Vertex Express live evidence: thinkingBudget=0 is accepted with no reasoning tokens.
   // Non-none public efforts continue to use the official thinkingLevel contract.
-  ['vertex:gemini-3.5-flash-lite', { provider: 'vertex', ...GEMINI_3_5_FLASH_LITE_VERTEX_POLICY }],
+  [
+    'vertex:gemini-3.5-flash-lite',
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3.5-flash-lite',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
   // Direct Vertex Express live probe confirms thinkingBudget=0 is accepted (reasoningTokens=0).
   [
     'vertex:gemini-3.6-flash',
@@ -1301,15 +1308,24 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex-global:gemini-3.5-flash',
     { provider: 'vertex-global', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
   ],
-  // Project/global changes the access profile, not the model thinking policy.
-  ['vertex-global:gemini-3.5-flash-lite', { provider: 'vertex-global', ...GEMINI_3_5_FLASH_LITE_VERTEX_POLICY }],
+  // Express evidence does not establish project/global no-thinking behavior.
+  // Keep this access profile on the lowest public effort until separately live-probed.
+  [
+    'vertex-global:gemini-3.5-flash-lite',
+    {
+      provider: 'vertex-global',
+      modelId: 'gemini-3.5-flash-lite',
+      reasoningDefaultEffort: 'low',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
   // The official project/global contract exposes thinking levels; keep no-thinking conservative until live-probed.
   [
     'vertex-global:gemini-3.6-flash',
     {
       provider: 'vertex-global',
       modelId: 'gemini-3.6-flash',
-      reasoningRequired: true,
       reasoningDefaultEffort: 'low',
       googleThinkingMode: 'level',
       supportedTiers: ['standard', 'flex', 'priority'],
@@ -1604,8 +1620,12 @@ export function allowsSystemInMessages(key: LLMModelKey): boolean {
 }
 
 /**
- * Param-level fallback when caller wants thinking=none on a mandatory-reasoning model.
- * Returns the effort that should be sent (never none when mandatory).
+ * Resolve caller thinking intent against the per-key runtime fallback policy.
+ *
+ * `reasoningRequired` is capability truth and defaults its fallback to low.
+ * `reasoningDefaultEffort` may also be set alone for a conservative route policy whose
+ * disable capability is not yet proven. A fallback alone must not be interpreted as
+ * evidence that reasoning is mandatory.
  */
 export function resolveThinkingForModel(
   key: LLMModelKey,
@@ -1615,10 +1635,11 @@ export function resolveThinkingForModel(
     return { thinking: requested, paramFallbackApplied: false };
   }
   const config = getModel(key);
-  if (!config.reasoningRequired) {
+  const effort =
+    config.reasoningDefaultEffort ?? (config.reasoningRequired ? DEFAULT_MANDATORY_REASONING_EFFORT : undefined);
+  if (effort === undefined) {
     return { thinking: 'none', paramFallbackApplied: false };
   }
-  const effort = config.reasoningDefaultEffort ?? DEFAULT_MANDATORY_REASONING_EFFORT;
   return { thinking: effort, paramFallbackApplied: true };
 }
 
@@ -1667,7 +1688,7 @@ export function validateModelSpec(spec: string, options?: { thinking?: ThinkingE
   const { thinking: effectiveThinking, paramFallbackApplied } = resolveThinkingForModel(parsed.key, requested);
 
   // Skip disable warning when the root cause was an invalid reason= typo (not an intentional none)
-  if (paramFallbackApplied && parsed.invalidReason === undefined) {
+  if (paramFallbackApplied && isReasoningMandatory(parsed.key) && parsed.invalidReason === undefined) {
     const suggestion = buildParamFallbackSuggestion(parsed.key);
     warnings.push({
       code: 'REASONING_DISABLE_FORBIDDEN',

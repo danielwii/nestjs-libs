@@ -8,6 +8,7 @@ import {
   getProvider,
   isModelRegistered,
   isModelSpecValid,
+  isReasoningMandatory,
   parseModelSpec,
   resolveThinkingForModel,
   validateModelKey,
@@ -318,7 +319,7 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     expect(getModel('vertex:gemini-3.6-flash').reasoningRequired).not.toBe(true);
   });
 
-  it('keeps Gemini 3.5 Flash-Lite policy identical across Vertex access profiles', () => {
+  it('keeps Gemini 3.5 Flash-Lite policy separate across Vertex access profiles', () => {
     const express = getModel('vertex:gemini-3.5-flash-lite');
     const global = getModel('vertex-global:gemini-3.5-flash-lite');
 
@@ -329,15 +330,22 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     });
     expect(express.reasoningRequired).not.toBe(true);
     expect(express.reasoningDefaultEffort).toBeUndefined();
-    expect(global).toEqual({ ...express, provider: 'vertex-global' });
+    expect(global).toMatchObject({
+      provider: 'vertex-global',
+      modelId: 'gemini-3.5-flash-lite',
+      reasoningDefaultEffort: 'low',
+      googleThinkingMode: 'level',
+    });
+    expect(global.reasoningRequired).not.toBe(true);
+    expect(isReasoningMandatory('vertex-global:gemini-3.5-flash-lite')).toBe(false);
   });
 
   it('keeps project/global Gemini 3.6 Flash conservative until separately changed', () => {
     expect(getModel('vertex-global:gemini-3.6-flash')).toMatchObject({
-      reasoningRequired: true,
       reasoningDefaultEffort: 'low',
       googleThinkingMode: 'level',
     });
+    expect(isReasoningMandatory('vertex-global:gemini-3.6-flash')).toBe(false);
   });
 
   it('param-fallbacks OpenRouter 3.6 none → low but keeps live-probed Vertex Express none', () => {
@@ -351,17 +359,26 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     });
   });
 
-  it('keeps no-thinking intent for Gemini 3.5 Flash-Lite on both Vertex access profiles', () => {
-    for (const key of ['vertex:gemini-3.5-flash-lite', 'vertex-global:gemini-3.5-flash-lite'] as const) {
-      expect(resolveThinkingForModel(key, 'none')).toEqual({
-        thinking: 'none',
-        paramFallbackApplied: false,
-      });
-      const result = validateModelSpec(key, { thinking: 'none' });
-      const issues = result.ok ? result.warnings : result.issues;
-      expect(issues.some((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
-      if (result.ok) expect(result.effectiveThinking).toBe('none');
-    }
+  it('keeps Express no-thinking but conservatively falls project/global back to low', () => {
+    const expressKey = 'vertex:gemini-3.5-flash-lite';
+    expect(resolveThinkingForModel(expressKey, 'none')).toEqual({
+      thinking: 'none',
+      paramFallbackApplied: false,
+    });
+    const expressResult = validateModelSpec(expressKey, { thinking: 'none' });
+    const expressIssues = expressResult.ok ? expressResult.warnings : expressResult.issues;
+    expect(expressIssues.some((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
+    if (expressResult.ok) expect(expressResult.effectiveThinking).toBe('none');
+
+    const globalKey = 'vertex-global:gemini-3.5-flash-lite';
+    expect(resolveThinkingForModel(globalKey, 'none')).toEqual({
+      thinking: 'low',
+      paramFallbackApplied: true,
+    });
+    const globalResult = validateModelSpec(globalKey, { thinking: 'none' });
+    const globalIssues = globalResult.ok ? globalResult.warnings : globalResult.issues;
+    expect(globalIssues.some((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
+    if (globalResult.ok) expect(globalResult.effectiveThinking).toBe('low');
   });
 
   it('still param-fallbacks project/global Gemini 3.6 Flash no-thinking intent', () => {
@@ -372,9 +389,8 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     });
     const result = validateModelSpec(key, { thinking: 'none' });
     const issues = result.ok ? result.warnings : result.issues;
-    expect(issues.find((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')?.suggestions).toEqual([
-      `${key}?reason=low`,
-    ]);
+    expect(issues.some((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
+    if (result.ok) expect(result.effectiveThinking).toBe('low');
   });
 
   it('warns and suggests reason=low for OpenRouter 3.6 no-thinking intent', () => {
