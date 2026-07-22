@@ -155,9 +155,10 @@ export function devFormatter(record: LogRecord): string {
  * 自定义而非 getJsonLinesFormatter，因为 LogTape 的 rendered message 会双重引号。
  */
 export function prodFormatter(record: LogRecord): string {
+  // Preserve tagged-template semantics: literal strings stay intact and interpolated values use the shared renderer.
   const message = Array.isArray(record.message)
-    ? record.message.map((p) => (typeof p === 'string' ? p : String(p))).join('')
-    : String(record.message);
+    ? record.message.map((p) => (typeof p === 'string' ? p : r(p))).join('')
+    : r(record.message);
 
   const entry: Record<string, unknown> = {
     '@timestamp': Temporal.Instant.fromEpochMilliseconds(record.timestamp).toString({ smallestUnit: 'millisecond' }),

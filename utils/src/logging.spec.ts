@@ -110,5 +110,13 @@ describe('logging.utils', () => {
       const result = inspect(obj);
       expect(result).not.toContain('\n');
     });
+
+    it('should never emit colors in production', () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.NO_COLOR;
+      const result = inspect({ foo: 'bar' });
+
+      expect(result).not.toContain('\x1b[');
+    });
   });
 });
