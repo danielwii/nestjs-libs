@@ -318,7 +318,7 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     expect(getModel('vertex:gemini-3.6-flash').reasoningRequired).not.toBe(true);
   });
 
-  it('uses the official thinking-level contract for unprobed July Vertex routes', () => {
+  it('uses the official thinking-level contract for the July Vertex routes', () => {
     for (const key of [
       'vertex:gemini-3.5-flash-lite',
       'vertex-global:gemini-3.5-flash-lite',

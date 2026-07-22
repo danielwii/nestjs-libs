@@ -25,9 +25,10 @@
  */
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { getModel } from '../types/model.types';
+import { getModel, parseModelSpec, resolveThinkingForModel } from '../types/model.types';
 import { bedrockThinkingOptions } from './bedrock.client';
 import { bedrock, google, openrouter, vertex, vertexGlobal } from './llm.clients';
+import { disableThinkingOptions, reasoningEffortOptions } from './options.helpers';
 
 import '@app/nest/exceptions/oops-factories';
 
@@ -38,6 +39,16 @@ import type { ProviderOptions } from '@ai-sdk/provider-utils';
 import type { LanguageModel } from 'ai';
 
 const autoOptsLogger = getAppLogger('features', 'LLM', 'autoOpts');
+
+/**
+ * 完整 model key 必须通过 registry contract 生成 options；裸 provider 名只保留旧的
+ * provider-level 行为，无法判断 mandatory reasoning 或 Google thinking mode。
+ */
+function resolveAutoOptsModelContract(key: LLMModelKey | string) {
+  if (!key.includes(':')) return undefined;
+  const parsed = parseModelSpec(key as LLMModelSpec);
+  return { key: parsed.key, config: getModel(parsed.key) };
+}
 
 /**
  * autoOpts 的 Bedrock 分支需要 modelId 判断 reasoning 配置形式（budget vs effort）。
@@ -122,30 +133,42 @@ export function parseProvider(key: string): LLMProviderType {
 // ============================================================================
 
 /**
- * 根据 Provider/Model Key 自动生成 providerOptions
+ * 根据 Provider/Model Key 自动生成 providerOptions。
  *
- * 自动识别 provider 并返回对应格式的 options。
+ * 完整 model key 会读取 registry contract；裸 provider 名只保留无法判断模型能力的
+ * legacy provider-level 行为。
  */
 export const autoOpts = {
   /**
    * 禁用 Thinking/Reasoning
    *
-   * 根据 provider 自动选择正确格式：
-   * - openrouter: `{ reasoning: { effort: 'none' } }`
-   * - google/vertex/vertex-global: `{ thinkingConfig: { thinkingBudget: 0 } }`
+   * 完整 model key 会遵守 mandatory reasoning、default effort 与 Google thinking mode；
+   * 裸 provider 名则使用旧的 provider-level 格式。
    *
    * @param key Provider 名或 Model Key
    *
    * @example
    * ```typescript
-   * // 推荐：直接传 provider 名
-   * providerOptions: autoOpts.noThinking('openrouter'),
-   *
-   * // 也支持传完整 model key
+   * // 推荐：传完整 model key，确保应用 registry contract
    * providerOptions: autoOpts.noThinking('openrouter:x-ai/grok-4.1-fast'),
+   *
+   * // Legacy：裸 provider 名无法判断模型是否允许关闭 reasoning
+   * providerOptions: autoOpts.noThinking('openrouter'),
    * ```
    */
   noThinking(key: LLMModelKey | string): ProviderOptions {
+    const contract = resolveAutoOptsModelContract(key);
+    if (contract) {
+      const provider = contract.config.provider as LLMProviderType;
+      const { thinking, paramFallbackApplied } = resolveThinkingForModel(contract.key, 'none');
+      if (paramFallbackApplied) {
+        autoOptsLogger.warning`[autoOpts] ${contract.key} forbids thinking=none; param-fallback to thinking=${thinking}`;
+      }
+      return thinking === 'none'
+        ? disableThinkingOptions(provider, contract.config.modelId)
+        : reasoningEffortOptions(provider, thinking, contract.config.modelId, contract.config.googleThinkingMode);
+    }
+
     const provider = parseProvider(key);
     switch (provider) {
       case 'openrouter':
@@ -171,6 +194,16 @@ export const autoOpts = {
    * 设置推理强度（自动根据 provider 选择正确格式）
    */
   thinking(key: LLMModelKey | string, effort: 'low' | 'medium' | 'high'): ProviderOptions {
+    const contract = resolveAutoOptsModelContract(key);
+    if (contract) {
+      return reasoningEffortOptions(
+        contract.config.provider as LLMProviderType,
+        effort,
+        contract.config.modelId,
+        contract.config.googleThinkingMode,
+      );
+    }
+
     const provider = parseProvider(key);
     const budgetMap = { low: 1024, medium: 4096, high: 8192 } as const;
 
