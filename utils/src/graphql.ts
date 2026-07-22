@@ -1,6 +1,7 @@
 import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/graphql';
 
 import { Oops } from '@app/nest/exceptions/oops';
+import { isOopsError } from '@app/nest/exceptions/oops-error';
 
 import '@app/nest/exceptions/oops-factories';
 
@@ -223,7 +224,7 @@ export class CursorUtils {
         id,
       };
     } catch (error) {
-      if (error instanceof Oops) throw error;
+      if (isOopsError(error)) throw error;
       throw Oops.Validation('Invalid cursor', `cursor="${cursor}"`);
     }
   }

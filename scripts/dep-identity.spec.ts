@@ -107,6 +107,45 @@ describe('inspectDependencyIdentities', () => {
     expect(report.conflicts).toEqual([]);
   });
 
+  it('rejects missing values and option tokens for every value-taking CLI option', () => {
+    const cases = [
+      {
+        args: ['--package'],
+        message: '--package requires an exact package name or prefix/*',
+      },
+      {
+        args: ['--package', '--json'],
+        message: '--package requires an exact package name or prefix/*',
+      },
+      {
+        args: ['--package', '--bogus'],
+        message: '--package requires an exact package name or prefix/*',
+      },
+      {
+        args: ['--anchor'],
+        message: '--anchor requires a path',
+      },
+      {
+        args: ['--anchor', '--json'],
+        message: '--anchor requires a path',
+      },
+      {
+        args: ['--anchor', '--bogus'],
+        message: '--anchor requires a path',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = spawnSync(process.execPath, [join(import.meta.dir, 'check-dep-identity.ts'), ...testCase.args], {
+        encoding: 'utf8',
+      });
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe(`${testCase.message}\n`);
+    }
+  });
+
   it('matches repeated exact and prefix/* package filters without widening the package set', () => {
     const include = createPackageNameInclude(['zod', '@nestjs/*']);
 

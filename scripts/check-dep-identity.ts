@@ -6,6 +6,12 @@ interface CliOptions {
   json: boolean;
 }
 
+function readOptionValue(args: string[], index: number, errorMessage: string): string {
+  const value = args[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(errorMessage);
+  return value;
+}
+
 function parseArgs(args: string[]): CliOptions {
   const anchors: string[] = [];
   const packages: string[] = [];
@@ -18,15 +24,13 @@ function parseArgs(args: string[]): CliOptions {
       continue;
     }
     if (argument === '--anchor') {
-      const anchor = args[index + 1];
-      if (!anchor) throw new Error('--anchor requires a path');
+      const anchor = readOptionValue(args, index, '--anchor requires a path');
       anchors.push(anchor);
       index += 1;
       continue;
     }
     if (argument === '--package') {
-      const packagePattern = args[index + 1];
-      if (!packagePattern) throw new Error('--package requires an exact package name or prefix/*');
+      const packagePattern = readOptionValue(args, index, '--package requires an exact package name or prefix/*');
       packages.push(packagePattern);
       index += 1;
       continue;
