@@ -68,19 +68,24 @@ export async function createGoogleClient(options: GoogleClientOptions) {
 export function googleOptions(options: {
   /** 禁用 thinking 输出（设置 thinkingBudget: 0） */
   disableThinking?: boolean;
-  /** Thinking token 预算（仅对 thinking 模型有效） */
+  /** Thinking token 预算（Gemini 2.x / compatibility routes） */
   thinkingBudget?: number;
+  /** Thinking 强度等级（Gemini 3+） */
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';
   /** 安全设置 */
   safetySettings?: Array<{
     category: string;
     threshold: string;
   }>;
 }) {
-  const { disableThinking, thinkingBudget, safetySettings } = options;
+  const { disableThinking, thinkingBudget, thinkingLevel, safetySettings } = options;
 
   const thinkingConfig = (() => {
     if (disableThinking) {
       return { thinkingBudget: 0 };
+    }
+    if (thinkingLevel !== undefined) {
+      return { thinkingLevel };
     }
     if (thinkingBudget !== undefined) {
       return { thinkingBudget };

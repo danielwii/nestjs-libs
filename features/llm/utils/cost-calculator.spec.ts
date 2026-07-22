@@ -68,8 +68,11 @@ describe('getCostFromUsage bedrock', () => {
   it('resolves direct Vertex pricing through the registered modelId', () => {
     const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
     expect(getCostFromUsage(usage, 'vertex:gemini-3.6-flash')).toBeCloseTo(9);
+    expect(getCostFromUsage(usage, 'vertex-global:gemini-3.6-flash')).toBeCloseTo(9);
     expect(getCostFromUsage(usage, 'vertex:gemini-3.5-flash')).toBeCloseTo(10.5);
     expect(getCostFromUsage(usage, 'vertex-global:gemini-3.5-flash')).toBeCloseTo(10.5);
+    expect(getCostFromUsage(usage, 'vertex:gemini-3.5-flash-lite')).toBeCloseTo(2.8);
+    expect(getCostFromUsage(usage, 'vertex-global:gemini-3.5-flash-lite')).toBeCloseTo(2.8);
     expect(getCostFromUsage(usage, 'vertex:no-such-model')).toBeNull();
   });
 });

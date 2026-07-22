@@ -222,6 +222,18 @@ describe('getModel', () => {
     expect(global.provider).toBe('vertex-global');
     expect(global.modelId).toBe('gemini-3.5-flash');
   });
+
+  it('registers the official July Vertex route additions', () => {
+    const cases = [
+      ['vertex:gemini-3.5-flash-lite', 'vertex', 'gemini-3.5-flash-lite'],
+      ['vertex-global:gemini-3.5-flash-lite', 'vertex-global', 'gemini-3.5-flash-lite'],
+      ['vertex-global:gemini-3.6-flash', 'vertex-global', 'gemini-3.6-flash'],
+    ] as const;
+
+    for (const [key, provider, modelId] of cases) {
+      expect(getModel(key)).toMatchObject({ provider, modelId });
+    }
+  });
 });
 
 describe('getModelId', () => {
@@ -234,6 +246,12 @@ describe('getModelId', () => {
   it('should return modelId for Vertex direct Gemini 3.5 Flash variants', () => {
     expect(getModelId('vertex:gemini-3.5-flash')).toBe('gemini-3.5-flash');
     expect(getModelId('vertex-global:gemini-3.5-flash')).toBe('gemini-3.5-flash');
+  });
+
+  it('returns modelIds for the official July Vertex route additions', () => {
+    expect(getModelId('vertex:gemini-3.5-flash-lite')).toBe('gemini-3.5-flash-lite');
+    expect(getModelId('vertex-global:gemini-3.5-flash-lite')).toBe('gemini-3.5-flash-lite');
+    expect(getModelId('vertex-global:gemini-3.6-flash')).toBe('gemini-3.6-flash');
   });
 });
 
@@ -291,7 +309,7 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     }
   });
 
-  it('keeps direct Vertex Gemini Flash models non-mandatory', () => {
+  it('keeps live-probed Vertex Express Gemini Flash routes non-mandatory', () => {
     expect(getModel('vertex:gemini-3.5-flash').reasoningRequired).not.toBe(true);
     expect(getModel('vertex:gemini-3.6-flash')).toMatchObject({
       provider: 'vertex',
@@ -300,7 +318,21 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     expect(getModel('vertex:gemini-3.6-flash').reasoningRequired).not.toBe(true);
   });
 
-  it('param-fallbacks OpenRouter 3.6 none → low but keeps direct Vertex none', () => {
+  it('uses the official thinking-level contract for unprobed July Vertex routes', () => {
+    for (const key of [
+      'vertex:gemini-3.5-flash-lite',
+      'vertex-global:gemini-3.5-flash-lite',
+      'vertex-global:gemini-3.6-flash',
+    ] as const) {
+      expect(getModel(key)).toMatchObject({
+        reasoningRequired: true,
+        reasoningDefaultEffort: 'low',
+        googleThinkingMode: 'level',
+      });
+    }
+  });
+
+  it('param-fallbacks OpenRouter 3.6 none → low but keeps live-probed Vertex Express none', () => {
     expect(resolveThinkingForModel('openrouter:gemini-3.6-flash', 'none')).toEqual({
       thinking: 'low',
       paramFallbackApplied: true,
@@ -309,6 +341,24 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
       thinking: 'none',
       paramFallbackApplied: false,
     });
+  });
+
+  it('param-fallbacks no-thinking intent for the new Vertex thinking-level routes', () => {
+    for (const key of [
+      'vertex:gemini-3.5-flash-lite',
+      'vertex-global:gemini-3.5-flash-lite',
+      'vertex-global:gemini-3.6-flash',
+    ] as const) {
+      expect(resolveThinkingForModel(key, 'none')).toEqual({
+        thinking: 'low',
+        paramFallbackApplied: true,
+      });
+      const result = validateModelSpec(key, { thinking: 'none' });
+      const issues = result.ok ? result.warnings : result.issues;
+      expect(issues.find((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')?.suggestions).toEqual([
+        `${key}?reason=low`,
+      ]);
+    }
   });
 
   it('warns and suggests reason=low for OpenRouter 3.6 no-thinking intent', () => {

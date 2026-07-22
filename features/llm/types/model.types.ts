@@ -51,6 +51,9 @@ export type VertexTier = 'standard' | 'flex' | 'priority';
  */
 export type VertexRequestType = 'shared';
 
+/** Google/Vertex thinking 参数契约：按 route 选择 token budget 或离散 effort level。 */
+export type GoogleThinkingMode = 'budget' | 'level';
+
 /** 模块级单例，避免 `supportedTiers` 缺省时每次调用都分配新数组 */
 export const DEFAULT_SUPPORTED_TIERS: readonly VertexTier[] = ['standard'];
 
@@ -130,6 +133,13 @@ export interface ModelConfig<P extends string = string> {
    * 不得为 none。
    */
   reasoningDefaultEffort?: 'low' | 'medium' | 'high';
+  /**
+   * Google/Vertex thinking 参数模式（缺省 = budget，保持既有模型兼容性）。
+   *
+   * 当前 Gemini 3 官方接口使用 `thinkingLevel`；既有 live-probed compatibility routes
+   * 可继续使用 `thinkingBudget`。仅适用于 google / vertex / vertex-global provider。
+   */
+  googleThinkingMode?: GoogleThinkingMode;
   /**
    * 该模型端到端是否接受 messages 数组里的 system 条目（事实标记，缺省 = true）。
    *
@@ -681,8 +691,9 @@ export interface LLMModelRegistry {
   'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3.5-flash': ModelConfig<'vertex'>;
+  'vertex:gemini-3.5-flash-lite': ModelConfig<'vertex'>;
 
-  /** Direct Vertex live probe confirms thinkingBudget=0 is supported. */
+  /** Direct Vertex Express live probe confirms thinkingBudget=0 is supported. */
   'vertex:gemini-3.6-flash': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>;
 
@@ -693,6 +704,8 @@ export interface LLMModelRegistry {
   'vertex-global:gemini-3-flash-preview': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.1-flash-lite': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.5-flash': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-3.5-flash-lite': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-3.6-flash': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.1-pro-preview': ModelConfig<'vertex-global'>;
 
   // ==================== AWS Bedrock ====================
@@ -1234,8 +1247,24 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex:gemini-3.5-flash',
     { provider: 'vertex', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
   ],
-  // Direct Vertex live probe confirms thinkingBudget=0 is accepted (reasoningTokens=0).
-  ['vertex:gemini-3.6-flash', { provider: 'vertex', modelId: 'gemini-3.6-flash' }],
+  // Official Gemini 3.5 Flash-Lite contract uses thinkingLevel and has no public no-thinking level.
+  // `none` safely falls back to the lowest public library effort (`low`; provider default is `minimal`).
+  [
+    'vertex:gemini-3.5-flash-lite',
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3.5-flash-lite',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
+  // Direct Vertex Express live probe confirms thinkingBudget=0 is accepted (reasoningTokens=0).
+  [
+    'vertex:gemini-3.6-flash',
+    { provider: 'vertex', modelId: 'gemini-3.6-flash', supportedTiers: ['standard', 'flex', 'priority'] },
+  ],
   [
     'vertex:gemini-3.1-pro-preview',
     {
@@ -1274,6 +1303,29 @@ const modelRegistry = new Map<string, ModelConfig>([
   [
     'vertex-global:gemini-3.5-flash',
     { provider: 'vertex-global', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
+  ],
+  [
+    'vertex-global:gemini-3.5-flash-lite',
+    {
+      provider: 'vertex-global',
+      modelId: 'gemini-3.5-flash-lite',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
+  // The official project/global contract exposes thinking levels; keep no-thinking conservative until live-probed.
+  [
+    'vertex-global:gemini-3.6-flash',
+    {
+      provider: 'vertex-global',
+      modelId: 'gemini-3.6-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
   ],
   [
     'vertex-global:gemini-3.1-pro-preview',

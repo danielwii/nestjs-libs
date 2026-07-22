@@ -165,6 +165,17 @@ describe('getSupportedTiers', () => {
     expect(tiers).toEqual(['standard', 'flex', 'priority']);
   });
 
+  it('returns all official PayGo tiers for the July Vertex routes', () => {
+    for (const key of [
+      'vertex:gemini-3.5-flash-lite',
+      'vertex:gemini-3.6-flash',
+      'vertex-global:gemini-3.5-flash-lite',
+      'vertex-global:gemini-3.6-flash',
+    ] as const) {
+      expect(getSupportedTiers(key)).toEqual(['standard', 'flex', 'priority']);
+    }
+  });
+
   it('returns [standard] for openrouter models (not a vertex concept)', () => {
     const tiers = getSupportedTiers('openrouter:gemini-2.5-flash');
     expect(tiers).toEqual(['standard']);
@@ -231,6 +242,16 @@ describe('buildTierHeaders: supported tiers emit header', () => {
   it('priority on vertex-global gemini-3.5-flash → emits priority header', () => {
     const headers = buildTierHeaders('vertex-global:gemini-3.5-flash', 'priority');
     expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'priority' });
+  });
+
+  it('emits official tier headers for the July Vertex routes', () => {
+    expect(buildTierHeaders('vertex:gemini-3.5-flash-lite', 'flex')).toEqual({ [VERTEX_TIER_HEADER]: 'flex' });
+    expect(buildTierHeaders('vertex-global:gemini-3.5-flash-lite', 'priority')).toEqual({
+      [VERTEX_TIER_HEADER]: 'priority',
+    });
+    expect(buildTierHeaders('vertex-global:gemini-3.6-flash', 'flex')).toEqual({
+      [VERTEX_TIER_HEADER]: 'flex',
+    });
   });
 
   it('priority on gemini-2.5-flash-lite → emits priority header (2026-04 docs)', () => {

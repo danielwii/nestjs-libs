@@ -8,6 +8,8 @@ import { bedrockThinkingOptions } from './bedrock.client';
 import { googleOptions } from './google.client';
 import { openrouterOptions } from './openrouter.client';
 
+import type { GoogleThinkingMode } from '../types/model.types';
+
 /**
  * Provider 类型
  */
@@ -61,14 +63,22 @@ export function disableThinkingOptions(provider: ProviderType, modelId?: string)
  * });
  * ```
  */
-export function reasoningEffortOptions(provider: ProviderType, effort: 'low' | 'medium' | 'high', modelId?: string) {
+export function reasoningEffortOptions(
+  provider: ProviderType,
+  effort: 'low' | 'medium' | 'high',
+  modelId?: string,
+  googleThinkingMode: GoogleThinkingMode = 'budget',
+) {
   switch (provider) {
     case 'openrouter':
       return openrouterOptions({ reasoningEffort: effort });
     case 'google':
     case 'vertex':
     case 'vertex-global': {
-      // Google/Vertex 没有 effort 概念，用 thinkingBudget 近似
+      if (googleThinkingMode === 'level') {
+        return googleOptions({ thinkingLevel: effort });
+      }
+      // Budget-mode routes 没有离散 effort 参数，用 thinkingBudget 近似。
       // low: 1024, medium: 4096, high: 8192
       const budgetMap = { low: 1024, medium: 4096, high: 8192 };
       return googleOptions({ thinkingBudget: budgetMap[effort] });
