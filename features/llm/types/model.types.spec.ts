@@ -318,18 +318,26 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     expect(getModel('vertex:gemini-3.6-flash').reasoningRequired).not.toBe(true);
   });
 
-  it('uses the official thinking-level contract for the July Vertex routes', () => {
-    for (const key of [
-      'vertex:gemini-3.5-flash-lite',
-      'vertex-global:gemini-3.5-flash-lite',
-      'vertex-global:gemini-3.6-flash',
-    ] as const) {
-      expect(getModel(key)).toMatchObject({
-        reasoningRequired: true,
-        reasoningDefaultEffort: 'low',
-        googleThinkingMode: 'level',
-      });
-    }
+  it('keeps Gemini 3.5 Flash-Lite policy identical across Vertex access profiles', () => {
+    const express = getModel('vertex:gemini-3.5-flash-lite');
+    const global = getModel('vertex-global:gemini-3.5-flash-lite');
+
+    expect(express).toMatchObject({
+      provider: 'vertex',
+      modelId: 'gemini-3.5-flash-lite',
+      googleThinkingMode: 'level',
+    });
+    expect(express.reasoningRequired).not.toBe(true);
+    expect(express.reasoningDefaultEffort).toBeUndefined();
+    expect(global).toEqual({ ...express, provider: 'vertex-global' });
+  });
+
+  it('keeps project/global Gemini 3.6 Flash conservative until separately changed', () => {
+    expect(getModel('vertex-global:gemini-3.6-flash')).toMatchObject({
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+      googleThinkingMode: 'level',
+    });
   });
 
   it('param-fallbacks OpenRouter 3.6 none → low but keeps live-probed Vertex Express none', () => {
@@ -343,22 +351,30 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     });
   });
 
-  it('param-fallbacks no-thinking intent for the new Vertex thinking-level routes', () => {
-    for (const key of [
-      'vertex:gemini-3.5-flash-lite',
-      'vertex-global:gemini-3.5-flash-lite',
-      'vertex-global:gemini-3.6-flash',
-    ] as const) {
+  it('keeps no-thinking intent for Gemini 3.5 Flash-Lite on both Vertex access profiles', () => {
+    for (const key of ['vertex:gemini-3.5-flash-lite', 'vertex-global:gemini-3.5-flash-lite'] as const) {
       expect(resolveThinkingForModel(key, 'none')).toEqual({
-        thinking: 'low',
-        paramFallbackApplied: true,
+        thinking: 'none',
+        paramFallbackApplied: false,
       });
       const result = validateModelSpec(key, { thinking: 'none' });
       const issues = result.ok ? result.warnings : result.issues;
-      expect(issues.find((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')?.suggestions).toEqual([
-        `${key}?reason=low`,
-      ]);
+      expect(issues.some((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')).toBe(false);
+      if (result.ok) expect(result.effectiveThinking).toBe('none');
     }
+  });
+
+  it('still param-fallbacks project/global Gemini 3.6 Flash no-thinking intent', () => {
+    const key = 'vertex-global:gemini-3.6-flash';
+    expect(resolveThinkingForModel(key, 'none')).toEqual({
+      thinking: 'low',
+      paramFallbackApplied: true,
+    });
+    const result = validateModelSpec(key, { thinking: 'none' });
+    const issues = result.ok ? result.warnings : result.issues;
+    expect(issues.find((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')?.suggestions).toEqual([
+      `${key}?reason=low`,
+    ]);
   });
 
   it('warns and suggests reason=low for OpenRouter 3.6 no-thinking intent', () => {

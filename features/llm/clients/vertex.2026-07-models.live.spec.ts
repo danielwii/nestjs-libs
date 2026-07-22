@@ -29,31 +29,44 @@ const HAS_VERTEX_GLOBAL_CONFIG =
 const describeVertexLive = LIVE && HAS_VERTEX_KEY ? describe : describe.skip;
 const describeVertexGlobalLive = LIVE && HAS_VERTEX_GLOBAL_CONFIG ? describe : describe.skip;
 
-async function expectInvocable(model: LLMModelKey): Promise<void> {
+function getReasoningTokens(usage: unknown): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const details = (usage as { outputTokenDetails?: unknown }).outputTokenDetails;
+  if (!details || typeof details !== 'object') return 0;
+  const value = (details as { reasoningTokens?: unknown }).reasoningTokens;
+  return typeof value === 'number' ? value : 0;
+}
+
+async function expectInvocable(model: LLMModelKey, expectNoThinking = false): Promise<void> {
   const result = await LLM.generateText({
     id: `${model.replaceAll(':', '-')}-live`,
     model,
     messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-    // The registry safely maps no-thinking intent to the lowest public effort,
-    // which is `low` for the level-based July routes.
+    // Gemini 3.5 Flash-Lite Vertex routes map this intent to thinkingBudget=0.
     thinking: 'none',
     maxOutputTokens: 256,
     maxRetries: 0,
     timeout: 30_000,
   });
+  const reasoningTokens = getReasoningTokens(result.usage);
 
+  console.log(`[vertex-july-live] model=${model} reasoningTokens=${reasoningTokens}`);
   expect(result.text.trim().length).toBeGreaterThan(0);
+  if (expectNoThinking) expect(reasoningTokens).toBe(0);
 }
 
 describeVertexLive('Vertex Express July 2026 models (live)', () => {
-  it('invokes Gemini 3.5 Flash-Lite', async () => {
-    await expectInvocable('vertex:gemini-3.5-flash-lite');
+  it('invokes Gemini 3.5 Flash-Lite with reasoning disabled', async () => {
+    await expectInvocable('vertex:gemini-3.5-flash-lite', true);
   }, 45_000);
 });
 
 describeVertexGlobalLive('Vertex project/global July 2026 models (live)', () => {
-  it('invokes Gemini 3.5 Flash-Lite and Gemini 3.6 Flash', async () => {
-    await expectInvocable('vertex-global:gemini-3.5-flash-lite');
+  it('invokes Gemini 3.5 Flash-Lite with reasoning disabled', async () => {
+    await expectInvocable('vertex-global:gemini-3.5-flash-lite', true);
+  }, 45_000);
+
+  it('invokes Gemini 3.6 Flash', async () => {
     await expectInvocable('vertex-global:gemini-3.6-flash');
-  }, 90_000);
+  }, 45_000);
 });
