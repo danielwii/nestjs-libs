@@ -25,7 +25,7 @@ export enum TimeSensitivity {
   Minute = 'yyyy-MM-dd EEEE HH:mm',
 }
 
-type PromptDateTime = string | Temporal.Instant | Temporal.ZonedDateTime;
+export type PromptDateTime = string | Temporal.Instant | Temporal.ZonedDateTime;
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 
 /**
@@ -150,6 +150,9 @@ function renderList(items: string | string[]): string {
   return Array.isArray(items) ? items.map((item) => `- ${item}`).join('\n') : items;
 }
 
+/**
+ * @deprecated Use `PromptBuilder.from(config).render(options)` from `./prompt.xml`.
+ */
 export function createBasePrompt(
   id: string,
   timezone: string | undefined | null,
@@ -161,6 +164,9 @@ export function createBasePrompt(
   return [`[${id}]`, '------', content, '------', `Now:${now}`, 'Output:', output].filter(Boolean).join('\n');
 }
 
+/**
+ * @deprecated Use `PromptBuilder.from(config).render(options)` from `./prompt.xml`.
+ */
 export function createPrompt(
   id: string,
   timezone: string | undefined | null,
@@ -211,9 +217,14 @@ export function createPrompt(
     .filter(Boolean)
     .join('\n\n');
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- legacy factory composes its legacy base renderer.
   return createBasePrompt(id, timezone, sensitivity, content, data.output);
 }
 
+/**
+ * @deprecated Use `PromptBuilder.from(config).render(options)` from `./prompt.xml`.
+ * Keep output validation and retry/repair behavior in the AI SDK schema boundary.
+ */
 export function createEnhancedPrompt<Response>({
   id,
   version,
@@ -234,11 +245,13 @@ export function createEnhancedPrompt<Response>({
     additionals?: { title: string; content: string }[];
   };
 }) {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- this deprecated adapter preserves its legacy output.
   const prompt = createPrompt(`${id}-${version}`, timezone ?? process.env.TZ, sensitivity, data);
   const logicErrorPromptCreator = logicErrorContext
     ? (response: Response) => {
         if (logicErrorContext.condition && !logicErrorContext.condition(response)) return null;
 
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- this deprecated adapter preserves its repair prompt.
         return createPrompt(`LogicFixer-${id}`, timezone, sensitivity, {
           purpose: '你是逻辑问题修复专家。请基于提供的背景信息，修复输入内容中的逻辑错误。',
           background: logicErrorContext.background,
