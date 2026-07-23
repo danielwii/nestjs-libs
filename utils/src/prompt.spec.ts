@@ -8,6 +8,15 @@ import { Temporal } from '@js-temporal/polyfill';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import dedent from 'dedent';
 
+import type { Prompt, PromptData } from './prompt.xml';
+
+function directPromptConstructionIsUnavailable(data: PromptData): void {
+  // @ts-expect-error Prompt is a render contract, not a directly constructible value.
+  new Prompt('direct-construction', '1.0', data);
+}
+
+void directPromptConstructionIsUnavailable;
+
 describe('Prompt', () => {
   const ORIGINAL_TZ = process.env.TZ;
   const ORIGINAL_DATE = globalThis.Date;
@@ -183,6 +192,79 @@ describe('PromptBuilder', () => {
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning (UTC)
     `);
+  });
+
+  it('JSON config 与链式构建渲染一致', () => {
+    const config = {
+      id: 'config-builder-test',
+      version: '1.0',
+      role: '测试角色',
+      objective: '验证 JSON 配置入口',
+      style: '简洁',
+      tone: '友好',
+      audience: '测试用户',
+      instructions: ['第一条指令', '第二条指令'],
+      rules: ['第一条规则'],
+      examples: [{ title: '示例', content: '示例内容' }],
+      contexts: [{ title: 'input', content: '用户输入', priority: 'critical' as const }],
+      output: '输出正文',
+      language: 'zh-Hans',
+      languagePolicy: 'system-output' as const,
+      epilogue: '最终约束',
+    };
+
+    const renderOptions = {
+      now: '2024-01-15T02:30:00Z',
+      timezone: '+08:00',
+      sensitivity: TimeSensitivity.Minute,
+    } as const;
+
+    const fromConfig = PromptBuilder.from(config).render(renderOptions);
+    const fromChain = new PromptBuilder(config.id, config.version)
+      .role(config.role)
+      .objective(config.objective)
+      .style(config.style)
+      .tone(config.tone)
+      .audience(config.audience)
+      .instructions(config.instructions)
+      .rules(config.rules)
+      .examples(config.examples)
+      .contexts(config.contexts)
+      .output(config.output)
+      .language(config.language, config.languagePolicy)
+      .epilogue(config.epilogue)
+      .build()
+      .render(renderOptions);
+
+    expect(fromConfig).toBe(fromChain);
+  });
+
+  it('JSON config 支持固定时钟以保证 replay 可复现', () => {
+    const rendered = PromptBuilder.from({
+      id: 'fixed-clock',
+      role: '测试角色',
+      objective: '验证固定时钟',
+    }).render({
+      now: '2024-01-15T02:30:00Z',
+      timezone: 'Asia/Shanghai',
+      sensitivity: TimeSensitivity.Minute,
+    });
+
+    expect(rendered).toContain('Now:2024-01-15 Monday 10:30 in the morning (Asia/Shanghai)');
+  });
+
+  it('system-output language policy 固定保存与卡片内容语言', () => {
+    const rendered = PromptBuilder.from({
+      id: 'system-output-language',
+      role: '摘要器',
+      objective: '生成需要保存的摘要',
+      language: 'zh-Hans',
+      languagePolicy: 'system-output',
+    }).render({ now: '2024-01-15T02:30:00Z', timezone: 'UTC' });
+
+    expect(rendered).toContain('System output language: "zh-Hans"');
+    expect(rendered).toContain('content intended for storage, cards, or other UI output');
+    expect(rendered).not.toContain("Match the user's current message language");
   });
 
   it('应该正确处理旧格式时区 "+8"', () => {

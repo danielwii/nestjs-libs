@@ -6,37 +6,36 @@
  * 简化的 Prompt 构建系统，将内容构建与输出要求分离。
  *
  * ## 设计理念
- * - Prompt / PromptBuilder: 纯内容构建（role, objective, context 等）
- * - Enhancement: 可选的结构性指令（CoT, Debug）
+ * - PromptBuilder.from(config): 首选的声明式内容构建入口
+ * - Prompt: 只读的可渲染契约，不允许直接构造
  * - Schema: 交给 AI SDK，不在 prompt 中描述
  *
  * ## 使用示例
  *
  * ```typescript
  * // 1. 构建 Prompt
- * const prompt = new PromptBuilder('analyzer', '1.0')
- *   .role('情感分析专家')
- *   .objective('分析用户情感')
- *   .instruction('识别主要情感')
- *   .context({ title: 'user_input', content: msg })
- *   .language('zh-CN')
- *   .build();
+ * const prompt = PromptBuilder.from({
+ *   id: 'analyzer',
+ *   version: '1.0',
+ *   role: '情感分析专家',
+ *   objective: '分析用户情感',
+ *   instructions: '识别主要情感',
+ *   contexts: [{ title: 'user_input', content: msg }],
+ *   language: 'zh-CN',
+ * });
  *
- * // 2a. 纯文本输出 - 可选添加 CoT 指令
- * const text = prompt
- *   .withCoT()
- *   .render({ timezone: 'Asia/Shanghai' });
+ * // 2a. 纯文本输出
+ * const text = prompt.render({ timezone: 'Asia/Shanghai' });
  *
  * await generateText({ model, prompt: text });
  *
- * // 2b. Schema 输出 - 用 wrapWithCoT 包装 schema
+ * // 2b. Schema 输出 - Schema 与验证交给 AI SDK
  * const userSchema = z.object({ emotion: z.string() });
- * const cotSchema = wrapWithCoT(userSchema);
  *
  * await generateObject({
  *   model,
- *   prompt: prompt.withCoT().render(),
- *   schema: cotSchema,
+ *   prompt: prompt.render(),
+ *   schema: userSchema,
  * });
  * ```
  */
@@ -47,9 +46,12 @@ import { getAppLogger } from '@app/utils/app-logger';
 import { formatLocalDateTime, TimeSensitivity } from './prompt';
 import { estimateTokens } from './tokenizer';
 
+import type { PromptDateTime } from './prompt';
+
 // ==================== Types ====================
 
 type PriorityLabel = 'critical' | 'high' | 'medium' | 'low';
+export type PromptLanguagePolicy = 'dialogue' | 'system-output';
 
 /** 数字 priority → label（90+ critical, 70+ high, 50+ medium, <50 low） */
 function numericPriorityLabel(p: number): PriorityLabel {
@@ -88,6 +90,7 @@ export interface PromptData {
   sections: ContextSection[];
   output?: string;
   language?: string;
+  languagePolicy?: PromptLanguagePolicy;
   /** 最终约束文本，插在 </context> 之后、footer 之前（U-shaped attention 尾部高权重区） */
   epilogue?: string;
 }
@@ -95,6 +98,8 @@ export interface PromptData {
 export interface RenderOptions {
   timezone?: string | null;
   sensitivity?: TimeSensitivity;
+  /** Deterministic clock injection for evals/replays. Defaults to the current instant. */
+  now?: PromptDateTime;
   /** Whether to output token metrics in the log */
   verbose?: boolean;
 }
@@ -110,9 +115,22 @@ export interface PromptMetrics {
   readonly totalTokens: number;
 }
 
-// ==================== Prompt Class ====================
+// ==================== Prompt Contract ====================
 
-export class Prompt {
+/**
+ * Renderable Prompt contract returned by PromptBuilder.
+ *
+ * Construction is intentionally module-owned so callers cannot bypass
+ * PromptBuilder.from() / PromptBuilder.build() invariants with `new Prompt(...)`.
+ */
+export interface Prompt {
+  readonly id: string;
+  readonly version: string;
+  readonly data: PromptData;
+  render(options?: RenderOptions): string;
+}
+
+class XmlPrompt implements Prompt {
   readonly id: string;
   readonly version: string;
   readonly data: PromptData;
@@ -128,7 +146,7 @@ export class Prompt {
    * 渲染为最终 prompt 字符串
    */
   render(options: RenderOptions = {}): string {
-    const { timezone, sensitivity = TimeSensitivity.Minute, verbose = false } = options;
+    const { timezone, sensitivity = TimeSensitivity.Minute, now, verbose = false } = options;
 
     const sections = this.data.sections;
     const sectionMetrics: Record<string, number> = {};
@@ -142,9 +160,11 @@ export class Prompt {
     const tonePart = this.data.tone ? `<tone>${this.data.tone}</tone>` : '';
     const audiencePart = this.data.audience ? `<audience>${this.data.audience}</audience>` : '';
     const outputPart = this.data.output ? `<output priority="high">${this.data.output}</output>` : '';
-    const languagePart = this.data.language
-      ? `<language priority="critical">Preferred response language: "${this.data.language}". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>`
-      : '';
+    const languageInstruction =
+      this.data.languagePolicy === 'system-output'
+        ? `System output language: "${this.data.language}". Use this language for generated content intended for storage, cards, or other UI output. Preserve proper nouns and verbatim source text. Use another language only when the task or output contract explicitly requires translated text.`
+        : `Preferred response language: "${this.data.language}". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.`;
+    const languagePart = this.data.language ? `<language priority="critical">${languageInstruction}</language>` : '';
 
     const instructionsPart = this.data.instructions.length
       ? `<instructions priority="high">\n${this.data.instructions
@@ -205,7 +225,7 @@ export class Prompt {
     const contextXml = renderedSections.length > 0 ? `<context>\n${renderedSections.join('\n')}\n</context>` : '';
 
     // 3. Final Composition
-    const timestamp = formatLocalDateTime(undefined, sensitivity, timezone);
+    const timestamp = formatLocalDateTime(now, sensitivity, timezone);
 
     const epiloguePart = this.data.epilogue ? `<epilogue priority="critical">${this.data.epilogue}</epilogue>` : '';
 
@@ -225,7 +245,7 @@ export class Prompt {
 
     if (verbose) {
       const totalTokens = estimateTokens(fullPrompt);
-      Prompt.logger
+      XmlPrompt.logger
         .info`#render [${this.id}:${this.version}] meta=${metaTokens} context=${totalContextTokens} total=${totalTokens} details=${sectionMetrics}`;
     }
 
@@ -252,23 +272,18 @@ export interface PromptConfig {
   contexts?: ContextSection[];
   output?: string;
   language?: string;
+  /** Dialogue follows the current user; system-output keeps generated artifact content in the configured locale. */
+  languagePolicy?: PromptLanguagePolicy;
   /** 最终约束文本，插在 </context> 之后、footer 之前（U-shaped attention 尾部高权重区） */
   epilogue?: string;
 }
 
 /**
- * Prompt 构建器 - 链式 API 或 JSON 配置
+ * Prompt 构建器 - 首选 JSON 配置；链式 API 保留兼容
  *
  * @example
  * ```typescript
- * // 方式 1: 链式调用
- * const prompt = new PromptBuilder('analyzer', '1.0')
- *   .role('情感分析专家')
- *   .objective('分析用户情感')
- *   .instruction('识别主要情感')
- *   .build();
- *
- * // 方式 2: JSON 配置
+ * // 首选：JSON 配置
  * const prompt = PromptBuilder.from({
  *   id: 'analyzer',
  *   version: '1.0',
@@ -276,6 +291,12 @@ export interface PromptConfig {
  *   objective: '分析用户情感',
  *   instructions: '识别主要情感',
  * });
+ *
+ * // 兼容：既有链式调用
+ * const legacyPrompt = new PromptBuilder('analyzer', '1.0')
+ *   .role('情感分析专家')
+ *   .objective('分析用户情感')
+ *   .build();
  * ```
  */
 export class PromptBuilder {
@@ -292,6 +313,7 @@ export class PromptBuilder {
   private _sections: ContextSection[] = [];
   private _output?: string;
   private _language?: string;
+  private _languagePolicy?: PromptLanguagePolicy;
   private _epilogue?: string;
 
   constructor(id: string, version: string = '1.0') {
@@ -311,7 +333,7 @@ export class PromptBuilder {
     if (config.style) builder.style(config.style);
     if (config.tone) builder.tone(config.tone);
     if (config.audience) builder.audience(config.audience);
-    if (config.language) builder.language(config.language);
+    if (config.language) builder.language(config.language, config.languagePolicy);
 
     // instructions: string | string[]
     if (config.instructions) {
@@ -410,8 +432,9 @@ export class PromptBuilder {
     return this;
   }
 
-  language(lang: string): this {
+  language(lang: string, policy: PromptLanguagePolicy = 'dialogue'): this {
     this._language = lang;
+    this._languagePolicy = policy;
     return this;
   }
 
@@ -449,10 +472,11 @@ export class PromptBuilder {
       sections: this._sections.map((s) => ({ ...s })),
       output: this._output,
       language: this._language,
+      languagePolicy: this._languagePolicy,
       epilogue: this._epilogue,
     };
 
-    return new Prompt(this._id, this._version, data);
+    return new XmlPrompt(this._id, this._version, data);
   }
 }
 
