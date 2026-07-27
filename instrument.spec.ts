@@ -43,9 +43,10 @@ describe('isFullStackExtraScope', () => {
 });
 
 describe('isDefaultLangfuseLlmScope', () => {
-  it('matches only the AI SDK v7 LLM telemetry scope', () => {
+  it('matches AI SDK GenAI and custom AI/chat telemetry scopes', () => {
     expect(isDefaultLangfuseLlmScope('gen_ai')).toBe(true);
-    expect(isDefaultLangfuseLlmScope('ai')).toBe(false);
+    expect(isDefaultLangfuseLlmScope('ai')).toBe(true);
+    expect(isDefaultLangfuseLlmScope('chat')).toBe(true);
   });
 
   it('rejects non-LLM telemetry scopes', () => {

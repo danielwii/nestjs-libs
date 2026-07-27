@@ -30,9 +30,9 @@ export function isFullStackExtraScope(scope: string): boolean {
   );
 }
 
-/** Default AI SDK v7 OpenTelemetry scope exported to Langfuse. */
+/** Default AI and chat OpenTelemetry scopes exported to Langfuse. */
 export function isDefaultLangfuseLlmScope(scope: string): boolean {
-  return scope === 'gen_ai';
+  return scope === 'gen_ai' || scope === 'ai' || scope === 'chat';
 }
 
 /**
