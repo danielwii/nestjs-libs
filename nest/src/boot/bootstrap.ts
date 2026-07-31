@@ -33,8 +33,8 @@ import { json } from 'express';
 import session from 'express-session';
 import { graphqlUploadExpress } from 'graphql-upload-ts';
 import helmet from 'helmet';
-import Redis from 'ioredis';
 import morgan from 'morgan';
+import { createClient } from 'redis';
 import responseTime from 'response-time';
 
 import type { SysEnvConfigKey } from '@app/env';
@@ -317,7 +317,12 @@ export async function bootstrap(
     if (SysEnv.SESSION_SECRET) {
       if (!SysEnv.INFRA_REDIS_URL)
         throw Oops.Panic.Config('INFRA_REDIS_URL is not set and required for session storage');
-      const client = new Redis(SysEnv.INFRA_REDIS_URL, { maxRetriesPerRequest: 3 });
+      // connect-redis v9+ only supports the official `redis` client (not ioredis).
+      const client = createClient({ url: SysEnv.INFRA_REDIS_URL });
+      client.on('error', (err) => {
+        bootstrapLogger.error`[Config] Session Redis client error: ${err}`;
+      });
+      await client.connect();
       bootstrapLogger.info`[Config] Session enabled with secret: "${maskSecret(SysEnv.SESSION_SECRET)}"`;
 
       app.use(
