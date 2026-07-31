@@ -13,10 +13,6 @@
     "prepare": "husky",
     "check:bedrock-tiers": "bun scripts/check-bedrock-service-tiers.ts"
   },
-  "overrides": {
-    "@ai-sdk/provider-utils": "5.0.16",
-    "zod": "4.4.3"
-  },
   "lint-staged": {
     "*.ts": [
       "prettier --write",
