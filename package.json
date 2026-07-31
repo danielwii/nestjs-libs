@@ -63,7 +63,8 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
-    "connect-redis": "^9.0.0",
+    "connect-redis": "^10.0.0",
+    "redis": "^5.8.0",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
@@ -71,7 +72,6 @@
     "graphql-yoga": "^5.18.1",
     "graphql-upload-ts": "^2.2.0",
     "helmet": "^8.1.0",
-    "ioredis": "^5.10.1",
     "morgan": "^1.10.1",
     "reflect-metadata": "^0.2.2",
     "response-time": "^2.3.4",
@@ -157,6 +157,9 @@
     "connect-redis": {
       "optional": true
     },
+    "redis": {
+      "optional": true
+    },
     "cookie-parser": {
       "optional": true
     },
@@ -173,9 +176,6 @@
       "optional": true
     },
     "helmet": {
-      "optional": true
-    },
-    "ioredis": {
       "optional": true
     },
     "morgan": {
@@ -235,7 +235,8 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.1",
-    "connect-redis": "^9.0.0",
+    "connect-redis": "^10.0.0",
+    "redis": "^5.8.2",
     "cookie-parser": "^1.4.7",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
@@ -248,7 +249,6 @@
     "graphql-yoga": "^5.21.2",
     "helmet": "^8.3.0",
     "husky": "^9.1.7",
-    "ioredis": "^5.11.1",
     "lint-staged": "^17.2.0",
     "morgan": "^1.11.0",
     "nice-grpc": "^2.1.16",
