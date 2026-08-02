@@ -163,7 +163,7 @@ class XmlPrompt implements Prompt {
     const languageInstruction =
       this.data.languagePolicy === 'system-output'
         ? `System output language: "${this.data.language}". Use this language for generated content intended for storage, cards, or other UI output. Preserve proper nouns and verbatim source text. Use another language only when the task or output contract explicitly requires translated text.`
-        : `Preferred response language: "${this.data.language}". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.`;
+        : `Preferred response language: "${this.data.language}". Use it when the user's message gives no clear language signal. Otherwise reply in the dominant language of the user's current message: judge dominance by the whole message body — occasional foreign words, loanwords, proper nouns, or short quoted phrases never switch the reply language by themselves. Honor explicit requests to use another language (e.g., "Please speak Spanish"); when such a request and the message's dominant language point in different directions, follow the user's intent rather than any fixed priority. For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.`;
     const languagePart = this.data.language ? `<language priority="critical">${languageInstruction}</language>` : '';
 
     const instructionsPart = this.data.instructions.length

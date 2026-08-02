@@ -114,7 +114,7 @@ describe('Prompt', () => {
         <section name="conversation_history" purpose="用于参考">对话历史</section>
         <section name="empty_context"><empty /></section>
       </context>
-      <language priority="critical">Preferred response language: "中文". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>
+      <language priority="critical">Preferred response language: "中文". Use it when the user's message gives no clear language signal. Otherwise reply in the dominant language of the user's current message: judge dominance by the whole message body — occasional foreign words, loanwords, proper nouns, or short quoted phrases never switch the reply language by themselves. Honor explicit requests to use another language (e.g., "Please speak Spanish"); when such a request and the message's dominant language point in different directions, follow the user's intent rather than any fixed priority. For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning (UTC)
@@ -187,7 +187,7 @@ describe('PromptBuilder', () => {
       <context>
         <section name="section" priority="critical">内容</section>
       </context>
-      <language priority="critical">Preferred response language: "zh-Hans". Use this by default. Match the user's current message language if they actively switch (code-switching), and honor explicit requests to use another language (e.g., "Please speak Spanish"). For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>
+      <language priority="critical">Preferred response language: "zh-Hans". Use it when the user's message gives no clear language signal. Otherwise reply in the dominant language of the user's current message: judge dominance by the whole message body — occasional foreign words, loanwords, proper nouns, or short quoted phrases never switch the reply language by themselves. Honor explicit requests to use another language (e.g., "Please speak Spanish"); when such a request and the message's dominant language point in different directions, follow the user's intent rather than any fixed priority. For translation queries ("how do you say X in Y"), answer in the preferred language and embed the translation.</language>
       ------
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning (UTC)
