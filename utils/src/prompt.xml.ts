@@ -520,20 +520,14 @@ export class PromptBuilder {
  * Products with their own wording may pass any passage text via the
  * `languageStanding` field instead — the contract is the slot, not the wording.
  */
-/** locale 码 → 显示名(封闭协议 token 映射; 未知码原样透传, 由产品自行决定措辞) */
-const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
-  en: 'English',
-  'en-US': 'English',
-  zh: '中文',
-  'zh-Hans': '中文',
-  'zh-CN': '中文',
-  es: 'Español',
-  ja: '日本語',
-};
-
+/**
+ * Canonical standing-preference passage for product skills (optional to use).
+ * `language` is a human-readable DISPLAY NAME chosen by the product
+ * (e.g. 'English', '中文') — locale-code → display-name mapping is the
+ * product's own concern, libs does not maintain a language registry.
+ */
 export function renderStandingLanguagePreference(language: string): string {
-  const display = LANGUAGE_DISPLAY_NAMES[language] ?? language;
-  return `The user explicitly asked you to speak ${display} with them — treat this as a standing request.`;
+  return `The user explicitly asked you to speak ${language} with them — treat this as a standing request.`;
 }
 
 // ==================== Re-exports ====================
