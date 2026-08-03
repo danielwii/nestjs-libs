@@ -213,16 +213,22 @@ describe('PromptBuilder', () => {
     );
   });
 
-  it('languageStanding 不配 language → build 时报配置错误', () => {
-    expect(() =>
-      PromptBuilder.from({
-        id: 'standing-without-language',
-        role: 'Assistant',
-        objective: 'Reply',
-        instructions: ['Be helpful'],
-        languageStanding: 'The user explicitly asked you to speak English with them.',
-      }),
-    ).toThrow('languageStanding requires language');
+  it('languageStanding 不配 language → 仍渲染 <language> 块(standing + dominant, 无 configured 句式)', () => {
+    const passage = 'The user explicitly asked you to speak English with them — treat this as a standing request.';
+    const rendered = PromptBuilder.from({
+      id: 'standing-without-language',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      languageStanding: passage,
+    }).render({});
+    expect(rendered).toContain('<language priority="critical">');
+    expect(rendered).toContain(
+      `Standing language request (it takes precedence over the dominant language of the current message, and stays in effect until the user makes a new explicit request): ${passage}`,
+    );
+    expect(rendered).toContain('Reply in the dominant language of the user');
+    expect(rendered).not.toContain('Preferred response language');
+    expect(rendered).not.toContain('configured fallback above');
   });
 
   it('system-output 策略下 standing 段落与 standing 文本均不渲染', () => {

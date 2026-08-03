@@ -170,14 +170,20 @@ class XmlPrompt implements Prompt {
     const languageInstruction =
       this.data.languagePolicy === 'system-output'
         ? `System output language: "${this.data.language}". Use this language for generated content intended for storage, cards, or other UI output. Preserve proper nouns and verbatim source text. Use another language only when the task or output contract explicitly requires translated text.`
-        : `Preferred response language: "${this.data.language}". Use it when the user's message gives no clear language signal. Otherwise reply in the dominant language of the user's current message: judge dominance by the whole message body — occasional foreign words, loanwords, proper nouns, or short quoted phrases never switch the reply language by themselves. Honor explicit requests to use another language (e.g., "Please speak Spanish"). An explicit request takes precedence over the dominant language of the current message. Unless the request itself names a scope or duration (e.g., "answer only this question in French"), it stays in effect until the user makes a new explicit request — simply continuing to speak another language is not a revocation. For translation queries ("how do you say X in Y"), the translation target named in the query is content, not a language request: determine the reply language by the same rules above and embed only the requested translation.`;
+        : this.data.language
+          ? `Preferred response language: "${this.data.language}". Use it when the user's message gives no clear language signal. Otherwise reply in the dominant language of the user's current message: judge dominance by the whole message body — occasional foreign words, loanwords, proper nouns, or short quoted phrases never switch the reply language by themselves. Honor explicit requests to use another language (e.g., "Please speak Spanish"). An explicit request takes precedence over the dominant language of the current message. Unless the request itself names a scope or duration (e.g., "answer only this question in French"), it stays in effect until the user makes a new explicit request — simply continuing to speak another language is not a revocation. For translation queries ("how do you say X in Y"), the translation target named in the query is content, not a language request: determine the reply language by the same rules above and embed only the requested translation.`
+          : `Reply in the dominant language of the user's current message: judge dominance by the whole message body — occasional foreign words, loanwords, proper nouns, or short quoted phrases never switch the reply language by themselves. Honor explicit requests to use another language (e.g., "Please speak Spanish"). An explicit request takes precedence over the dominant language of the current message. Unless the request itself names a scope or duration (e.g., "answer only this question in French"), it stays in effect until the user makes a new explicit request — simply continuing to speak another language is not a revocation. For translation queries ("how do you say X in Y"), the translation target named in the query is content, not a language request: determine the reply language by the same rules above and embed only the requested translation.`;
+    // standing 与 language 是独立两层: 任一层存在即渲染 <language> 块, 只组合存在的部分
     const standingPart =
       this.data.languageStanding && this.data.languagePolicy !== 'system-output'
-        ? ` Standing language request (it takes precedence over the dominant language of the current message and over the configured fallback above, and stays in effect until the user makes a new explicit request): ${this.data.languageStanding}`
+        ? `Standing language request (it takes precedence over the dominant language of the current message${this.data.language ? ' and over the configured fallback above' : ''}, and stays in effect until the user makes a new explicit request): ${this.data.languageStanding}`
         : '';
-    const languagePart = this.data.language
-      ? `<language priority="critical">${languageInstruction}${standingPart}</language>`
-      : '';
+    const isDialogue = this.data.languagePolicy !== 'system-output';
+    const includeInstruction = Boolean(this.data.language) || (isDialogue && Boolean(standingPart));
+    const languagePart =
+      this.data.language || (isDialogue && standingPart)
+        ? `<language priority="critical">${[standingPart, includeInstruction ? languageInstruction : ''].filter(Boolean).join(' ')}</language>`
+        : '';
 
     const instructionsPart = this.data.instructions.length
       ? `<instructions priority="high">\n${this.data.instructions
@@ -480,9 +486,6 @@ export class PromptBuilder {
     }
     if (!this._objective) {
       throw Oops.Panic.Config('PromptBuilder: objective is required');
-    }
-    if (this._languageStanding && !this._language) {
-      throw Oops.Panic.Config('PromptBuilder: languageStanding requires language to be set');
     }
 
     const data: PromptData = {
