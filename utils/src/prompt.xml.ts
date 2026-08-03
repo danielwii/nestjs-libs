@@ -481,6 +481,9 @@ export class PromptBuilder {
     if (!this._objective) {
       throw Oops.Panic.Config('PromptBuilder: objective is required');
     }
+    if (this._languageStanding && !this._language) {
+      throw Oops.Panic.Config('PromptBuilder: languageStanding requires language to be set');
+    }
 
     const data: PromptData = {
       role: this._role,

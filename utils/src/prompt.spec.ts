@@ -213,6 +213,34 @@ describe('PromptBuilder', () => {
     );
   });
 
+  it('languageStanding 不配 language → build 时报配置错误', () => {
+    expect(() =>
+      PromptBuilder.from({
+        id: 'standing-without-language',
+        role: 'Assistant',
+        objective: 'Reply',
+        instructions: ['Be helpful'],
+        languageStanding: 'The user explicitly asked you to speak English with them.',
+      }),
+    ).toThrow('languageStanding requires language');
+  });
+
+  it('system-output 策略下 standing 段落与 standing 文本均不渲染', () => {
+    const passage = 'The user explicitly asked you to speak English with them — treat this as a standing request.';
+    const rendered = PromptBuilder.from({
+      id: 'standing-system-output',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      language: 'en',
+      languagePolicy: 'system-output',
+      languageStanding: passage,
+    }).render({});
+    expect(rendered).toContain('System output language: "en"');
+    expect(rendered).not.toContain(passage);
+    expect(rendered).not.toContain('Standing language request');
+  });
+
   it('renderStandingLanguagePreference 产出 canonical passage', () => {
     expect(renderStandingLanguagePreference('English')).toBe(
       'The user explicitly asked you to speak English with them — treat this as a standing request.',
