@@ -268,6 +268,16 @@ describe('PromptBuilder', () => {
     expect(renderStandingLanguagePreference('English')).toBe(
       'The user explicitly asked you to speak English with them — treat this as a standing request.',
     );
+    // locale 码归一化为显示名; 未知码原样透传
+    expect(renderStandingLanguagePreference('en')).toBe(
+      'The user explicitly asked you to speak English with them — treat this as a standing request.',
+    );
+    expect(renderStandingLanguagePreference('zh-Hans')).toBe(
+      'The user explicitly asked you to speak 中文 with them — treat this as a standing request.',
+    );
+    expect(renderStandingLanguagePreference('fr')).toBe(
+      'The user explicitly asked you to speak fr with them — treat this as a standing request.',
+    );
   });
 
   it('JSON config 与链式构建渲染一致', () => {
