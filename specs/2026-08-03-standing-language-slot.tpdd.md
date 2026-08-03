@@ -60,7 +60,8 @@ canonical formatter so "how to fill" has a standard answer while libs stays
 product-agnostic:
 
 ```ts
-renderStandingLanguagePreference('en')
+// 产品把自己的 locale 码映射为显示名后调用(映射是产品职责, libs 不维护语言注册表):
+renderStandingLanguagePreference('English')
 // → "The user explicitly asked you to speak English with them — treat this as a standing request."
 ```
 
