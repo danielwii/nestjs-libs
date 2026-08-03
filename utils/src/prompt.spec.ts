@@ -2,7 +2,7 @@ import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { Oops } from '@app/nest/exceptions/oops';
 
 import { formatLocalDateTime, TimeSensitivity } from './prompt';
-import { PromptBuilder } from './prompt.xml';
+import { PromptBuilder, renderStandingLanguagePreference } from './prompt.xml';
 
 import { Temporal } from '@js-temporal/polyfill';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -192,6 +192,31 @@ describe('PromptBuilder', () => {
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning (UTC)
     `);
+  });
+
+  it('languageStanding: absent → 不含 standing 文本(字节一致); present → 渲入 <language> 块', () => {
+    const base = {
+      id: 'standing-slot-test',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      language: 'en',
+    };
+
+    const without = PromptBuilder.from({ ...base }).render({});
+    expect(without).not.toContain('Standing language request');
+
+    const passage = 'The user explicitly asked you to speak English with them — treat this as a standing request.';
+    const withStanding = PromptBuilder.from({ ...base, languageStanding: passage }).render({});
+    expect(withStanding).toContain(
+      `Standing language request (it takes precedence over the dominant language of the current message and over the configured fallback above, and stays in effect until the user makes a new explicit request): ${passage}`,
+    );
+  });
+
+  it('renderStandingLanguagePreference 产出 canonical passage', () => {
+    expect(renderStandingLanguagePreference('English')).toBe(
+      'The user explicitly asked you to speak English with them — treat this as a standing request.',
+    );
   });
 
   it('JSON config 与链式构建渲染一致', () => {

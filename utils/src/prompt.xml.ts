@@ -91,6 +91,13 @@ export interface PromptData {
   output?: string;
   language?: string;
   languagePolicy?: PromptLanguagePolicy;
+  /**
+   * Standing language passage supplied by the consuming product (a short
+   * imperative request, e.g. from `renderStandingLanguagePreference`).
+   * Rendered verbatim into the `<language>` block (dialogue policy only);
+   * libs never parses or rewrites it. Absent → byte-identical render.
+   */
+  languageStanding?: string;
   /** 最终约束文本，插在 </context> 之后、footer 之前（U-shaped attention 尾部高权重区） */
   epilogue?: string;
 }
@@ -164,7 +171,13 @@ class XmlPrompt implements Prompt {
       this.data.languagePolicy === 'system-output'
         ? `System output language: "${this.data.language}". Use this language for generated content intended for storage, cards, or other UI output. Preserve proper nouns and verbatim source text. Use another language only when the task or output contract explicitly requires translated text.`
         : `Preferred response language: "${this.data.language}". Use it when the user's message gives no clear language signal. Otherwise reply in the dominant language of the user's current message: judge dominance by the whole message body — occasional foreign words, loanwords, proper nouns, or short quoted phrases never switch the reply language by themselves. Honor explicit requests to use another language (e.g., "Please speak Spanish"). An explicit request takes precedence over the dominant language of the current message. Unless the request itself names a scope or duration (e.g., "answer only this question in French"), it stays in effect until the user makes a new explicit request — simply continuing to speak another language is not a revocation. For translation queries ("how do you say X in Y"), the translation target named in the query is content, not a language request: determine the reply language by the same rules above and embed only the requested translation.`;
-    const languagePart = this.data.language ? `<language priority="critical">${languageInstruction}</language>` : '';
+    const standingPart =
+      this.data.languageStanding && this.data.languagePolicy !== 'system-output'
+        ? ` Standing language request (it takes precedence over the dominant language of the current message and over the configured fallback above, and stays in effect until the user makes a new explicit request): ${this.data.languageStanding}`
+        : '';
+    const languagePart = this.data.language
+      ? `<language priority="critical">${languageInstruction}${standingPart}</language>`
+      : '';
 
     const instructionsPart = this.data.instructions.length
       ? `<instructions priority="high">\n${this.data.instructions
@@ -274,6 +287,8 @@ export interface PromptConfig {
   language?: string;
   /** Dialogue follows the current user; system-output keeps generated artifact content in the configured locale. */
   languagePolicy?: PromptLanguagePolicy;
+  /** Standing language passage (see PromptData.languageStanding). Rendered verbatim into the <language> block. */
+  languageStanding?: string;
   /** 最终约束文本，插在 </context> 之后、footer 之前（U-shaped attention 尾部高权重区） */
   epilogue?: string;
 }
@@ -314,6 +329,7 @@ export class PromptBuilder {
   private _output?: string;
   private _language?: string;
   private _languagePolicy?: PromptLanguagePolicy;
+  private _languageStanding?: string;
   private _epilogue?: string;
 
   constructor(id: string, version: string = '1.0') {
@@ -334,6 +350,7 @@ export class PromptBuilder {
     if (config.tone) builder.tone(config.tone);
     if (config.audience) builder.audience(config.audience);
     if (config.language) builder.language(config.language, config.languagePolicy);
+    if (config.languageStanding) builder.languageStanding(config.languageStanding);
 
     // instructions: string | string[]
     if (config.instructions) {
@@ -438,6 +455,11 @@ export class PromptBuilder {
     return this;
   }
 
+  languageStanding(text: string): this {
+    this._languageStanding = text;
+    return this;
+  }
+
   output(text: string): this {
     this._output = text;
     return this;
@@ -473,11 +495,22 @@ export class PromptBuilder {
       output: this._output,
       language: this._language,
       languagePolicy: this._languagePolicy,
+      languageStanding: this._languageStanding,
       epilogue: this._epilogue,
     };
 
     return new XmlPrompt(this._id, this._version, data);
   }
+}
+
+/**
+ * Canonical standing-preference passage for product skills (optional to use).
+ * `language` is a human-readable language name (e.g. 'English', '中文').
+ * Products with their own wording may pass any passage text via the
+ * `languageStanding` field instead — the contract is the slot, not the wording.
+ */
+export function renderStandingLanguagePreference(language: string): string {
+  return `The user explicitly asked you to speak ${language} with them — treat this as a standing request.`;
 }
 
 // ==================== Re-exports ====================
