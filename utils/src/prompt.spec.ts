@@ -2,7 +2,7 @@ import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { Oops } from '@app/nest/exceptions/oops';
 
 import { formatLocalDateTime, TimeSensitivity } from './prompt';
-import { PromptBuilder } from './prompt.xml';
+import { PromptBuilder, renderStandingLanguagePreference } from './prompt.xml';
 
 import { Temporal } from '@js-temporal/polyfill';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -192,6 +192,86 @@ describe('PromptBuilder', () => {
       When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.
       Now:2024-01-15 Monday 10:30 in the morning (UTC)
     `);
+  });
+
+  it('languageStanding: absent → 不含 standing 文本(字节一致); present → 渲入 <language> 块', () => {
+    const base = {
+      id: 'standing-slot-test',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      language: 'en',
+    };
+
+    const without = PromptBuilder.from({ ...base }).render({});
+    expect(without).not.toContain('Standing language request');
+
+    const passage = 'The user explicitly asked you to speak English with them — treat this as a standing request.';
+    const withStanding = PromptBuilder.from({ ...base, languageStanding: passage }).render({});
+    expect(withStanding).toContain(
+      `Standing language request (it takes precedence over the dominant language of the current message and over the configured fallback above, and stays in effect until the user makes a new explicit request): ${passage}`,
+    );
+    // "configured fallback above" 必须真的在前文: 指令先于 standing 渲染
+    expect(withStanding.indexOf('Preferred response language')).toBeLessThan(
+      withStanding.indexOf('Standing language request'),
+    );
+  });
+
+  it('languageStanding 不配 language → 仍渲染 <language> 块(standing + dominant, 无 configured 句式)', () => {
+    const passage = 'The user explicitly asked you to speak English with them — treat this as a standing request.';
+    const rendered = PromptBuilder.from({
+      id: 'standing-without-language',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      languageStanding: passage,
+    }).render({});
+    expect(rendered).toContain('<language priority="critical">');
+    expect(rendered).toContain(
+      `Standing language request (it takes precedence over the dominant language of the current message, and stays in effect until the user makes a new explicit request): ${passage}`,
+    );
+    expect(rendered).toContain('Reply in the dominant language of the user');
+    expect(rendered).not.toContain('Preferred response language');
+    expect(rendered).not.toContain('configured fallback above');
+  });
+
+  it('system-output 策略下 standing 段落与 standing 文本均不渲染', () => {
+    const passage = 'The user explicitly asked you to speak English with them — treat this as a standing request.';
+    const rendered = PromptBuilder.from({
+      id: 'standing-system-output',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      language: 'en',
+      languagePolicy: 'system-output',
+      languageStanding: passage,
+    }).render({});
+    expect(rendered).toContain('System output language: "en"');
+    expect(rendered).not.toContain(passage);
+    expect(rendered).not.toContain('Standing language request');
+  });
+
+  it('standing-only + system-output: policy 保留, 不渲染任何 <language> 块', () => {
+    const rendered = PromptBuilder.from({
+      id: 'standing-only-system-output',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      languagePolicy: 'system-output',
+      languageStanding: 'The user explicitly asked you to speak English with them.',
+    }).render({});
+    expect(rendered).not.toContain('<language priority="critical">');
+    expect(rendered).not.toContain('Standing language request');
+  });
+
+  it('renderStandingLanguagePreference 产出 canonical passage', () => {
+    expect(renderStandingLanguagePreference('English')).toBe(
+      'The user explicitly asked you to speak English with them — treat this as a standing request.',
+    );
+    // 入参契约 = 产品自选显示名(locale 码映射是产品自己的职责, libs 不做归一化)
+    expect(renderStandingLanguagePreference('中文')).toBe(
+      'The user explicitly asked you to speak 中文 with them — treat this as a standing request.',
+    );
   });
 
   it('JSON config 与链式构建渲染一致', () => {
