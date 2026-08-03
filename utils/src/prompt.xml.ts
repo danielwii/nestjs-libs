@@ -180,9 +180,14 @@ class XmlPrompt implements Prompt {
         : '';
     const isDialogue = this.data.languagePolicy !== 'system-output';
     const includeInstruction = Boolean(this.data.language) || (isDialogue && Boolean(standingPart));
+    // 顺序: 有 configured 时指令在前(standing 引用的 "configured fallback above" 才成立);
+    // standing-only 时 standing 在前
+    const languageParts = this.data.language
+      ? [includeInstruction ? languageInstruction : '', standingPart]
+      : [standingPart, includeInstruction ? languageInstruction : ''];
     const languagePart =
       this.data.language || (isDialogue && standingPart)
-        ? `<language priority="critical">${[standingPart, includeInstruction ? languageInstruction : ''].filter(Boolean).join(' ')}</language>`
+        ? `<language priority="critical">${languageParts.filter(Boolean).join(' ')}</language>`
         : '';
 
     const instructionsPart = this.data.instructions.length

@@ -211,6 +211,10 @@ describe('PromptBuilder', () => {
     expect(withStanding).toContain(
       `Standing language request (it takes precedence over the dominant language of the current message and over the configured fallback above, and stays in effect until the user makes a new explicit request): ${passage}`,
     );
+    // "configured fallback above" 必须真的在前文: 指令先于 standing 渲染
+    expect(withStanding.indexOf('Preferred response language')).toBeLessThan(
+      withStanding.indexOf('Standing language request'),
+    );
   });
 
   it('languageStanding 不配 language → 仍渲染 <language> 块(standing + dominant, 无 configured 句式)', () => {
