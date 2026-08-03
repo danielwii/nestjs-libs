@@ -247,6 +247,19 @@ describe('PromptBuilder', () => {
     expect(rendered).not.toContain('Standing language request');
   });
 
+  it('standing-only + system-output: policy 保留, 不渲染任何 <language> 块', () => {
+    const rendered = PromptBuilder.from({
+      id: 'standing-only-system-output',
+      role: 'Assistant',
+      objective: 'Reply',
+      instructions: ['Be helpful'],
+      languagePolicy: 'system-output',
+      languageStanding: 'The user explicitly asked you to speak English with them.',
+    }).render({});
+    expect(rendered).not.toContain('<language priority="critical">');
+    expect(rendered).not.toContain('Standing language request');
+  });
+
   it('renderStandingLanguagePreference 产出 canonical passage', () => {
     expect(renderStandingLanguagePreference('English')).toBe(
       'The user explicitly asked you to speak English with them — treat this as a standing request.',

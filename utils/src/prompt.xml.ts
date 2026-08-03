@@ -355,7 +355,7 @@ export class PromptBuilder {
     if (config.style) builder.style(config.style);
     if (config.tone) builder.tone(config.tone);
     if (config.audience) builder.audience(config.audience);
-    if (config.language) builder.language(config.language, config.languagePolicy);
+    if (config.language || config.languagePolicy) builder.language(config.language, config.languagePolicy);
     if (config.languageStanding) builder.languageStanding(config.languageStanding);
 
     // instructions: string | string[]
@@ -455,7 +455,7 @@ export class PromptBuilder {
     return this;
   }
 
-  language(lang: string, policy: PromptLanguagePolicy = 'dialogue'): this {
+  language(lang?: string, policy: PromptLanguagePolicy = 'dialogue'): this {
     this._language = lang;
     this._languagePolicy = policy;
     return this;
