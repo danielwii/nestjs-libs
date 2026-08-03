@@ -32,8 +32,6 @@ own everything about how the passage is produced.
 - with a passage, the `<language>` block renders it in the standing tier and
   the block's own text states that a standing request outranks dominance and
   the configured fallback;
-- a language request in conversation is stated to stand from its turn on,
-  whether or not a stored preference exists yet;
 - all existing prompt tests stay green apart from expected-render updates.
 
 ## 2. Evidence and Root Cause
@@ -111,8 +109,12 @@ No schema/persistence change. `system-output` policy untouched.
       chain pass-through.
 - [ ] M2: `<language>` block renders the passage verbatim when present, plus
       the libs-owned standing-tier sentences (above).
-- [ ] M3: the in-conversation-stands sentence is present in the dialogue
-      instruction regardless of the slot.
+- [ ] M3: NO new unconditional instruction sentence. The extraction-delay
+      window (a conversational request stands before any stored artifact
+      exists) is already covered by the shipped #40 semantics ("stays in
+      effect until the user makes a new explicit request" applies to
+      conversation-made requests); adding one would break byte identity
+      when the slot is absent (Codex P1).
 - [ ] M4: canonical `renderStandingLanguagePreference(language)` formatter
       exported for product skills (optional to use).
 - [ ] M5: `prompt.spec.ts` expected renders updated; new renders with the slot
@@ -134,7 +136,7 @@ No schema/persistence change. `system-output` policy untouched.
 | --- | --- | --- | --- | --- | --- |
 | L-M01 | Must | no standing passage | render | byte-identical to current expected renders | prompt.spec |
 | L-M02 | Must | standing passage set | render | block contains passage verbatim + standing-tier sentences | prompt.spec |
-| L-M03 | Must | any dialogue render | inspect | in-conversation-stands sentence present | prompt.spec |
+| L-M03 | Must | any dialogue render, slot absent | render | identical to today's expected render (delay coverage inherited from shipped #40 text, no new sentence) | prompt.spec |
 | L-M04 | Must | system-output policy | render | unchanged | prompt.spec |
 
 ## 6. Minimal Implementation Slice
