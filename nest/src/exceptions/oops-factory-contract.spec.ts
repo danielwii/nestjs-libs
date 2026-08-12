@@ -243,11 +243,32 @@ function getVariant(error: OopsError): OopsVariant {
   return 'Oops';
 }
 
-function enumerableFunctionNames(owner: object): string[] {
-  return Object.entries(owner)
-    .filter(([, value]) => typeof value === 'function')
-    .map(([name]) => name)
-    .sort();
+function readGenericOopsInventoryFromFreshProcess(): Record<'Oops' | 'Block' | 'Panic', string[]> {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const { Oops } = await import(${JSON.stringify(join(import.meta.dir, 'oops.ts'))});
+        const enumerableFunctionNames = (owner) =>
+          Object.entries(owner)
+            .filter(([, value]) => typeof value === 'function')
+            .map(([name]) => name)
+            .sort();
+        console.log(JSON.stringify({
+          Oops: enumerableFunctionNames(Oops).filter((name) => name !== 'Block' && name !== 'Panic'),
+          Block: enumerableFunctionNames(Oops.Block),
+          Panic: enumerableFunctionNames(Oops.Panic),
+        }));
+      `,
+    ],
+    { encoding: 'utf8' },
+  );
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe('');
+
+  return JSON.parse(result.stdout);
 }
 
 describe('public generic Oops factory contract', () => {
@@ -279,11 +300,7 @@ describe('public generic Oops factory contract', () => {
   });
 
   it('inventories every public factory exactly once', () => {
-    const inventory = {
-      Oops: enumerableFunctionNames(Oops).filter((name) => name !== 'Block' && name !== 'Panic'),
-      Block: enumerableFunctionNames(Oops.Block),
-      Panic: enumerableFunctionNames(Oops.Panic),
-    };
+    const inventory = readGenericOopsInventoryFromFreshProcess();
 
     expect(inventory).toEqual({
       Oops: ['ExternalServiceExpected', 'Validation'],
