@@ -559,6 +559,84 @@ describe('OpenRouter 2026-07 model catalog additions', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// OpenRouter catalog additions (2026-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const openRouterAugustCatalogAdditions = [
+  {
+    keys: ['openrouter:claude-opus-4.8', 'openrouter:anthropic/claude-opus-4.8'],
+    modelId: 'anthropic/claude-opus-4.8',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:claude-opus-5', 'openrouter:anthropic/claude-opus-5'],
+    modelId: 'anthropic/claude-opus-5',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:grok-4.6', 'openrouter:x-ai/grok-4.6'],
+    modelId: 'x-ai/grok-4.6',
+    reasoningRequired: true,
+  },
+  {
+    keys: ['openrouter:qwen3.7-flash', 'openrouter:qwen/qwen3.7-flash'],
+    modelId: 'qwen/qwen3.7-flash',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:qwen3.8-max', 'openrouter:qwen/qwen3.8-max'],
+    modelId: 'qwen/qwen3.8-max',
+    reasoningRequired: true,
+  },
+  {
+    keys: ['openrouter:minimax-m3', 'openrouter:minimax/minimax-m3'],
+    modelId: 'minimax/minimax-m3',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:kimi-k2.7-code', 'openrouter:moonshotai/kimi-k2.7-code'],
+    modelId: 'moonshotai/kimi-k2.7-code',
+    reasoningRequired: true,
+  },
+] as const;
+
+describe('OpenRouter 2026-08 model catalog additions', () => {
+  it('registers shorthand and canonical aliases with provider-specific reasoning metadata', () => {
+    for (const entry of openRouterAugustCatalogAdditions) {
+      for (const key of entry.keys) {
+        expect(getModel(key)).toMatchObject({
+          provider: 'openrouter',
+          modelId: entry.modelId,
+        });
+        expect(getModel(key).reasoningRequired === true).toBe(entry.reasoningRequired);
+      }
+    }
+  });
+
+  it('falls none back to low only for mandatory-reasoning additions', () => {
+    for (const entry of openRouterAugustCatalogAdditions) {
+      for (const key of entry.keys) {
+        expect(resolveThinkingForModel(key, 'none')).toEqual({
+          thinking: entry.reasoningRequired ? 'low' : 'none',
+          paramFallbackApplied: entry.reasoningRequired,
+        });
+      }
+    }
+  });
+
+  it('suggests the lowest public effort for mandatory Grok and Qwen keys', () => {
+    for (const key of ['openrouter:grok-4.6', 'openrouter:qwen3.8-max'] as const) {
+      const result = validateModelSpec(key, { thinking: 'none' });
+      const issues = result.ok ? result.warnings : result.issues;
+      expect(issues.find((issue) => issue.code === 'REASONING_DISABLE_FORBIDDEN')?.suggestions).toEqual([
+        `${key}?reason=low`,
+      ]);
+      if (result.ok) expect(result.effectiveThinking).toBe('low');
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AWS Bedrock provider
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -141,3 +141,31 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
     );
   });
 });
+
+describe('getCostFromUsage OpenRouter 2026-08 catalog additions', () => {
+  const pricingCases = [
+    { keys: ['openrouter:claude-opus-4.8', 'openrouter:anthropic/claude-opus-4.8'], expected: 3 },
+    { keys: ['openrouter:claude-opus-5', 'openrouter:anthropic/claude-opus-5'], expected: 3 },
+    { keys: ['openrouter:grok-4.6', 'openrouter:x-ai/grok-4.6'], expected: 0.8 },
+    { keys: ['openrouter:qwen3.7-flash', 'openrouter:qwen/qwen3.7-flash'], expected: 0.016 },
+    { keys: ['openrouter:qwen3.8-max', 'openrouter:qwen/qwen3.8-max'], expected: 0.8 },
+    { keys: ['openrouter:minimax-m3', 'openrouter:minimax/minimax-m3'], expected: 0.15 },
+    { keys: ['openrouter:kimi-k2.7-code', 'openrouter:moonshotai/kimi-k2.7-code'], expected: 0.407 },
+  ] as const;
+
+  it('uses standard per-token fallback pricing for shorthand and canonical aliases', () => {
+    const usage = { inputTokens: 100_000, outputTokens: 100_000 };
+    for (const { keys, expected } of pricingCases) {
+      for (const key of keys) {
+        expect(getCostFromUsage(usage, key)).toBeCloseTo(expected);
+      }
+    }
+  });
+
+  it('keeps Grok 4.6 standard rates at 200K and applies long-context rates above it', () => {
+    for (const key of ['openrouter:grok-4.6', 'openrouter:x-ai/grok-4.6']) {
+      expect(getCostFromUsage({ inputTokens: 200_000, outputTokens: 100_000 }, key)).toBeCloseTo(1);
+      expect(getCostFromUsage({ inputTokens: 200_001, outputTokens: 100_000 }, key)).toBeCloseTo(2.000004);
+    }
+  });
+});

@@ -401,6 +401,16 @@ export interface LLMModelRegistry {
    */
   'openrouter:minimax-m2.5': ModelConfig<'openrouter'>;
   'openrouter:minimax/minimax-m2.5': ModelConfig<'openrouter'>;
+  /**
+   * MiniMax M3
+   *
+   * OpenRouter standard: Input $0.30/M, Output $1.20/M, Context 1M.
+   * Reasoning 可关闭。
+   *
+   * @see https://openrouter.ai/minimax/minimax-m3
+   */
+  'openrouter:minimax-m3': ModelConfig<'openrouter'>;
+  'openrouter:minimax/minimax-m3': ModelConfig<'openrouter'>;
 
   /**
    * Gemini 3.1 Flash Lite - 轻量快速
@@ -504,7 +514,7 @@ export interface LLMModelRegistry {
   'openrouter:claude-opus-4.6': ModelConfig<'openrouter'>;
   'openrouter:anthropic/claude-opus-4.6': ModelConfig<'openrouter'>;
   /**
-   * Claude Opus 4.7 - 最新旗舰
+   * Claude Opus 4.7
    *
    * 定价参考（2026.05）：Input $5/M, Output $25/M, Context 1M
    *
@@ -512,6 +522,25 @@ export interface LLMModelRegistry {
    */
   'openrouter:claude-opus-4.7': ModelConfig<'openrouter'>;
   'openrouter:anthropic/claude-opus-4.7': ModelConfig<'openrouter'>;
+  /**
+   * Claude Opus 4.8 - 1M context / optional reasoning
+   *
+   * OpenRouter standard: Input $5/M, Output $25/M.
+   *
+   * @see https://openrouter.ai/anthropic/claude-opus-4.8
+   */
+  'openrouter:claude-opus-4.8': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-opus-4.8': ModelConfig<'openrouter'>;
+  /**
+   * Claude Opus 5 - 最新旗舰
+   *
+   * OpenRouter standard: Input $5/M, Output $25/M, Context 1M.
+   * Reasoning 可关闭；provider 默认 high。
+   *
+   * @see https://openrouter.ai/anthropic/claude-opus-5
+   */
+  'openrouter:claude-opus-5': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-opus-5': ModelConfig<'openrouter'>;
 
   // ---- OpenAI GPT-5 ----
   /**
@@ -615,6 +644,16 @@ export interface LLMModelRegistry {
    */
   'openrouter:grok-4.5': ModelConfig<'openrouter'>;
   'openrouter:x-ai/grok-4.5': ModelConfig<'openrouter'>;
+  /**
+   * Grok 4.6 - 最新旗舰，500K context
+   *
+   * OpenRouter standard (≤200K input tokens): Input $2/M, Output $6/M；long context 为 $4/$12。
+   * Reasoning 强制开启，provider 默认 high；library 对 no-thinking intent 以 low fallback。
+   *
+   * @see https://openrouter.ai/x-ai/grok-4.6
+   */
+  'openrouter:grok-4.6': ModelConfig<'openrouter'>;
+  'openrouter:x-ai/grok-4.6': ModelConfig<'openrouter'>;
 
   // ---- DeepSeek / MoonshotAI Kimi / Qwen ----
   /**
@@ -664,6 +703,15 @@ export interface LLMModelRegistry {
   'openrouter:kimi-k3': ModelConfig<'openrouter'>;
   'openrouter:moonshotai/kimi-k3': ModelConfig<'openrouter'>;
   /**
+   * Kimi K2.7 Code - 代码特化（reasoning 强制开启）
+   *
+   * OpenRouter standard: Input $0.67/M, Output $3.40/M, Context 262K.
+   *
+   * @see https://openrouter.ai/moonshotai/kimi-k2.7-code
+   */
+  'openrouter:kimi-k2.7-code': ModelConfig<'openrouter'>;
+  'openrouter:moonshotai/kimi-k2.7-code': ModelConfig<'openrouter'>;
+  /**
    * Qwen3.6 Flash - 高性价比
    *
    * 定价参考（2026.05）：Input $0.1875/M, Output $1.125/M, Context 1M
@@ -673,7 +721,17 @@ export interface LLMModelRegistry {
   'openrouter:qwen3.6-flash': ModelConfig<'openrouter'>;
   'openrouter:qwen/qwen3.6-flash': ModelConfig<'openrouter'>;
   /**
-   * Qwen3.7 Max - 最新旗舰
+   * Qwen3.7 Flash
+   *
+   * OpenRouter standard: Input $0.03/M, Output $0.13/M, Context 1M.
+   * Reasoning 可关闭。
+   *
+   * @see https://openrouter.ai/qwen/qwen3.7-flash
+   */
+  'openrouter:qwen3.7-flash': ModelConfig<'openrouter'>;
+  'openrouter:qwen/qwen3.7-flash': ModelConfig<'openrouter'>;
+  /**
+   * Qwen3.7 Max
    *
    * 定价参考（2026.05）：Input $2.50/M, Output $7.50/M, Context 1M
    *
@@ -681,6 +739,16 @@ export interface LLMModelRegistry {
    */
   'openrouter:qwen3.7-max': ModelConfig<'openrouter'>;
   'openrouter:qwen/qwen3.7-max': ModelConfig<'openrouter'>;
+  /**
+   * Qwen3.8 Max - 最新旗舰
+   *
+   * OpenRouter standard: Input $2/M, Output $6/M, Context 1M.
+   * Reasoning 强制开启，provider 默认 xhigh；library 对 no-thinking intent 以 low fallback。
+   *
+   * @see https://openrouter.ai/qwen/qwen3.8-max
+   */
+  'openrouter:qwen3.8-max': ModelConfig<'openrouter'>;
+  'openrouter:qwen/qwen3.8-max': ModelConfig<'openrouter'>;
 
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
@@ -1056,6 +1124,9 @@ const modelRegistry = new Map<string, ModelConfig>([
     'openrouter:minimax/minimax-m2.5',
     { provider: 'openrouter', modelId: 'minimax/minimax-m2.5', reasoningRequired: true },
   ],
+  // MiniMax M3 — OpenRouter metadata: reasoning optional
+  ['openrouter:minimax-m3', { provider: 'openrouter', modelId: 'minimax/minimax-m3' }],
+  ['openrouter:minimax/minimax-m3', { provider: 'openrouter', modelId: 'minimax/minimax-m3' }],
 
   // Gemini 3.1 Flash Lite
   ['openrouter:gemini-3.1-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite' }],
@@ -1140,6 +1211,12 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Claude Opus 4.7
   ['openrouter:claude-opus-4.7', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7' }],
   ['openrouter:anthropic/claude-opus-4.7', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7' }],
+  // Claude Opus 4.8 — OpenRouter metadata: optional reasoning
+  ['openrouter:claude-opus-4.8', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.8' }],
+  ['openrouter:anthropic/claude-opus-4.8', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.8' }],
+  // Claude Opus 5 — OpenRouter metadata: optional reasoning
+  ['openrouter:claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
+  ['openrouter:anthropic/claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
 
   // GPT-5.1
   ['openrouter:gpt-5.1', { provider: 'openrouter', modelId: 'openai/gpt-5.1' }],
@@ -1182,6 +1259,15 @@ const modelRegistry = new Map<string, ModelConfig>([
     'openrouter:x-ai/grok-4.5',
     { provider: 'openrouter', modelId: 'x-ai/grok-4.5', reasoningRequired: true, reasoningDefaultEffort: 'low' },
   ],
+  // Grok 4.6 — OpenRouter metadata: mandatory reasoning, lowest supported effort is low
+  [
+    'openrouter:grok-4.6',
+    { provider: 'openrouter', modelId: 'x-ai/grok-4.6', reasoningRequired: true, reasoningDefaultEffort: 'low' },
+  ],
+  [
+    'openrouter:x-ai/grok-4.6',
+    { provider: 'openrouter', modelId: 'x-ai/grok-4.6', reasoningRequired: true, reasoningDefaultEffort: 'low' },
+  ],
 
   // DeepSeek V4 Flash
   ['openrouter:deepseek-v4-flash', { provider: 'openrouter', modelId: 'deepseek/deepseek-v4-flash' }],
@@ -1204,12 +1290,43 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Kimi K3 — OpenRouter metadata: reasoning optional
   ['openrouter:kimi-k3', { provider: 'openrouter', modelId: 'moonshotai/kimi-k3' }],
   ['openrouter:moonshotai/kimi-k3', { provider: 'openrouter', modelId: 'moonshotai/kimi-k3' }],
+  // Kimi K2.7 Code — OpenRouter metadata: mandatory reasoning
+  [
+    'openrouter:kimi-k2.7-code',
+    { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.7-code', reasoningRequired: true },
+  ],
+  [
+    'openrouter:moonshotai/kimi-k2.7-code',
+    { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.7-code', reasoningRequired: true },
+  ],
   // Qwen3.6 Flash
   ['openrouter:qwen3.6-flash', { provider: 'openrouter', modelId: 'qwen/qwen3.6-flash' }],
   ['openrouter:qwen/qwen3.6-flash', { provider: 'openrouter', modelId: 'qwen/qwen3.6-flash' }],
+  // Qwen3.7 Flash — OpenRouter metadata: reasoning optional
+  ['openrouter:qwen3.7-flash', { provider: 'openrouter', modelId: 'qwen/qwen3.7-flash' }],
+  ['openrouter:qwen/qwen3.7-flash', { provider: 'openrouter', modelId: 'qwen/qwen3.7-flash' }],
   // Qwen3.7 Max
   ['openrouter:qwen3.7-max', { provider: 'openrouter', modelId: 'qwen/qwen3.7-max' }],
   ['openrouter:qwen/qwen3.7-max', { provider: 'openrouter', modelId: 'qwen/qwen3.7-max' }],
+  // Qwen3.8 Max — OpenRouter metadata: mandatory reasoning, lowest public effort is low
+  [
+    'openrouter:qwen3.8-max',
+    {
+      provider: 'openrouter',
+      modelId: 'qwen/qwen3.8-max',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+  [
+    'openrouter:qwen/qwen3.8-max',
+    {
+      provider: 'openrouter',
+      modelId: 'qwen/qwen3.8-max',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],

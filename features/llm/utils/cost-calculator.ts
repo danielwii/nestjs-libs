@@ -103,6 +103,8 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'anthropic/claude-sonnet-5': { input: 2.0, output: 10.0 },
   'anthropic/claude-opus-4.6': { input: 5.0, output: 25.0 },
   'anthropic/claude-opus-4.7': { input: 5.0, output: 25.0 },
+  'anthropic/claude-opus-4.8': { input: 5.0, output: 25.0 },
+  'anthropic/claude-opus-5': { input: 5.0, output: 25.0 },
 
   // xAI Grok
   'x-ai/grok-3-mini': { input: 0.3, output: 0.5 },
@@ -110,6 +112,11 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'x-ai/grok-4.20': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.3': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.5': {
+    input: 2.0,
+    output: 6.0,
+    longContext: { inputTokenThreshold: 200_000, input: 4.0, output: 12.0 },
+  },
+  'x-ai/grok-4.6': {
     input: 2.0,
     output: 6.0,
     longContext: { inputTokenThreshold: 200_000, input: 4.0, output: 12.0 },
@@ -128,16 +135,20 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'moonshotai/kimi-k2.6': { input: 0.73, output: 3.49 },
   'moonshotai/kimi-k2-thinking': { input: 0.6, output: 2.5 },
   'moonshotai/kimi-k3': { input: 3.0, output: 15.0 },
+  'moonshotai/kimi-k2.7-code': { input: 0.67, output: 3.4 },
 
   // Qwen
   'qwen/qwen3.6-flash': { input: 0.1875, output: 1.125 },
+  'qwen/qwen3.7-flash': { input: 0.03, output: 0.13 },
   'qwen/qwen3.7-max': { input: 2.5, output: 7.5 },
+  'qwen/qwen3.8-max': { input: 2.0, output: 6.0 },
 
   // Z.ai GLM - 不考虑使用
   // 'z-ai/glm-5': { input: 0.3, output: 2.55 },
 
   // MiniMax（Inceptron $1.10，其他 provider $1.20）
   'minimax/minimax-m2.5': { input: 0.3, output: 1.1 },
+  'minimax/minimax-m3': { input: 0.3, output: 1.2 },
 
   // OpenAI
   'openai/gpt-4o-mini': { input: 0.15, output: 0.6 },
