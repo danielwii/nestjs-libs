@@ -3,7 +3,7 @@
  *
  * Not run in CI. Execute with credentials already present in the environment:
  * ```bash
- * LLM_LIVE_TEST=1 bun test features/llm/clients/vertex.2026-07-models.live.spec.ts
+ * bun test ./features/llm/clients/vertex.2026-07-models.spec.live.ts
  * ```
  *
  * Express requires AI_GOOGLE_VERTEX_API_KEY. Project/global requires
@@ -22,12 +22,11 @@ import { describe, expect, it } from 'bun:test';
 
 import type { LLMModelKey } from '../types/model.types';
 
-const LIVE = process.env.LLM_LIVE_TEST === '1';
 const HAS_VERTEX_KEY = !!process.env.AI_GOOGLE_VERTEX_API_KEY?.trim();
 const HAS_VERTEX_GLOBAL_CONFIG =
   !!process.env.GOOGLE_VERTEX_PROJECT?.trim() && (process.env.GOOGLE_VERTEX_LOCATION ?? 'global') === 'global';
-const describeVertexLive = LIVE && HAS_VERTEX_KEY ? describe : describe.skip;
-const describeVertexGlobalLive = LIVE && HAS_VERTEX_GLOBAL_CONFIG ? describe : describe.skip;
+const describeVertexLive = HAS_VERTEX_KEY ? describe : describe.skip;
+const describeVertexGlobalLive = HAS_VERTEX_GLOBAL_CONFIG ? describe : describe.skip;
 
 function getReasoningTokens(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0;

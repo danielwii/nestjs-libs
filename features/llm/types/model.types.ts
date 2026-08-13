@@ -154,7 +154,7 @@ export interface ModelConfig<P extends string = string> {
    * provider 适配层本来就会翻译（gemini → systemInstruction 等），历史流量普遍可用。
    * 因此缺省 true（ libs 调用 SDK 时透传 allowSystemInMessages: true ）；
    * 仅当实测 / 线上 400 证明某模型后端确实不接受时，单独标 `false`。
-   * 事实来源：`features/llm/clients/system-in-messages.spec.ts`（e2e 探针）。
+   * 事实来源：`features/llm/clients/system-in-messages.spec.live.ts`（e2e 探针）。
    */
   systemInMessages?: boolean;
   /**

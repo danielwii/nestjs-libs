@@ -1,18 +1,18 @@
 /**
  * AWS Bedrock live smoke test（spec S1）
  *
- * ⚠️ 不在 CI 运行：仅当显式设置 LLM_LIVE_TEST=1 且本地存在 Bedrock 凭证时执行。
- * CI（bun test --coverage）不会设置 LLM_LIVE_TEST，整个 describe 被 skip。
+ * 文件名使用 `.spec.live.ts`，因此默认 `bun test` 与 CI 不会发现它。
+ * 只有显式指定本文件时，才会使用本地 Bedrock 凭证执行。
  *
  * 运行方式（凭证已在 .env 中配置时）：
  * ```bash
- * LLM_LIVE_TEST=1 bun test features/llm/clients/bedrock.live.spec.ts
+ * bun test ./features/llm/clients/bedrock.spec.live.ts
  * ```
  *
  * 或使用其他 profile 的 SigV4 凭证：
  * ```bash
  * eval "$(aws configure export-credentials --profile <name> --format env)"
- * AI_BEDROCK_REGION=us-east-2 LLM_LIVE_TEST=1 bun test features/llm/clients/bedrock.live.spec.ts
+ * AI_BEDROCK_REGION=us-east-2 bun test ./features/llm/clients/bedrock.spec.live.ts
  * ```
  */
 
@@ -25,10 +25,7 @@ import { describe, expect, it } from 'bun:test';
 
 import type { LLMModelSpec } from '../types/model.types';
 
-const LIVE = process.env.LLM_LIVE_TEST === '1';
-const describeLive = LIVE ? describe : describe.skip;
-
-describeLive('bedrock live smoke (LLM_LIVE_TEST=1)', () => {
+describe('bedrock live smoke', () => {
   it('generateText on bedrock:claude-haiku-4.5 returns text and usage', async () => {
     const result = await LLM.generateText({
       id: 'bedrock-live-smoke',

@@ -3,8 +3,8 @@
  *
  * Not run in CI. Execute with real credentials:
  * ```bash
- * doppler run -p unee-server -c stg -- env LLM_LIVE_TEST=1 \
- *   bun test features/llm/clients/gemini-3.6-flash.live.spec.ts
+ * doppler run -p unee-server -c stg -- \
+ *   bun test ./features/llm/clients/gemini-3.6-flash.spec.live.ts
  * ```
  *
  * The raw OpenRouter call intentionally bypasses the registry fallback so a future
@@ -17,12 +17,11 @@ import { LLM } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
-const LIVE = process.env.LLM_LIVE_TEST === '1';
 const OPENROUTER_API_KEY = process.env.AI_OPENROUTER_API_KEY;
 const HAS_OPENROUTER_KEY = !!OPENROUTER_API_KEY?.trim();
 const HAS_VERTEX_KEY = !!process.env.AI_GOOGLE_VERTEX_API_KEY?.trim();
-const describeOpenRouterLive = LIVE && HAS_OPENROUTER_KEY ? describe : describe.skip;
-const describeVertexLive = LIVE && HAS_VERTEX_KEY ? describe : describe.skip;
+const describeOpenRouterLive = HAS_OPENROUTER_KEY ? describe : describe.skip;
+const describeVertexLive = HAS_VERTEX_KEY ? describe : describe.skip;
 
 const OPENROUTER_MODEL_ID = 'google/gemini-3.6-flash';
 

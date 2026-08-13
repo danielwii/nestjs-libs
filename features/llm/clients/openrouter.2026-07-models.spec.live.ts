@@ -1,9 +1,9 @@
 /**
- * OpenRouter 2026-08 model catalog smoke/capability evidence.
+ * OpenRouter 2026-07 model catalog smoke/capability evidence.
  *
  * Not run in CI. Execute with a real OpenRouter credential:
  * ```bash
- * LLM_LIVE_TEST=1 bun test features/llm/clients/openrouter.2026-08-models.live.spec.ts
+ * bun test ./features/llm/clients/openrouter.2026-07-models.spec.live.ts
  * ```
  */
 
@@ -13,18 +13,17 @@ import { LLM } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
-const LIVE = process.env.LLM_LIVE_TEST === '1';
 const OPENROUTER_API_KEY = process.env.AI_OPENROUTER_API_KEY;
-const describeOpenRouterLive = LIVE && !!OPENROUTER_API_KEY?.trim() ? describe : describe.skip;
+const describeOpenRouterLive = OPENROUTER_API_KEY?.trim() ? describe : describe.skip;
 
 const catalogModels = [
-  { key: 'openrouter:claude-opus-4.8', modelId: 'anthropic/claude-opus-4.8', reasoningRequired: false },
-  { key: 'openrouter:claude-opus-5', modelId: 'anthropic/claude-opus-5', reasoningRequired: false },
-  { key: 'openrouter:grok-4.6', modelId: 'x-ai/grok-4.6', reasoningRequired: true },
-  { key: 'openrouter:qwen3.7-flash', modelId: 'qwen/qwen3.7-flash', reasoningRequired: false },
-  { key: 'openrouter:qwen3.8-max', modelId: 'qwen/qwen3.8-max', reasoningRequired: true },
-  { key: 'openrouter:minimax-m3', modelId: 'minimax/minimax-m3', reasoningRequired: false },
-  { key: 'openrouter:kimi-k2.7-code', modelId: 'moonshotai/kimi-k2.7-code', reasoningRequired: true },
+  { key: 'openrouter:gemini-3.5-flash-lite', modelId: 'google/gemini-3.5-flash-lite', reasoningRequired: true },
+  { key: 'openrouter:claude-sonnet-5', modelId: 'anthropic/claude-sonnet-5', reasoningRequired: false },
+  { key: 'openrouter:gpt-5.6-luna', modelId: 'openai/gpt-5.6-luna', reasoningRequired: false },
+  { key: 'openrouter:gpt-5.6-terra', modelId: 'openai/gpt-5.6-terra', reasoningRequired: false },
+  { key: 'openrouter:gpt-5.6-sol', modelId: 'openai/gpt-5.6-sol', reasoningRequired: false },
+  { key: 'openrouter:grok-4.5', modelId: 'x-ai/grok-4.5', reasoningRequired: true },
+  { key: 'openrouter:kimi-k3', modelId: 'moonshotai/kimi-k3', reasoningRequired: false },
 ] as const;
 
 function getReasoningTokens(usage: unknown): number {
@@ -35,7 +34,7 @@ function getReasoningTokens(usage: unknown): number {
   return typeof value === 'number' ? value : 0;
 }
 
-describeOpenRouterLive('OpenRouter 2026-08 model catalog (live)', () => {
+describeOpenRouterLive('OpenRouter 2026-07 model catalog (live)', () => {
   for (const { key, reasoningRequired } of catalogModels) {
     it(`invokes ${key} with the registry no-thinking policy`, async () => {
       const result = await LLM.generateText({

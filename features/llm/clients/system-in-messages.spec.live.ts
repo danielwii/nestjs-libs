@@ -12,11 +12,12 @@ import { z } from 'zod';
 // allowSystemInMessages=false，客户端侧拒绝 messages 里的 system 条目——而
 // provider 适配层本来就能翻译（gemini → systemInstruction），历史流量实证可用。
 //
-// 本 spec 是 registry `systemInMessages` marker 的事实来源：真实调用验证模型
+// 本 LiveSpec 是 registry `systemInMessages` marker 的事实来源：真实调用验证模型
 // 端到端是否接受 system-in-messages。默认 default-true（provider 普遍接受），
 // 只有实测/线上 400 证明不接受的模型才单独标 false。
 //
-// 需要 AI_OPENROUTER_API_KEY（doppler run -p unee-server -c stg）。无 key 时跳过。
+// 显式运行：bun test ./features/llm/clients/system-in-messages.spec.live.ts
+// 需要 AI_OPENROUTER_API_KEY（可由 Doppler 注入）。无 key 时跳过。
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HAS_KEY = !!process.env.AI_OPENROUTER_API_KEY;
