@@ -1988,7 +1988,7 @@ export class LLM {
    * @example
    * ```typescript
    * const stream = LLM.streamObjectViaTool({
-   *   model: 'openrouter:gemini-3-flash-preview',
+   *   model: 'openrouter:gemini-3.7-flash',
    *   schema: MySchema,
    *   toolName: 'analyze',
    *   toolDescription: '分析用户输入',

@@ -200,14 +200,12 @@ export interface LLMModelRegistry {
   'openrouter:gemini-2.5-flash': ModelConfig<'openrouter'>;
   'openrouter:google/gemini-2.5-flash': ModelConfig<'openrouter'>;
   /**
-   * Gemini 2.5 Pro
-   *
-   * 定价参考（2026.02）：Input $1.25/M, Output $10/M（≤200K），Context 1M
+   * Gemini 2.5 Pro — 不考虑使用（output ≥ $10/M）
    *
    * @see https://openrouter.ai/google/gemini-2.5-pro
    */
-  'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>;
-  'openrouter:google/gemini-2.5-pro': ModelConfig<'openrouter'>;
+  // 'openrouter:gemini-2.5-pro': ModelConfig<'openrouter'>;
+  // 'openrouter:google/gemini-2.5-pro': ModelConfig<'openrouter'>;
   /**
    * Gemini 2.5 Flash Lite
    *
@@ -218,32 +216,26 @@ export interface LLMModelRegistry {
   'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
   'openrouter:google/gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
   /**
-   * Gemini 3 Flash Preview - Tool Calling #1
-   *
-   * 定价参考（2026.02）：Input $0.50/M, Output $3/M, Context 1M
+   * Gemini 3 Flash Preview — 绝对 legacy（Preview；已被 3.5/3.6/3.7 Flash GA 接班）
    *
    * @see https://openrouter.ai/google/gemini-3-flash-preview
    */
-  'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
-  'openrouter:google/gemini-3-flash-preview': ModelConfig<'openrouter'>;
+  // 'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
+  // 'openrouter:google/gemini-3-flash-preview': ModelConfig<'openrouter'>;
   /**
-   * Claude 3.5 Sonnet
-   *
-   * 定价参考（2026.02）：Input $6/M, Output $30/M, Context 200K
+   * Claude 3.5 Sonnet — 不考虑使用（output ≥ $10/M）
    *
    * @see https://openrouter.ai/anthropic/claude-3.5-sonnet
    */
-  'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-3.5-sonnet': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-3.5-sonnet': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-3.5-sonnet': ModelConfig<'openrouter'>;
   /**
-   * Claude 3.5 Haiku
-   *
-   * 定价参考（2026.02）：Input $0.80/M, Output $4/M, Context 200K
+   * Claude 3.5 Haiku — 绝对 legacy（OpenRouter 404；同槽位为 Haiku 4.5）
    *
    * @see https://openrouter.ai/anthropic/claude-3.5-haiku
    */
-  'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-3.5-haiku': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-3.5-haiku': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-3.5-haiku': ModelConfig<'openrouter'>;
   /**
    * Claude 4 Sonnet
    *
@@ -263,14 +255,12 @@ export interface LLMModelRegistry {
   'openrouter:claude-sonnet-4.5': ModelConfig<'openrouter'>;
   'openrouter:anthropic/claude-sonnet-4.5': ModelConfig<'openrouter'>;
   /**
-   * Claude Opus 4.1
-   *
-   * 定价参考（2026.02）：Input $15/M, Output $75/M, Context 200K
+   * Claude Opus 4.1 — 不考虑使用（output ≥ $10/M）
    *
    * @see https://openrouter.ai/anthropic/claude-opus-4.1
    */
-  'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-opus-4.1': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-opus-4.1': ModelConfig<'openrouter'>;
   /**
    * Claude Opus 4.5 - 最强 coding
    *
@@ -290,14 +280,12 @@ export interface LLMModelRegistry {
   'openrouter:gpt-4o-mini': ModelConfig<'openrouter'>;
   'openrouter:openai/gpt-4o-mini': ModelConfig<'openrouter'>;
   /**
-   * Grok 3 Mini - thinking
-   *
-   * 定价参考（2026.02）：Input $0.30/M, Output $0.50/M, Context 131K
+   * Grok 3 Mini — 绝对 legacy（OpenRouter 404；4.x 线接班）
    *
    * @see https://openrouter.ai/x-ai/grok-3-mini
    */
-  'openrouter:grok-3-mini': ModelConfig<'openrouter'>;
-  'openrouter:x-ai/grok-3-mini': ModelConfig<'openrouter'>;
+  // 'openrouter:grok-3-mini': ModelConfig<'openrouter'>;
+  // 'openrouter:x-ai/grok-3-mini': ModelConfig<'openrouter'>;
   /**
    * Grok 4.1 Fast - best tool calling
    *
@@ -466,14 +454,27 @@ export interface LLMModelRegistry {
   'openrouter:google/gemini-3.6-flash': ModelConfig<'openrouter'>;
 
   /**
-   * Gemini 3.1 Pro Preview
+   * Gemini 3.7 Flash - GA
    *
-   * 定价参考（2026.04）：Input $2/M, Output $12/M, Context 1M
+   * OpenRouter 定价（2026-08-13 catalog）：Input $0.375/M, Output $1.875/M,
+   * Context 1,048,576；Max output 65,536。
+   *
+   * OpenRouter endpoint 强制 reasoning（mandatory=true），provider 默认 medium，
+   * 公开 effort 为 low/medium/high（无 none / minimal）。
+   * Library 对 no-thinking intent 以 low fallback，与 3.5/3.6 Flash 一致。
+   *
+   * @see https://openrouter.ai/google/gemini-3.7-flash
+   */
+  'openrouter:gemini-3.7-flash': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-3.7-flash': ModelConfig<'openrouter'>;
+
+  /**
+   * Gemini 3.1 Pro Preview — 不考虑使用（output ≥ $10/M）
    *
    * @see https://openrouter.ai/google/gemini-3.1-pro-preview
    */
-  'openrouter:gemini-3.1-pro-preview': ModelConfig<'openrouter'>;
-  'openrouter:google/gemini-3.1-pro-preview': ModelConfig<'openrouter'>;
+  // 'openrouter:gemini-3.1-pro-preview': ModelConfig<'openrouter'>;
+  // 'openrouter:google/gemini-3.1-pro-preview': ModelConfig<'openrouter'>;
 
   // ---- Anthropic Claude (4.5+) ----
   /**
@@ -752,35 +753,35 @@ export interface LLMModelRegistry {
 
   // ==================== Google Direct ====================
   'google:gemini-2.5-flash': ModelConfig<'google'>;
-  'google:gemini-2.5-pro': ModelConfig<'google'>;
+  // 'google:gemini-2.5-pro': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
   'google:gemini-2.5-flash-lite': ModelConfig<'google'>;
-  'google:gemini-3-flash-preview': ModelConfig<'google'>;
+  // 'google:gemini-3-flash-preview': ModelConfig<'google'>; // 绝对 legacy
   'google:gemini-3.1-flash-lite': ModelConfig<'google'>;
-  'google:gemini-3.1-pro-preview': ModelConfig<'google'>;
+  // 'google:gemini-3.1-pro-preview': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (Express Mode) ====================
   'vertex:gemini-2.5-flash': ModelConfig<'vertex'>;
-  'vertex:gemini-2.5-pro': ModelConfig<'vertex'>;
+  // 'vertex:gemini-2.5-pro': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
   'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
-  'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
+  // 'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>; // 绝对 legacy
   'vertex:gemini-3.1-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3.5-flash': ModelConfig<'vertex'>;
   'vertex:gemini-3.5-flash-lite': ModelConfig<'vertex'>;
 
   /** Direct Vertex Express live probe confirms thinkingBudget=0 is supported. */
   'vertex:gemini-3.6-flash': ModelConfig<'vertex'>;
-  'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>;
+  // 'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (project/global mode) ====================
   'vertex-global:gemini-2.5-flash': ModelConfig<'vertex-global'>;
-  'vertex-global:gemini-2.5-pro': ModelConfig<'vertex-global'>;
+  // 'vertex-global:gemini-2.5-pro': ModelConfig<'vertex-global'>; // 不考虑使用（output ≥ $10/M）
   'vertex-global:gemini-2.5-flash-lite': ModelConfig<'vertex-global'>;
-  'vertex-global:gemini-3-flash-preview': ModelConfig<'vertex-global'>;
+  // 'vertex-global:gemini-3-flash-preview': ModelConfig<'vertex-global'>; // 绝对 legacy
   'vertex-global:gemini-3.1-flash-lite': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.5-flash': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.5-flash-lite': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.6-flash': ModelConfig<'vertex-global'>;
-  'vertex-global:gemini-3.1-pro-preview': ModelConfig<'vertex-global'>;
+  // 'vertex-global:gemini-3.1-pro-preview': ModelConfig<'vertex-global'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== AWS Bedrock ====================
   // 模型可用性已在 mission-ai-v2（account 421454274824）/ us-east-2 验证（2026-07-17）。
@@ -843,7 +844,7 @@ type ThinkingEffortLevel = 'none' | 'low' | 'medium' | 'high';
  *
  * @example
  * 'openrouter:grok-4.1-fast?reason=low'  // Grok + low reasoning
- * 'openrouter:gemini-3-flash-preview'     // Gemini, no params
+ * 'openrouter:gemini-3.7-flash'           // Gemini, no params
  */
 export type LLMModelSpec = LLMModelKey | `${LLMModelKey}?${string}`;
 
@@ -900,8 +901,8 @@ function parseProviderFromKey(key: LLMModelKey): LLMProviderType {
  * parseModelSpec('openrouter:grok-4.1-fast?reason=low')
  * // → { key: 'openrouter:grok-4.1-fast', thinking: 'low' }
  *
- * parseModelSpec('openrouter:gemini-3-flash-preview')
- * // → { key: 'openrouter:gemini-3-flash-preview', thinking: undefined }
+ * parseModelSpec('openrouter:gemini-3.7-flash')
+ * // → { key: 'openrouter:gemini-3.7-flash', thinking: undefined }
  */
 export function parseModelSpec(spec: LLMModelSpec): ParsedModelSpec {
   const qIdx = spec.indexOf('?');
@@ -1068,39 +1069,39 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Gemini 2.5 Flash
   ['openrouter:gemini-2.5-flash', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash' }],
   ['openrouter:google/gemini-2.5-flash', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash' }],
-  // Gemini 2.5 Pro
-  ['openrouter:gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
-  ['openrouter:google/gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
+  // Gemini 2.5 Pro — 不考虑使用（output ≥ $10/M）
+  // ['openrouter:gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
+  // ['openrouter:google/gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
   // Gemini 2.5 Flash Lite
   ['openrouter:gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
   ['openrouter:google/gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
-  // Gemini 3 Flash Preview
-  ['openrouter:gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
-  ['openrouter:google/gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
-  // Claude 3.5 Sonnet
-  ['openrouter:claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
-  ['openrouter:anthropic/claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
-  // Claude 3.5 Haiku
-  ['openrouter:claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku' }],
-  ['openrouter:anthropic/claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku' }],
+  // Gemini 3 Flash Preview — 绝对 legacy
+  // ['openrouter:gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
+  // ['openrouter:google/gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
+  // Claude 3.5 Sonnet — 不考虑使用（output ≥ $10/M）
+  // ['openrouter:claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
+  // ['openrouter:anthropic/claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
+  // Claude 3.5 Haiku — 绝对 legacy
+  // ['openrouter:claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku' }],
+  // ['openrouter:anthropic/claude-3.5-haiku', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-haiku' }],
   // Claude 4 Sonnet
   ['openrouter:claude-4-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' }],
   ['openrouter:anthropic/claude-sonnet-4', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4' }],
   // Claude Sonnet 4.5
   ['openrouter:claude-sonnet-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.5' }],
   ['openrouter:anthropic/claude-sonnet-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-4.5' }],
-  // Claude Opus 4.1
-  ['openrouter:claude-4.1-opus', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
-  ['openrouter:anthropic/claude-opus-4.1', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
+  // Claude Opus 4.1 — 不考虑使用（output ≥ $10/M）
+  // ['openrouter:claude-4.1-opus', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
+  // ['openrouter:anthropic/claude-opus-4.1', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
   // Claude Opus 4.5
   ['openrouter:claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
   ['openrouter:anthropic/claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
   // GPT-4o Mini
   ['openrouter:gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
   ['openrouter:openai/gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
-  // Grok 3 Mini
-  ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
-  ['openrouter:x-ai/grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
+  // Grok 3 Mini — 绝对 legacy
+  // ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
+  // ['openrouter:x-ai/grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
   // Grok 4.1 Fast（reasoning 可通过 thinking 参数控制）
   ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
   ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
@@ -1192,9 +1193,29 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
-  // Gemini 3.1 Pro Preview
-  ['openrouter:gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
-  ['openrouter:google/gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
+  // Gemini 3.7 Flash via OpenRouter — metadata: reasoning.mandatory=true; default_effort=medium
+  [
+    'openrouter:gemini-3.7-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.7-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+  [
+    'openrouter:google/gemini-3.7-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.7-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+
+  // Gemini 3.1 Pro Preview — 不考虑使用（output ≥ $10/M）
+  // ['openrouter:gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
+  // ['openrouter:google/gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
 
   // Claude Haiku 4.5
   ['openrouter:claude-haiku-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-haiku-4.5' }],
@@ -1330,11 +1351,11 @@ const modelRegistry = new Map<string, ModelConfig>([
 
   // Google Direct 模型
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],
-  ['google:gemini-2.5-pro', { provider: 'google', modelId: 'gemini-2.5-pro' }],
+  // ['google:gemini-2.5-pro', { provider: 'google', modelId: 'gemini-2.5-pro' }], // 不考虑使用
   ['google:gemini-2.5-flash-lite', { provider: 'google', modelId: 'gemini-2.5-flash-lite' }],
-  ['google:gemini-3-flash-preview', { provider: 'google', modelId: 'gemini-3-flash-preview' }],
+  // ['google:gemini-3-flash-preview', { provider: 'google', modelId: 'gemini-3-flash-preview' }], // 绝对 legacy
   ['google:gemini-3.1-flash-lite', { provider: 'google', modelId: 'gemini-3.1-flash-lite' }],
-  ['google:gemini-3.1-pro-preview', { provider: 'google', modelId: 'gemini-3.1-pro-preview' }],
+  // ['google:gemini-3.1-pro-preview', { provider: 'google', modelId: 'gemini-3.1-pro-preview' }], // 不考虑使用
 
   // Vertex AI 模型 (Express Mode)
   // 这些 key 保持既有 API-key Express Mode 语义；需要 Google 官方 project/global
@@ -1346,18 +1367,18 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex:gemini-2.5-flash',
     { provider: 'vertex', modelId: 'gemini-2.5-flash', supportedTiers: ['standard', 'priority'] },
   ],
-  [
-    'vertex:gemini-2.5-pro',
-    { provider: 'vertex', modelId: 'gemini-2.5-pro', supportedTiers: ['standard', 'priority'] },
-  ],
+  // [
+  //   'vertex:gemini-2.5-pro',
+  //   { provider: 'vertex', modelId: 'gemini-2.5-pro', supportedTiers: ['standard', 'priority'] },
+  // ], // 不考虑使用
   [
     'vertex:gemini-2.5-flash-lite',
     { provider: 'vertex', modelId: 'gemini-2.5-flash-lite', supportedTiers: ['standard', 'priority'] },
   ],
-  [
-    'vertex:gemini-3-flash-preview',
-    { provider: 'vertex', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
-  ],
+  // [
+  //   'vertex:gemini-3-flash-preview',
+  //   { provider: 'vertex', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
+  // ], // 绝对 legacy
   [
     'vertex:gemini-3.1-flash-lite',
     {
@@ -1386,14 +1407,14 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex:gemini-3.6-flash',
     { provider: 'vertex', modelId: 'gemini-3.6-flash', supportedTiers: ['standard', 'flex', 'priority'] },
   ],
-  [
-    'vertex:gemini-3.1-pro-preview',
-    {
-      provider: 'vertex',
-      modelId: 'gemini-3.1-pro-preview',
-      supportedTiers: ['standard', 'flex', 'priority'],
-    },
-  ],
+  // [
+  //   'vertex:gemini-3.1-pro-preview',
+  //   {
+  //     provider: 'vertex',
+  //     modelId: 'gemini-3.1-pro-preview',
+  //     supportedTiers: ['standard', 'flex', 'priority'],
+  //   },
+  // ], // 不考虑使用
 
   // Vertex AI 模型 (project/global mode)
   // Google Priority/Flex PayGo 文档要求使用 /projects/{project}/locations/global/... 路径。
@@ -1401,18 +1422,18 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex-global:gemini-2.5-flash',
     { provider: 'vertex-global', modelId: 'gemini-2.5-flash', supportedTiers: ['standard', 'priority'] },
   ],
-  [
-    'vertex-global:gemini-2.5-pro',
-    { provider: 'vertex-global', modelId: 'gemini-2.5-pro', supportedTiers: ['standard', 'priority'] },
-  ],
+  // [
+  //   'vertex-global:gemini-2.5-pro',
+  //   { provider: 'vertex-global', modelId: 'gemini-2.5-pro', supportedTiers: ['standard', 'priority'] },
+  // ], // 不考虑使用
   [
     'vertex-global:gemini-2.5-flash-lite',
     { provider: 'vertex-global', modelId: 'gemini-2.5-flash-lite', supportedTiers: ['standard', 'priority'] },
   ],
-  [
-    'vertex-global:gemini-3-flash-preview',
-    { provider: 'vertex-global', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
-  ],
+  // [
+  //   'vertex-global:gemini-3-flash-preview',
+  //   { provider: 'vertex-global', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
+  // ], // 绝对 legacy
   [
     'vertex-global:gemini-3.1-flash-lite',
     {
@@ -1448,14 +1469,14 @@ const modelRegistry = new Map<string, ModelConfig>([
       supportedTiers: ['standard', 'flex', 'priority'],
     },
   ],
-  [
-    'vertex-global:gemini-3.1-pro-preview',
-    {
-      provider: 'vertex-global',
-      modelId: 'gemini-3.1-pro-preview',
-      supportedTiers: ['standard', 'flex', 'priority'],
-    },
-  ],
+  // [
+  //   'vertex-global:gemini-3.1-pro-preview',
+  //   {
+  //     provider: 'vertex-global',
+  //     modelId: 'gemini-3.1-pro-preview',
+  //     supportedTiers: ['standard', 'flex', 'priority'],
+  //   },
+  // ], // 不考虑使用
 
   // AWS Bedrock 模型
   // 可用性已在 mission-ai-v2 (account 421454274824) / us-east-2 验证（2026-07-17）。
@@ -1533,7 +1554,7 @@ export function getModel(spec: LLMModelSpec): ModelConfig {
  * 获取实际 API Model ID
  *
  * @example
- * getModelId('openrouter:claude-3.5-sonnet') // → 'anthropic/claude-3.5-sonnet'
+ * getModelId('openrouter:claude-sonnet-4.5') // → 'anthropic/claude-sonnet-4.5'
  */
 export function getModelId(spec: LLMModelSpec): string {
   return getModel(spec).modelId;

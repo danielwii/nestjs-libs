@@ -12,7 +12,7 @@
  * |------|---------|------|
  * | generateObject 批量输出 | `google('gemini-2.5-flash')` | 原生支持 structured output，thinking tokens 免费 |
  * | 多轮工具编排 | `openrouter('x-ai/grok-4.1-fast')` | 性价比高 $0.20/$0.50/M，2M ctx，tool calling 准确 |
- * | 复杂推理 | `google('gemini-2.5-pro')` | 推理能力强，thinking tokens 免费 |
+ * | 复杂推理 | `openrouter('google/gemini-3.7-flash')` | 强制 reasoning，标价低于旧 Pro 线 |
  * | 大上下文 | `openrouter('x-ai/grok-4.1-fast')` | 2M context window |
  *
  * ## Provider 选择：bedrock vs openrouter
@@ -26,7 +26,7 @@
  * | 模型 | Input | Output | 备注 |
  * |------|-------|--------|------|
  * | gemini-2.5-flash | $0.15/M | $0.60/M | thinking tokens 免费 |
- * | gemini-2.5-pro | $1.25/M | $10/M | thinking tokens 免费 |
+ * | gemini-3.7-flash | $0.375/M | $1.875/M | OpenRouter；reasoning 强制 |
  * | grok-4.1-fast | $0.20/M | $0.50/M | 2M ctx，性价比之选 |
  * | claude-4-sonnet | $3/M | $15/M | 编码/Agent 能力强 |
  *
@@ -158,8 +158,8 @@ export function getOpenRouter() {
  * @example
  * ```typescript
  * openrouter('google/gemini-2.5-flash')
- * openrouter('anthropic/claude-3.5-sonnet')
- * openrouter('openai/grok-4.1-fast')
+ * openrouter('anthropic/claude-sonnet-4.5')
+ * openrouter('x-ai/grok-4.1-fast')
  * ```
  */
 export const openrouter = (modelId: string): LanguageModel => getOpenRouter()(modelId);
@@ -195,7 +195,6 @@ function getGoogle() {
  * @example
  * ```typescript
  * google('gemini-2.5-flash')
- * google('gemini-2.5-pro')
  * google('gemini-2.5-flash-thinking')
  * ```
  */
@@ -250,7 +249,7 @@ function getVertex() {
  * @example
  * ```typescript
  * vertex('gemini-2.5-flash')
- * vertex('gemini-2.5-pro')
+ * vertex('gemini-3.6-flash')
  * ```
  */
 export const vertex = (modelId: string): LanguageModel => getVertex()(modelId);

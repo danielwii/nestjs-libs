@@ -24,6 +24,7 @@ const catalogModels = [
   { key: 'openrouter:qwen3.8-max', modelId: 'qwen/qwen3.8-max', reasoningRequired: true },
   { key: 'openrouter:minimax-m3', modelId: 'minimax/minimax-m3', reasoningRequired: false },
   { key: 'openrouter:kimi-k2.7-code', modelId: 'moonshotai/kimi-k2.7-code', reasoningRequired: true },
+  { key: 'openrouter:gemini-3.7-flash', modelId: 'google/gemini-3.7-flash', reasoningRequired: true },
 ] as const;
 
 function getReasoningTokens(usage: unknown): number {
