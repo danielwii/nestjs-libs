@@ -135,11 +135,6 @@ describe('getSupportedTiers', () => {
     expect(tiers).toEqual(['standard', 'priority']);
   });
 
-  it('returns [standard, priority] for vertex:gemini-2.5-pro (Priority listed)', () => {
-    const tiers = getSupportedTiers('vertex:gemini-2.5-pro');
-    expect(tiers).toEqual(['standard', 'priority']);
-  });
-
   it('returns [standard, priority] for vertex:gemini-2.5-flash-lite (Priority listed)', () => {
     const tiers = getSupportedTiers('vertex:gemini-2.5-flash-lite');
     expect(tiers).toEqual(['standard', 'priority']);
@@ -150,8 +145,8 @@ describe('getSupportedTiers', () => {
     expect(tiers).toEqual(['standard', 'flex', 'priority']);
   });
 
-  it('returns [standard, flex, priority] for vertex:gemini-3-flash-preview (both lists)', () => {
-    const tiers = getSupportedTiers('vertex:gemini-3-flash-preview');
+  it('returns [standard, flex, priority] for vertex:gemini-3.6-flash (both lists)', () => {
+    const tiers = getSupportedTiers('vertex:gemini-3.6-flash');
     expect(tiers).toEqual(['standard', 'flex', 'priority']);
   });
 
@@ -209,8 +204,8 @@ describe('buildTierHeaders: supported tiers emit header', () => {
     expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'flex' });
   });
 
-  it('flex on gemini-3-flash-preview → emits flex header', () => {
-    const headers = buildTierHeaders('vertex:gemini-3-flash-preview', 'flex');
+  it('flex on gemini-3.6-flash → emits flex header', () => {
+    const headers = buildTierHeaders('vertex:gemini-3.6-flash', 'flex');
     expect(headers).toEqual({ [VERTEX_TIER_HEADER]: 'flex' });
   });
 
@@ -281,7 +276,7 @@ describe('buildTierHeaders: supported tiers emit header', () => {
   });
 
   it('flex with vertexRequestType=shared → emits both Flex-only headers', () => {
-    const headers = buildTierHeaders('vertex:gemini-3-flash-preview', 'flex', 'shared');
+    const headers = buildTierHeaders('vertex:gemini-3.6-flash', 'flex', 'shared');
     expect(headers).toEqual({
       [VERTEX_REQUEST_TYPE_HEADER]: 'shared',
       [VERTEX_TIER_HEADER]: 'flex',
@@ -297,11 +292,6 @@ describe('buildTierHeaders: downgrade paths (warn + undefined)', () => {
 
   it('flex on gemini-2.5-flash (not in Flex list) → undefined', () => {
     const headers = buildTierHeaders('vertex:gemini-2.5-flash', 'flex');
-    expect(headers).toBeUndefined();
-  });
-
-  it('flex on gemini-2.5-pro (not in Flex list) → undefined', () => {
-    const headers = buildTierHeaders('vertex:gemini-2.5-pro', 'flex');
     expect(headers).toBeUndefined();
   });
 

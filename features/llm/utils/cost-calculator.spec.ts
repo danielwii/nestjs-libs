@@ -131,15 +131,6 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
       expect(getCostFromUsage({ inputTokens: 200_001, outputTokens: 100_000 }, key)).toBeCloseTo(2.000004);
     }
   });
-
-  it('applies the existing Gemini 2.5 Pro long-context rates above 200K input tokens', () => {
-    expect(getCostFromUsage({ inputTokens: 200_000, outputTokens: 100_000 }, 'openrouter:gemini-2.5-pro')).toBeCloseTo(
-      1.25,
-    );
-    expect(getCostFromUsage({ inputTokens: 200_001, outputTokens: 100_000 }, 'openrouter:gemini-2.5-pro')).toBeCloseTo(
-      2.0000025,
-    );
-  });
 });
 
 describe('getCostFromUsage OpenRouter 2026-08 catalog additions', () => {
@@ -151,6 +142,7 @@ describe('getCostFromUsage OpenRouter 2026-08 catalog additions', () => {
     { keys: ['openrouter:qwen3.8-max', 'openrouter:qwen/qwen3.8-max'], expected: 0.8 },
     { keys: ['openrouter:minimax-m3', 'openrouter:minimax/minimax-m3'], expected: 0.15 },
     { keys: ['openrouter:kimi-k2.7-code', 'openrouter:moonshotai/kimi-k2.7-code'], expected: 0.407 },
+    { keys: ['openrouter:gemini-3.7-flash', 'openrouter:google/gemini-3.7-flash'], expected: 0.225 },
   ] as const;
 
   it('uses standard per-token fallback pricing for shorthand and canonical aliases', () => {

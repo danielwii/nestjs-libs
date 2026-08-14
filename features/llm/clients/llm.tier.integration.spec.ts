@@ -169,7 +169,7 @@ describe('LLM tier headers: HTTP-level integration (regression guard)', () => {
     await callIgnoringError(async () => {
       const stream = LLM.streamObject({
         id: 'integration-streamObject',
-        model: 'vertex:gemini-3-flash-preview?vertex.tier=flex',
+        model: 'vertex:gemini-3.6-flash?vertex.tier=flex',
         messages: SIMPLE_MESSAGE,
         schema: SIMPLE_SCHEMA,
         maxRetries: 0,

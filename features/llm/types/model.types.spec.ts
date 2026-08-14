@@ -117,11 +117,11 @@ describe('parseModelSpec', () => {
   });
 
   it('should parse fallback param with multiple models', () => {
-    const spec = `${KNOWN_KEY}?fallback=${KNOWN_KEY_2},openrouter:gemini-2.5-pro` as LLMModelSpec;
+    const spec = `${KNOWN_KEY}?fallback=${KNOWN_KEY_2},openrouter:gemini-3.7-flash` as LLMModelSpec;
     const result = parseModelSpec(spec);
     expect(result.fallbackModels).toHaveLength(2);
     expect(result.fallbackModels[0]).toBe(KNOWN_KEY_2);
-    expect(result.fallbackModels[1]).toBe('openrouter:gemini-2.5-pro');
+    expect(result.fallbackModels[1]).toBe('openrouter:gemini-3.7-flash');
   });
 
   it('should skip unregistered fallback model with warning', () => {
@@ -305,6 +305,15 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     for (const key of ['openrouter:gemini-3.6-flash', 'openrouter:google/gemini-3.6-flash'] as const) {
       const config = getModel(key);
       expect(config.modelId).toBe('google/gemini-3.6-flash');
+      expect(config.reasoningRequired).toBe(true);
+      expect(config.reasoningDefaultEffort).toBe('low');
+    }
+  });
+
+  it('registers both OpenRouter gemini-3.7-flash aliases with mandatory reasoning', () => {
+    for (const key of ['openrouter:gemini-3.7-flash', 'openrouter:google/gemini-3.7-flash'] as const) {
+      const config = getModel(key);
+      expect(config.modelId).toBe('google/gemini-3.7-flash');
       expect(config.reasoningRequired).toBe(true);
       expect(config.reasoningDefaultEffort).toBe('low');
     }
@@ -596,6 +605,11 @@ const openRouterAugustCatalogAdditions = [
   {
     keys: ['openrouter:kimi-k2.7-code', 'openrouter:moonshotai/kimi-k2.7-code'],
     modelId: 'moonshotai/kimi-k2.7-code',
+    reasoningRequired: true,
+  },
+  {
+    keys: ['openrouter:gemini-3.7-flash', 'openrouter:google/gemini-3.7-flash'],
+    modelId: 'google/gemini-3.7-flash',
     reasoningRequired: true,
   },
 ] as const;

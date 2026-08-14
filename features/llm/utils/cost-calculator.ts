@@ -66,37 +66,39 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // OpenRouter 和 Vertex/Google AI 直连价格相同
   'google/gemini-2.5-flash': { input: 0.3, output: 2.5 },
   'google/gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
-  'google/gemini-2.5-pro': {
-    input: 1.25,
-    output: 10.0,
-    longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
-  },
-  'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 },
+  // 'google/gemini-2.5-pro': {
+  //   input: 1.25,
+  //   output: 10.0,
+  //   longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
+  // }, // 不考虑使用
+  // 'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 }, // 绝对 legacy
   'google/gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'google/gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'google/gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
   'google/gemini-3.6-flash': { input: 1.5, output: 7.5 },
-  'google/gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
+  'google/gemini-3.7-flash': { input: 0.375, output: 1.875 },
+  // 'google/gemini-3.1-pro-preview': { input: 2.0, output: 12.0 }, // 不考虑使用
   'gemini-2.5-flash': { input: 0.3, output: 2.5 },
   'gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
-  'gemini-2.5-pro': {
-    input: 1.25,
-    output: 10.0,
-    longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
-  },
-  'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
+  // 'gemini-2.5-pro': {
+  //   input: 1.25,
+  //   output: 10.0,
+  //   longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
+  // }, // 不考虑使用
+  // 'gemini-3-flash-preview': { input: 0.5, output: 3.0 }, // 绝对 legacy
   'gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
   'gemini-3.6-flash': { input: 1.5, output: 7.5 },
-  'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 },
+  'gemini-3.7-flash': { input: 0.375, output: 1.875 },
+  // 'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 }, // 不考虑使用
 
   // Anthropic Claude 系列
-  'anthropic/claude-3.5-sonnet': { input: 6.0, output: 30.0 },
-  'anthropic/claude-3.5-haiku': { input: 0.8, output: 4.0 },
+  // 'anthropic/claude-3.5-sonnet': { input: 6.0, output: 30.0 }, // 不考虑使用
+  // 'anthropic/claude-3.5-haiku': { input: 0.8, output: 4.0 }, // 绝对 legacy
   'anthropic/claude-sonnet-4': { input: 3.0, output: 15.0 },
   'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 }, // alias
-  'anthropic/claude-opus-4.1': { input: 15.0, output: 75.0 },
+  // 'anthropic/claude-opus-4.1': { input: 15.0, output: 75.0 }, // 不考虑使用
   'anthropic/claude-4-opus': { input: 5.0, output: 25.0 },
   'anthropic/claude-haiku-4.5': { input: 1.0, output: 5.0 },
   'anthropic/claude-sonnet-4.6': { input: 3.0, output: 15.0 },
@@ -107,7 +109,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'anthropic/claude-opus-5': { input: 5.0, output: 25.0 },
 
   // xAI Grok
-  'x-ai/grok-3-mini': { input: 0.3, output: 0.5 },
+  // 'x-ai/grok-3-mini': { input: 0.3, output: 0.5 }, // 绝对 legacy
   'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 },
   'x-ai/grok-4.20': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.3': { input: 1.25, output: 2.5 },
