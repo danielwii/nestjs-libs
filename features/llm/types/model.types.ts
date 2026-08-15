@@ -625,7 +625,8 @@ export interface LLMModelRegistry {
   /**
    * Grok 4.20 - 2M context
    *
-   * 定价参考（2026.05）：Input $1.25/M, Output $2.50/M, Context 2M
+   * OpenRouter standard (≤200K input tokens): Input $1.25/M, Output $2.50/M；
+   * long context (>200K input): Input $2.50/M, Output $5/M.
    *
    * @see https://openrouter.ai/x-ai/grok-4.20
    */

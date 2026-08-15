@@ -5,6 +5,8 @@
  * 未注册/未定价的模型返回 null。
  */
 
+import 'reflect-metadata';
+
 import { getCostFromUsage } from './cost-calculator';
 
 import { describe, expect, it } from 'bun:test';
@@ -158,6 +160,15 @@ describe('getCostFromUsage OpenRouter 2026-08 catalog additions', () => {
     for (const key of ['openrouter:grok-4.6', 'openrouter:x-ai/grok-4.6']) {
       expect(getCostFromUsage({ inputTokens: 200_000, outputTokens: 100_000 }, key)).toBeCloseTo(1);
       expect(getCostFromUsage({ inputTokens: 200_001, outputTokens: 100_000 }, key)).toBeCloseTo(2.000004);
+    }
+  });
+});
+
+describe('getCostFromUsage Grok 4.20 long-context', () => {
+  it('keeps standard rates at 200K input and switches input and output rates only above it', () => {
+    for (const key of ['openrouter:grok-4.20', 'openrouter:x-ai/grok-4.20']) {
+      expect(getCostFromUsage({ inputTokens: 200_000, outputTokens: 100_000 }, key)).toBeCloseTo(0.5);
+      expect(getCostFromUsage({ inputTokens: 200_001, outputTokens: 100_000 }, key)).toBeCloseTo(1.0000025);
     }
   });
 });

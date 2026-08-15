@@ -111,7 +111,11 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // xAI Grok
   // 'x-ai/grok-3-mini': { input: 0.3, output: 0.5 }, // 绝对 legacy
   // 'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 }, // LIVE 2026-08-15 OpenRouter 404 deprecated
-  'x-ai/grok-4.20': { input: 1.25, output: 2.5 },
+  'x-ai/grok-4.20': {
+    input: 1.25,
+    output: 2.5,
+    longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 5.0 },
+  },
   'x-ai/grok-4.3': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.5': {
     input: 2.0,
