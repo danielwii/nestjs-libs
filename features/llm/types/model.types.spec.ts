@@ -310,6 +310,22 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     }
   });
 
+  it('keeps Gemini 3 Flash Preview registered and optional-reasoning', () => {
+    for (const key of ['openrouter:gemini-3-flash-preview', 'openrouter:google/gemini-3-flash-preview'] as const) {
+      expect(getModel(key)).toMatchObject({
+        provider: 'openrouter',
+        modelId: 'google/gemini-3-flash-preview',
+      });
+      expect(getModel(key).reasoningRequired).not.toBe(true);
+      expect(resolveThinkingForModel(key, 'none')).toEqual({
+        thinking: 'none',
+        paramFallbackApplied: false,
+      });
+    }
+    expect(getModel('vertex:gemini-3-flash-preview').modelId).toBe('gemini-3-flash-preview');
+    expect(getModel('google:gemini-3-flash-preview').modelId).toBe('gemini-3-flash-preview');
+  });
+
   it('registers both OpenRouter gemini-3.7-flash aliases with mandatory reasoning', () => {
     for (const key of ['openrouter:gemini-3.7-flash', 'openrouter:google/gemini-3.7-flash'] as const) {
       const config = getModel(key);
@@ -326,6 +342,41 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
       modelId: 'gemini-3.6-flash',
     });
     expect(getModel('vertex:gemini-3.6-flash').reasoningRequired).not.toBe(true);
+  });
+
+  it('tunes live-probed Gemini 3.x routes to thinkingLevel and leaves 2.5 on budget', () => {
+    const levelRoutes = [
+      'google:gemini-3-flash-preview',
+      'google:gemini-3.1-flash-lite',
+      'vertex:gemini-3-flash-preview',
+      'vertex:gemini-3.1-flash-lite',
+      'vertex:gemini-3.5-flash',
+      'vertex:gemini-3.5-flash-lite',
+      'vertex:gemini-3.6-flash',
+    ] as const;
+    for (const key of levelRoutes) {
+      expect(getModel(key)).toMatchObject({ googleThinkingMode: 'level' });
+      expect(getModel(key).reasoningRequired).not.toBe(true);
+      expect(getModel(key).reasoningDefaultEffort).toBeUndefined();
+    }
+
+    const budgetRoutes = [
+      'google:gemini-2.5-flash',
+      'google:gemini-2.5-flash-lite',
+      'vertex:gemini-2.5-flash',
+      'vertex:gemini-2.5-flash-lite',
+    ] as const;
+    for (const key of budgetRoutes) {
+      expect(getModel(key).googleThinkingMode).toBeUndefined();
+      expect(getModel(key).reasoningRequired).not.toBe(true);
+    }
+  });
+
+  it('does not treat untested vertex-global keys as Express-proven disable routes', () => {
+    expect(getModel('vertex-global:gemini-3.5-flash').googleThinkingMode).toBeUndefined();
+    expect(getModel('vertex-global:gemini-3.5-flash').reasoningDefaultEffort).toBeUndefined();
+    expect(getModel('vertex-global:gemini-3-flash-preview').reasoningDefaultEffort).toBeUndefined();
+    expect(getModel('vertex-global:gemini-3.6-flash').reasoningDefaultEffort).toBe('low');
   });
 
   it('keeps Gemini 3.5 Flash-Lite policy separate across Vertex access profiles', () => {

@@ -71,7 +71,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   //   output: 10.0,
   //   longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
   // }, // 不考虑使用
-  // 'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 }, // 绝对 legacy
+  'google/gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'google/gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'google/gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'google/gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
@@ -85,7 +85,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   //   output: 10.0,
   //   longContext: { inputTokenThreshold: 200_000, input: 2.5, output: 15.0 },
   // }, // 不考虑使用
-  // 'gemini-3-flash-preview': { input: 0.5, output: 3.0 }, // 绝对 legacy
+  'gemini-3-flash-preview': { input: 0.5, output: 3.0 },
   'gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'gemini-3.5-flash': { input: 1.5, output: 9.0 },
   'gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },

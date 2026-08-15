@@ -194,6 +194,7 @@ export interface LLMModelRegistry {
    * Gemini 2.5 Flash
    *
    * 定价参考（2026.02）：Input $0.30/M, Output $2.50/M, Context 1M
+   * Live 2026-08-15 OpenRouter：disable thinking → 200 / reasoning_tokens=0（thinkingLevel 不支持）。
    *
    * @see https://openrouter.ai/google/gemini-2.5-flash
    */
@@ -210,18 +211,22 @@ export interface LLMModelRegistry {
    * Gemini 2.5 Flash Lite
    *
    * 定价参考（2026.02）：Input $0.10/M, Output $0.40/M, Context 1M
+   * Live 2026-08-15 OpenRouter：disable thinking → 200 / reasoning_tokens=0（thinkingLevel 不支持）。
    *
    * @see https://openrouter.ai/google/gemini-2.5-flash-lite
    */
   'openrouter:gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
   'openrouter:google/gemini-2.5-flash-lite': ModelConfig<'openrouter'>;
   /**
-   * Gemini 3 Flash Preview — 绝对 legacy（Preview；已被 3.5/3.6/3.7 Flash GA 接班）
+   * Gemini 3 Flash Preview
+   *
+   * Live 2026-08-15 OpenRouter：disable thinking → 200 / reasoning_tokens=0；effort=low → 53。
+   * 3.5+ Flash 在 OpenRouter 关不掉；本 key 仍是 OR 上可关 thinking 的 3 Flash。
    *
    * @see https://openrouter.ai/google/gemini-3-flash-preview
    */
-  // 'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
-  // 'openrouter:google/gemini-3-flash-preview': ModelConfig<'openrouter'>;
+  'openrouter:gemini-3-flash-preview': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-3-flash-preview': ModelConfig<'openrouter'>;
   /**
    * Claude 3.5 Sonnet — 不考虑使用（output ≥ $10/M）
    *
@@ -401,11 +406,10 @@ export interface LLMModelRegistry {
   'openrouter:minimax/minimax-m3': ModelConfig<'openrouter'>;
 
   /**
-   * Gemini 3.1 Flash Lite - 轻量快速
+   * Gemini 3.1 Flash Lite
    *
    * 定价参考（2026.03）：Input $0.25/M, Output $1.50/M, Context 1M
-   *
-   * 接近 Gemini 2.5 Flash 质量，比 2.5 Flash Lite 显著提升
+   * Live 2026-08-15 OpenRouter：disable thinking → 200 / reasoning_tokens=0；effort=low → 58。
    *
    * @see https://openrouter.ai/google/gemini-3.1-flash-lite
    */
@@ -416,9 +420,7 @@ export interface LLMModelRegistry {
    * Gemini 3.5 Flash - GA
    *
    * 定价参考（2026.05）：Input $1.50/M, Output $9/M, Context 1M
-   *
-   * 默认 medium thinking effort，支持 minimal/low/medium/high。
-   * 价格相对 2.5 Flash 显著上行（input 5x、output 3.6x），定位非"性价比" Flash。
+   * Live 2026-08-15 OpenRouter：disable thinking → 400 mandatory。Vertex Express 另测，见 vertex: key。
    *
    * @see https://openrouter.ai/google/gemini-3.5-flash
    */
@@ -429,7 +431,7 @@ export interface LLMModelRegistry {
    * Gemini 3.5 Flash-Lite - GA
    *
    * OpenRouter standard: Input $0.30/M, Output $2.50/M, Context 1,048,576, Max output 65,536.
-   * OpenRouter endpoint 强制 reasoning，provider 默认 minimal；library 对 no-thinking intent 以 low fallback。
+   * Live 2026-08-15 OpenRouter：disable thinking → 400 mandatory。Vertex Express 另测，见 vertex: key。
    *
    * @see https://openrouter.ai/google/gemini-3.5-flash-lite
    */
@@ -445,8 +447,7 @@ export interface LLMModelRegistry {
    * - Priority: Input $2.70/M, Output $13.50/M
    * - Context 1,048,576；Max output 65,536
    *
-   * OpenRouter endpoint 强制 reasoning，provider 默认 medium，支持 minimal/low/medium/high。
-   * Library 对 no-thinking intent 以 low fallback；live probe：effort:none 返回 400，low 可调用。
+   * Live 2026-08-15 OpenRouter：disable thinking → 400 mandatory。Vertex Express 另测，见 vertex: key。
    *
    * @see https://openrouter.ai/google/gemini-3.6-flash
    */
@@ -459,9 +460,7 @@ export interface LLMModelRegistry {
    * OpenRouter 定价（2026-08-13 catalog）：Input $0.375/M, Output $1.875/M,
    * Context 1,048,576；Max output 65,536。
    *
-   * OpenRouter endpoint 强制 reasoning（mandatory=true），provider 默认 medium，
-   * 公开 effort 为 low/medium/high（无 none / minimal）。
-   * Library 对 no-thinking intent 以 low fallback，与 3.5/3.6 Flash 一致。
+   * Live 2026-08-15 OpenRouter：disable thinking → 400 mandatory。未注册 vertex: 路由。
    *
    * @see https://openrouter.ai/google/gemini-3.7-flash
    */
@@ -751,32 +750,42 @@ export interface LLMModelRegistry {
   'openrouter:qwen3.8-max': ModelConfig<'openrouter'>;
   'openrouter:qwen/qwen3.8-max': ModelConfig<'openrouter'>;
 
-  // ==================== Google Direct ====================
+  // ==================== Google Direct (AI Studio) ====================
+  // LIVE 2026-08-15 generateText（disable=thinkingBudget:0 / low=thinkingLevel），非 resolveThinking。
+  // TESTED disable → reasoning_tokens=0：2.5-flash、2.5-flash-lite、3-flash-preview、3.1-flash-lite
+  // TESTED thinkingLevel=low：3-flash-preview (21)、3.1-flash-lite (57)
+  // 2.5 thinkingLevel=low → 400 "Thinking level is not supported"（保持缺省 budget）
+  // UNTESTED / 未注册：3.5、3.6、3.7 的 google: 路由
   'google:gemini-2.5-flash': ModelConfig<'google'>;
   // 'google:gemini-2.5-pro': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
   'google:gemini-2.5-flash-lite': ModelConfig<'google'>;
-  // 'google:gemini-3-flash-preview': ModelConfig<'google'>; // 绝对 legacy
+  'google:gemini-3-flash-preview': ModelConfig<'google'>;
   'google:gemini-3.1-flash-lite': ModelConfig<'google'>;
   // 'google:gemini-3.1-pro-preview': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (Express Mode) ====================
+  // LIVE 2026-08-15 generateText + Doppler AI_GOOGLE_VERTEX_API_KEY（unee-server/stg）。
+  // TESTED disable → reasoning_tokens=0：2.5-flash/lite、3-flash-preview、3.1-flash-lite、3.5-flash/lite、3.6-flash
+  // TESTED thinkingLevel=low：3-preview 57 / 3.1-lite 58 / 3.5 55 / 3.5-lite 50 / 3.6 59
+  // 2.5 thinkingLevel=low → 400 thinking_level is not supported（保持缺省 budget）
+  // UNTESTED：gemini-3.7-flash（未注册 vertex: 路由）
   'vertex:gemini-2.5-flash': ModelConfig<'vertex'>;
   // 'vertex:gemini-2.5-pro': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
   'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
-  // 'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>; // 绝对 legacy
+  'vertex:gemini-3-flash-preview': ModelConfig<'vertex'>;
   'vertex:gemini-3.1-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3.5-flash': ModelConfig<'vertex'>;
   'vertex:gemini-3.5-flash-lite': ModelConfig<'vertex'>;
-
-  /** Direct Vertex Express live probe confirms thinkingBudget=0 is supported. */
   'vertex:gemini-3.6-flash': ModelConfig<'vertex'>;
   // 'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (project/global mode) ====================
+  // UNTESTED 2026-08-15：Doppler unee-server/stg 无 GOOGLE_VERTEX_PROJECT，未做 live generateText。
+  // 不得把上面 Express「可关 thinking」的结论套到这些 key。
   'vertex-global:gemini-2.5-flash': ModelConfig<'vertex-global'>;
   // 'vertex-global:gemini-2.5-pro': ModelConfig<'vertex-global'>; // 不考虑使用（output ≥ $10/M）
   'vertex-global:gemini-2.5-flash-lite': ModelConfig<'vertex-global'>;
-  // 'vertex-global:gemini-3-flash-preview': ModelConfig<'vertex-global'>; // 绝对 legacy
+  'vertex-global:gemini-3-flash-preview': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.1-flash-lite': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.5-flash': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.5-flash-lite': ModelConfig<'vertex-global'>;
@@ -1066,18 +1075,18 @@ export type LLMProviderType = LLMModelRegistry[LLMModelKey]['provider'];
 
 const modelRegistry = new Map<string, ModelConfig>([
   // OpenRouter 模型（简称 + 全称成对，按模型分组）
-  // Gemini 2.5 Flash
+  // Gemini 2.5 Flash — LIVE 2026-08-15 OpenRouter disable → 200 / reasoning_tokens=0
   ['openrouter:gemini-2.5-flash', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash' }],
   ['openrouter:google/gemini-2.5-flash', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash' }],
   // Gemini 2.5 Pro — 不考虑使用（output ≥ $10/M）
   // ['openrouter:gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
   // ['openrouter:google/gemini-2.5-pro', { provider: 'openrouter', modelId: 'google/gemini-2.5-pro' }],
-  // Gemini 2.5 Flash Lite
+  // Gemini 2.5 Flash Lite — LIVE 2026-08-15 OpenRouter disable → 200 / reasoning_tokens=0
   ['openrouter:gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
   ['openrouter:google/gemini-2.5-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-2.5-flash-lite' }],
-  // Gemini 3 Flash Preview — 绝对 legacy
-  // ['openrouter:gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
-  // ['openrouter:google/gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
+  // Gemini 3 Flash Preview — LIVE 2026-08-15 OpenRouter disable → 200 / reasoning_tokens=0
+  ['openrouter:gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
+  ['openrouter:google/gemini-3-flash-preview', { provider: 'openrouter', modelId: 'google/gemini-3-flash-preview' }],
   // Claude 3.5 Sonnet — 不考虑使用（output ≥ $10/M）
   // ['openrouter:claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
   // ['openrouter:anthropic/claude-3.5-sonnet', { provider: 'openrouter', modelId: 'anthropic/claude-3.5-sonnet' }],
@@ -1129,11 +1138,11 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:minimax-m3', { provider: 'openrouter', modelId: 'minimax/minimax-m3' }],
   ['openrouter:minimax/minimax-m3', { provider: 'openrouter', modelId: 'minimax/minimax-m3' }],
 
-  // Gemini 3.1 Flash Lite
+  // Gemini 3.1 Flash Lite — LIVE 2026-08-15 OpenRouter disable → 200 / reasoning_tokens=0
   ['openrouter:gemini-3.1-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite' }],
   ['openrouter:google/gemini-3.1-flash-lite', { provider: 'openrouter', modelId: 'google/gemini-3.1-flash-lite' }],
 
-  // Gemini 3.5 Flash via OpenRouter — reasoning.mandatory=true (no effort:none); param-fallback to low
+  // Gemini 3.5 Flash via OpenRouter — LIVE 2026-08-15 disable → 400 mandatory；param-fallback to low
   [
     'openrouter:gemini-3.5-flash',
     {
@@ -1153,7 +1162,7 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
-  // Gemini 3.5 Flash-Lite via OpenRouter — metadata says reasoning is mandatory; minimal is not in public effort type
+  // Gemini 3.5 Flash-Lite via OpenRouter — LIVE 2026-08-15 disable → 400 mandatory；param-fallback to low
   [
     'openrouter:gemini-3.5-flash-lite',
     {
@@ -1173,7 +1182,7 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
-  // Gemini 3.6 Flash via OpenRouter — metadata + live 400 confirm reasoning is mandatory
+  // Gemini 3.6 Flash via OpenRouter — LIVE 2026-08-15 disable → 400 mandatory；param-fallback to low
   [
     'openrouter:gemini-3.6-flash',
     {
@@ -1193,7 +1202,7 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
-  // Gemini 3.7 Flash via OpenRouter — metadata: reasoning.mandatory=true; default_effort=medium
+  // Gemini 3.7 Flash via OpenRouter — LIVE 2026-08-15 disable → 400 mandatory；未注册 vertex:。param-fallback to low
   [
     'openrouter:gemini-3.7-flash',
     {
@@ -1349,20 +1358,28 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
-  // Google Direct 模型
+  // Google Direct — LIVE 2026-08-15：2.5 可关 thinking，但不支持 thinkingLevel（缺省 budget）
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],
   // ['google:gemini-2.5-pro', { provider: 'google', modelId: 'gemini-2.5-pro' }], // 不考虑使用
   ['google:gemini-2.5-flash-lite', { provider: 'google', modelId: 'gemini-2.5-flash-lite' }],
-  // ['google:gemini-3-flash-preview', { provider: 'google', modelId: 'gemini-3-flash-preview' }], // 绝对 legacy
-  ['google:gemini-3.1-flash-lite', { provider: 'google', modelId: 'gemini-3.1-flash-lite' }],
+  // LIVE 2026-08-15：disable → reasoning_tokens=0；thinkingLevel=low 有 reasoning tokens
+  [
+    'google:gemini-3-flash-preview',
+    { provider: 'google', modelId: 'gemini-3-flash-preview', googleThinkingMode: 'level' },
+  ],
+  [
+    'google:gemini-3.1-flash-lite',
+    { provider: 'google', modelId: 'gemini-3.1-flash-lite', googleThinkingMode: 'level' },
+  ],
   // ['google:gemini-3.1-pro-preview', { provider: 'google', modelId: 'gemini-3.1-pro-preview' }], // 不考虑使用
 
-  // Vertex AI 模型 (Express Mode)
+  // Vertex Express — LIVE 2026-08-15 Doppler AI_GOOGLE_VERTEX_API_KEY
   // 这些 key 保持既有 API-key Express Mode 语义；需要 Google 官方 project/global
   // Priority/Flex PayGo 路径时，使用下方 `vertex-global:*` key。
   // supportedTiers 以 Google 官方文档为准，更新时同步两个列表：
   // - Flex: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/flex-paygo
   // - Priority: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo
+  // LIVE：disable → reasoning_tokens=0；thinkingLevel=low → 400 not supported（保持缺省 budget）
   [
     'vertex:gemini-2.5-flash',
     { provider: 'vertex', modelId: 'gemini-2.5-flash', supportedTiers: ['standard', 'priority'] },
@@ -1375,24 +1392,34 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex:gemini-2.5-flash-lite',
     { provider: 'vertex', modelId: 'gemini-2.5-flash-lite', supportedTiers: ['standard', 'priority'] },
   ],
-  // [
-  //   'vertex:gemini-3-flash-preview',
-  //   { provider: 'vertex', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
-  // ], // 绝对 legacy
+  // LIVE：disable → reasoning_tokens=0；thinkingLevel=low 有 reasoning tokens
+  [
+    'vertex:gemini-3-flash-preview',
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3-flash-preview',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
   [
     'vertex:gemini-3.1-flash-lite',
     {
       provider: 'vertex',
       modelId: 'gemini-3.1-flash-lite',
+      googleThinkingMode: 'level',
       supportedTiers: ['standard', 'flex', 'priority'],
     },
   ],
   [
     'vertex:gemini-3.5-flash',
-    { provider: 'vertex', modelId: 'gemini-3.5-flash', supportedTiers: ['standard', 'flex', 'priority'] },
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3.5-flash',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
   ],
-  // Vertex Express live evidence: thinkingBudget=0 is accepted with no reasoning tokens.
-  // Non-none public efforts continue to use the official thinkingLevel contract.
   [
     'vertex:gemini-3.5-flash-lite',
     {
@@ -1402,10 +1429,14 @@ const modelRegistry = new Map<string, ModelConfig>([
       supportedTiers: ['standard', 'flex', 'priority'],
     },
   ],
-  // Direct Vertex Express live probe confirms thinkingBudget=0 is accepted (reasoningTokens=0).
   [
     'vertex:gemini-3.6-flash',
-    { provider: 'vertex', modelId: 'gemini-3.6-flash', supportedTiers: ['standard', 'flex', 'priority'] },
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3.6-flash',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
   ],
   // [
   //   'vertex:gemini-3.1-pro-preview',
@@ -1416,7 +1447,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   //   },
   // ], // 不考虑使用
 
-  // Vertex AI 模型 (project/global mode)
+  // Vertex project/global — UNTESTED 2026-08-15（Doppler 无 GOOGLE_VERTEX_PROJECT）
+  // 不得把 Express 的 disable 证据套到这些 key。3.5-lite / 3.6 的 reasoningDefaultEffort=low
+  // 是保守策略，不是 live 证明 mandatory。
   // Google Priority/Flex PayGo 文档要求使用 /projects/{project}/locations/global/... 路径。
   [
     'vertex-global:gemini-2.5-flash',
@@ -1430,10 +1463,10 @@ const modelRegistry = new Map<string, ModelConfig>([
     'vertex-global:gemini-2.5-flash-lite',
     { provider: 'vertex-global', modelId: 'gemini-2.5-flash-lite', supportedTiers: ['standard', 'priority'] },
   ],
-  // [
-  //   'vertex-global:gemini-3-flash-preview',
-  //   { provider: 'vertex-global', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
-  // ], // 绝对 legacy
+  [
+    'vertex-global:gemini-3-flash-preview',
+    { provider: 'vertex-global', modelId: 'gemini-3-flash-preview', supportedTiers: ['standard', 'flex', 'priority'] },
+  ],
   [
     'vertex-global:gemini-3.1-flash-lite',
     {
