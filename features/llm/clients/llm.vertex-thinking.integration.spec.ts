@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { LLMModelKey } from '../types/model.types';
 
 const sysEnvMut = SysEnv as unknown as Record<string, string | undefined>;
+sysEnvMut.AI_GOOGLE_API_KEY ??= 'test-google-key';
 sysEnvMut.AI_GOOGLE_VERTEX_API_KEY ??= 'test-vertex-key';
 sysEnvMut.GOOGLE_VERTEX_PROJECT ??= 'test-project';
 sysEnvMut.GOOGLE_VERTEX_LOCATION ??= 'global';
@@ -72,6 +73,11 @@ describe('LLM Vertex Gemini 3.5 Flash-Lite thinking requests', () => {
     expect(await captureThinkingConfig('vertex-global:gemini-3.5-flash-lite', 'none')).toEqual({
       thinkingLevel: 'low',
     });
+  });
+
+  it('uses thinkingLevel minimal for Google 3.6 none, not thinkingBudget zero', async () => {
+    expect(await captureThinkingConfig('google:gemini-3.6-flash', 'none')).toEqual({ thinkingLevel: 'minimal' });
+    expect(await captureThinkingConfig('vertex:gemini-3.6-flash', 'none')).toEqual({ thinkingBudget: 0 });
   });
 
   it('emits thinkingLevel for non-none effort on both access profiles', async () => {

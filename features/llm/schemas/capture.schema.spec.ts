@@ -5,7 +5,7 @@ import { describe, expect, it } from 'bun:test';
 const baseCapture = {
   id: 'capture-contract',
   method: 'generateObject' as const,
-  model: 'openrouter:grok-4.1-fast',
+  model: 'openrouter:grok-4.3',
   instructions: 'Use the canonical prompt owner',
   messages: [{ role: 'user' as const, content: 'hello' }],
   jsonSchema: { type: 'object' },

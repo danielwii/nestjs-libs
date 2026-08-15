@@ -110,7 +110,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
 
   // xAI Grok
   // 'x-ai/grok-3-mini': { input: 0.3, output: 0.5 }, // 绝对 legacy
-  'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 },
+  // 'x-ai/grok-4.1-fast': { input: 0.2, output: 0.5 }, // LIVE 2026-08-15 OpenRouter 404 deprecated
   'x-ai/grok-4.20': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.3': { input: 1.25, output: 2.5 },
   'x-ai/grok-4.5': {
@@ -125,7 +125,8 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // StepFun
-  'stepfun/step-3.5-flash:free': { input: 0, output: 0 },
+  'stepfun/step-3.5-flash': { input: 0.1, output: 0.3 },
+  // 'stepfun/step-3.5-flash:free': { input: 0, output: 0 }, // LIVE 2026-08-15 OpenRouter 404
 
   // DeepSeek（OpenRouter 最低价 provider：DeepInfra/AtlasCloud；Vertex 约 $0.56/$1.68）
   'deepseek/deepseek-v3.2': { input: 0.26, output: 0.38 },

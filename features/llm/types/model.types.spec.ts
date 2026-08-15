@@ -342,17 +342,32 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
       modelId: 'gemini-3.6-flash',
     });
     expect(getModel('vertex:gemini-3.6-flash').reasoningRequired).not.toBe(true);
+    expect(getModel('vertex:gemini-3.7-flash').reasoningRequired).not.toBe(true);
+    expect(getModel('google:gemini-3.5-flash').reasoningRequired).not.toBe(true);
+    expect(getModel('google:gemini-3.5-flash-lite')).toMatchObject({
+      googleNoneThinking: 'level-minimal',
+    });
+    expect(getModel('google:gemini-3.6-flash')).toMatchObject({
+      googleNoneThinking: 'level-minimal',
+    });
+    expect(getModel('google:gemini-3.7-flash').reasoningRequired).not.toBe(true);
+    expect(getModel('vertex:gemini-3.7-flash').googleNoneThinking).toBeUndefined();
   });
 
   it('tunes live-probed Gemini 3.x routes to thinkingLevel and leaves 2.5 on budget', () => {
     const levelRoutes = [
       'google:gemini-3-flash-preview',
       'google:gemini-3.1-flash-lite',
+      'google:gemini-3.5-flash',
+      'google:gemini-3.5-flash-lite',
+      'google:gemini-3.6-flash',
+      'google:gemini-3.7-flash',
       'vertex:gemini-3-flash-preview',
       'vertex:gemini-3.1-flash-lite',
       'vertex:gemini-3.5-flash',
       'vertex:gemini-3.5-flash-lite',
       'vertex:gemini-3.6-flash',
+      'vertex:gemini-3.7-flash',
     ] as const;
     for (const key of levelRoutes) {
       expect(getModel(key)).toMatchObject({ googleThinkingMode: 'level' });

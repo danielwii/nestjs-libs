@@ -11,7 +11,7 @@
  * import { LLM } from '@app/features/llm';
  *
  * const { object } = await LLM.generateObject({
- *   model: 'openrouter:grok-4.1-fast',
+ *   model: 'openrouter:grok-4.3',
  *   schema: MySchema,
  *   instructions: 'You are...',
  *   messages: [{ role: 'user', content: 'Hello' }],
@@ -19,7 +19,7 @@
  *
  * // 开启 thinking
  * const { object } = await LLM.generateObject({
- *   model: 'openrouter:grok-4.1-fast',
+ *   model: 'openrouter:grok-4.3',
  *   schema: MySchema,
  *   messages,
  *   thinking: 'high',
@@ -226,7 +226,7 @@ export type WebSource = {
 interface BaseParams {
   /** 业务标识，用于日志中区分调用方（如 'subconscious', 'signal-extractor'） */
   id: string;
-  /** LLM Model Spec，如 'openrouter:grok-4.1-fast' 或 'openrouter:grok-4.1-fast?reason=low' */
+  /** LLM Model Spec，如 'openrouter:grok-4.3' 或 'openrouter:grok-4.3?reason=low' */
   model: LLMModelSpec;
   /** System prompt（AI SDK v7 词汇：instructions） */
   instructions?: string;
@@ -270,8 +270,8 @@ interface GenerateTextParams<
    * 拼接到 LLMModelRegistry 中的 modelId 后面，用于 provider 特定功能。
    * 例如 OpenRouter 的 `:online` 搜索插件：
    *
-   * model='openrouter:grok-4.1-fast' + modelIdSuffix=':online'
-   * → provider 收到 'x-ai/grok-4.1-fast:online'
+   * model='openrouter:grok-4.3' + modelIdSuffix=':online'
+   * → provider 收到 'x-ai/grok-4.3:online'
    */
   modelIdSuffix?: string;
 }
@@ -435,7 +435,7 @@ function buildProviderOptions(
     thinking === 'none'
       ? modelConfig.reasoningRequired
         ? {}
-        : disableThinkingOptions(provider, modelConfig.modelId)
+        : disableThinkingOptions(provider, modelConfig.modelId, modelConfig.googleNoneThinking)
       : reasoningEffortOptions(provider, thinking, modelConfig.modelId, modelConfig.googleThinkingMode);
 
   if (provider === 'bedrock') {
@@ -1364,7 +1364,7 @@ export class LLM {
    * @example
    * ```typescript
    * const { text } = await LLM.generateText({
-   *   model: 'openrouter:grok-4.1-fast',
+   *   model: 'openrouter:grok-4.3',
    *   messages: [{ role: 'user', content: 'Hello' }],
    * });
    * ```
@@ -1484,7 +1484,7 @@ export class LLM {
    * @example
    * ```typescript
    * const stream = LLM.streamObject({
-   *   model: 'openrouter:grok-4.1-fast',
+   *   model: 'openrouter:grok-4.3',
    *   schema: MySchema,
    *   messages,
    * });
@@ -1642,7 +1642,7 @@ export class LLM {
    * @example
    * ```typescript
    * const stream = LLM.streamText({
-   *   model: 'openrouter:grok-4.1-fast',
+   *   model: 'openrouter:grok-4.3',
    *   messages,
    * });
    *

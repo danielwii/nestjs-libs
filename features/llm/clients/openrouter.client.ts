@@ -175,8 +175,7 @@ export function openrouterOptions(options: {
   const reasoning = (() => {
     if (disableThinking) {
       // 同时传 enabled: false 和 effort: 'none' 以确保兼容性
-      // ⚠️ 注意：Grok 4.1 Fast 实测无法关闭 reasoning（enabled/effort 参数均无效）
-      // @see ~/.claude/gotchas/openrouter-grok-reasoning-cannot-disable.md
+      // Grok 4.5/4.6 LIVE 2026-08-15：raw disable → 400 mandatory（4.1 Fast 已 404 deprecated）
       return { enabled: false, effort: 'none' };
     }
     if (reasoningEffort) {

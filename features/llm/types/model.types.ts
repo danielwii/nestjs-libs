@@ -54,6 +54,14 @@ export type VertexRequestType = 'shared';
 /** Google/Vertex thinking 参数契约：按 route 选择 token budget 或离散 effort level。 */
 export type GoogleThinkingMode = 'budget' | 'level';
 
+/**
+ * Google/Vertex `thinking=none` 的 live 传输。
+ *
+ * 不能从 `googleThinkingMode` 推导：Vertex 3.7 拒 `thinkingLevel:minimal`，
+ * Google 3.5-lite / 3.6 拒 `thinkingBudget:0`。缺省 = budget-zero。
+ */
+export type GoogleNoneThinking = 'budget-zero' | 'level-minimal';
+
 /** 模块级单例，避免 `supportedTiers` 缺省时每次调用都分配新数组 */
 export const DEFAULT_SUPPORTED_TIERS: readonly VertexTier[] = ['standard'];
 
@@ -146,6 +154,13 @@ export interface ModelConfig<P extends string = string> {
    * 可继续使用 `thinkingBudget`。仅适用于 google / vertex / vertex-global provider。
    */
   googleThinkingMode?: GoogleThinkingMode;
+  /**
+   * `thinking=none` 的 Google/Vertex 传输（缺省 = budget-zero）。
+   *
+   * 仅在 live 证明 `thinkingBudget:0` 会 400、且 `thinkingLevel:minimal`
+   * 能把 reasoning_tokens 打到 0 时设置。不得从家族版本号推断。
+   */
+  googleNoneThinking?: GoogleNoneThinking;
   /**
    * 该模型端到端是否接受 messages 数组里的 system 条目（事实标记，缺省 = true）。
    *
@@ -292,33 +307,24 @@ export interface LLMModelRegistry {
   // 'openrouter:grok-3-mini': ModelConfig<'openrouter'>;
   // 'openrouter:x-ai/grok-3-mini': ModelConfig<'openrouter'>;
   /**
-   * Grok 4.1 Fast - best tool calling
+   * Grok 4.1 Fast — 绝对 legacy（LIVE 2026-08-15 OpenRouter 404 deprecated，官方改推 4.3）
    *
-   * 定价参考（2026.02）：Input $0.20/M, Output $0.50/M, Context 2M
-   *
-   * ⚠️ 注意：reasoning 无法关闭！
-   * - noThinking 参数对此模型无效
-   * - TTFT 固定 12-17 秒（模型内部始终进行 reasoning）
-   * - 不适合需要低延迟的场景（如实时对话）
-   *
-   * @see https://openrouter.ai/x-ai/grok-4.1-fast
-   * @see ~/.claude/gotchas/openrouter-grok-reasoning-cannot-disable.md
+   * @see https://openrouter.ai/x-ai/grok-4.3
    */
-  'openrouter:grok-4.1-fast': ModelConfig<'openrouter'>;
-  'openrouter:x-ai/grok-4.1-fast': ModelConfig<'openrouter'>;
+  // 'openrouter:grok-4.1-fast': ModelConfig<'openrouter'>;
+  // 'openrouter:x-ai/grok-4.1-fast': ModelConfig<'openrouter'>;
   /**
-   * Step 3.5 Flash - 免费 MoE 模型
+   * Step 3.5 Flash
    *
-   * 定价：免费（Input $0/M, Output $0/M），Context 256K
+   * OpenRouter standard: Input $0.10/M, Output $0.30/M, Context 256K。
+   * LIVE 2026-08-15 OpenRouter：disable → 400 mandatory。
+   * `:free` slug 同日 404（paid only）。
    *
-   * 特点：
-   * - MoE 架构 196B/11B（稀疏激活）
-   * - Tool Call Error Rate 2.19%
-   * - Reasoning 模型，速度高效
-   *
-   * @see https://openrouter.ai/stepfun/step-3.5-flash:free
+   * @see https://openrouter.ai/stepfun/step-3.5-flash
    */
-  'openrouter:stepfun/step-3.5-flash:free': ModelConfig<'openrouter'>;
+  'openrouter:step-3.5-flash': ModelConfig<'openrouter'>;
+  'openrouter:stepfun/step-3.5-flash': ModelConfig<'openrouter'>;
+  // 'openrouter:stepfun/step-3.5-flash:free': ModelConfig<'openrouter'>; // LIVE 2026-08-15 OpenRouter 404
   /**
    * DeepSeek V3.2 - Roleplay #1
    *
@@ -751,24 +757,27 @@ export interface LLMModelRegistry {
   'openrouter:qwen/qwen3.8-max': ModelConfig<'openrouter'>;
 
   // ==================== Google Direct (AI Studio) ====================
-  // LIVE 2026-08-15 generateText（disable=thinkingBudget:0 / low=thinkingLevel），非 resolveThinking。
-  // TESTED disable → reasoning_tokens=0：2.5-flash、2.5-flash-lite、3-flash-preview、3.1-flash-lite
-  // TESTED thinkingLevel=low：3-flash-preview (21)、3.1-flash-lite (57)
+  // LIVE 2026-08-15 generateText（disable=thinkingBudget:0 / thinkingLevel），非 resolveThinking。
+  // TESTED disable → reasoning_tokens=0：2.5-flash/lite、3-flash-preview、3.1-flash-lite、3.5-flash、3.7-flash
+  // TESTED thinkingLevel=low：3-preview 21、3.1-lite 57、3.5-flash 57、3.7-flash 57
   // 2.5 thinkingLevel=low → 400 "Thinking level is not supported"（保持缺省 budget）
-  // UNTESTED / 未注册：3.5、3.6、3.7 的 google: 路由
+  // 3.5-flash-lite / 3.6：thinkingBudget:0 → 400；none 走 thinkingLevel:minimal（reasoning_tokens=0）
   'google:gemini-2.5-flash': ModelConfig<'google'>;
   // 'google:gemini-2.5-pro': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
   'google:gemini-2.5-flash-lite': ModelConfig<'google'>;
   'google:gemini-3-flash-preview': ModelConfig<'google'>;
   'google:gemini-3.1-flash-lite': ModelConfig<'google'>;
+  'google:gemini-3.5-flash': ModelConfig<'google'>;
+  'google:gemini-3.5-flash-lite': ModelConfig<'google'>;
+  'google:gemini-3.6-flash': ModelConfig<'google'>;
+  'google:gemini-3.7-flash': ModelConfig<'google'>;
   // 'google:gemini-3.1-pro-preview': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (Express Mode) ====================
   // LIVE 2026-08-15 generateText + Doppler AI_GOOGLE_VERTEX_API_KEY（unee-server/stg）。
-  // TESTED disable → reasoning_tokens=0：2.5-flash/lite、3-flash-preview、3.1-flash-lite、3.5-flash/lite、3.6-flash
-  // TESTED thinkingLevel=low：3-preview 57 / 3.1-lite 58 / 3.5 55 / 3.5-lite 50 / 3.6 59
+  // TESTED disable → reasoning_tokens=0：2.5-flash/lite、3-flash-preview、3.1-flash-lite、3.5-flash/lite、3.6-flash、3.7-flash
+  // TESTED thinkingLevel：3-preview 57 / 3.1-lite 58 / 3.5 55 / 3.5-lite 50 / 3.6 59 / 3.7 medium=60 high=107（low=0）
   // 2.5 thinkingLevel=low → 400 thinking_level is not supported（保持缺省 budget）
-  // UNTESTED：gemini-3.7-flash（未注册 vertex: 路由）
   'vertex:gemini-2.5-flash': ModelConfig<'vertex'>;
   // 'vertex:gemini-2.5-pro': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
   'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
@@ -777,6 +786,7 @@ export interface LLMModelRegistry {
   'vertex:gemini-3.5-flash': ModelConfig<'vertex'>;
   'vertex:gemini-3.5-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3.6-flash': ModelConfig<'vertex'>;
+  'vertex:gemini-3.7-flash': ModelConfig<'vertex'>;
   // 'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (project/global mode) ====================
@@ -852,7 +862,7 @@ type ThinkingEffortLevel = 'none' | 'low' | 'medium' | 'high';
  * - reason: thinking effort（none/low/medium/high）
  *
  * @example
- * 'openrouter:grok-4.1-fast?reason=low'  // Grok + low reasoning
+ * 'openrouter:grok-4.3?reason=low'  // Grok + low reasoning
  * 'openrouter:gemini-3.7-flash'           // Gemini, no params
  */
 export type LLMModelSpec = LLMModelKey | `${LLMModelKey}?${string}`;
@@ -907,8 +917,8 @@ function parseProviderFromKey(key: LLMModelKey): LLMProviderType {
  * 解析 LLMModelSpec 为 base key + 参数
  *
  * @example
- * parseModelSpec('openrouter:grok-4.1-fast?reason=low')
- * // → { key: 'openrouter:grok-4.1-fast', thinking: 'low' }
+ * parseModelSpec('openrouter:grok-4.3?reason=low')
+ * // → { key: 'openrouter:grok-4.3', thinking: 'low' }
  *
  * parseModelSpec('openrouter:gemini-3.7-flash')
  * // → { key: 'openrouter:gemini-3.7-flash', thinking: undefined }
@@ -1111,14 +1121,16 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Grok 3 Mini — 绝对 legacy
   // ['openrouter:grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
   // ['openrouter:x-ai/grok-3-mini', { provider: 'openrouter', modelId: 'x-ai/grok-3-mini' }],
-  // Grok 4.1 Fast（reasoning 可通过 thinking 参数控制）
-  ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
-  ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
-  // Step 3.5 Flash (免费 MoE 196B/11B, reasoningRequired)
+  // Grok 4.1 Fast — LIVE 2026-08-15 OpenRouter 404 deprecated
+  // ['openrouter:grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
+  // ['openrouter:x-ai/grok-4.1-fast', { provider: 'openrouter', modelId: 'x-ai/grok-4.1-fast' }],
+  // Step 3.5 Flash — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
+  ['openrouter:step-3.5-flash', { provider: 'openrouter', modelId: 'stepfun/step-3.5-flash', reasoningRequired: true }],
   [
-    'openrouter:stepfun/step-3.5-flash:free',
-    { provider: 'openrouter', modelId: 'stepfun/step-3.5-flash:free', reasoningRequired: true },
+    'openrouter:stepfun/step-3.5-flash',
+    { provider: 'openrouter', modelId: 'stepfun/step-3.5-flash', reasoningRequired: true },
   ],
+  // ['openrouter:stepfun/step-3.5-flash:free', { provider: 'openrouter', modelId: 'stepfun/step-3.5-flash:free', reasoningRequired: true }], // LIVE 404
   // DeepSeek V3.2
   ['openrouter:deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
   ['openrouter:deepseek/deepseek-v3.2', { provider: 'openrouter', modelId: 'deepseek/deepseek-v3.2' }],
@@ -1128,7 +1140,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   // GLM 5 - 不考虑使用
   // ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
   // ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
-  // MiniMax M2.5 (reasoningRequired: 400 "Reasoning is mandatory")
+  // MiniMax M2.5 — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
   ['openrouter:minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5', reasoningRequired: true }],
   [
     'openrouter:minimax/minimax-m2.5',
@@ -1280,7 +1292,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Grok 4.3
   ['openrouter:grok-4.3', { provider: 'openrouter', modelId: 'x-ai/grok-4.3' }],
   ['openrouter:x-ai/grok-4.3', { provider: 'openrouter', modelId: 'x-ai/grok-4.3' }],
-  // Grok 4.5 — OpenRouter metadata: mandatory reasoning, lowest supported effort is low
+  // Grok 4.5 — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
   [
     'openrouter:grok-4.5',
     { provider: 'openrouter', modelId: 'x-ai/grok-4.5', reasoningRequired: true, reasoningDefaultEffort: 'low' },
@@ -1289,7 +1301,7 @@ const modelRegistry = new Map<string, ModelConfig>([
     'openrouter:x-ai/grok-4.5',
     { provider: 'openrouter', modelId: 'x-ai/grok-4.5', reasoningRequired: true, reasoningDefaultEffort: 'low' },
   ],
-  // Grok 4.6 — OpenRouter metadata: mandatory reasoning, lowest supported effort is low
+  // Grok 4.6 — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
   [
     'openrouter:grok-4.6',
     { provider: 'openrouter', modelId: 'x-ai/grok-4.6', reasoningRequired: true, reasoningDefaultEffort: 'low' },
@@ -1308,7 +1320,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Kimi K2.6
   ['openrouter:kimi-k2.6', { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.6' }],
   ['openrouter:moonshotai/kimi-k2.6', { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.6' }],
-  // Kimi K2 Thinking (reasoningRequired: 推理特化模型)
+  // Kimi K2 Thinking — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
   [
     'openrouter:kimi-k2-thinking',
     { provider: 'openrouter', modelId: 'moonshotai/kimi-k2-thinking', reasoningRequired: true },
@@ -1320,7 +1332,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Kimi K3 — OpenRouter metadata: reasoning optional
   ['openrouter:kimi-k3', { provider: 'openrouter', modelId: 'moonshotai/kimi-k3' }],
   ['openrouter:moonshotai/kimi-k3', { provider: 'openrouter', modelId: 'moonshotai/kimi-k3' }],
-  // Kimi K2.7 Code — OpenRouter metadata: mandatory reasoning
+  // Kimi K2.7 Code — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
   [
     'openrouter:kimi-k2.7-code',
     { provider: 'openrouter', modelId: 'moonshotai/kimi-k2.7-code', reasoningRequired: true },
@@ -1338,7 +1350,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Qwen3.7 Max
   ['openrouter:qwen3.7-max', { provider: 'openrouter', modelId: 'qwen/qwen3.7-max' }],
   ['openrouter:qwen/qwen3.7-max', { provider: 'openrouter', modelId: 'qwen/qwen3.7-max' }],
-  // Qwen3.8 Max — OpenRouter metadata: mandatory reasoning, lowest public effort is low
+  // Qwen3.8 Max — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
   [
     'openrouter:qwen3.8-max',
     {
@@ -1371,6 +1383,28 @@ const modelRegistry = new Map<string, ModelConfig>([
     'google:gemini-3.1-flash-lite',
     { provider: 'google', modelId: 'gemini-3.1-flash-lite', googleThinkingMode: 'level' },
   ],
+  // LIVE：disable → reasoning_tokens=0；thinkingLevel=low 有 reasoning tokens
+  ['google:gemini-3.5-flash', { provider: 'google', modelId: 'gemini-3.5-flash', googleThinkingMode: 'level' }],
+  // LIVE：thinkingBudget:0 → 400；thinkingLevel:minimal → reasoning_tokens=0
+  [
+    'google:gemini-3.5-flash-lite',
+    {
+      provider: 'google',
+      modelId: 'gemini-3.5-flash-lite',
+      googleThinkingMode: 'level',
+      googleNoneThinking: 'level-minimal',
+    },
+  ],
+  [
+    'google:gemini-3.6-flash',
+    {
+      provider: 'google',
+      modelId: 'gemini-3.6-flash',
+      googleThinkingMode: 'level',
+      googleNoneThinking: 'level-minimal',
+    },
+  ],
+  ['google:gemini-3.7-flash', { provider: 'google', modelId: 'gemini-3.7-flash', googleThinkingMode: 'level' }],
   // ['google:gemini-3.1-pro-preview', { provider: 'google', modelId: 'gemini-3.1-pro-preview' }], // 不考虑使用
 
   // Vertex Express — LIVE 2026-08-15 Doppler AI_GOOGLE_VERTEX_API_KEY
@@ -1436,6 +1470,15 @@ const modelRegistry = new Map<string, ModelConfig>([
       modelId: 'gemini-3.6-flash',
       googleThinkingMode: 'level',
       supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
+  // LIVE：disable → reasoning_tokens=0；thinkingLevel medium/high 有 reasoning tokens（low=0）
+  [
+    'vertex:gemini-3.7-flash',
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3.7-flash',
+      googleThinkingMode: 'level',
     },
   ],
   // [
@@ -1521,6 +1564,7 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['bedrock:claude-opus-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-5-20251101-v1:0' }],
   ['bedrock:claude-opus-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-6-v1' }],
   ['bedrock:kimi-k2.5', { provider: 'bedrock', modelId: 'moonshotai.kimi-k2.5' }],
+  // LIVE 2026-08-15：plain / reasoningConfig.disabled 均 200；usage 无 reasoningTokens 字段，关没关上看不出来
   ['bedrock:kimi-k2-thinking', { provider: 'bedrock', modelId: 'moonshot.kimi-k2-thinking', reasoningRequired: true }],
   ['bedrock:deepseek-v3.2', { provider: 'bedrock', modelId: 'deepseek.v3.2' }],
   ['bedrock:minimax-m2.5', { provider: 'bedrock', modelId: 'minimax.minimax-m2.5', reasoningRequired: true }],
@@ -1610,7 +1654,7 @@ export function getProvider(spec: LLMModelSpec): LLMProviderType {
  * @example
  * getSupportedTiers('vertex-global:gemini-3.1-flash-lite') // → ['standard', 'flex', 'priority']
  * getSupportedTiers('vertex:gemini-2.5-flash-lite')                 // → ['standard', 'priority']
- * getSupportedTiers('openrouter:grok-4.1-fast')                     // → ['standard']
+ * getSupportedTiers('openrouter:grok-4.3')                     // → ['standard']
  */
 export function getSupportedTiers(spec: LLMModelSpec): readonly VertexTier[] {
   return getModel(spec).supportedTiers ?? DEFAULT_SUPPORTED_TIERS;

@@ -19,7 +19,7 @@ import type { Context } from '@ai-sdk/provider-utils';
 import type { AbstractEnvironmentVariables } from '@app/env';
 import type { ModelMessage, ToolSet } from 'ai';
 
-const model = 'openrouter:grok-4.1-fast' as LLMModelKey;
+const model = 'openrouter:grok-4.3' as LLMModelKey;
 const messages: ModelMessage[] = [{ role: 'user', content: 'test' }];
 
 // These are compile-time contract fixtures. `tsc --noEmit` must reject every

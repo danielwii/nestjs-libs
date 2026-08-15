@@ -103,7 +103,7 @@ describe('LLM.streamObjectViaTool lifecycle', () => {
     const tracking = createTrackingAbortSignal();
     const iterator = LLM.streamObjectViaTool({
       id: 'generator-early-return',
-      model: 'openrouter:grok-4.1-fast',
+      model: 'openrouter:grok-4.3',
       schema: z.object({ value: z.string() }),
       messages: [{ role: 'user', content: 'extract value' }],
       abortSignal: tracking.signal,

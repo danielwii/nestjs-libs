@@ -150,7 +150,7 @@ describe('LLM ai namespace', () => {
 
     const stream = LLM.streamText({
       id: 'ai-stop-when',
-      model: 'openrouter:grok-4.1-fast',
+      model: 'openrouter:grok-4.3',
       messages: SIMPLE_MESSAGE,
       maxRetries: 0,
       ai: {
@@ -173,7 +173,7 @@ describe('LLM ai namespace', () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'ai-generateText-tools',
-        model: 'openrouter:grok-4.1-fast',
+        model: 'openrouter:grok-4.3',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
         ai: {
@@ -193,7 +193,7 @@ describe('LLM ai namespace', () => {
     await callIgnoringError(async () => {
       const stream = LLM.streamText({
         id: 'ai-streamText-tools',
-        model: 'openrouter:grok-4.1-fast',
+        model: 'openrouter:grok-4.3',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
         ai: {
@@ -217,7 +217,7 @@ describe('LLM ai namespace', () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'ai-prepareStep-llm-model',
-        model: 'openrouter:grok-4.1-fast',
+        model: 'openrouter:grok-4.3',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
         ai: {
@@ -240,7 +240,7 @@ describe('LLM ai namespace', () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'ai-prepareStep-fallback-attempt',
-        model: 'openrouter:grok-4.1-fast?fallback=vertex:gemini-2.5-flash',
+        model: 'openrouter:grok-4.3?fallback=vertex:gemini-2.5-flash',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
         ai: {

@@ -323,7 +323,7 @@ describe('bedrock request payload', () => {
     await callIgnoringError(() =>
       LLM.generateText({
         id: 'bedrock-prepare-step',
-        model: 'openrouter:grok-4.1-fast',
+        model: 'openrouter:grok-4.3',
         messages: SIMPLE_MESSAGE,
         maxRetries: 0,
         ai: {

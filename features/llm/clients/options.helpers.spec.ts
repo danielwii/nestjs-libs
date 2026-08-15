@@ -17,6 +17,12 @@ describe('Google/Vertex thinking parameter modes', () => {
     });
   });
 
+  it('maps Google 3.5-lite / 3.6 no-thinking to thinkingLevel minimal', () => {
+    expect(disableThinkingOptions('google', 'gemini-3.6-flash', 'level-minimal')).toEqual({
+      google: { thinkingConfig: { thinkingLevel: 'minimal' } },
+    });
+  });
+
   it('maps public efforts to thinkingLevel for Gemini 3+ level routes', () => {
     for (const provider of ['vertex', 'vertex-global'] as const) {
       for (const effort of ['low', 'medium', 'high'] as const) {

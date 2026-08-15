@@ -9,7 +9,7 @@ import { bedrockThinkingOptions } from './bedrock.client';
 import { googleOptions } from './google.client';
 import { openrouterOptions } from './openrouter.client';
 
-import type { GoogleThinkingMode, LLMProviderType } from '../types/model.types';
+import type { GoogleNoneThinking, GoogleThinkingMode, LLMProviderType } from '../types/model.types';
 
 /**
  * 根据 Provider 类型生成禁用 Thinking 的 options
@@ -31,13 +31,20 @@ import type { GoogleThinkingMode, LLMProviderType } from '../types/model.types';
  * });
  * ```
  */
-export function disableThinkingOptions(provider: LLMProviderType, modelId?: string) {
+export function disableThinkingOptions(
+  provider: LLMProviderType,
+  modelId?: string,
+  googleNoneThinking: GoogleNoneThinking = 'budget-zero',
+) {
   switch (provider) {
     case 'openrouter':
       return openrouterOptions({ disableThinking: true });
     case 'google':
     case 'vertex':
     case 'vertex-global':
+      if (googleNoneThinking === 'level-minimal') {
+        return googleOptions({ thinkingLevel: 'minimal' });
+      }
       return googleOptions({ disableThinking: true });
     case 'bedrock':
       // Bedrock 需要 modelId 判断家族；缺 modelId 时不下发 disable（与裸 provider 调用兼容）
