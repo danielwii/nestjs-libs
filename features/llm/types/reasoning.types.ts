@@ -22,6 +22,15 @@ export interface LLMReasoningOptions {
    * 各 Provider 映射：
    * - OpenRouter: 转为 reasoning.effort
    * - Google: 转为 thinkingConfig.thinkingBudget (low=2000, medium=5000, high=10000 tokens)
+   *
+   * ⚠️ Claude Sonnet 5+（adaptive thinking，2026-08-24 实测）：effort 只是**软引导**，
+   * 思考与否由模型按请求复杂度自行决定——同参数同 prompt 可能一次思考一次不思考，
+   * low/medium 下简单请求通常 reasoningTokens=0（这不是参数没生效；wire 层已验证
+   * reasoning 字段确实进了请求体）。不存在"强制思考"：manual budget
+   * （thinking.budget_tokens）在 Sonnet 5 直接 400。旧语义（4.5 及更早）才是
+   * budget=必思考。因此凡依赖"可靠私有思考通道"的场景，不要指望本参数，
+   * 用显式 structured output 字段（如 {rationale, say}）承载。
+   * @see https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking
    */
   effort?: ReasoningEffort;
 
