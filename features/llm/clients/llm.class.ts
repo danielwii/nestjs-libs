@@ -196,10 +196,11 @@ export type LLMGenerateTextAIOptions<TOOLS extends ToolSet = ToolSet, RUNTIME_CO
   prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
 };
 
-export type LLMStreamTextAIOptions<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context> = Omit<
-  Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT>>[0],
-  LLMWrappedAIKeys
-> & {
+export type LLMStreamTextAIOptions<
+  TOOLS extends ToolSet = ToolSet,
+  RUNTIME_CONTEXT extends Context = Context,
+  OUTPUT extends Output.Output = Output.Output<string, string, never>,
+> = Omit<Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, OUTPUT>>[0], LLMWrappedAIKeys> & {
   prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
 };
 
@@ -279,9 +280,10 @@ interface GenerateTextParams<
 export interface StreamTextParams<
   TOOLS extends ToolSet = ToolSet,
   RUNTIME_CONTEXT extends Context = Context,
+  OUTPUT extends Output.Output = Output.Output<string, string, never>,
 > extends BaseParams {
   /** AI SDK 原生参数，LLM 保留 model/providerOptions 并转译 prepareStep.llm */
-  ai?: LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>;
+  ai?: LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT, OUTPUT>;
 }
 
 interface StreamObjectParams<
@@ -1651,9 +1653,11 @@ export class LLM {
    * }
    * ```
    */
-  static streamText<TOOLS extends ToolSet = ToolSet, RUNTIME_CONTEXT extends Context = Context>(
-    params: StreamTextParams<TOOLS, RUNTIME_CONTEXT>,
-  ): LLMStreamTextResult<TOOLS, RUNTIME_CONTEXT, Output.Output<string, string, never>> {
+  static streamText<
+    TOOLS extends ToolSet = ToolSet,
+    RUNTIME_CONTEXT extends Context = Context,
+    OUTPUT extends Output.Output = Output.Output<string, string, never>,
+  >(params: StreamTextParams<TOOLS, RUNTIME_CONTEXT, OUTPUT>): LLMStreamTextResult<TOOLS, RUNTIME_CONTEXT, OUTPUT> {
     const startTime = Date.now();
     const {
       model: modelSpec,
@@ -1673,7 +1677,11 @@ export class LLM {
 
     const spec = resolveSpec(modelSpec, callerThinking, callerMaxRetries, callerTimeout);
     const openrouterOptions = resolveOpenRouterCallOptions(spec.openrouter, openrouter);
-    const aiOptions = resolveLLMAIOptions<TOOLS, RUNTIME_CONTEXT, LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>>(ai, {
+    const aiOptions = resolveLLMAIOptions<
+      TOOLS,
+      RUNTIME_CONTEXT,
+      LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT, OUTPUT>
+    >(ai, {
       id,
       method: 'streamText',
       modelSpec,
@@ -1698,10 +1706,16 @@ export class LLM {
 
     let ttftLogged = false;
 
-    type StreamOnErrorEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onError']>>[0];
-    type StreamOnChunkEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onChunk']>>[0];
-    type StreamOnEndEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onEnd']>>[0];
-    type StreamOnAbortEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT>['onAbort']>>[0];
+    type StreamOnErrorEvent = Parameters<
+      NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT, OUTPUT>['onError']>
+    >[0];
+    type StreamOnChunkEvent = Parameters<
+      NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT, OUTPUT>['onChunk']>
+    >[0];
+    type StreamOnEndEvent = Parameters<NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT, OUTPUT>['onEnd']>>[0];
+    type StreamOnAbortEvent = Parameters<
+      NonNullable<LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT, OUTPUT>['onAbort']>
+    >[0];
 
     const {
       onEnd: callerOnEnd,
@@ -1745,7 +1759,7 @@ export class LLM {
       },
     );
 
-    const streamRequest: Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT>>[0] = {
+    const streamRequest: Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, OUTPUT>>[0] = {
       ...restAiOptions,
       model: languageModel,
       ...(instructions !== undefined ? { instructions } : {}),
@@ -1773,7 +1787,7 @@ export class LLM {
     };
 
     try {
-      const result = streamText<TOOLS, RUNTIME_CONTEXT>(streamRequest);
+      const result = streamText<TOOLS, RUNTIME_CONTEXT, OUTPUT>(streamRequest);
       observeStreamFailure(result.usage, (error) => {
         lifecycle.fail(error);
       });
