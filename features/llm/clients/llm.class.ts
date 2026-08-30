@@ -284,6 +284,12 @@ export interface StreamTextParams<
 > extends BaseParams {
   /** AI SDK 原生参数，LLM 保留 model/providerOptions 并转译 prepareStep.llm */
   ai?: LLMStreamTextAIOptions<TOOLS, RUNTIME_CONTEXT, OUTPUT>;
+  /**
+   * 结构化输出规格（如 Output.object({schema})），与 ai.tools 同开——工具调用循环的中间
+   * step 正常调用工具，循环自然终止的终态 step 按此规格产出结构化对象。镜像
+   * StreamObjectParams 的 schema 顶层参数模式；省略时行为与扩展前完全一致（加法式）。
+   */
+  output?: OUTPUT;
 }
 
 interface StreamObjectParams<
@@ -1672,6 +1678,7 @@ export class LLM {
       timeout: callerTimeout,
       maxRetries: callerMaxRetries,
       telemetry: callerTelemetry,
+      output,
       ai,
     } = params;
 
@@ -1767,6 +1774,7 @@ export class LLM {
       messages,
       providerOptions,
       headers,
+      ...(output !== undefined ? { output } : {}),
       ...(temperature !== undefined ? { temperature } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       maxRetries: spec.maxRetries,
