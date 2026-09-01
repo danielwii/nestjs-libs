@@ -1,4 +1,4 @@
-import { HttpStatus } from '@nestjs/common/enums';
+import { HttpStatus } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { SysEnv } from '@app/env';
