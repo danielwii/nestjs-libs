@@ -79,7 +79,7 @@ export interface LogRecord {
 /**
  * Dev formatter — 直接控制布局，无 regex hack
  *
- * `2026-03-16 15:00:00.022+09:00 INFO    [spanName|traceId|userId] unee-mcp·Prisma: message`
+ * `2026-03-16 15:00:00.022+09:00 INFO    [spanName|traceId|userId] app·Prisma: message`
  */
 export function devFormatter(record: LogRecord): string {
   const timestamp = `${ansi.dim}${formatTimestamp(record.timestamp)}${ansi.reset}`;

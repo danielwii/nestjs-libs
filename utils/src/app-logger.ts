@@ -31,13 +31,13 @@ export const APP_NAME = process.env.APP_NAME ?? process.env.SERVICE_NAME ?? 'app
  * import { getAppLogger } from '@app/utils/app-logger';
  *
  * const logger = getAppLogger('Prisma');
- * logger.info`connected`;           // → unee-mcp·Prisma: connected
+ * logger.info`connected`;           // → app·Prisma: connected
  *
  * const logger = getAppLogger('gRPC', 'Client');
- * logger.warning`timeout`;          // → unee-mcp·gRPC·Client: timeout
+ * logger.warning`timeout`;          // → app·gRPC·Client: timeout
  *
  * const logger = getAppLogger();
- * logger.info`starting`;            // → unee-mcp: starting
+ * logger.info`starting`;            // → app: starting
  * ```
  */
 export function getAppLogger(...modules: string[]): Logger {
