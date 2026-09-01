@@ -152,12 +152,17 @@ describe('isRetryableError: NoOutputGeneratedError (provider 返回空壳)', () 
    * 所以 isRetryableError 走的是第一个分支（Oops.Panic）→ cause 非空 → 递归进原始错误。
    * 只测裸错误会漏掉「cause 到底传没传」这一环。
    */
-  it('production shape: Oops.Panic.ExternalService wrapping it IS retryable', () => {
+  it('production shape: 用 classifyError 真造一个，不手搓', () => {
+    // ⚠️ 这里刻意**不**手写 `Oops.Panic.ExternalService(..., { cause })` —— 手搓的包裹层会把
+    // 「classifyError 传了 cause」这个假设烤进测试里：哪天有人把兜底分支改成不传 cause，
+    // 手搓版照样绿，而生产会静默退回 fallback 不触发。
+    // 所以从**真实构造方**造：classifyError 是 generateObjectCore catch 块里实际调用的那个。
     const inner = new NoOutputGeneratedError();
-    const wrapped = Oops.Panic.ExternalService('openrouter:gemini-3.7-flash', 'No output generated.', {
-      cause: inner,
-    });
-    expect(wrapped.cause).toBe(inner); // 先确认 cause 真的挂上去了，否则下一条断言证明不了什么
+    const wrapped = LLM.classifyError(inner, 'openrouter:gemini-3.7-flash');
+
+    // 先把这条链路本身钉住 —— 下面那句断言的证明力全靠它
+    expect(wrapped).toBeInstanceOf(Oops.Panic); // 落到 classifyError 的兜底分支
+    expect(wrapped.cause).toBe(inner); // 兜底分支确实透传了 cause
     expect(isRetryableError(wrapped)).toBe(true);
   });
 
