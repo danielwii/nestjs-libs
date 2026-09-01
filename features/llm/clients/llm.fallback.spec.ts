@@ -15,7 +15,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { parseModelSpec } from '../types/model.types';
 import { isRetryableError, LLM } from './llm.class';
 
-import { APICallError, NoObjectGeneratedError } from 'ai';
+import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError } from 'ai';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
@@ -112,6 +112,57 @@ describe('isRetryableError: NoObjectGeneratedError (BUG CONFIRMATION)', () => {
     const error = makeNoObjectError();
     // @ts-expect-error — NoObjectGeneratedError 没有 statusCode
     expect(error.statusCode).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NoOutputGeneratedError —— 与 NoObjectGeneratedError 名字几乎一样，含义完全不同
+//
+//   NoObjectGeneratedError  模型**生成了文本**但解析不成合法 JSON（带 text/finishReason/usage）
+//   NoOutputGeneratedError  **什么都没生成**，`_output == null`（只有 { message?, cause? }）
+//
+// 生产实况（unee-ai-persona，2026-08/09，24h 内 70 events / 36 users）：
+//   [LLM:end]   duration=1989ms, tokens=- (in=0, out=0), cost=$0.000000   ← in=0：provider 返回空壳
+//   [LLM:error] No output generated.
+//   [LLM:fallback-exhausted] tried=[openrouter:gemini-3.7-flash]          ← 只有主模型，fallback 没跑
+//
+// `in=0` 连输入 token 都没计 → 不是安全过滤、不是 token 上限、不是模型能力问题，
+// 就是 provider 返回了空响应。这是典型的可重试场景，而配好的备用模型一次都没被调用。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('isRetryableError: NoOutputGeneratedError (provider 返回空壳)', () => {
+  it('bare NoOutputGeneratedError IS retryable', () => {
+    // 生产命中的是 AI SDK 的零参构造（dist/index.js:6188 `new NoOutputGeneratedError()`），
+    // message 取类默认值 "No output generated."，且**不带 cause**。
+    const error = new NoOutputGeneratedError();
+    expect(NoObjectGeneratedError.isInstance(error)).toBe(false); // 确认与上面那个是两回事
+    expect(APICallError.isInstance(error)).toBe(false); // HTTP 层面没有状态码
+    expect(isRetryableError(error)).toBe(true);
+  });
+
+  /**
+   * 关键用例：从**真实调用方形态**测，而不是手搓最小输入。
+   *
+   * 真实链路是 LLM.classifyError 先把它包成 Oops.Panic：
+   *   NoOutputGeneratedError（不是 AbortError/APICallError/NoObjectGeneratedError）
+   *     → 落到 classifyError 最后那条 fallback 分支
+   *     → Oops.Panic.ExternalService(model, "No output generated.", { cause: error })
+   *   withFallback 捕获到的是**这个 Panic**，不是原始 SDK 错误。
+   *
+   * 所以 isRetryableError 走的是第一个分支（Oops.Panic）→ cause 非空 → 递归进原始错误。
+   * 只测裸错误会漏掉「cause 到底传没传」这一环。
+   */
+  it('production shape: Oops.Panic.ExternalService wrapping it IS retryable', () => {
+    const inner = new NoOutputGeneratedError();
+    const wrapped = Oops.Panic.ExternalService('openrouter:gemini-3.7-flash', 'No output generated.', {
+      cause: inner,
+    });
+    expect(wrapped.cause).toBe(inner); // 先确认 cause 真的挂上去了，否则下一条断言证明不了什么
+    expect(isRetryableError(wrapped)).toBe(true);
+  });
+
+  it('仍然不把普通 Error 判成可重试（防止改动过宽）', () => {
+    expect(isRetryableError(new Error('No output generated.'))).toBe(false);
   });
 });
 
