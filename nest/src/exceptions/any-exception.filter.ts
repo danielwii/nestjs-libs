@@ -28,6 +28,45 @@ type LocaleRequestLike = Omit<IdentityRequest, 'headers'> & {
 };
 
 /**
+ * 读一个 header，同时兼容 Express 的普通对象和 fetch 的 `Headers`（Yoga/GraphQL 路径）。
+ * Node 会把重复同名 header 合并成数组，这里按 RFC 7239 拼回逗号分隔列表。
+ */
+function readHeader(headers: unknown, name: string): string | undefined {
+  if (!headers) return undefined;
+  const get = (headers as { get?: (k: string) => string | null }).get;
+  if (typeof get === 'function') return get.call(headers, name) ?? undefined;
+  const raw = (headers as Record<string, unknown>)[name];
+  if (Array.isArray(raw)) return raw.join(', ');
+  return typeof raw === 'string' ? raw : undefined;
+}
+
+/**
+ * 客户端地址 **+ 它的来源**。
+ *
+ * 为什么不直接打 `req.ip`：同一个进程里有三个日志点会打"客户端 IP"——
+ * morgan 的 `:remote-addr`、`LoggerInterceptor`、以及本 filter——而它们对**同一次请求**
+ * 打出过不同的值（2026-09-01 实测：morgan `10.30.1.237` vs `req.ip` `139.178.131.16`），
+ * 且没有任何一处说明自己取的是哪个语义。结果是拿着日志无法判断哪个可信，
+ * 一次限流类报障因此完全无法定位。
+ *
+ * 所以这里把**推导链一起打出来**：`req.ip` 的结果、它派生自的 XFF 原文、以及 CF 的判定。
+ * 三者不一致时一眼可见，不必再去猜 `trust proxy` 跳数对不对。
+ *
+ * 只取这两个 header：它们本身就是地址，不引入新的 PII 面（`req.ip` 今天已在打）。
+ */
+export function clientAddr(req?: { ip?: string; headers?: unknown }): string {
+  const ip = req?.ip ?? '-';
+  const xff = readHeader(req?.headers, 'x-forwarded-for');
+  const cf = readHeader(req?.headers, 'cf-connecting-ip');
+  const parts = [ip];
+  // xff 缺席是关键信号：没有 XFF 时 Express 会退回 socket 对端（= 网格代理 IP），
+  // 此时 req.ip 看起来"合法"但不是客户端。显式打 `xff=-` 让这种情况可辨认。
+  parts.push(`xff=${xff ?? '-'}`);
+  if (cf && cf !== ip) parts.push(`cf=${cf}`);
+  return parts.join(' ');
+}
+
+/**
  * ⚠️  ErrorCodes 迁移说明（针对其他项目）
  *
  * 本文件已更新使用新的维度分类 ErrorCodes。如果你的项目还在使用旧的错误码，
@@ -130,7 +169,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.captureExceptionBySentry(exception, host);
       const fallbackMessage = getErrorMessage(exception) || 'Internal server error';
       this.logger
-        .error`<GraphqlRequest> (${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${fallbackMessage} ${exception}`;
+        .error`<GraphqlRequest> (${request?.user?.uid})[${clientAddr(request)}] ${getErrorName(exception)} ${fallbackMessage} ${exception}`;
       throw new GraphQLError(fallbackMessage, {
         extensions: {
           code: ErrorCodes.SYSTEM_INTERNAL_ERROR,
@@ -167,7 +206,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
     // 使用 type guard helpers 安全提取 unknown 异常的属性
     this.logger
-      .error`(${request?.user?.uid})[${request?.ip}] ${getErrorName(exception)} ${getErrorMessage(exception)} ${exception}`;
+      .error`(${request?.user?.uid})[${clientAddr(request)}] ${getErrorName(exception)} ${getErrorMessage(exception)} ${exception}`;
 
     // unexpected error, each error should be handled
     // Unknown errors have no authority to choose their public HTTP status.
@@ -198,8 +237,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
     isGraphql: boolean,
   ): void {
     const tag = isGraphql
-      ? `<GraphqlRequest> (${request?.user?.uid})[${request?.ip}]`
-      : `(${request?.user?.uid})[${request?.ip}]`;
+      ? `<GraphqlRequest> (${request?.user?.uid})[${clientAddr(request)}]`
+      : `(${request?.user?.uid})[${clientAddr(request)}]`;
     const name = getErrorName(exception);
 
     if (descriptor.logLevel === 'error') {
@@ -235,13 +274,13 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (exception.isFatal()) {
       this.captureExceptionBySentry(exception, host);
       this.logger
-        .error`(${request?.user?.uid})[${request?.ip}] Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .error`(${request?.user?.uid})[${clientAddr(request)}] Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     } else if (exception.httpStatus !== 422) {
       this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .warning`(${request?.user?.uid})[${clientAddr(request)}] Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     } else {
       this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .warning`(${request?.user?.uid})[${clientAddr(request)}] Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     }
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);
@@ -268,13 +307,13 @@ export class AnyExceptionFilter implements ExceptionFilter {
     if (exception.isFatal()) {
       this.captureExceptionBySentry(exception, host);
       this.logger
-        .error`(${request?.user?.uid})[${request?.ip}] GraphQL Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .error`(${request?.user?.uid})[${clientAddr(request)}] GraphQL Oops.Panic ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     } else if (exception.httpStatus !== 422) {
       this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] GraphQL Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .warning`(${request?.user?.uid})[${clientAddr(request)}] GraphQL Oops.Block(${exception.httpStatus}) ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     } else {
       this.logger
-        .warning`(${request?.user?.uid})[${request?.ip}] GraphQL Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
+        .warning`(${request?.user?.uid})[${clientAddr(request)}] GraphQL Oops ${exception.getCombinedCode()} ${exception.userMessage} | ${exception.getInternalDetails()}`;
     }
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);

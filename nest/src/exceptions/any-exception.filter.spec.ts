@@ -11,7 +11,7 @@ import { ThrottlerException } from '@nestjs/throttler';
 
 import { SysEnv } from '@app/env';
 
-import { AnyExceptionFilter, toErrorDescriptor } from './any-exception.filter';
+import { AnyExceptionFilter, clientAddr, toErrorDescriptor } from './any-exception.filter';
 import { ErrorCodes } from './error-codes';
 import { Oops } from './oops';
 
@@ -783,5 +783,65 @@ describe('toErrorDescriptor', () => {
     expect(toErrorDescriptor(null)).toBeNull();
     expect(toErrorDescriptor('string error')).toBeNull();
     expect(toErrorDescriptor({ foo: 'bar' })).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// clientAddr —— 客户端地址 + 来源标注
+//
+// 背景（2026-09-01）：同一个进程里 morgan / LoggerInterceptor / AnyExceptionFilter
+// 三处都打"客户端 IP"，对**同一次请求**打出过不同的值，且没有任何一处说明取的是哪个语义。
+// 结果是一次限流报障完全无法定位——不知道 req.ip 是从什么 XFF 推出来的。
+// 这几条锁住"推导链必须可见"。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('clientAddr: 客户端地址必须带来源', () => {
+  it('正常链路：req.ip 与 XFF 一起打出，可核对', () => {
+    const out = clientAddr({
+      ip: '139.178.131.16',
+      headers: { 'x-forwarded-for': '139.178.131.16,10.30.1.237' },
+    });
+    expect(out).toContain('139.178.131.16');
+    expect(out).toContain('xff=139.178.131.16,10.30.1.237');
+  });
+
+  it('🔴 XFF 缺席必须显式标 `xff=-`（这是最关键的一条）', () => {
+    // 没有 XFF 时 Express 退回 socket 对端 = 网格代理 IP。
+    // 旧写法只打 `[10.30.0.185]`，看起来是个合法地址，无从判断它不是客户端 —— 正是这点
+    // 让我们把一个代理 IP 当成了真实客户端。
+    const out = clientAddr({ ip: '10.30.0.185', headers: {} });
+    expect(out).toContain('10.30.0.185');
+    expect(out).toContain('xff=-');
+  });
+
+  it('CF 判定与 req.ip 不一致时必须暴露出来', () => {
+    const out = clientAddr({
+      ip: '10.30.0.185',
+      headers: { 'cf-connecting-ip': '203.0.113.7' },
+    });
+    expect(out).toContain('cf=203.0.113.7');
+  });
+
+  it('一致时不重复打 cf（避免噪音）', () => {
+    const out = clientAddr({
+      ip: '203.0.113.7',
+      headers: { 'cf-connecting-ip': '203.0.113.7', 'x-forwarded-for': '203.0.113.7' },
+    });
+    expect(out).not.toContain('cf=');
+  });
+
+  it('兼容 fetch 的 Headers（Yoga/GraphQL 路径与 Express 不同源）', () => {
+    const headers = new Headers({ 'x-forwarded-for': '198.51.100.9, 10.30.1.1' });
+    const out = clientAddr({ ip: '198.51.100.9', headers });
+    expect(out).toContain('xff=198.51.100.9, 10.30.1.1');
+  });
+
+  it('Node 把重复 header 合成数组时按 RFC 7239 拼回列表', () => {
+    const out = clientAddr({ ip: '1.2.3.4', headers: { 'x-forwarded-for': ['1.2.3.4', '10.0.0.1'] } });
+    expect(out).toContain('xff=1.2.3.4, 10.0.0.1');
+  });
+
+  it('request 整个缺席时不抛', () => {
+    expect(() => clientAddr(undefined)).not.toThrow();
+    expect(clientAddr(undefined)).toContain('-');
   });
 });

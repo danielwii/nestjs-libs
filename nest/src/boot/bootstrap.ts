@@ -375,10 +375,21 @@ export async function bootstrap(
       next();
     });
 
+    // morgan 的 `:remote-addr` 取的是 `req.ip || req.connection.remoteAddress` —— 两种语义，
+    // 且日志里看不出用的是哪一种。2026-09-01 实测同一次请求 morgan 打 `10.30.1.237`、
+    // 而 `req.ip` 是 `139.178.131.16`（真实客户端），拿着日志无法判断哪个可信。
+    // 补一个 `:xff` token 把推导来源一起打出来：XFF 缺席时 Express 会退回 socket 对端
+    // （= 网格代理 IP），此时 `:remote-addr` 看起来合法但不是客户端。
+    morgan.token('xff', (req) => {
+      const raw = (req as { headers?: Record<string, unknown> }).headers?.['x-forwarded-for'];
+      if (Array.isArray(raw)) return raw.join(', ');
+      return typeof raw === 'string' ? raw : '-';
+    });
+
     // combined 格式 + response-time（毫秒）
     app.use(
       morgan(
-        ':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":response-time ms" ":referrer" ":user-agent"',
+        ':remote-addr xff=":xff" - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":response-time ms" ":referrer" ":user-agent"',
         {
           // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- boolean OR, not nullish fallback
           skip: (req) => req.url?.startsWith('/health') || req.url === '/',
