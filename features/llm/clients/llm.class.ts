@@ -62,6 +62,7 @@ import {
   extractJsonMiddleware,
   generateText,
   NoObjectGeneratedError,
+  NoOutputGeneratedError,
   Output,
   streamText,
   tool,
@@ -807,6 +808,14 @@ export function isRetryableError(error: unknown): boolean {
   // NoObjectGeneratedError：模型生成了文本但无法解析为合法 JSON。
   // HTTP 层面是 200 OK，但实际上是模型能力或格式问题，应 fallback 到其他模型重试。
   if (NoObjectGeneratedError.isInstance(error)) return true;
+  // NoOutputGeneratedError：名字与上面几乎一样，含义完全不同 —— 模型**什么都没生成**
+  // （`_output == null`），不像上面那个还带 text/finishReason/usage。
+  // 生产实测（unee-ai-persona）：同 trace 的 `[LLM:end]` 是 `tokens=- (in=0, out=0)` ——
+  // 连输入 token 都没计，说明 provider 返回的是空壳响应，与安全过滤 / token 上限 /
+  // 模型能力都无关。这是典型的可重试场景，换个 provider 通常就好。
+  // 漏了这一条的后果：配好的 fallback 一次都不会被调用，日志里表现为
+  // `[LLM:fallback-exhausted] tried=[<只有主模型>]`（24h 内 70 events / 36 users）。
+  if (NoOutputGeneratedError.isInstance(error)) return true;
   if (error instanceof DOMException && error.name === 'TimeoutError') return true;
   if (error instanceof Error && error.message.includes('timed out')) return true;
   if (isReasoningPolicyError(error)) return true;
