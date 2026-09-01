@@ -48,7 +48,6 @@ import type {
   LogLevel,
   Type,
 } from '@nestjs/common';
-import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import type { MicroserviceOptions } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
@@ -306,9 +305,8 @@ export async function bootstrap(
       callback(null, false);
     };
 
-    const corsOptions: CorsOptions = { credentials: true, origin: corsOrigin };
     bootstrapLogger.info`[Config] CORS enabled: allowedDomains=${allowedDomains?.join(', ') ?? 'none (dev=localhost only)'}`;
-    app.enableCors(corsOptions);
+    app.enableCors({ credentials: true, origin: corsOrigin });
 
     // see https://expressjs.com/en/guide/behind-proxies.html
     // 设置以后，req.ips 是 ip 数组；如果未经过代理，则为 []. 若不设置，则 req.ips 恒为 []

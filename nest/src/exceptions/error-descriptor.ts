@@ -2,11 +2,11 @@ import {
   BadRequestException,
   ConflictException,
   HttpException,
+  HttpStatus,
   NotFoundException,
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { HttpStatus } from '@nestjs/common/enums';
 
 import { getErrorName, getResponseMessage } from '@app/utils/error';
 

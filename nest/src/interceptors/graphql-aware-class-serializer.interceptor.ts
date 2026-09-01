@@ -19,7 +19,7 @@ import type { Observable, Subscription } from 'rxjs';
  * 这样既保留 ClassSerializer 的默认行为，又不会破坏 graphql-transport-ws 的协议预期。
  */
 export class GraphqlAwareClassSerializerInterceptor extends ClassSerializerInterceptor {
-  override intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+  override async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
     if (context.getType<'http' | 'graphql'>() === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
       const operation = gqlContext.getInfo()?.operation?.operation;
