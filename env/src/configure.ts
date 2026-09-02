@@ -755,10 +755,30 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
 
     // 拉取相关 scope 的行：shared + 项目 scope（如有）
     const scopesToRead = projectScope ? [SHARED, projectScope] : [SHARED];
+    // 单行值坏（空串/非法 JSON）按「未设置」处理（null），绝不让一行拖垮整场 sync ——
+    // 2026-09-02 staging 事故：一个 boolean 行被写成空串，JSON.parse('') 在这里裸抛，
+    // server/agents 每分钟同步全炸、boot 初始同步也炸，DB 配置整体失效（模型等回落
+    // 到过期的进程 env 值）。空串常见来源：admin 清空输入框后保存。
+    const parseRowValue = (key: string, format: string, value: unknown): unknown => {
+      if (format === 'string' || value == null) return value;
+      const raw = typeof value === 'string' ? value.trim() : value;
+      if (raw === '') {
+        logger.warn`#syncFromDB key=${key} 空串按未设置处理（应存 NULL）`;
+        return null;
+      }
+      try {
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch {
+        // 只有 string 会走到 JSON.parse 并抛异常，raw 此处必为 string
+        const preview = typeof raw === 'string' ? raw.slice(0, 80) : '';
+        logger.warn`#syncFromDB key=${key} value 非法 JSON，按未设置处理: ${preview}`;
+        return null;
+      }
+    };
     const appSettings = (await prisma.sysAppSetting.findMany({ where: { scope: { in: scopesToRead } } })).map(
       ({ value, format, ...rest }) => ({
         ...rest,
-        value: format !== 'string' && value != null ? JSON.parse(value) : value,
+        value: parseRowValue((rest as { key: string }).key, format, value),
         format,
       }),
     ) as Array<{

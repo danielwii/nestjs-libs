@@ -281,6 +281,76 @@ describe('AppConfigure', () => {
       expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(120_000);
     });
 
+    // 2026-09-02 staging 事故：admin 把 boolean 行的 value 写成空串，JSON.parse('') 在
+    // findMany().map() 里裸抛 → 整场 sync 每分钟炸，server/agents 的 DB 配置全部失效
+    // （boot 时初始同步也炸 → APP_MAIN_CHAT_MODEL 等回落到过期的进程 env 值）。
+    // 新契约：单行值坏（空串/非法 JSON）按「未设置」处理，绝不拖垮其它行。
+    it('treats an empty-string value as unset instead of crashing the whole sync (0902 incident)', async () => {
+      class Envs {
+        @DatabaseField('boolean', '事故复现旗标')
+        BROKEN_FLAG: boolean = false;
+        @DatabaseField('string', '同批健康行')
+        HEALTHY_FIELD: string = 'code-default';
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
+      }
+      const originalEnvs = new Envs();
+      const activeEnvs = new Envs();
+
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              { key: 'BROKEN_FLAG', scope: 'shared', value: '', defaultValue: 'false', format: 'boolean' },
+              { key: 'HEALTHY_FIELD', scope: 'shared', value: 'db-value', defaultValue: null, format: 'string' },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock((args: any) => Promise.resolve({ key: args?.where?.scope_key?.key })),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // 空串行按未设置：保持代码默认，不炸
+      expect(activeEnvs.BROKEN_FLAG).toBe(false);
+      // 同批其它行照常应用
+      expect(activeEnvs.HEALTHY_FIELD).toBe('db-value');
+    });
+
+    it('a single unparseable JSON value does not block other rows from applying', async () => {
+      class Envs {
+        @DatabaseField('number', '坏 JSON 行')
+        BAD_NUMBER: number = 7;
+        @DatabaseField('number', '好行')
+        GOOD_NUMBER: number = 1;
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
+      }
+      const originalEnvs = new Envs();
+      const activeEnvs = new Envs();
+
+      const mockPrisma = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              { key: 'BAD_NUMBER', scope: 'shared', value: '{oops', defaultValue: '7', format: 'number' },
+              { key: 'GOOD_NUMBER', scope: 'shared', value: '42', defaultValue: '1', format: 'number' },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock((args: any) => Promise.resolve({ key: args?.where?.scope_key?.key })),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrisma as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      expect(activeEnvs.BAD_NUMBER).toBe(7); // 坏行按未设置，保持默认
+      expect(activeEnvs.GOOD_NUMBER).toBe(42); // 好行照常应用
+    });
+
     it('should work when originalEnvs is created via structuredClone (loses prototype chain)', async () => {
       // 场景：模拟 AppConfigure 构造函数中的行为
       // this.vars = this.validate(); // plainToInstance 创建类实例
