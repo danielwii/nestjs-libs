@@ -1189,6 +1189,37 @@ describe('AppConfigure', () => {
       expect(call.data.defaultValue).toBe('new_default');
     });
 
+    // 公开 API 的 `scope?: string` 允许传入保留值 'shared'。此时非 scoped 字段的
+    // writeScope 也等于 projectScope，若归属豁免用 `writeScope === projectScope`
+    // 判断，**所有** shared 行都会被判成自己的 —— 跨服务写冲突原样回来。
+    // 归属豁免必须基于 isScoped，不能基于字符串相等。
+    it('does not exempt unscoped rows when the caller passes the reserved scope "shared"', async () => {
+      class Envs {
+        @DatabaseField('boolean', 'verbose fetch log')
+        LLM_FETCH_VERBOSE: boolean = false;
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'LLM_FETCH_VERBOSE',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'true',
+          format: 'boolean',
+          description: 'verbose fetch log',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona', // ← 归属别人
+        },
+      ]);
+
+      // 调用方把保留值当作 project scope 传进来
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'shared' });
+
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.create).not.toHaveBeenCalled();
+    });
+
     it('converges: owner stops writing once defaultValue matches its code default', async () => {
       class Envs {
         @DatabaseField('number', 'tx timeout')

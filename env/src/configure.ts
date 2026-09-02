@@ -948,7 +948,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 顺手「认领」会引入新危害 —— 认领方将来从代码里删掉该字段时，orphan 检测就会
       // 去 deprecate 这一行，而其他服务还在用它。历史行的归属需要人判断后一次性回填，
       // 不该由每分钟跑一次的同步循环去猜。
-      const ownsRow = writeScope === projectScope || metaRow.createdBy === projectScope;
+      // 用 isScoped 而不是 `writeScope === projectScope`：公开 API 的 `scope?: string`
+      // 允许传入保留值 'shared'，那时非 scoped 字段的 writeScope 也等于 projectScope，
+      // 字符串相等会把**所有** shared 行判成自己的 —— 跨服务写冲突原样回来。
+      const ownsRow = isScoped || metaRow.createdBy === projectScope;
       if (!ownsRow) {
         stats.metadataSkippedNotOwned += 1;
         continue;
