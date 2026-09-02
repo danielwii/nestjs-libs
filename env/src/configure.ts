@@ -508,7 +508,13 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
   private readonly logger = getAppLogger(this.constructor.name);
 
   /** 敏感字段 redact：匹配命名规范或精确名称，日志输出替换为 *** */
-  private static isSensitive(key: string): boolean {
+  /**
+   * 该 key 的值是否敏感、不可进日志。
+   *
+   * public 是为了可被单测直接钉住：它同时被启动日志和 syncFromDB 的默认值分歧告警使用，
+   * 后者会打印「本服务的值 vs DB 里的值」——一旦这个谓词漏判，凭据就会每分钟进一次日志。
+   */
+  public static isSensitive(key: string): boolean {
     return /(_KEY|_SECRET|_TOKEN|_DSN|_PASSWORD)$/.test(key) || key === 'DATABASE_URL';
   }
 
@@ -979,7 +985,13 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         // 只在值真的不同时才报，正常情况完全安静；一旦响，就是真分歧。
         if (valueToStore !== null && metaRow.defaultValue !== valueToStore) {
           stats.metadataDefaultConflicts += 1;
-          logger.warning`#syncFromDB shared 字段 ${field} 默认值分歧：本服务(${projectScope})=${valueToStore}，DB 中(归属 ${metaRow.createdBy ?? '未知'})=${metaRow.defaultValue}。shared 字段应当全网一个默认值 —— 检查是否在子类里改了基类默认值，或部署 env 覆盖了它。`;
+          // 必须脱敏：API_KEY 等本身就是 @DatabaseField，且「不自行设置每次启动都会变更」
+          // —— 每个服务的值天然不同、必然命中这条分支，不脱敏就是每分钟把两份真实凭据
+          // 写进应用日志（进而进 Loki）。
+          const redact = AppConfigure.isSensitive(field);
+          const mine = redact ? '***' : valueToStore;
+          const theirs = redact ? '***' : metaRow.defaultValue;
+          logger.warning`#syncFromDB shared 字段 ${field} 默认值分歧：本服务(${projectScope})=${mine}，DB 中(归属 ${metaRow.createdBy ?? '未知'})=${theirs}。shared 字段应当全网一个默认值 —— 检查是否在子类里改了基类默认值，或部署 env 覆盖了它。`;
         }
         continue;
       }

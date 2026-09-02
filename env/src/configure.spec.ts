@@ -1283,6 +1283,56 @@ describe('AppConfigure', () => {
       expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled(); // 报，但仍然不写
     });
 
+    // 分歧告警会打印「本服务的值 vs DB 里的值」。凡是 isSensitive 判为真的字段都必须脱敏 ——
+    // API_KEY 本身就是基类的 @DatabaseField，且「不自行设置每次启动都会变更」，
+    // 也就是每个服务的值天然不同、必然命中告警分支。这个谓词一旦漏判，
+    // 就是每分钟把两份真实凭据写进应用日志。
+    it('isSensitive covers the credential-shaped keys the conflict warning could print', () => {
+      for (const key of [
+        'API_KEY', // 基类 @DatabaseField，天然每服务不同 → 必然触发分歧告警
+        'SESSION_SECRET',
+        'TELEGRAM_BOT_TOKEN',
+        'SENTRY_DSN',
+        'REDIS_PASSWORD',
+        'DATABASE_URL',
+      ]) {
+        expect(AppConfigure.isSensitive(key)).toBe(true);
+      }
+      // 非敏感字段照常打印真实值 —— 分歧告警的价值就在于能看到 30000 vs 5000
+      for (const key of ['PRISMA_TRANSACTION_TIMEOUT', 'LLM_FETCH_VERBOSE', 'APP_MAIN_CHAT_MODEL']) {
+        expect(AppConfigure.isSensitive(key)).toBe(false);
+      }
+    });
+
+    it('still counts the conflict for a sensitive field (redaction must not suppress detection)', async () => {
+      class Envs {
+        @DatabaseField('string', 'system api key')
+        API_KEY?: string = 'local-secret';
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'API_KEY',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'other-service-secret',
+          format: 'string',
+          description: 'system api key',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona',
+        },
+      ]);
+
+      const stats = await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, {
+        scope: 'unee-server',
+      });
+
+      // 脱敏只影响打印内容，不影响是否检出
+      expect(stats.metadataDefaultConflicts).toBe(1);
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+    });
+
     it('stays silent when the other service stored the same default (no conflict)', async () => {
       class Envs {
         @DatabaseField('boolean', 'verbose fetch log')
