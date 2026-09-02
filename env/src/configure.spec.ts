@@ -1156,6 +1156,39 @@ describe('AppConfigure', () => {
       expect(call.data.defaultValue).toBe('30000');
     });
 
+    // project-scoped 行的归属由 scope 本身证明 —— 只有该 project 会写这个 scope，
+    // 不存在跨服务冲突。这与上方 orphan 检测的不对称一致：shared orphan 按 createdBy
+    // 过滤，project orphan 不过滤（scope 即足够的归属证明）。
+    // 若这里也要求 createdBy，历史上 createdBy 为空的 project 行会被永久冻结元数据，
+    // 而它们本来就没有冲突风险。
+    it('still updates project-scoped rows even when createdBy is null (scope alone proves ownership)', async () => {
+      class Envs {
+        @DatabaseField('string', { description: 'new desc', scoped: true })
+        SCOPED_FIELD: string = 'new_default';
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'SCOPED_FIELD',
+          scope: 'ai-persona', // = projectScope，本 project 独占
+          value: null,
+          defaultValue: 'old_default',
+          description: 'old desc',
+          format: 'string',
+          deprecatedAt: null,
+          createdBy: null, // ← 历史行无归属，但 scope 已经证明是我的
+        },
+      ]);
+
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'ai-persona' });
+
+      expect(mockPrisma.sysAppSetting.update).toHaveBeenCalled();
+      const call = (mockPrisma.sysAppSetting.update.mock.calls as any[][])[0]![0];
+      expect(call.where.scope_key).toEqual({ scope: 'ai-persona', key: 'SCOPED_FIELD' });
+      expect(call.data.defaultValue).toBe('new_default');
+    });
+
     it('converges: owner stops writing once defaultValue matches its code default', async () => {
       class Envs {
         @DatabaseField('number', 'tx timeout')

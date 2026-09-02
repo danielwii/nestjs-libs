@@ -926,7 +926,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const metaRow = appSettings.find((s) => s.key === field && s.scope === writeScope);
       if (!metaRow) continue;
 
-      // 归属隔离：只更新自己 createdBy 的行 —— 与上面 orphan 检测同一条谓词。
+      // 归属隔离 —— 与上面 orphan 检测**同样的不对称**：
+      //   · project-scoped 行（writeScope === projectScope）：scope 本身就是归属证明，
+      //     只有本 project 会写这个 scope，不存在跨服务冲突 → 无条件更新。
+      //     （对应 orphan 检测里 project 分支不按 createdBy 过滤。）
+      //   · shared 行：N 个服务共读共写 → 必须按 createdBy 判归属。
+      //     （对应 orphan 检测里 shared 分支的 `s.createdBy === projectScope`。）
+      // 若对 project 行也要求 createdBy，历史上 createdBy 为空的 project 行会被永久
+      // 冻结元数据，而它们本来就没有冲突风险。
       //
       // scope='shared' 的一行会被 N 个服务共读共写，但 defaultValue 存的是「**某个服务**
       // 对这个 key 的代码默认值」——per-(service,key) 的事实被存进了 per-key 的位置。
@@ -941,7 +948,8 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 顺手「认领」会引入新危害 —— 认领方将来从代码里删掉该字段时，orphan 检测就会
       // 去 deprecate 这一行，而其他服务还在用它。历史行的归属需要人判断后一次性回填，
       // 不该由每分钟跑一次的同步循环去猜。
-      if (metaRow.createdBy !== projectScope) {
+      const ownsRow = writeScope === projectScope || metaRow.createdBy === projectScope;
+      if (!ownsRow) {
         stats.metadataSkippedNotOwned += 1;
         continue;
       }
