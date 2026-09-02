@@ -1251,6 +1251,66 @@ describe('AppConfigure', () => {
       expect(active.SCOPED_FIELD).toBe('db-value');
     });
 
+    // 归属隔离止住了写循环，但它是静音的。shared 字段按定义应当全网一个默认值，
+    // 值不一致就是有人用错了（子类改了基类默认值，或部署 env 覆盖了它 ——
+    // 注意 defaultValue 取自 env 解析后的值）。只在值真的不同时才报。
+    it('reports a conflict when another service stored a different default for a shared field', async () => {
+      class Envs {
+        @DatabaseField('boolean', 'verbose fetch log')
+        LLM_FETCH_VERBOSE: boolean = false; // 本服务 false
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'LLM_FETCH_VERBOSE',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'true', // 别人存的是 true
+          format: 'boolean',
+          description: 'verbose fetch log',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona',
+        },
+      ]);
+
+      const stats = await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, {
+        scope: 'unee-server',
+      });
+
+      expect(stats.metadataSkippedNotOwned).toBe(1);
+      expect(stats.metadataDefaultConflicts).toBe(1);
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled(); // 报，但仍然不写
+    });
+
+    it('stays silent when the other service stored the same default (no conflict)', async () => {
+      class Envs {
+        @DatabaseField('boolean', 'verbose fetch log')
+        LLM_FETCH_VERBOSE: boolean = false;
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'LLM_FETCH_VERBOSE',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'false', // 与本服务一致 —— 正常情况
+          format: 'boolean',
+          description: 'verbose fetch log',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona',
+        },
+      ]);
+
+      const stats = await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, {
+        scope: 'unee-server',
+      });
+
+      expect(stats.metadataSkippedNotOwned).toBe(1); // 仍然跳过（不是我的行）
+      expect(stats.metadataDefaultConflicts).toBe(0); // 但不报 —— 没有分歧
+    });
+
     it('converges: owner stops writing once defaultValue matches its code default', async () => {
       class Envs {
         @DatabaseField('number', 'tx timeout')

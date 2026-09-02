@@ -813,6 +813,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       metadataUpdated: 0,
       metadataUpdateFailed: 0,
       metadataSkippedNotOwned: 0,
+      metadataDefaultConflicts: 0,
     };
 
     if (writeEnabled) {
@@ -960,19 +961,30 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 用 isScoped 而不是 `writeScope === projectScope`：公开 API 的 `scope?: string`
       // 允许传入保留值 'shared'，那时非 scoped 字段的 writeScope 也等于 projectScope，
       // 字符串相等会把**所有** shared 行判成自己的 —— 跨服务写冲突原样回来。
-      const ownsRow = isScoped || metaRow.createdBy === projectScope;
-      if (!ownsRow) {
-        stats.metadataSkippedNotOwned += 1;
-        continue;
-      }
-
-      const updates: { defaultValue?: string; description?: string } = {};
       const valueToStore =
         defaultValue !== undefined
           ? typeof defaultValue === 'string'
             ? defaultValue
             : JSON.stringify(defaultValue)
           : null;
+
+      const ownsRow = isScoped || metaRow.createdBy === projectScope;
+      if (!ownsRow) {
+        stats.metadataSkippedNotOwned += 1;
+        // 归属隔离只是止住了互相覆盖的写循环，它本身是静音的。真正该被看见的是：
+        // shared 字段按定义应当全网一个默认值，值不一致说明有人把它用错了。两种成因：
+        //   · 某个服务在子类里重新声明了基类字段并改了默认值；
+        //   · 某个部署用 env 覆盖了它 —— 注意 defaultValue 取自 env 解析后的值，
+        //     所以部署级 env 会被记进「默认值」这一列。
+        // 只在值真的不同时才报，正常情况完全安静；一旦响，就是真分歧。
+        if (valueToStore !== null && metaRow.defaultValue !== valueToStore) {
+          stats.metadataDefaultConflicts += 1;
+          logger.warning`#syncFromDB shared 字段 ${field} 默认值分歧：本服务(${projectScope})=${valueToStore}，DB 中(归属 ${metaRow.createdBy ?? '未知'})=${metaRow.defaultValue}。shared 字段应当全网一个默认值 —— 检查是否在子类里改了基类默认值，或部署 env 覆盖了它。`;
+        }
+        continue;
+      }
+
+      const updates: { defaultValue?: string; description?: string } = {};
 
       if (metaRow.defaultValue !== valueToStore && valueToStore !== null) {
         updates.defaultValue = valueToStore;
@@ -1023,7 +1035,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       logger.warning`#syncFromDB scoped fields used without project scope, falling back to "${SHARED}": ${scopedWithoutProject.join(', ')}`;
     }
 
-    logger.info`#syncFromDB summary mode=${syncMode} scope=${projectScope ?? SHARED} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed} metadataSkippedNotOwned=${stats.metadataSkippedNotOwned}`;
+    logger.info`#syncFromDB summary mode=${syncMode} scope=${projectScope ?? SHARED} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed} metadataSkippedNotOwned=${stats.metadataSkippedNotOwned} defaultConflicts=${stats.metadataDefaultConflicts}`;
+
+    // 返回统计供调用方断言/告警（现有调用方忽略返回值即可）。
+    return stats;
   }
 }
 
