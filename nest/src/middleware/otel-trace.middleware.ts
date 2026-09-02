@@ -6,14 +6,15 @@
  * trace 信息，iOS / 日志排障都没法关联。middleware 在 guard 之前执行，这里写 header 能
  * 保证成功和异常两条路径都带上。
  *
- * 两种运行模式：
- * 1. **Sentry 模式**（`SENTRY_DSN` 已配置）：Sentry 通过 `instrument.js` 预加载已经挂了
- *    HttpInstrumentation，active context 里已经有 SERVER span。我们只需要读出来写 header，
- *    不再建重复的 span。
- * 2. **非 Sentry 模式**：我们自己建一个 SERVER span（让 GrpcInstrumentation 有 parent
+ * 运行模式：
+ * 1. **已有 active SERVER span**（Sentry 接管 OTel 时代，或 APP_OTEL_HTTP_INSTRUMENTATION_ENABLED
+ *    开着）：读出来写 header，不再建重复的 span。
+ * 2. **没有 active span**（默认——errors-only Sentry 的 httpIntegration `spans:false` 不建 span，
+ *    HttpInstrumentation 又默认关）：自己建一个 SERVER span（让 GrpcInstrumentation 有 parent
  *    context 可传播），然后写 header。替代 @opentelemetry/instrumentation-http 的
  *    HttpInstrumentation —— 后者通过 context.bind(req/res) patch EventEmitter，在
  *    Apollo + Bun/JSC 下放大内存泄漏（https://github.com/open-telemetry/opentelemetry-js/issues/5514）。
+ *    无论哪种配置组合，非健康检查响应必须带 X-Trace-Id/traceparent —— 这是本 middleware 的本职。
  *
  * 两种模式都**不**调用 context.bind(req/res)，不 patch EventEmitter。
  */
@@ -38,21 +39,28 @@ export function otelTraceMiddleware(req: Request, res: Response, next: NextFunct
     return;
   }
 
-  // Sentry 模式：Sentry 的 HttpInstrumentation 已在 request 进入时创建了 SERVER span，
-  // 本 middleware 跑到这一刻 active context 里就有 Sentry 的 span。我们只需读取 + 写 header。
-  // 如果自己再建 span，会变成 Sentry span 的子 span —— traceId 相同但 response 里 spanId
-  // 会偏离 Sentry 看到的那个，给联调带来困扰。
+  // Sentry 模式：若 active context 里已有 SERVER span（Sentry 接管 OTel 或某个
+  // instrumentation 建的），读取 + 写 header 即可。如果自己再建 span，会变成它的子
+  // span —— traceId 相同但 response 里 spanId 会偏离 Sentry 看到的那个，给联调带来困扰。
+  //
+  // 但**没有** active span 时必须 fall through 到自建 span 分支：自 Sentry/OTel 分家
+  // （instrument.ts `skipOpenTelemetrySetup: true` + `tracesSampleRate: 0`）起，Sentry 的
+  // httpIntegration 自动 `spans: false`，永远不会建 HTTP SERVER span；HttpInstrumentation
+  // 又是 opt-in（APP_OTEL_HTTP_INSTRUMENTATION_ENABLED）默认关。旧行为「读不到就不写」
+  // 让所有配置了 SENTRY_DSN 的环境静默丢失 X-Trace-Id/traceparent（staging 实测断联半月，
+  // iOS 排障找不到请求才暴露）。写 trace header 是本 middleware 的本职，不能依赖别人建 span。
   if (process.env.SENTRY_DSN) {
     const activeSpan = trace.getSpan(context.active());
     if (activeSpan) {
       const { traceId, spanId } = activeSpan.spanContext();
       writeTraceHeaders(res, traceId, spanId);
+      next();
+      return;
     }
-    next();
-    return;
+    // fall through：errors-only Sentry 建不出 span，走下面的自建分支
   }
 
-  // 非 Sentry 模式：自建 SERVER span
+  // 自建 SERVER span（非 Sentry 模式，或 Sentry 模式下无人建 span）
   // 从请求头提取 propagation context（支持上游传入 traceparent）
   const parentCtx = propagation.extract(context.active(), req.headers);
 
