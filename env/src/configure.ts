@@ -473,6 +473,7 @@ export interface ISysAppSettingClient {
         defaultValue: string | null;
         format: string;
         description?: string | null;
+        createdBy?: string | null;
       };
     }): Promise<ISysAppSettingRecord>;
     update(args: {
@@ -802,6 +803,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       metadataCreated: 0,
       metadataUpdated: 0,
       metadataUpdateFailed: 0,
+      metadataSkippedNotOwned: 0,
     };
 
     if (writeEnabled) {
@@ -924,6 +926,26 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const metaRow = appSettings.find((s) => s.key === field && s.scope === writeScope);
       if (!metaRow) continue;
 
+      // 归属隔离：只更新自己 createdBy 的行 —— 与上面 orphan 检测同一条谓词。
+      //
+      // scope='shared' 的一行会被 N 个服务共读共写，但 defaultValue 存的是「**某个服务**
+      // 对这个 key 的代码默认值」——per-(service,key) 的事实被存进了 per-key 的位置。
+      // 少了这道判断，每个服务都会把别人的默认值改回自己的：unee-prod 实测
+      // PRISMA_TRANSACTION_TIMEOUT 被 unee-server 每分钟写 '30000'、被 unee-ai-persona
+      // 每分钟改回 '5000'，7 个进程 × 2 个 key ≈ 2 万次写/天，永不收敛，且把
+      // updated_at 冲成噪音（排障时无法判断一行到底何时被真正改过）。
+      // 两边的默认值本来就该不同（server 事务 30s、persona 5s 都对），所以这不可能
+      // 靠「统一默认值」消除，只能靠归属隔离。
+      //
+      // createdBy 为 null 的历史行同样跳过（与 orphan 检测一致，见上）：让某个服务
+      // 顺手「认领」会引入新危害 —— 认领方将来从代码里删掉该字段时，orphan 检测就会
+      // 去 deprecate 这一行，而其他服务还在用它。历史行的归属需要人判断后一次性回填，
+      // 不该由每分钟跑一次的同步循环去猜。
+      if (metaRow.createdBy !== projectScope) {
+        stats.metadataSkippedNotOwned += 1;
+        continue;
+      }
+
       const updates: { defaultValue?: string; description?: string } = {};
       const valueToStore =
         defaultValue !== undefined
@@ -957,6 +979,9 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
                 defaultValue: updates.defaultValue ?? null,
                 format: format as string,
                 description: updates.description ?? null,
+                // 必须带归属：否则这一行永远无主，之后每一轮都会被上面的归属判断跳过，
+                // 元数据再也不会更新（与 createMany 的建行路径保持一致）。
+                createdBy: projectScope,
               },
             });
             logger.info`#syncFromDB created record for ${field} scope=${writeScope}`;
@@ -978,7 +1003,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       logger.warning`#syncFromDB scoped fields used without project scope, falling back to "${SHARED}": ${scopedWithoutProject.join(', ')}`;
     }
 
-    logger.info`#syncFromDB summary mode=${syncMode} scope=${projectScope ?? SHARED} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed}`;
+    logger.info`#syncFromDB summary mode=${syncMode} scope=${projectScope ?? SHARED} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed} metadataSkippedNotOwned=${stats.metadataSkippedNotOwned}`;
   }
 }
 
