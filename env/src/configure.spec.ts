@@ -1251,6 +1251,116 @@ describe('AppConfigure', () => {
       expect(active.SCOPED_FIELD).toBe('db-value');
     });
 
+    // 归属隔离止住了写循环，但它是静音的。shared 字段按定义应当全网一个默认值，
+    // 值不一致就是有人用错了（子类改了基类默认值，或部署 env 覆盖了它 ——
+    // 注意 defaultValue 取自 env 解析后的值）。只在值真的不同时才报。
+    it('reports a conflict when another service stored a different default for a shared field', async () => {
+      class Envs {
+        @DatabaseField('boolean', 'verbose fetch log')
+        LLM_FETCH_VERBOSE: boolean = false; // 本服务 false
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'LLM_FETCH_VERBOSE',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'true', // 别人存的是 true
+          format: 'boolean',
+          description: 'verbose fetch log',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona',
+        },
+      ]);
+
+      const stats = await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, {
+        scope: 'unee-server',
+      });
+
+      expect(stats.metadataSkippedNotOwned).toBe(1);
+      expect(stats.metadataDefaultConflicts).toBe(1);
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled(); // 报，但仍然不写
+    });
+
+    // 分歧告警会打印「本服务的值 vs DB 里的值」。凡是 isSensitive 判为真的字段都必须脱敏 ——
+    // API_KEY 本身就是基类的 @DatabaseField，且「不自行设置每次启动都会变更」，
+    // 也就是每个服务的值天然不同、必然命中告警分支。这个谓词一旦漏判，
+    // 就是每分钟把两份真实凭据写进应用日志。
+    it('isSensitive covers the credential-shaped keys the conflict warning could print', () => {
+      for (const key of [
+        'API_KEY', // 基类 @DatabaseField，天然每服务不同 → 必然触发分歧告警
+        'SESSION_SECRET',
+        'TELEGRAM_BOT_TOKEN',
+        'SENTRY_DSN',
+        'REDIS_PASSWORD',
+        'DATABASE_URL',
+      ]) {
+        expect(AppConfigure.isSensitive(key)).toBe(true);
+      }
+      // 非敏感字段照常打印真实值 —— 分歧告警的价值就在于能看到 30000 vs 5000
+      for (const key of ['PRISMA_TRANSACTION_TIMEOUT', 'LLM_FETCH_VERBOSE', 'APP_MAIN_CHAT_MODEL']) {
+        expect(AppConfigure.isSensitive(key)).toBe(false);
+      }
+    });
+
+    it('still counts the conflict for a sensitive field (redaction must not suppress detection)', async () => {
+      class Envs {
+        @DatabaseField('string', 'system api key')
+        API_KEY?: string = 'local-secret';
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'API_KEY',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'other-service-secret',
+          format: 'string',
+          description: 'system api key',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona',
+        },
+      ]);
+
+      const stats = await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, {
+        scope: 'unee-server',
+      });
+
+      // 脱敏只影响打印内容，不影响是否检出
+      expect(stats.metadataDefaultConflicts).toBe(1);
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+    });
+
+    it('stays silent when the other service stored the same default (no conflict)', async () => {
+      class Envs {
+        @DatabaseField('boolean', 'verbose fetch log')
+        LLM_FETCH_VERBOSE: boolean = false;
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'LLM_FETCH_VERBOSE',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'false', // 与本服务一致 —— 正常情况
+          format: 'boolean',
+          description: 'verbose fetch log',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona',
+        },
+      ]);
+
+      const stats = await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, {
+        scope: 'unee-server',
+      });
+
+      expect(stats.metadataSkippedNotOwned).toBe(1); // 仍然跳过（不是我的行）
+      expect(stats.metadataDefaultConflicts).toBe(0); // 但不报 —— 没有分歧
+    });
+
     it('converges: owner stops writing once defaultValue matches its code default', async () => {
       class Envs {
         @DatabaseField('number', 'tx timeout')
