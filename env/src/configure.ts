@@ -675,8 +675,13 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // 注意：使用 activeEnvs 来查找装饰器元数据
     // 原因：originalEnvs 是通过 structuredClone 创建的普通对象，丢失了类原型链
     // 而 activeEnvs 是通过 plainToInstance 创建的类实例，保留了原型链和装饰器元数据
-    const projectScope = options?.scope;
     const SHARED = 'shared';
+    // 'shared' 是保留哨兵值（共享配置行的 scope），不能同时充当某个服务的 project scope：
+    // 那样 scoped 字段与非 scoped 字段的 writeScope 会塌成同一个值，project 行与 shared
+    // 行不再可分，归属隔离整体失效 —— 每个这样配置的服务都会去改别人的 shared 元数据。
+    // 视为配置错误，降级为只读（照常读 DB 配置，但不写任何元数据），并明确报出来。
+    const rawScope = options?.scope;
+    const projectScope = rawScope === SHARED ? undefined : rawScope;
 
     const envClass = (activeEnvs as { constructor: new () => T }).constructor;
     const validateDbValue = (
@@ -749,6 +754,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const managedFieldNames = fields.map((f) => f.field).sort((a, b) => a.localeCompare(b));
 
     const logger = getAppLogger('AppConfigure');
+
+    if (rawScope === SHARED) {
+      logger.error`#syncFromDB scope="${SHARED}" 是保留值，不能作为服务的 project scope —— 归属隔离失效，本次降级为只读。请改用服务名（APP_NAME）。`;
+    }
 
     logger.debug`#syncFromDB... reload app settings from db.`;
     logger.debug`${`#syncFromDB mode=${syncMode} scope=${projectScope ?? '(none)'}`}`;

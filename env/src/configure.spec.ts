@@ -1220,6 +1220,37 @@ describe('AppConfigure', () => {
       expect(mockPrisma.sysAppSetting.create).not.toHaveBeenCalled();
     });
 
+    it('rejects the reserved scope "shared" for a scoped field too (degrades to read-only)', async () => {
+      class Envs {
+        @DatabaseField('string', { description: 'new desc', scoped: true })
+        SCOPED_FIELD: string = 'new_default';
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'SCOPED_FIELD',
+          scope: 'shared',
+          value: 'db-value',
+          defaultValue: 'old_default',
+          description: 'old desc',
+          format: 'string',
+          deprecatedAt: null,
+          createdBy: 'someone-else',
+        },
+      ]);
+
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'shared' });
+
+      // 只读降级：一个写都不能有
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.create).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.createMany).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.updateMany).not.toHaveBeenCalled();
+      // 但读仍然照常生效
+      expect(active.SCOPED_FIELD).toBe('db-value');
+    });
+
     it('converges: owner stops writing once defaultValue matches its code default', async () => {
       class Envs {
         @DatabaseField('number', 'tx timeout')
