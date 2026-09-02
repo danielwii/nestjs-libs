@@ -418,6 +418,9 @@ describe('AppConfigure', () => {
                 defaultValue: 'old_default',
                 description: 'Old Description',
                 format: 'string',
+                // 本行归属同步方 —— 元数据更新以归属为前提（见下方归属隔离用例）。
+                // 这条测的是「默认值/描述变了要写回」的机制，不是归属判断。
+                createdBy: 'test-project',
               },
             ]),
           ),
@@ -916,6 +919,9 @@ describe('AppConfigure', () => {
           defaultValue: 'old_default',
           description: 'Old Desc',
           format: 'string',
+          // 同上：本行归属同步方，否则元数据更新会被归属隔离跳过，
+          // 这条测的是复合键的用法，不是归属判断。
+          createdBy: 'my-project',
         },
       ]);
 
@@ -1056,6 +1062,126 @@ describe('AppConfigure', () => {
       for (const row of createData) {
         expect(row.createdBy).toBe('my-app');
       }
+    });
+
+    // ─── 元数据写入的归属隔离（2026-09-02 prod 发现的写冲突循环）────────────
+    //
+    // scope='shared' 的一行被 N 个服务共读共写，但 defaultValue 存的是「**某个服务**
+    // 对这个 key 的代码默认值」—— 是 per-(service,key) 的事实，被存进了 per-key 的位置。
+    // unee-prod 实测：PRISMA_TRANSACTION_TIMEOUT 被 unee-server 每分钟写 '30000'、
+    // 被 unee-ai-persona 每分钟改回 '5000'，7 个进程 × 2 个 key ≈ 2 万次写/天，永不收敛。
+    // 而两边的默认值本来就该不同（server 事务 30s、persona 5s 都是对的），
+    // 所以这不可能靠「统一默认值」消除，只能靠归属隔离：不是自己的行就不写。
+    //
+    // 归属谓词与 orphan 检测保持同一条（createdBy === projectScope）：
+    // createdBy 为 null 的历史行同样不碰 —— 「认领」会带来新危害（认领方将来
+    // 删掉该字段时会去 deprecate 这一行，而其他服务还在用它）。
+
+    it('does not overwrite shared metadata owned by another service', async () => {
+      class Envs {
+        @DatabaseField('boolean', 'verbose fetch log')
+        LLM_FETCH_VERBOSE: boolean = false; // 本服务默认 false
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'LLM_FETCH_VERBOSE',
+          scope: 'shared',
+          value: null,
+          defaultValue: 'true', // 另一个服务写的 true
+          format: 'boolean',
+          description: 'verbose fetch log',
+          deprecatedAt: null,
+          createdBy: 'unee-ai-persona', // ← 归属别人
+        },
+      ]);
+
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'unee-server' });
+
+      // 不是我的行 —— 一次都不能写，否则就是每分钟把对方覆盖掉的那个循环
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+      expect(mockPrisma.sysAppSetting.create).not.toHaveBeenCalled();
+    });
+
+    it('does not touch legacy shared rows with null createdBy (same predicate as orphan detection)', async () => {
+      class Envs {
+        @DatabaseField('number', 'tx timeout')
+        PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'PRISMA_TRANSACTION_TIMEOUT',
+          scope: 'shared',
+          value: null,
+          defaultValue: '5000',
+          format: 'number',
+          description: 'tx timeout',
+          deprecatedAt: null,
+          createdBy: null, // ← 无主历史行
+        },
+      ]);
+
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'unee-server' });
+
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+    });
+
+    it('still updates metadata on rows this service owns', async () => {
+      class Envs {
+        @DatabaseField('number', 'tx timeout')
+        PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'PRISMA_TRANSACTION_TIMEOUT',
+          scope: 'shared',
+          value: null,
+          defaultValue: '5000', // 陈旧，本服务代码默认已改成 30000
+          format: 'number',
+          description: 'tx timeout',
+          deprecatedAt: null,
+          createdBy: 'unee-server', // ← 归属自己
+        },
+      ]);
+
+      await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'unee-server' });
+
+      expect(mockPrisma.sysAppSetting.update).toHaveBeenCalled();
+      const call = (mockPrisma.sysAppSetting.update.mock.calls as any[][])[0]![0];
+      expect(call.data.defaultValue).toBe('30000');
+    });
+
+    it('converges: owner stops writing once defaultValue matches its code default', async () => {
+      class Envs {
+        @DatabaseField('number', 'tx timeout')
+        PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
+      }
+      const original = new Envs();
+      const active = new Envs();
+      const mockPrisma = buildScopedMock([
+        {
+          key: 'PRISMA_TRANSACTION_TIMEOUT',
+          scope: 'shared',
+          value: null,
+          defaultValue: '30000', // 已与本服务代码默认一致
+          format: 'number',
+          description: 'tx timeout',
+          deprecatedAt: null,
+          createdBy: 'unee-server',
+        },
+      ]);
+
+      // 稳态：同一份 DB 状态连跑 3 轮，一次写都不该有
+      for (let i = 0; i < 3; i++) {
+        await AppConfigure.syncFromDB(mockPrisma as any, original as any, active as any, { scope: 'unee-server' });
+      }
+
+      expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
     });
   });
 });
