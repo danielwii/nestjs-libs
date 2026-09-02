@@ -675,8 +675,13 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     // 注意：使用 activeEnvs 来查找装饰器元数据
     // 原因：originalEnvs 是通过 structuredClone 创建的普通对象，丢失了类原型链
     // 而 activeEnvs 是通过 plainToInstance 创建的类实例，保留了原型链和装饰器元数据
-    const projectScope = options?.scope;
     const SHARED = 'shared';
+    // 'shared' 是保留哨兵值（共享配置行的 scope），不能同时充当某个服务的 project scope：
+    // 那样 scoped 字段与非 scoped 字段的 writeScope 会塌成同一个值，project 行与 shared
+    // 行不再可分，归属隔离整体失效 —— 每个这样配置的服务都会去改别人的 shared 元数据。
+    // 视为配置错误，降级为只读（照常读 DB 配置，但不写任何元数据），并明确报出来。
+    const rawScope = options?.scope;
+    const projectScope = rawScope === SHARED ? undefined : rawScope;
 
     const envClass = (activeEnvs as { constructor: new () => T }).constructor;
     const validateDbValue = (
@@ -749,6 +754,10 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const managedFieldNames = fields.map((f) => f.field).sort((a, b) => a.localeCompare(b));
 
     const logger = getAppLogger('AppConfigure');
+
+    if (rawScope === SHARED) {
+      logger.error`#syncFromDB scope="${SHARED}" 是保留值，不能作为服务的 project scope —— 归属隔离失效，本次降级为只读。请改用服务名（APP_NAME）。`;
+    }
 
     logger.debug`#syncFromDB... reload app settings from db.`;
     logger.debug`${`#syncFromDB mode=${syncMode} scope=${projectScope ?? '(none)'}`}`;
@@ -926,7 +935,14 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       const metaRow = appSettings.find((s) => s.key === field && s.scope === writeScope);
       if (!metaRow) continue;
 
-      // 归属隔离：只更新自己 createdBy 的行 —— 与上面 orphan 检测同一条谓词。
+      // 归属隔离 —— 与上面 orphan 检测**同样的不对称**：
+      //   · project-scoped 行（writeScope === projectScope）：scope 本身就是归属证明，
+      //     只有本 project 会写这个 scope，不存在跨服务冲突 → 无条件更新。
+      //     （对应 orphan 检测里 project 分支不按 createdBy 过滤。）
+      //   · shared 行：N 个服务共读共写 → 必须按 createdBy 判归属。
+      //     （对应 orphan 检测里 shared 分支的 `s.createdBy === projectScope`。）
+      // 若对 project 行也要求 createdBy，历史上 createdBy 为空的 project 行会被永久
+      // 冻结元数据，而它们本来就没有冲突风险。
       //
       // scope='shared' 的一行会被 N 个服务共读共写，但 defaultValue 存的是「**某个服务**
       // 对这个 key 的代码默认值」——per-(service,key) 的事实被存进了 per-key 的位置。
@@ -941,7 +957,11 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       // 顺手「认领」会引入新危害 —— 认领方将来从代码里删掉该字段时，orphan 检测就会
       // 去 deprecate 这一行，而其他服务还在用它。历史行的归属需要人判断后一次性回填，
       // 不该由每分钟跑一次的同步循环去猜。
-      if (metaRow.createdBy !== projectScope) {
+      // 用 isScoped 而不是 `writeScope === projectScope`：公开 API 的 `scope?: string`
+      // 允许传入保留值 'shared'，那时非 scoped 字段的 writeScope 也等于 projectScope，
+      // 字符串相等会把**所有** shared 行判成自己的 —— 跨服务写冲突原样回来。
+      const ownsRow = isScoped || metaRow.createdBy === projectScope;
+      if (!ownsRow) {
         stats.metadataSkippedNotOwned += 1;
         continue;
       }
