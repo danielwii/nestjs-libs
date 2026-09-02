@@ -150,7 +150,12 @@ describe('otelTraceMiddleware', () => {
       process.env.SENTRY_DSN = 'https://dummy@example.com/1';
     });
 
-    it('无 active span 时：不调用 setHeader，正常调用 next（Sentry 未挂 instrumentation 的兜底）', () => {
+    it('无 active span 时：fall through 自建 span，header 仍然写上（errors-only Sentry 不建 HTTP span）', () => {
+      // 自 Sentry/OTel 分家（skipOpenTelemetrySetup + tracesSampleRate:0）起，Sentry 的
+      // httpIntegration 自动 spans:false —— Sentry 模式下 active context 里【永远】没有
+      // SERVER span。旧契约「无 active span → 不写 header」让 X-Trace-Id 在所有配置了
+      // SENTRY_DSN 的环境静默消失（staging 实测断了半个月无人察觉）。新契约：读不到
+      // Sentry span 就走自建 span 分支，任何配置组合响应都必须带 trace header。
       const req = createMockReq('/graphql');
       const res = createMockRes();
       const next: NextFunction = mock(() => undefined);
@@ -158,9 +163,8 @@ describe('otelTraceMiddleware', () => {
       otelTraceMiddleware(req, res as unknown as Response, next);
 
       expect(next).toHaveBeenCalled();
-      // 无 active span → 不写 header；这是 Sentry 没初始化成功的退化场景，不应崩
-      expect(res._headers['X-Trace-Id']).toBeUndefined();
-      expect(res._headers.traceparent).toBeUndefined();
+      expect(res._headers['X-Trace-Id']).toMatch(/^[0-9a-f]{32}$/);
+      expect(res._headers.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
     });
 
     it('健康检查路径仍然跳过（与 Sentry 模式解耦）', () => {
