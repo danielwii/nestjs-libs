@@ -1,0 +1,19 @@
+// 仅供 bootstrap.spec.ts 的 hybrid gRPC 边界测试使用：一个最小 service，
+// 每个 rpc 对应一种"handler 抛出什么"的场景。
+syntax = "proto3";
+
+package libs.test.hybrid;
+
+service HybridProbe {
+  rpc Ping (PingRequest) returns (PingReply);
+  rpc RejectWithBlock (PingRequest) returns (PingReply);
+  rpc ThrowPlainError (PingRequest) returns (PingReply);
+}
+
+message PingRequest {
+  string echo = 1;
+}
+
+message PingReply {
+  string echo = 1;
+}

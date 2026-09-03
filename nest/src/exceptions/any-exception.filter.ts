@@ -10,9 +10,11 @@ import { getErrorMessage, getErrorName } from '@app/utils/error';
 import { isServerError, toErrorDescriptor } from './error-descriptor';
 import { OopsError } from './oops-error';
 
+import { status as GrpcStatus } from '@grpc/grpc-js';
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { GraphQLError } from 'graphql';
 import * as _ from 'radash';
+import { throwError } from 'rxjs';
 
 import type { IdentityRequest } from '../types/identity.interface';
 import type { HttpErrorDescriptor } from './error-descriptor';
@@ -120,6 +122,19 @@ export class AnyExceptionFilter implements ExceptionFilter {
   ) {}
 
   async catch(exception: unknown, host: ArgumentsHost) {
+    // rpc 上下文不归本过滤器管：本过滤器只会写 HTTP response 或 throw GraphQLError，而从 async filter
+    // 抛出的 GraphQLError 在 @nestjs/microservices 里是 unhandledRejection → 进程退出。走到这里 = gRPC
+    // microservice 没挂 GrpcExceptionFilter（应经 connectGrpcMicroserviceWithBoundary）。退化成 INTERNAL
+    // 并把接线错误喊出来，不杀进程。
+    if (host.getType() === 'rpc') {
+      this.logger
+        .error`#catch RPC exception reached AnyExceptionFilter — gRPC microservice is missing GrpcExceptionFilter (use connectGrpcMicroserviceWithBoundary) ${exception}`;
+      return throwError(() => ({
+        code: GrpcStatus.INTERNAL,
+        details: 'gRPC boundary misconfigured: AnyExceptionFilter cannot map RPC exceptions',
+      }));
+    }
+
     const ctx = host.switchToHttp();
     // GraphQL 场景 getResponse() 可能返回空对象，而非完整 Express Response
     const rawResponse = ctx.getResponse<Response | Record<string, never>>();

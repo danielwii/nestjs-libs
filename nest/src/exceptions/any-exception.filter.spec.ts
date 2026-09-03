@@ -23,6 +23,7 @@ import { GraphQLError } from 'graphql';
 import { ZodError } from 'zod';
 
 import type { ArgumentsHost } from '@nestjs/common';
+import type { Observable } from 'rxjs';
 
 // ==================== Test Helpers ====================
 
@@ -843,5 +844,27 @@ describe('clientAddr: 客户端地址必须带来源', () => {
   it('request 整个缺席时不抛', () => {
     expect(() => clientAddr(undefined)).not.toThrow();
     expect(clientAddr(undefined)).toContain('-');
+  });
+});
+
+// ==================== rpc host：接线错误兜底 ====================
+// 走到这里 = gRPC microservice 没挂 GrpcExceptionFilter。要求：不 throw（throw = unhandledRejection = 进程退出），
+// 不碰 HTTP response，返回带 INTERNAL 的 gRPC 错误流。
+
+describe('AnyExceptionFilter: rpc host', () => {
+  it('返回 INTERNAL 的错误流而不是 throw', async () => {
+    const filter = new AnyExceptionFilter();
+    const host = {
+      getType: () => 'rpc',
+      switchToHttp: () => {
+        throw new Error('must not touch the HTTP host in rpc context');
+      },
+    } as unknown as ArgumentsHost;
+
+    const result = await filter.catch(new Error('boom'), host);
+    const emitted = await new Promise<unknown>((resolve) => {
+      (result as Observable<unknown>).subscribe({ next: () => resolve('next'), error: resolve });
+    });
+    expect(emitted).toMatchObject({ code: 13 });
   });
 });
