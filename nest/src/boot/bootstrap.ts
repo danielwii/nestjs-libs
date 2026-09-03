@@ -48,7 +48,7 @@ import type {
   LogLevel,
   Type,
 } from '@nestjs/common';
-import type { MicroserviceOptions } from '@nestjs/microservices';
+import type { MicroserviceOptions, NestMicroservice } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -125,12 +125,51 @@ export function resolveGrpcProvider(options?: Pick<BootstrapOptions, 'grpc' | 'g
 }
 
 /**
- * Hybrid microservices share the root application's DI container. Their listener
- * registration must not defer initialization, otherwise the microservice and the
- * root HTTP app each run the same provider lifecycle hooks.
+ * Hybrid（api/scheduler + gRPC）微服务与根应用共用 DI 容器，但必须拿**独立的** ApplicationConfig
+ * 且**延迟** listener 注册：
+ *
+ * - `inheritAppConfig: false`：否则 gRPC 异常交给根应用的 AnyExceptionFilter，它在 rpc 上下文里
+ *   throw GraphQLError → unhandledRejection → 进程退出（calo-server 2026-09-03）。
+ * - `deferInitialization: true`：`connectMicroservice()` 默认当场 registerListeners，而 Nest 的
+ *   filter/guard/pipe/interceptor 在那一刻从 config 快照——之后 configureGrpcMicroserviceBoundary
+ *   装的全部无效（unee-server 因此在 gRPC 上既无 token 守卫也无 GrpcExceptionFilter，2026-09-03 实打坐实）。
+ *
+ * 延迟的代价是 microservice.listen() 会自己再跑一遍 lifecycle hook；由
+ * connectGrpcMicroserviceWithBoundary 用 setIsInitHookCalled(true) 交还给 app.init() 跑一次。
+ * 别拿本函数的返回值直接去 connect —— 用 connectGrpcMicroserviceWithBoundary。
+ *
+ * 纯 grpc 模式继承根配置（filter/guard 在 connect 之前已挂到 app 上），维持原样。
  */
-export function resolveGrpcHybridAppOptions(mode: BootstrapMode): { inheritAppConfig: boolean } {
-  return { inheritAppConfig: mode === 'grpc' };
+export function resolveGrpcHybridAppOptions(mode: BootstrapMode): {
+  inheritAppConfig: boolean;
+  deferInitialization: boolean;
+} {
+  const isGrpc = mode === 'grpc';
+  return { inheritAppConfig: isGrpc, deferInitialization: !isGrpc };
+}
+
+/**
+ * 把 gRPC microservice 接到 app 上，并保证边界（pipe / guard / interceptor / GrpcExceptionFilter）真正生效。
+ * bootstrap 与需要自己 connect 的消费者都走这里；三件事缺一不可，见 resolveGrpcHybridAppOptions。
+ */
+export function connectGrpcMicroserviceWithBoundary(
+  app: INestApplication,
+  microserviceOptions: MicroserviceOptions,
+  mode: BootstrapMode,
+  provider: string,
+): INestMicroservice {
+  const hybridAppOptions = resolveGrpcHybridAppOptions(mode);
+  const grpcMs = app.connectMicroservice<MicroserviceOptions>(
+    microserviceOptions,
+    hybridAppOptions,
+  ) as NestMicroservice;
+  if (!hybridAppOptions.inheritAppConfig) {
+    // 延迟路径下 microservice.listen() → registerModules() 会在 !wasInitHookCalled 时自己跑
+    // onModuleInit / onApplicationBootstrap；照 Nest 非延迟路径的做法把标记置上，hook 只由 app.init() 跑一次。
+    grpcMs.setIsInitHookCalled(true);
+    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider);
+  }
+  return grpcMs;
 }
 
 function createGlobalValidationPipe(): ValidationPipe {
@@ -451,9 +490,8 @@ export async function bootstrap(
   if (options?.grpc) {
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
-    const hybridAppOptions = resolveGrpcHybridAppOptions(mode);
-
-    const grpcMs = app.connectMicroservice<MicroserviceOptions>(
+    const grpcMs = connectGrpcMicroserviceWithBoundary(
+      app,
       {
         transport: Transport.GRPC,
         options: {
@@ -472,11 +510,9 @@ export async function bootstrap(
             : undefined,
         },
       },
-      hybridAppOptions,
+      mode,
+      grpcProvider,
     );
-    if (!hybridAppOptions.inheritAppConfig) {
-      configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), grpcProvider);
-    }
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 
     await app.startAllMicroservices();

@@ -13,12 +13,14 @@ import { OopsError } from './oops-error';
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { GraphQLError } from 'graphql';
 import * as _ from 'radash';
+import { throwError } from 'rxjs';
 
 import type { IdentityRequest } from '../types/identity.interface';
 import type { HttpErrorDescriptor } from './error-descriptor';
 import type { II18nService } from '@app/nest/common/i18n.interface';
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext, INestApplication } from '@nestjs/common';
 import type { Response } from 'express';
+import type { Observable } from 'rxjs';
 
 export { toErrorDescriptor } from './error-descriptor';
 export type { HttpErrorDescriptor } from './error-descriptor';
@@ -110,6 +112,14 @@ export function clientAddr(req?: { ip?: string; headers?: unknown }): string {
  * 调用方应 `throw Oops.*` / `throw new Oops.Block(...)`，不要依赖形状兼容。
  */
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
+/**
+ * gRPC `status.INTERNAL`。**故意不 import `@grpc/grpc-js`**：本过滤器是 HTTP/GraphQL 的过滤器，
+ * 纯 HTTP 消费者会直接 import 它（见 index.ts），而 `@grpc/grpc-js` 只是 devDependency ——
+ * 顶层 runtime import 会让这些消费者在启动时挂在模块解析上（Codex review #51）。
+ * 这个值只用于「接错线」兜底，不值得为它引入一个运行时依赖。
+ */
+const GRPC_STATUS_INTERNAL = 13;
+
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = getAppLogger('AnyExceptionFilter');
   private i18nService: II18nService | null = null;
@@ -119,7 +129,30 @@ export class AnyExceptionFilter implements ExceptionFilter {
     private readonly app?: INestApplication, // 应用实例，用于延迟获取服务
   ) {}
 
-  async catch(exception: unknown, host: ArgumentsHost) {
+  /**
+   * 同步入口。rpc 分支必须**同步**返回 Observable：Nest 的 RpcProxy 在 `catchError` 里把过滤器返回值
+   * 当 ObservableInput 订阅；返回 `Promise<Observable>` 时 RxJS 会订阅这个 Promise，然后把解出来的
+   * Observable 当作一个 **next 值**发出去 —— 请求变成"成功"的垃圾响应而不是 INTERNAL（Codex review #51）。
+   * HTTP / GraphQL 分支保持原先的 async 语义，交给 catchHttpOrGraphql。
+   */
+  catch(exception: unknown, host: ArgumentsHost): Observable<never> | Promise<unknown> {
+    // rpc 上下文不归本过滤器管：本过滤器只会写 HTTP response 或 throw GraphQLError，而从 async filter
+    // 抛出的 GraphQLError 在 @nestjs/microservices 里是 unhandledRejection → 进程退出。走到这里 = gRPC
+    // microservice 没挂 GrpcExceptionFilter（应经 connectGrpcMicroserviceWithBoundary）。退化成 INTERNAL
+    // 并把接线错误喊出来，不杀进程。
+    if (host.getType() === 'rpc') {
+      this.logger
+        .error`#catch RPC exception reached AnyExceptionFilter — gRPC microservice is missing GrpcExceptionFilter (use connectGrpcMicroserviceWithBoundary) ${exception}`;
+      return throwError(() => ({
+        code: GRPC_STATUS_INTERNAL,
+        details: 'gRPC boundary misconfigured: AnyExceptionFilter cannot map RPC exceptions',
+      }));
+    }
+
+    return this.catchHttpOrGraphql(exception, host);
+  }
+
+  private async catchHttpOrGraphql(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     // GraphQL 场景 getResponse() 可能返回空对象，而非完整 Express Response
     const rawResponse = ctx.getResponse<Response | Record<string, never>>();
