@@ -2,6 +2,7 @@ import { Controller, Module, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { GrpcMethod, Transport } from '@nestjs/microservices';
 
+import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
 import { Oops } from '@app/nest/exceptions/oops';
@@ -24,6 +25,7 @@ import { createServer } from 'node:net';
 import * as grpc from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { throwError } from 'rxjs';
 
 import type { INestApplication, OnModuleInit } from '@nestjs/common';
 import type { CustomTransportStrategy } from '@nestjs/microservices';
@@ -253,6 +255,113 @@ describe('connectGrpcMicroserviceWithBoundary (real transport, api mode)', () =>
 
   it('keeps serving after every failure mode; nothing leaked as unhandledRejection', async () => {
     expect(await call('ping', true)).toEqual({ ok: { echo: 'ping' } });
+    expect(rejections).toEqual([]);
+  });
+});
+
+// ==================== 故意接错线：microservice 继承了根应用的 AnyExceptionFilter ====================
+//
+// 这就是 calo-server 2026-09-03 崩溃时的接线（inheritAppConfig: true + app 级 AnyExceptionFilter）。
+// 兜底要求：无论 handler 是同步 throw 还是返回 error Observable，客户端都拿到 INTERNAL，进程不退出、
+// 零 unhandledRejection。**Observable 路径必须单独测**：RpcProxy 只在 handler 返回 Observable 时走
+// catchError，而 catchError 拿到 Promise<Observable> 会把它当 next 值发出去 → 变成"成功"的垃圾响应。
+// 同步 throw 那条路径两种写法都能过，所以只测它等于没测（Codex review #51）。
+
+@Controller()
+class MiswiredProbeController {
+  @GrpcMethod('HybridProbe', 'Ping')
+  ping(data: { echo: string }) {
+    return { echo: data.echo };
+  }
+
+  @GrpcMethod('HybridProbe', 'RejectWithBlock')
+  rejectViaObservable() {
+    return throwError(() => new Error('rx boom'));
+  }
+
+  @GrpcMethod('HybridProbe', 'ThrowPlainError')
+  throwPlainError(): never {
+    throw new Error('sync boom');
+  }
+}
+
+@Module({ controllers: [MiswiredProbeController] })
+class MiswiredProbeModule {}
+
+describe('AnyExceptionFilter reached from a miswired gRPC microservice (real transport)', () => {
+  let app: INestApplication;
+  let client: Record<string, (...args: unknown[]) => void>;
+  const rejections: unknown[] = [];
+  const onUnhandledRejection = (reason: unknown) => {
+    rejections.push(reason);
+  };
+
+  const call = (method: string): Promise<UnaryResult> => {
+    const unary = client[method]?.bind(client);
+    if (!unary) throw new Error(`no such rpc: ${method}`);
+    return new Promise((resolve) => {
+      unary(
+        { echo: method },
+        new grpc.Metadata(),
+        { deadline: Date.now() + 3_000 },
+        (err: grpc.ServiceError | null, res: { echo: string }) => resolve(err ? { err } : { ok: res }),
+      );
+    });
+  };
+
+  beforeAll(async () => {
+    process.on('unhandledRejection', onUnhandledRejection);
+    app = await NestFactory.create(MiswiredProbeModule, { logger: false });
+    app.useGlobalFilters(new AnyExceptionFilter());
+    const port = await freePort();
+    app.connectMicroservice(
+      {
+        transport: Transport.GRPC,
+        options: {
+          package: 'libs.test.hybrid',
+          protoPath: HYBRID_PROTO,
+          url: `127.0.0.1:${port}`,
+          loader: HYBRID_LOADER,
+        },
+      },
+      { inheritAppConfig: true },
+    );
+    await app.startAllMicroservices();
+    await app.init();
+
+    const pkg = grpc.loadPackageDefinition(loadSync(HYBRID_PROTO, HYBRID_LOADER)) as unknown as {
+      libs: { test: { hybrid: { HybridProbe: new (addr: string, creds: grpc.ChannelCredentials) => unknown } } };
+    };
+    client = new pkg.libs.test.hybrid.HybridProbe(
+      `127.0.0.1:${port}`,
+      grpc.credentials.createInsecure(),
+    ) as typeof client;
+  }, 30_000);
+
+  afterAll(async () => {
+    (client as unknown as { close?: () => void }).close?.();
+    await app?.close();
+    process.off('unhandledRejection', onUnhandledRejection);
+  });
+
+  it('sync throw in handler → INTERNAL with the misconfiguration message, not a dead process', async () => {
+    const r = await call('throwPlainError');
+    expect('err' in r).toBe(true);
+    if (!('err' in r)) return;
+    expect(r.err.code).toBe(grpc.status.INTERNAL);
+    expect(r.err.details).toContain('gRPC boundary misconfigured');
+  });
+
+  it('error Observable from handler → INTERNAL (the rpc branch must return synchronously)', async () => {
+    const r = await call('rejectWithBlock');
+    expect('err' in r).toBe(true);
+    if (!('err' in r)) return;
+    expect(r.err.code).toBe(grpc.status.INTERNAL);
+    expect(r.err.details).toContain('gRPC boundary misconfigured');
+  });
+
+  it('keeps serving; nothing leaked as unhandledRejection', async () => {
+    expect(await call('ping')).toEqual({ ok: { echo: 'ping' } });
     expect(rejections).toEqual([]);
   });
 });

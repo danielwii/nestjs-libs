@@ -861,7 +861,11 @@ describe('AnyExceptionFilter: rpc host', () => {
       },
     } as unknown as ArgumentsHost;
 
-    const result = await filter.catch(new Error('boom'), host);
+    // 故意不 await：必须**同步**拿到 Observable。Nest 在 catchError 里把 Promise<Observable> 当普通值发出，
+    // 先 await 再订阅会把这个错误完全掩盖（Codex review #51 —— 初版就是这么漏掉的）。
+    const result = filter.catch(new Error('boom'), host);
+    expect(result).not.toBeInstanceOf(Promise);
+    expect(typeof (result as Observable<unknown>).subscribe).toBe('function');
     const emitted = await new Promise<unknown>((resolve) => {
       (result as Observable<unknown>).subscribe({ next: () => resolve('next'), error: resolve });
     });
