@@ -10,7 +10,6 @@ import { getErrorMessage, getErrorName } from '@app/utils/error';
 import { isServerError, toErrorDescriptor } from './error-descriptor';
 import { OopsError } from './oops-error';
 
-import { status as GrpcStatus } from '@grpc/grpc-js';
 import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { GraphQLError } from 'graphql';
 import * as _ from 'radash';
@@ -113,6 +112,14 @@ export function clientAddr(req?: { ip?: string; headers?: unknown }): string {
  * 调用方应 `throw Oops.*` / `throw new Oops.Block(...)`，不要依赖形状兼容。
  */
 // @Catch() // or app.useGlobalFilters(new AnyExceptionFilter())
+/**
+ * gRPC `status.INTERNAL`。**故意不 import `@grpc/grpc-js`**：本过滤器是 HTTP/GraphQL 的过滤器，
+ * 纯 HTTP 消费者会直接 import 它（见 index.ts），而 `@grpc/grpc-js` 只是 devDependency ——
+ * 顶层 runtime import 会让这些消费者在启动时挂在模块解析上（Codex review #51）。
+ * 这个值只用于「接错线」兜底，不值得为它引入一个运行时依赖。
+ */
+const GRPC_STATUS_INTERNAL = 13;
+
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = getAppLogger('AnyExceptionFilter');
   private i18nService: II18nService | null = null;
@@ -137,7 +144,7 @@ export class AnyExceptionFilter implements ExceptionFilter {
       this.logger
         .error`#catch RPC exception reached AnyExceptionFilter — gRPC microservice is missing GrpcExceptionFilter (use connectGrpcMicroserviceWithBoundary) ${exception}`;
       return throwError(() => ({
-        code: GrpcStatus.INTERNAL,
+        code: GRPC_STATUS_INTERNAL,
         details: 'gRPC boundary misconfigured: AnyExceptionFilter cannot map RPC exceptions',
       }));
     }

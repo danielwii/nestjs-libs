@@ -18,6 +18,7 @@ import { Oops } from './oops';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { status as GrpcStatus } from '@grpc/grpc-js';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { GraphQLError } from 'graphql';
 import { ZodError } from 'zod';
@@ -869,6 +870,8 @@ describe('AnyExceptionFilter: rpc host', () => {
     const emitted = await new Promise<unknown>((resolve) => {
       (result as Observable<unknown>).subscribe({ next: () => resolve('next'), error: resolve });
     });
-    expect(emitted).toMatchObject({ code: 13 });
+    // 对着真 grpc-js 的 enum 断言：过滤器本体为了不引入 runtime 依赖而硬编码了 13，
+    // 这条测试保证它不会与上游漂移（spec 可以自由用 devDependency）。
+    expect(emitted).toMatchObject({ code: GrpcStatus.INTERNAL });
   });
 });
