@@ -125,27 +125,23 @@ export function resolveGrpcProvider(options?: Pick<BootstrapOptions, 'grpc' | 'g
 }
 
 /**
- * Hybrid（api/scheduler + gRPC）微服务与根应用共用 DI 容器，但必须拿**独立的** ApplicationConfig
- * 且**延迟** listener 注册：
+ * Hybrid（api/scheduler + gRPC）微服务与根应用共用 DI 容器，但必须拿**独立的** ApplicationConfig：
+ * 否则 gRPC 异常交给根应用的 AnyExceptionFilter，它在 rpc 上下文里 throw GraphQLError
+ * → unhandledRejection → 进程退出（calo-server 2026-09-03）。纯 grpc 模式继承根配置
+ * （filter/guard 在 connect 之前已挂到 app 上），维持原样。
  *
- * - `inheritAppConfig: false`：否则 gRPC 异常交给根应用的 AnyExceptionFilter，它在 rpc 上下文里
- *   throw GraphQLError → unhandledRejection → 进程退出（calo-server 2026-09-03）。
- * - `deferInitialization: true`：`connectMicroservice()` 默认当场 registerListeners，而 Nest 的
- *   filter/guard/pipe/interceptor 在那一刻从 config 快照——之后 configureGrpcMicroserviceBoundary
- *   装的全部无效（unee-server 因此在 gRPC 上既无 token 守卫也无 GrpcExceptionFilter，2026-09-03 实打坐实）。
+ * ⚠️ **本函数只回答「要不要继承根配置」这一个问题，不含 `deferInitialization`。**
+ * 延迟初始化必须与 `setIsInitHookCalled(true)` 成对出现（见
+ * {@link connectGrpcMicroserviceWithBoundary}），单独把 `deferInitialization: true` 交给调用方
+ * 会让 `startAllMicroservices()` 自己跑一遍 `onModuleInit`/`onApplicationBootstrap`
+ * —— Bull handler 双注册、Prisma/Redis 双连（2026-09-03 unee-server 的 spec 逮到过）。
+ * 所以这对儿只存在于 helper 内部，公开 API 不出售半截。
  *
- * 延迟的代价是 microservice.listen() 会自己再跑一遍 lifecycle hook；由
- * connectGrpcMicroserviceWithBoundary 用 setIsInitHookCalled(true) 交还给 app.init() 跑一次。
- * 别拿本函数的返回值直接去 connect —— 用 connectGrpcMicroserviceWithBoundary。
- *
- * 纯 grpc 模式继承根配置（filter/guard 在 connect 之前已挂到 app 上），维持原样。
+ * 要接 microservice 请用 {@link connectGrpcMicroserviceWithBoundary}，不要拿本函数的返回值
+ * 自己去 `connectMicroservice` —— 那样拿不到 gRPC 边界（守卫 / 过滤器 / 管道 / 拦截器）。
  */
-export function resolveGrpcHybridAppOptions(mode: BootstrapMode): {
-  inheritAppConfig: boolean;
-  deferInitialization: boolean;
-} {
-  const isGrpc = mode === 'grpc';
-  return { inheritAppConfig: isGrpc, deferInitialization: !isGrpc };
+export function resolveGrpcHybridAppOptions(mode: BootstrapMode): { inheritAppConfig: boolean } {
+  return { inheritAppConfig: mode === 'grpc' };
 }
 
 /**
@@ -158,14 +154,19 @@ export function connectGrpcMicroserviceWithBoundary(
   mode: BootstrapMode,
   provider: string,
 ): INestMicroservice {
-  const hybridAppOptions = resolveGrpcHybridAppOptions(mode);
-  const grpcMs = app.connectMicroservice<MicroserviceOptions>(
-    microserviceOptions,
-    hybridAppOptions,
-  ) as NestMicroservice;
-  if (!hybridAppOptions.inheritAppConfig) {
-    // 延迟路径下 microservice.listen() → registerModules() 会在 !wasInitHookCalled 时自己跑
-    // onModuleInit / onApplicationBootstrap；照 Nest 非延迟路径的做法把标记置上，hook 只由 app.init() 跑一次。
+  const { inheritAppConfig } = resolveGrpcHybridAppOptions(mode);
+
+  // deferInitialization 只在这里出现，且与下面的 setIsInitHookCalled 是**原子对**：
+  // 不 defer → connectMicroservice 当场 registerListeners，enhancer 从 config 快照，
+  //            之后 configureGrpcMicroserviceBoundary 装的一整套全部失效（静默）。
+  // defer 了 → microservice.listen() 会在 !wasInitHookCalled 时自己跑一遍 lifecycle hook，
+  //            必须把标记置上（Nest 非延迟路径自己就是这么做的），交还给 app.init() 跑一次。
+  const grpcMs = app.connectMicroservice<MicroserviceOptions>(microserviceOptions, {
+    inheritAppConfig,
+    deferInitialization: !inheritAppConfig,
+  }) as NestMicroservice;
+
+  if (!inheritAppConfig) {
     grpcMs.setIsInitHookCalled(true);
     configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider);
   }

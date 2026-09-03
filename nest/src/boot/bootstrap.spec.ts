@@ -408,6 +408,33 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
     expect(target.interceptors[1]).toBeInstanceOf(LoggerInterceptor);
   });
 
+  // 公开 API 不得单独出售 deferInitialization：它必须与 setIsInitHookCalled 成对，而调用方拿到
+  // 半截就会在 startAllMicroservices() 提前跑 onModuleInit（Bull handler 双注册、Prisma/Redis 双连）。
+  // 2026-09-03：libs 这边全绿合并，是 unee-server 的 reach-out-push-runtime.spec 逮到的 ——
+  // 不变量只活在消费者测试里，libs 自己看不见。把它搬进来。
+  it('resolveGrpcHybridAppOptions only decides config inheritance — never hands out deferInitialization', () => {
+    expect(resolveGrpcHybridAppOptions('api')).toEqual({ inheritAppConfig: false });
+    expect(resolveGrpcHybridAppOptions('scheduler')).toEqual({ inheritAppConfig: false });
+    expect(resolveGrpcHybridAppOptions('grpc')).toEqual({ inheritAppConfig: true });
+  });
+
+  it('a direct connectMicroservice with these options must not run lifecycle hooks before app.init()', async () => {
+    sharedInitHookCalls = 0;
+    const app = await NestFactory.create(HybridLifecycleTestModule, { logger: false });
+    // 消费者可能这样直连（unee-server 的 spec 就是）——不经 helper，所以没有 setIsInitHookCalled 补偿
+    app.connectMicroservice({ strategy: new NoopTransportStrategy() }, resolveGrpcHybridAppOptions('api'));
+
+    try {
+      await app.startAllMicroservices();
+      expect(sharedInitHookCalls).toBe(0);
+
+      await app.init();
+      expect(sharedInitHookCalls).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('initializes shared providers once when an api app attaches a grpc microservice', async () => {
     sharedInitHookCalls = 0;
     const app = await NestFactory.create(HybridLifecycleTestModule, { logger: false });
@@ -419,9 +446,6 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
       await app.startAllMicroservices();
       await app.init();
 
-      expect(resolveGrpcHybridAppOptions('api')).toEqual({ inheritAppConfig: false, deferInitialization: true });
-      expect(resolveGrpcHybridAppOptions('scheduler')).toEqual({ inheritAppConfig: false, deferInitialization: true });
-      expect(resolveGrpcHybridAppOptions('grpc')).toEqual({ inheritAppConfig: true, deferInitialization: false });
       expect(sharedInitHookCalls).toBe(1);
     } finally {
       await app.close();
