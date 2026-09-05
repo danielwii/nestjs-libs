@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { sumProviderReportedCost } from './llm.class';
+import { extractProviderUsageMetadata, sumProviderReportedCost } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -39,5 +39,44 @@ describe('sumProviderReportedCost', () => {
 
   it('returns undefined for providers that expose no openrouter metadata', () => {
     expect(sumProviderReportedCost([{ providerMetadata: { google: { usage: {} } } } as never])).toBeUndefined();
+  });
+});
+
+/** 构造一个携带 provider usageMetadata 的 step。 */
+const metaStep = (provider: 'vertex' | 'google', usageMetadata: unknown) =>
+  ({ providerMetadata: { [provider]: { usageMetadata } } }) as never;
+
+describe('extractProviderUsageMetadata', () => {
+  it('surfaces the vertex usageMetadata that carries trafficType', () => {
+    const meta = { trafficType: 'ON_DEMAND_PRIORITY', totalTokenCount: 6 };
+    expect(extractProviderUsageMetadata([metaStep('vertex', meta)])).toEqual(meta);
+  });
+
+  it('falls back to the google provider key', () => {
+    const meta = { trafficType: 'ON_DEMAND' };
+    expect(extractProviderUsageMetadata([metaStep('google', meta)])).toEqual(meta);
+  });
+
+  it('takes the last step that has metadata, not the first', () => {
+    // trafficType 是枚举不是数值，累加无意义；最后一步反映最终路由
+    const first = { trafficType: 'ON_DEMAND' };
+    const last = { trafficType: 'ON_DEMAND_PRIORITY' };
+    expect(extractProviderUsageMetadata([metaStep('vertex', first), metaStep('vertex', last)])).toEqual(last);
+  });
+
+  it('skips steps without provider metadata while searching backwards', () => {
+    const meta = { trafficType: 'ON_DEMAND' };
+    expect(extractProviderUsageMetadata([metaStep('vertex', meta), { providerMetadata: undefined } as never])).toEqual(
+      meta,
+    );
+  });
+
+  it('returns undefined when no provider reported usage metadata', () => {
+    expect(extractProviderUsageMetadata([{ providerMetadata: { openrouter: {} } } as never])).toBeUndefined();
+    expect(extractProviderUsageMetadata([])).toBeUndefined();
+  });
+
+  it('treats an explicit null metadata as absent', () => {
+    expect(extractProviderUsageMetadata([metaStep('vertex', null)])).toBeUndefined();
   });
 });

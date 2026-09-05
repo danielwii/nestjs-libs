@@ -752,10 +752,39 @@ export function sumProviderReportedCost(steps: readonly StepProviderMetadataCarr
   return reported ? total : undefined;
 }
 
-/** 把 provider 报告的成本并入 usage，让 getCostFromUsage 优先采用它而非估算。 */
-function withReportedCost(usage: TokenUsage, steps: readonly StepProviderMetadataCarrier[]): TokenUsage {
+/**
+ * Provider 原始 usage metadata，挂到 `TokenUsage.raw` 供 extractTrafficType 读取。
+ *
+ * Vertex / Google 把 PayGo 验证字段放在 `providerMetadata.<provider>.usageMetadata`
+ * （实测 vertex 路由的 key 是 `vertex`，值形如 `{ trafficType: 'ON_DEMAND_PRIORITY', ... }`），
+ * 而 AI SDK 标准 usage 只有 token 计数。不接上这一步，`raw` 永远是 undefined，
+ * buildTierHeaders 日志里那句「verify actual routing via usage.raw.trafficType」就指向空值，
+ * tier header 到底有没有命中 Priority/Flex PayGo 无从验证。
+ *
+ * 多步生成只取最后一个带 usageMetadata 的 step：trafficType 是枚举不是数值，累加无意义。
+ */
+export function extractProviderUsageMetadata(steps: readonly StepProviderMetadataCarrier[]): unknown {
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const providerMetadata = steps[i]?.providerMetadata;
+    if (!providerMetadata) continue;
+    for (const providerKey of ['vertex', 'google'] as const) {
+      const metadata = (providerMetadata[providerKey] as { usageMetadata?: unknown } | undefined)?.usageMetadata;
+      if (metadata !== undefined && metadata !== null) return metadata;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 把 provider 侧的权威 usage 事实并入 usage：
+ * - `cost` → getCostFromUsage 优先采用它而非本地估算
+ * - `raw`  → extractTrafficType 据此报告实际命中的 Vertex tier
+ */
+function withProviderUsage(usage: TokenUsage, steps: readonly StepProviderMetadataCarrier[]): TokenUsage {
   const cost = sumProviderReportedCost(steps);
-  return cost === undefined ? usage : { ...usage, cost };
+  const raw = extractProviderUsageMetadata(steps);
+  if (cost === undefined && raw === undefined) return usage;
+  return { ...usage, ...(cost !== undefined && { cost }), ...(raw !== undefined && { raw }) };
 }
 
 function extractTrafficType(usage: TokenUsage): string | undefined {
@@ -1301,7 +1330,7 @@ export class LLM {
           'generateObject',
           modelKey,
           startTime,
-          withReportedCost(result.usage, result.steps),
+          withProviderUsage(result.usage, result.steps),
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
@@ -1310,7 +1339,7 @@ export class LLM {
 
         return {
           object: result.output,
-          usage: withReportedCost(result.usage, result.steps),
+          usage: withProviderUsage(result.usage, result.steps),
         };
       } catch (error) {
         cleanup();
@@ -1547,7 +1576,7 @@ export class LLM {
           'generateText',
           modelKey,
           startTime,
-          withReportedCost(result.usage, result.steps),
+          withProviderUsage(result.usage, result.steps),
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
@@ -1556,7 +1585,7 @@ export class LLM {
 
         return {
           text: result.text,
-          usage: withReportedCost(result.usage, result.steps),
+          usage: withProviderUsage(result.usage, result.steps),
           sources: extractWebSources(result.sources),
         };
       } catch (error) {
@@ -1676,7 +1705,7 @@ export class LLM {
             'streamObject',
             modelKey,
             startTime,
-            withReportedCost(event.usage, event.steps),
+            withProviderUsage(event.usage, event.steps),
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
@@ -1844,7 +1873,7 @@ export class LLM {
             'streamText',
             modelKey,
             startTime,
-            withReportedCost(event.usage, event.steps),
+            withProviderUsage(event.usage, event.steps),
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
@@ -2026,7 +2055,7 @@ export class LLM {
           'generateObjectViaTool',
           modelKey,
           startTime,
-          withReportedCost(result.usage, result.steps),
+          withProviderUsage(result.usage, result.steps),
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
@@ -2080,7 +2109,7 @@ export class LLM {
 
         return {
           object: parseResult.data,
-          usage: withReportedCost(result.usage, result.steps),
+          usage: withProviderUsage(result.usage, result.steps),
         };
       } catch (error) {
         cleanup();
@@ -2237,7 +2266,7 @@ export class LLM {
         }
       }
 
-      const usage = withReportedCost(await result.usage, await result.steps);
+      const usage = withProviderUsage(await result.usage, await result.steps);
       LLM.logEnd(
         id,
         'streamObjectViaTool',
