@@ -46,6 +46,15 @@ describe('getCostFromUsage bedrock', () => {
     expect(getCostFromUsage(usage, 'openrouter:no-such-model')).toBeNull();
   });
 
+  it('resolves google direct keys through the registry too', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    // google 分支曾把 key 的后半段直接当 modelId（不经 registry）。当前注册表里
+    // 简称恰好都等于 modelId，所以行为等价；这条守的是「未注册即 null」这个统一约束，
+    // 避免未来某个 google key 的 modelId 与简称不同时又走回猜的老路。
+    expect(getCostFromUsage(usage, 'google:gemini-2.5-flash')).toBeCloseTo(2.8);
+    expect(getCostFromUsage(usage, 'google:no-such-model')).toBeNull();
+  });
+
   it('returns null for unregistered bedrock keys instead of throwing', () => {
     const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
     expect(getCostFromUsage(usage, 'bedrock:no-such-model')).toBeNull();
