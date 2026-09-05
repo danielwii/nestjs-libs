@@ -791,6 +791,39 @@ export function extractProviderUsageMetadata(steps: readonly StepProviderMetadat
  * - `cost` → getCostFromUsage 优先采用它而非本地估算
  * - `raw`  → extractTrafficType 据此报告实际命中的 Vertex tier
  */
+/** withStreamProviderUsage 需要的最小结构：stream 结果的 usage / steps 都是 Promise。 */
+interface StreamUsageCarrier {
+  readonly usage: PromiseLike<TokenUsage>;
+  readonly steps: PromiseLike<readonly StepProviderMetadataCarrier[]>;
+}
+
+/**
+ * 让 stream 方法返回的 `usage` 也带上 provider 侧事实，与 generate 路径对齐。
+ *
+ * 不能用对象展开：SDK 的 result 上 `textStream` / `fullStream` 等是 getter，
+ * 展开会当场求值，一次性流直接被消费掉。所以用 Proxy 只覆盖 `usage`，其余原样转发。
+ * `Reflect.get` 的 receiver 传 target、方法 bind 回 target —— 否则 this 绑到 Proxy 上，
+ * SDK 内部访问 private field 会抛 TypeError。
+ *
+ * enriched promise 惰性创建：包装时就建链会额外订阅一次 usage，流失败时多出一个
+ * 无人处理的 rejection。
+ */
+export function withStreamProviderUsage<T extends StreamUsageCarrier>(result: T): T {
+  let enriched: Promise<TokenUsage> | undefined;
+  return new Proxy(result, {
+    get(target, prop) {
+      if (prop === 'usage') {
+        enriched ??= Promise.all([target.usage, target.steps]).then(([usage, steps]) =>
+          withProviderUsage(usage, steps),
+        );
+        return enriched;
+      }
+      const value = Reflect.get(target, prop, target) as unknown;
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
+
 function withProviderUsage(usage: TokenUsage, steps: readonly StepProviderMetadataCarrier[]): TokenUsage {
   const cost = sumProviderReportedCost(steps);
   const raw = extractProviderUsageMetadata(steps);
@@ -1777,7 +1810,7 @@ export class LLM {
       observeStreamFailure(result.usage, (error) => {
         lifecycle.fail(error);
       });
-      return result;
+      return withStreamProviderUsage(result);
     } catch (error) {
       lifecycle.fail(error);
       throw error;
@@ -1944,7 +1977,7 @@ export class LLM {
       observeStreamFailure(result.usage, (error) => {
         lifecycle.fail(error);
       });
-      return result;
+      return withStreamProviderUsage(result);
     } catch (error) {
       lifecycle.fail(error);
       throw error;

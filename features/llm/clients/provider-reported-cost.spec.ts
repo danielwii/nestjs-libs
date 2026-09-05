@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { extractProviderUsageMetadata, sumProviderReportedCost } from './llm.class';
+import { extractProviderUsageMetadata, sumProviderReportedCost, withStreamProviderUsage } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -83,5 +83,53 @@ describe('extractProviderUsageMetadata', () => {
 
   it('treats an explicit null metadata as absent', () => {
     expect(extractProviderUsageMetadata([metaStep('vertex', null)])).toBeUndefined();
+  });
+});
+
+describe('withStreamProviderUsage', () => {
+  const makeResult = () => {
+    let textStreamReads = 0;
+    return {
+      raw: {
+        usage: Promise.resolve({ inputTokens: 10, outputTokens: 2, totalTokens: 12 }),
+        steps: Promise.resolve([{ providerMetadata: { openrouter: { usage: { cost: 0.004 } } } }]),
+        get textStream() {
+          textStreamReads += 1;
+          return ['O', 'K'];
+        },
+        text: 'OK',
+        toUIMessageStream(this: { text: string }) {
+          return `ui:${this.text}`;
+        },
+      },
+      reads: () => textStreamReads,
+    };
+  };
+
+  it('enriches usage with the provider-reported cost', async () => {
+    const { raw } = makeResult();
+    const wrapped = withStreamProviderUsage(raw as never) as unknown as typeof raw;
+    expect(await wrapped.usage).toMatchObject({ totalTokens: 12, cost: 0.004 });
+  });
+
+  it('does not evaluate getters while wrapping', () => {
+    // 对象展开会当场求值 textStream/fullStream 这类 getter，一次性流会被消费掉
+    const { raw, reads } = makeResult();
+    withStreamProviderUsage(raw as never);
+    expect(reads()).toBe(0);
+  });
+
+  it('forwards other properties and keeps method `this` bound to the target', () => {
+    const { raw } = makeResult();
+    const wrapped = withStreamProviderUsage(raw as never) as unknown as typeof raw;
+    expect(wrapped.text).toBe('OK');
+    expect(wrapped.toUIMessageStream()).toBe('ui:OK');
+    expect([...wrapped.textStream]).toEqual(['O', 'K']);
+  });
+
+  it('leaves the original result untouched', async () => {
+    const { raw } = makeResult();
+    withStreamProviderUsage(raw as never);
+    expect(await raw.usage).not.toHaveProperty('cost');
   });
 });
