@@ -37,6 +37,15 @@ describe('getCostFromUsage bedrock', () => {
     expect(getCostFromUsage(usage, 'bedrock:deepseek-v3.2')).toBeCloseTo(2.47);
   });
 
+  it('returns null for unregistered openrouter keys instead of guessing from the key string', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
+    // 曾经这里按前缀猜 modelId（claude-* → anthropic/claude-*），于是未注册的
+    // 'claude-4-opus' 也能命中定价表。猜测的代价是每加一家 provider 都要记得补一行 if，
+    // stepfun 漏了就让它的成本恒为 null —— 已改为只认 registry。
+    expect(getCostFromUsage(usage, 'openrouter:claude-4-opus')).toBeNull();
+    expect(getCostFromUsage(usage, 'openrouter:no-such-model')).toBeNull();
+  });
+
   it('returns null for unregistered bedrock keys instead of throwing', () => {
     const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
     expect(getCostFromUsage(usage, 'bedrock:no-such-model')).toBeNull();

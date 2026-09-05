@@ -265,25 +265,6 @@ function calculateCost(modelId: string, promptTokens: number, completionTokens: 
 }
 
 /**
- * 未注册 openrouter key 的兼容回退：按前缀猜 modelId。
- *
- * 仅为保留历史行为（消费者可能传未注册的 key + 表里存在 alias 条目）。
- * 已注册模型一律走 registry 权威路径，不经过这里 —— 不要往这个白名单加新 provider。
- */
-function legacyGuessOpenRouterModelId(modelName: string): string {
-  if (modelName.includes('/')) return modelName; // 全称格式本身就是 modelId
-  if (modelName.startsWith('gemini')) return `google/${modelName}`;
-  if (modelName.startsWith('claude')) return `anthropic/${modelName}`;
-  if (modelName.startsWith('grok')) return `x-ai/${modelName}`;
-  if (modelName.startsWith('kimi')) return `moonshotai/${modelName}`;
-  if (modelName.startsWith('deepseek')) return `deepseek/${modelName}`;
-  if (modelName.startsWith('minimax')) return `minimax/${modelName}`;
-  if (modelName.startsWith('gpt')) return `openai/${modelName}`;
-  if (modelName.startsWith('qwen')) return `qwen/${modelName}`;
-  return modelName;
-}
-
-/**
  * 从 LLMModelKey 计算成本（内部使用）
  */
 function calculateCostFromKey(
@@ -302,10 +283,11 @@ function calculateCostFromKey(
     let modelId: string;
     let multiplier = 1;
     if (provider === 'openrouter') {
-      // registry 是 modelId 的权威来源，与下方 vertex / bedrock 分支一致。
-      // 早期这里只有 legacyGuessOpenRouterModelId 的前缀白名单，任何不在白名单里的
-      // provider（stepfun 就是漏网的那个）会被推导成错误 modelId，查不到价而静默返回 null。
-      modelId = isModelRegistered(modelKey) ? getModel(modelKey).modelId : legacyGuessOpenRouterModelId(modelName);
+      // registry 是 modelId 的唯一来源，与下方 vertex / bedrock 分支一致。
+      // 早期这里从 key 字符串猜 modelId（gemini→google/、claude→anthropic/ …），
+      // 每加一家 provider 就得记得补一行 if；stepfun 漏了，于是它的成本恒返回 null。
+      if (!isModelRegistered(modelKey)) return null;
+      modelId = getModel(modelKey).modelId;
     } else if (provider === 'google') {
       // Google 直连格式是 'gemini-xxx'
       modelId = modelName;
