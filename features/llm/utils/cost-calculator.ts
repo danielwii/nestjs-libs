@@ -121,9 +121,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // 'anthropic/claude-3.5-sonnet': { input: 6.0, output: 30.0 }, // 不考虑使用
   // 'anthropic/claude-3.5-haiku': { input: 0.8, output: 4.0 }, // 绝对 legacy
   'anthropic/claude-sonnet-4': { input: 3.0, output: 15.0 },
-  'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 }, // alias
+  // 'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 }, // claude-sonnet-4 的旧命名别名；registry 未注册，2026-09-05 起不可达
   // 'anthropic/claude-opus-4.1': { input: 15.0, output: 75.0 }, // 不考虑使用
-  'anthropic/claude-4-opus': { input: 5.0, output: 25.0 },
+  // 'anthropic/claude-4-opus': { input: 5.0, output: 25.0 }, // registry 未注册，2026-09-05 起不可达
   'anthropic/claude-haiku-4.5': { input: 1.0, output: 5.0 },
   'anthropic/claude-sonnet-4.5': {
     input: 3.0,
@@ -190,7 +190,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'openai/gpt-4o-mini': { input: 0.15, output: 0.6 },
   'openai/gpt-5.1': { input: 1.25, output: 10.0 },
   'openai/gpt-5.2': { input: 1.75, output: 14.0 },
-  'openai/gpt-5.2-pro': { input: 21.0, output: 168.0 },
+  // 'openai/gpt-5.2-pro': { input: 21.0, output: 168.0 }, // registry 未注册，2026-09-05 起不可达
   'openai/gpt-5.4': { input: 2.5, output: 15.0 },
   'openai/gpt-5.4-mini': { input: 0.75, output: 4.5 },
   'openai/gpt-5.4-nano': { input: 0.2, output: 1.25 },
@@ -265,25 +265,6 @@ function calculateCost(modelId: string, promptTokens: number, completionTokens: 
 }
 
 /**
- * 未注册 openrouter key 的兼容回退：按前缀猜 modelId。
- *
- * 仅为保留历史行为（消费者可能传未注册的 key + 表里存在 alias 条目）。
- * 已注册模型一律走 registry 权威路径，不经过这里 —— 不要往这个白名单加新 provider。
- */
-function legacyGuessOpenRouterModelId(modelName: string): string {
-  if (modelName.includes('/')) return modelName; // 全称格式本身就是 modelId
-  if (modelName.startsWith('gemini')) return `google/${modelName}`;
-  if (modelName.startsWith('claude')) return `anthropic/${modelName}`;
-  if (modelName.startsWith('grok')) return `x-ai/${modelName}`;
-  if (modelName.startsWith('kimi')) return `moonshotai/${modelName}`;
-  if (modelName.startsWith('deepseek')) return `deepseek/${modelName}`;
-  if (modelName.startsWith('minimax')) return `minimax/${modelName}`;
-  if (modelName.startsWith('gpt')) return `openai/${modelName}`;
-  if (modelName.startsWith('qwen')) return `qwen/${modelName}`;
-  return modelName;
-}
-
-/**
  * 从 LLMModelKey 计算成本（内部使用）
  */
 function calculateCostFromKey(
@@ -292,44 +273,23 @@ function calculateCostFromKey(
   completionTokens: number,
   context?: CostContext,
 ): number | null {
-  // 如果包含 ':'，说明是 LLMModelKey 格式
-  if (modelKey.includes(':')) {
-    // 从 LLMModelKey 提取 modelId
-    // 'openrouter:gemini-2.5-flash' → 'google/gemini-2.5-flash'
-    const [provider, ...modelParts] = modelKey.split(':');
-    const modelName = modelParts.join(':');
+  // 不含 ':' 的当作裸 modelId 直接查表
+  if (!modelKey.includes(':')) return calculateCost(modelKey, promptTokens, completionTokens);
 
-    let modelId: string;
-    let multiplier = 1;
-    if (provider === 'openrouter') {
-      // registry 是 modelId 的权威来源，与下方 vertex / bedrock 分支一致。
-      // 早期这里只有 legacyGuessOpenRouterModelId 的前缀白名单，任何不在白名单里的
-      // provider（stepfun 就是漏网的那个）会被推导成错误 modelId，查不到价而静默返回 null。
-      modelId = isModelRegistered(modelKey) ? getModel(modelKey).modelId : legacyGuessOpenRouterModelId(modelName);
-    } else if (provider === 'google') {
-      // Google 直连格式是 'gemini-xxx'
-      modelId = modelName;
-    } else if (provider === 'vertex' || provider === 'vertex-global') {
-      // Vertex key 可能与实际 modelId 不同，统一通过 registry 解析。
-      if (!isModelRegistered(modelKey)) return null;
-      modelId = getModel(modelKey).modelId;
-    } else if (provider === 'bedrock') {
-      // Bedrock key 的 modelId 无法从 key 字符串推导（如 bedrock:claude-sonnet-4.5 →
-      // us.anthropic.claude-sonnet-4-5-20250929-v1:0），必须查 registry
-      if (!isModelRegistered(modelKey)) return null;
-      modelId = getModel(modelKey).modelId;
-      // reserved 为承诺吞吐（非按 token 计费），按标准价估算会误导，返回 null
-      if (context?.bedrockServiceTier === 'reserved') return null;
-      multiplier = BEDROCK_SERVICE_TIER_MULTIPLIER[context?.bedrockServiceTier ?? 'default'];
-    } else {
-      return null;
-    }
+  // registry 是 key → modelId 的唯一来源。不按 provider 分支自己解析：
+  // 早期 openrouter 从 key 字符串猜前缀（漏了 stepfun，成本恒 null）、google 直接把
+  // key 后半段当 modelId，而 vertex / bedrock 查 registry —— 同一件事四种写法。
+  if (!isModelRegistered(modelKey)) return null;
+  const config = getModel(modelKey);
 
-    return calculateCost(modelId, promptTokens, completionTokens, multiplier);
+  let multiplier = 1;
+  if (config.provider === 'bedrock') {
+    // reserved 为承诺吞吐（非按 token 计费），按标准价估算会误导，返回 null
+    if (context?.bedrockServiceTier === 'reserved') return null;
+    multiplier = BEDROCK_SERVICE_TIER_MULTIPLIER[context?.bedrockServiceTier ?? 'default'];
   }
 
-  // 否则当作 modelId 直接使用
-  return calculateCost(modelKey, promptTokens, completionTokens);
+  return calculateCost(config.modelId, promptTokens, completionTokens, multiplier);
 }
 
 /**
