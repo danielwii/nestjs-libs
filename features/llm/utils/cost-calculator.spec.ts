@@ -7,9 +7,20 @@
 
 import 'reflect-metadata';
 
+import { getModelsByProvider } from '../types/model.types';
 import { getCostFromUsage } from './cost-calculator';
 
 import { describe, expect, it } from 'bun:test';
+
+describe('pricing table coverage', () => {
+  it('resolves a cost for every registered openrouter key', () => {
+    // 守两类静默失效：①表里漏定价 ②key→modelId 映射把 key 推导到不存在的条目
+    // （stepfun 曾因不在前缀白名单里而恒返回 null）
+    const usage = { inputTokens: 1_000_000, outputTokens: 0 };
+    const unresolved = getModelsByProvider('openrouter').filter((key) => getCostFromUsage(usage, key) === null);
+    expect(unresolved).toEqual([]);
+  });
+});
 
 describe('getCostFromUsage bedrock', () => {
   it('resolves pricing for bedrock keys via the registry modelId', () => {
@@ -62,9 +73,9 @@ describe('getCostFromUsage bedrock', () => {
 
   it('uses OpenRouter standard pricing for both Gemini 3.6 Flash aliases', () => {
     const usage = { inputTokens: 1_000_000, outputTokens: 1_000_000 };
-    // OpenRouter 2026-07-21 standard: $1.50/M input + $7.50/M output.
-    expect(getCostFromUsage(usage, 'openrouter:gemini-3.6-flash')).toBeCloseTo(9);
-    expect(getCostFromUsage(usage, 'openrouter:google/gemini-3.6-flash')).toBeCloseTo(9);
+    // OpenRouter 2026-09-05 默认可达最低档（google-ai-studio）：$0.75/M input + $3.75/M output。
+    expect(getCostFromUsage(usage, 'openrouter:gemini-3.6-flash')).toBeCloseTo(4.5);
+    expect(getCostFromUsage(usage, 'openrouter:google/gemini-3.6-flash')).toBeCloseTo(4.5);
   });
 
   it('resolves direct Vertex pricing through the registered modelId', () => {
@@ -86,11 +97,11 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
       expected: 0.28,
     },
     { keys: ['openrouter:claude-sonnet-5', 'openrouter:anthropic/claude-sonnet-5'], expected: 1.2 },
-    { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 0.7 },
-    { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 1.75 },
-    { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 3.5 },
+    { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 0.14 },
+    { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 1.4 },
+    { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 1.2 },
     { keys: ['openrouter:grok-4.5', 'openrouter:x-ai/grok-4.5'], expected: 0.8 },
-    { keys: ['openrouter:kimi-k3', 'openrouter:moonshotai/kimi-k3'], expected: 1.8 },
+    { keys: ['openrouter:kimi-k3', 'openrouter:moonshotai/kimi-k3'], expected: 1.53 },
   ] as const;
 
   it('uses standard per-token fallback pricing for shorthand and canonical aliases', () => {
@@ -106,9 +117,9 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
   it('applies GPT-5.6 long-context rates to both aliases above 272K input tokens', () => {
     const usage = { inputTokens: 300_000, outputTokens: 100_000 };
     const cases = [
-      { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 1.5 },
-      { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 3.75 },
-      { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 7.5 },
+      { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 0.3 },
+      { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 3.0 },
+      { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 2.7 },
     ] as const;
 
     for (const { keys, expected } of cases) {
@@ -120,10 +131,10 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
 
   it('keeps GPT-5.6 standard rates at 272K and switches only above the threshold', () => {
     expect(getCostFromUsage({ inputTokens: 272_000, outputTokens: 100_000 }, 'openrouter:gpt-5.6-luna')).toBeCloseTo(
-      0.872,
+      0.1744,
     );
     expect(getCostFromUsage({ inputTokens: 272_001, outputTokens: 100_000 }, 'openrouter:gpt-5.6-luna')).toBeCloseTo(
-      1.444002,
+      0.2888004,
     );
   });
 
@@ -137,14 +148,16 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
 
 describe('getCostFromUsage OpenRouter 2026-08 catalog additions', () => {
   const pricingCases = [
-    { keys: ['openrouter:claude-opus-4.8', 'openrouter:anthropic/claude-opus-4.8'], expected: 3 },
-    { keys: ['openrouter:claude-opus-5', 'openrouter:anthropic/claude-opus-5'], expected: 3 },
+    // opus-4.8 / opus-5 停用于 2026-09-05，见 model.types.ts
+    // { keys: ['openrouter:claude-opus-4.8', 'openrouter:anthropic/claude-opus-4.8'], expected: 3 },
+    // { keys: ['openrouter:claude-opus-5', 'openrouter:anthropic/claude-opus-5'], expected: 3 },
     { keys: ['openrouter:grok-4.6', 'openrouter:x-ai/grok-4.6'], expected: 0.8 },
     { keys: ['openrouter:qwen3.7-flash', 'openrouter:qwen/qwen3.7-flash'], expected: 0.016 },
     { keys: ['openrouter:qwen3.8-max', 'openrouter:qwen/qwen3.8-max'], expected: 0.8 },
-    { keys: ['openrouter:minimax-m3', 'openrouter:minimax/minimax-m3'], expected: 0.15 },
-    { keys: ['openrouter:kimi-k2.7-code', 'openrouter:moonshotai/kimi-k2.7-code'], expected: 0.407 },
-    { keys: ['openrouter:gemini-3.7-flash', 'openrouter:google/gemini-3.7-flash'], expected: 0.225 },
+    { keys: ['openrouter:minimax-m3', 'openrouter:minimax/minimax-m3'], expected: 0.119 },
+    { keys: ['openrouter:kimi-k2.7-code', 'openrouter:moonshotai/kimi-k2.7-code'], expected: 0.37125 },
+    { keys: ['openrouter:gemini-3.7-flash', 'openrouter:google/gemini-3.7-flash'], expected: 0.45 },
+    { keys: ['openrouter:gemini-3.8-flash', 'openrouter:google/gemini-3.8-flash'], expected: 0.45 },
   ] as const;
 
   it('uses standard per-token fallback pricing for shorthand and canonical aliases', () => {

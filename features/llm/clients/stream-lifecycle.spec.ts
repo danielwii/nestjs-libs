@@ -15,17 +15,23 @@ interface AbortEvent {
   reason?: unknown;
 }
 
-function createHarness(callbacks: Parameters<typeof createStreamLifecycle<ErrorEvent, EndEvent, AbortEvent>>[0] = {}) {
+function createHarness<ERROR_RESULT = void>(
+  callbacks: Parameters<typeof createStreamLifecycle<ErrorEvent, EndEvent, AbortEvent, ERROR_RESULT>>[0] = {},
+) {
   const trace: string[] = [];
+  const loggedErrorResults: (ERROR_RESULT | undefined)[] = [];
   const lifecycle = createStreamLifecycle(callbacks, {
     cleanup: () => trace.push('cleanup'),
-    logErrorEvent: () => trace.push('error-event'),
+    logErrorEvent: (_event, result) => {
+      loggedErrorResults.push(result);
+      trace.push('error-event');
+    },
     logSuccess: (event) => trace.push(`success:${event.usage.totalTokens}`),
     logAbort: () => trace.push('abort'),
     logFailure: () => trace.push('failure'),
   });
 
-  return { lifecycle, trace };
+  return { lifecycle, trace, loggedErrorResults };
 }
 
 describe('createStreamLifecycle', () => {
@@ -78,6 +84,35 @@ describe('createStreamLifecycle', () => {
 
     await lifecycle.onEnd({ usage: { totalTokens: 3 } });
     expect(trace).toEqual(['caller-error', 'error-event', 'caller-end', 'cleanup', 'success:3']);
+  });
+
+  it('forwards the caller onError result to both the SDK and the error-event log', async () => {
+    const { lifecycle, trace, loggedErrorResults } = createHarness<void | { retry: true }>({
+      onError: () => {
+        trace.push('caller-error');
+        return { retry: true };
+      },
+    });
+
+    const result = await lifecycle.onError({ error: new Error('provider') });
+
+    expect(result).toEqual({ retry: true });
+    expect(loggedErrorResults).toEqual([{ retry: true }]);
+    expect(lifecycle.getState()).toBe('pending');
+    expect(trace).toEqual(['caller-error', 'error-event']);
+  });
+
+  it('logs the error event with an undefined result when the caller onError throws', async () => {
+    const { lifecycle, loggedErrorResults } = createHarness<void | { retry: true }>({
+      onError: () => {
+        throw new Error('caller error callback failed');
+      },
+    });
+
+    expect(lifecycle.onError({ error: new Error('provider') })).rejects.toThrow('caller error callback failed');
+    await Promise.resolve();
+
+    expect(loggedErrorResults).toEqual([undefined]);
   });
 
   it('logs an error event even when the caller callback throws', async () => {

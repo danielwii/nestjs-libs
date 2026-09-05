@@ -201,7 +201,18 @@ export interface ModelConfig<P extends string = string> {
  * OpenRouter Provider 定价差异：
  * 各 provider 定价不同，选型时可通过 openrouter.provider.sort 控制路由偏好。
  *
+ * ── 关于下方各条目 JSDoc 里的定价 ────────────────────────────────────────
+ * 那些「定价参考（YYYY.MM）」是**记录时点的快照**，仅供选型时快速比较量级，
+ * 不是当前值、也不是成本核算依据。实际成本以 provider 在响应里报的扣费额为准
+ * （OpenRouter 每次都带，见 cost-calculator 的 withReportedCost）；兜底估算表
+ * 及其口径见 `utils/cost-calculator.ts` 的 MODEL_PRICING 表头。
+ *
+ * 特别注意 service tier：OpenRouter 的 `/flex` `/priority` `/fast` 档需显式 opt-in
+ * （`service_tier` 参数、tier 后缀 slug、或 `:floor` / `:nitro`），本库未做任何
+ * opt-in，故默认路由**不可达**这些档 —— 引用 flex 价会低估约一半。
+ *
  * @see https://openrouter.ai/models
+ * @see https://openrouter.ai/docs/features/provider-routing
  */
 export interface LLMModelRegistry {
   // ==================== OpenRouter ====================
@@ -282,14 +293,14 @@ export interface LLMModelRegistry {
   // 'openrouter:claude-4.1-opus': ModelConfig<'openrouter'>;
   // 'openrouter:anthropic/claude-opus-4.1': ModelConfig<'openrouter'>;
   /**
-   * Claude Opus 4.5 - 最强 coding
+   * Claude Opus 4.5 - 最强 coding — 停用于 2026-09-05（input ≥ $5/M）
    *
    * 定价参考（2026.02）：Input $5/M, Output $25/M, Context 200K
    *
    * @see https://openrouter.ai/anthropic/claude-opus-4.5
    */
-  'openrouter:claude-opus-4.5': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-opus-4.5': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-opus-4.5': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-opus-4.5': ModelConfig<'openrouter'>;
   /**
    * GPT-4o Mini
    *
@@ -447,11 +458,12 @@ export interface LLMModelRegistry {
   /**
    * Gemini 3.6 Flash - GA
    *
-   * OpenRouter 定价（2026-07-21）：
-   * - Standard: Input $1.50/M, Output $7.50/M
-   * - Flex: Input $0.75/M, Output $3.75/M
-   * - Priority: Input $2.70/M, Output $13.50/M
+   * OpenRouter 定价（2026-09-05 endpoints 实测，全线较 07-21 降价一半）：
+   * - Standard: Input $0.75/M, Output $3.75/M ← 默认路由走这档
+   * - Flex: Input $0.375/M, Output $1.875/M（需 opt-in，默认不可达）
+   * - Priority: Input $1.35/M, Output $6.75/M（需 opt-in）
    * - Context 1,048,576；Max output 65,536
+   * 旧记录（2026-07-21）为 Standard $1.50/$7.50 · Flex $0.75/$3.75 · Priority $2.70/$13.50
    *
    * Live 2026-08-15 OpenRouter：disable thinking → 400 mandatory。Vertex Express 另测，见 vertex: key。
    *
@@ -463,8 +475,12 @@ export interface LLMModelRegistry {
   /**
    * Gemini 3.7 Flash - GA
    *
-   * OpenRouter 定价（2026-08-13 catalog）：Input $0.375/M, Output $1.875/M,
-   * Context 1,048,576；Max output 65,536。
+   * OpenRouter 定价（2026-09-05 endpoints 实测）：
+   * - Standard: Input $0.75/M, Output $3.75/M ← 默认路由走这档
+   * - Flex: Input $0.375/M, Output $1.875/M（需 opt-in，默认不可达）
+   * - Priority: Input $1.35/M, Output $6.75/M（需 opt-in）
+   * - Context 1,048,576；Max output 65,536
+   * 注：2026-08-13 曾记为 $0.375/$1.875，那是 flex 档，实测 base slug 调用命中 standard。
    *
    * Live 2026-08-15 OpenRouter：disable thinking → 400 mandatory。未注册 vertex: 路由。
    *
@@ -472,6 +488,25 @@ export interface LLMModelRegistry {
    */
   'openrouter:gemini-3.7-flash': ModelConfig<'openrouter'>;
   'openrouter:google/gemini-3.7-flash': ModelConfig<'openrouter'>;
+
+  /**
+   * Gemini 3.8 Flash - GA
+   *
+   * OpenRouter 定价（2026-09-05 endpoints 实测，三档与 3.7 逐档相同）：
+   * - Standard: Input $0.75/M, Output $3.75/M ← 默认路由走这档
+   * - Flex: Input $0.375/M, Output $1.875/M（需 opt-in，默认不可达）
+   * - Priority: Input $1.35/M, Output $6.75/M（需 opt-in）
+   * - Context 1,048,576；Max output 65,536
+   *
+   * Live 2026-09-05 OpenRouter：raw `reasoning:{enabled:false}` → 400 mandatory（3 次稳定复现，
+   * 见 openrouter.2026-09-models.spec.live.ts），故 reasoningRequired: true。
+   * 注意 thinking:'none' 下 reasoningTokens 实测在 0 与数十之间波动 —— mandatory 指
+   * 「不可 disable」，不代表每次都产生 reasoning token。未注册 google: / vertex: 路由。
+   *
+   * @see https://openrouter.ai/google/gemini-3.8-flash
+   */
+  'openrouter:gemini-3.8-flash': ModelConfig<'openrouter'>;
+  'openrouter:google/gemini-3.8-flash': ModelConfig<'openrouter'>;
 
   /**
    * Gemini 3.1 Pro Preview — 不考虑使用（output ≥ $10/M）
@@ -511,42 +546,39 @@ export interface LLMModelRegistry {
   'openrouter:claude-sonnet-5': ModelConfig<'openrouter'>;
   'openrouter:anthropic/claude-sonnet-5': ModelConfig<'openrouter'>;
   /**
-   * Claude Opus 4.6
+   * Claude Opus 4.6 — 停用于 2026-09-05（input ≥ $5/M）
    *
    * 定价参考（2026.05）：Input $5/M, Output $25/M, Context 1M
    *
    * @see https://openrouter.ai/anthropic/claude-opus-4.6
    */
-  'openrouter:claude-opus-4.6': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-opus-4.6': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-opus-4.6': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-opus-4.6': ModelConfig<'openrouter'>;
   /**
-   * Claude Opus 4.7
+   * Claude Opus 4.7 — 停用于 2026-09-05（input ≥ $5/M）
    *
    * 定价参考（2026.05）：Input $5/M, Output $25/M, Context 1M
    *
    * @see https://openrouter.ai/anthropic/claude-opus-4.7
    */
-  'openrouter:claude-opus-4.7': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-opus-4.7': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-opus-4.7': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-opus-4.7': ModelConfig<'openrouter'>;
   /**
-   * Claude Opus 4.8 - 1M context / optional reasoning
-   *
-   * OpenRouter standard: Input $5/M, Output $25/M.
+   * Claude Opus 4.8 - 1M context / optional reasoning — 停用于 2026-09-05（output $25/M）
    *
    * @see https://openrouter.ai/anthropic/claude-opus-4.8
    */
-  'openrouter:claude-opus-4.8': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-opus-4.8': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-opus-4.8': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-opus-4.8': ModelConfig<'openrouter'>;
   /**
-   * Claude Opus 5 - 最新旗舰
+   * Claude Opus 5 - 最新旗舰 — 停用于 2026-09-05（output $25/M）
    *
-   * OpenRouter standard: Input $5/M, Output $25/M, Context 1M.
    * Reasoning 可关闭；provider 默认 high。
    *
    * @see https://openrouter.ai/anthropic/claude-opus-5
    */
-  'openrouter:claude-opus-5': ModelConfig<'openrouter'>;
-  'openrouter:anthropic/claude-opus-5': ModelConfig<'openrouter'>;
+  // 'openrouter:claude-opus-5': ModelConfig<'openrouter'>;
+  // 'openrouter:anthropic/claude-opus-5': ModelConfig<'openrouter'>;
 
   // ---- OpenAI GPT-5 ----
   /**
@@ -595,14 +627,14 @@ export interface LLMModelRegistry {
   'openrouter:gpt-5.4-nano': ModelConfig<'openrouter'>;
   'openrouter:openai/gpt-5.4-nano': ModelConfig<'openrouter'>;
   /**
-   * GPT-5.5 - 最新旗舰
+   * GPT-5.5 - 最新旗舰 — 停用于 2026-09-05（input ≥ $5/M）
    *
    * 定价参考（2026.05）：Input $5/M, Output $30/M, Context 1.05M
    *
    * @see https://openrouter.ai/openai/gpt-5.5
    */
-  'openrouter:gpt-5.5': ModelConfig<'openrouter'>;
-  'openrouter:openai/gpt-5.5': ModelConfig<'openrouter'>;
+  // 'openrouter:gpt-5.5': ModelConfig<'openrouter'>;
+  // 'openrouter:openai/gpt-5.5': ModelConfig<'openrouter'>;
   /**
    * GPT-5.6 family - 1.05M context / 128K max output
    *
@@ -816,10 +848,10 @@ export interface LLMModelRegistry {
   'bedrock:claude-sonnet-4.5': ModelConfig<'bedrock'>;
   /** Claude Sonnet 4.6 */
   'bedrock:claude-sonnet-4.6': ModelConfig<'bedrock'>;
-  /** Claude Opus 4.5 */
-  'bedrock:claude-opus-4.5': ModelConfig<'bedrock'>;
-  /** Claude Opus 4.6 */
-  'bedrock:claude-opus-4.6': ModelConfig<'bedrock'>;
+  /** Claude Opus 4.5 — 停用于 2026-09-05（input ≥ $5/M） */
+  // 'bedrock:claude-opus-4.5': ModelConfig<'bedrock'>;
+  /** Claude Opus 4.6 — 停用于 2026-09-05（input ≥ $5/M） */
+  // 'bedrock:claude-opus-4.6': ModelConfig<'bedrock'>;
   /** Kimi K2.5（on-demand，moonshotai.kimi-k2.5） */
   'bedrock:kimi-k2.5': ModelConfig<'bedrock'>;
   /** Kimi K2 Thinking（on-demand；reasoning 强制开启，无法关闭） */
@@ -1114,8 +1146,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   // ['openrouter:claude-4.1-opus', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
   // ['openrouter:anthropic/claude-opus-4.1', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.1' }],
   // Claude Opus 4.5
-  ['openrouter:claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
-  ['openrouter:anthropic/claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
+  // Claude Opus 4.5 — 停用于 2026-09-05（input ≥ $5/M）
+  // ['openrouter:claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
+  // ['openrouter:anthropic/claude-opus-4.5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.5' }],
   // GPT-4o Mini
   ['openrouter:gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
   ['openrouter:openai/gpt-4o-mini', { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }],
@@ -1235,6 +1268,26 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
 
+  // Gemini 3.8 Flash via OpenRouter — LIVE 2026-09-05 disable → 400 mandatory；未注册 vertex:/google:。param-fallback to low
+  [
+    'openrouter:gemini-3.8-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.8-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+  [
+    'openrouter:google/gemini-3.8-flash',
+    {
+      provider: 'openrouter',
+      modelId: 'google/gemini-3.8-flash',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+
   // Gemini 3.1 Pro Preview — 不考虑使用（output ≥ $10/M）
   // ['openrouter:gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
   // ['openrouter:google/gemini-3.1-pro-preview', { provider: 'openrouter', modelId: 'google/gemini-3.1-pro-preview' }],
@@ -1249,17 +1302,19 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:claude-sonnet-5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5' }],
   ['openrouter:anthropic/claude-sonnet-5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5' }],
   // Claude Opus 4.6
-  ['openrouter:claude-opus-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.6' }],
-  ['openrouter:anthropic/claude-opus-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.6' }],
+  // 停用于 2026-09-05（input ≥ $5/M）
+  // ['openrouter:claude-opus-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.6' }],
+  // ['openrouter:anthropic/claude-opus-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.6' }],
   // Claude Opus 4.7
-  ['openrouter:claude-opus-4.7', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7' }],
-  ['openrouter:anthropic/claude-opus-4.7', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7' }],
-  // Claude Opus 4.8 — OpenRouter metadata: optional reasoning
-  ['openrouter:claude-opus-4.8', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.8' }],
-  ['openrouter:anthropic/claude-opus-4.8', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.8' }],
-  // Claude Opus 5 — OpenRouter metadata: optional reasoning
-  ['openrouter:claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
-  ['openrouter:anthropic/claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
+  // 停用于 2026-09-05（input ≥ $5/M）
+  // ['openrouter:claude-opus-4.7', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7' }],
+  // ['openrouter:anthropic/claude-opus-4.7', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.7' }],
+  // Claude Opus 4.8 — 停用于 2026-09-05（output $25/M）
+  // ['openrouter:claude-opus-4.8', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.8' }],
+  // ['openrouter:anthropic/claude-opus-4.8', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.8' }],
+  // Claude Opus 5 — 停用于 2026-09-05（output $25/M）
+  // ['openrouter:claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
+  // ['openrouter:anthropic/claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
 
   // GPT-5.1
   ['openrouter:gpt-5.1', { provider: 'openrouter', modelId: 'openai/gpt-5.1' }],
@@ -1277,8 +1332,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:gpt-5.4-nano', { provider: 'openrouter', modelId: 'openai/gpt-5.4-nano' }],
   ['openrouter:openai/gpt-5.4-nano', { provider: 'openrouter', modelId: 'openai/gpt-5.4-nano' }],
   // GPT-5.5
-  ['openrouter:gpt-5.5', { provider: 'openrouter', modelId: 'openai/gpt-5.5' }],
-  ['openrouter:openai/gpt-5.5', { provider: 'openrouter', modelId: 'openai/gpt-5.5' }],
+  // 停用于 2026-09-05（input ≥ $5/M）
+  // ['openrouter:gpt-5.5', { provider: 'openrouter', modelId: 'openai/gpt-5.5' }],
+  // ['openrouter:openai/gpt-5.5', { provider: 'openrouter', modelId: 'openai/gpt-5.5' }],
   // GPT-5.6 family — OpenRouter metadata: reasoning supports none
   ['openrouter:gpt-5.6-luna', { provider: 'openrouter', modelId: 'openai/gpt-5.6-luna' }],
   ['openrouter:openai/gpt-5.6-luna', { provider: 'openrouter', modelId: 'openai/gpt-5.6-luna' }],
@@ -1562,8 +1618,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['bedrock:claude-haiku-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0' }],
   ['bedrock:claude-sonnet-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }],
   ['bedrock:claude-sonnet-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-sonnet-4-6' }],
-  ['bedrock:claude-opus-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-5-20251101-v1:0' }],
-  ['bedrock:claude-opus-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-6-v1' }],
+  // 停用于 2026-09-05（input ≥ $5/M）
+  // ['bedrock:claude-opus-4.5', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-5-20251101-v1:0' }],
+  // ['bedrock:claude-opus-4.6', { provider: 'bedrock', modelId: 'us.anthropic.claude-opus-4-6-v1' }],
   ['bedrock:kimi-k2.5', { provider: 'bedrock', modelId: 'moonshotai.kimi-k2.5' }],
   // LIVE 2026-08-15：plain / reasoningConfig.disabled 均 200；usage 无 reasoningTokens 字段，关没关上看不出来
   ['bedrock:kimi-k2-thinking', { provider: 'bedrock', modelId: 'moonshot.kimi-k2-thinking', reasoningRequired: true }],

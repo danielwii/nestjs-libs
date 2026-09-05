@@ -1,9 +1,9 @@
 /**
- * OpenRouter 2026-08 model catalog smoke/capability evidence.
+ * OpenRouter 2026-09 model catalog smoke/capability evidence.
  *
  * Not run in CI. Execute with a real OpenRouter credential:
  * ```bash
- * bun test ./features/llm/clients/openrouter.2026-08-models.spec.live.ts
+ * bun test ./features/llm/clients/openrouter.2026-09-models.spec.live.ts
  * ```
  */
 
@@ -13,20 +13,20 @@ import { LLM } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
+import type { LLMModelSpec } from '../types/model.types';
+
 const OPENROUTER_API_KEY = process.env.AI_OPENROUTER_API_KEY;
 const describeOpenRouterLive = OPENROUTER_API_KEY?.trim() ? describe : describe.skip;
 
-const catalogModels = [
-  // opus-4.8 / opus-5 停用于 2026-09-05，见 model.types.ts
-  // { key: 'openrouter:claude-opus-4.8', modelId: 'anthropic/claude-opus-4.8', reasoningRequired: false },
-  // { key: 'openrouter:claude-opus-5', modelId: 'anthropic/claude-opus-5', reasoningRequired: false },
-  { key: 'openrouter:grok-4.6', modelId: 'x-ai/grok-4.6', reasoningRequired: true },
-  { key: 'openrouter:qwen3.7-flash', modelId: 'qwen/qwen3.7-flash', reasoningRequired: false },
-  { key: 'openrouter:qwen3.8-max', modelId: 'qwen/qwen3.8-max', reasoningRequired: true },
-  { key: 'openrouter:minimax-m3', modelId: 'minimax/minimax-m3', reasoningRequired: false },
-  { key: 'openrouter:kimi-k2.7-code', modelId: 'moonshotai/kimi-k2.7-code', reasoningRequired: true },
-  { key: 'openrouter:gemini-3.7-flash', modelId: 'google/gemini-3.7-flash', reasoningRequired: true },
-] as const;
+interface CatalogModel {
+  readonly key: LLMModelSpec;
+  readonly modelId: string;
+  readonly reasoningRequired: boolean;
+}
+
+const catalogModels: readonly CatalogModel[] = [
+  { key: 'openrouter:gemini-3.8-flash', modelId: 'google/gemini-3.8-flash', reasoningRequired: true },
+];
 
 function getReasoningTokens(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0;
@@ -36,7 +36,7 @@ function getReasoningTokens(usage: unknown): number {
   return typeof value === 'number' ? value : 0;
 }
 
-describeOpenRouterLive('OpenRouter 2026-08 model catalog (live)', () => {
+describeOpenRouterLive('OpenRouter 2026-09 model catalog (live)', () => {
   for (const { key, reasoningRequired } of catalogModels) {
     it(`invokes ${key} with the registry no-thinking policy`, async () => {
       const result = await LLM.generateText({
@@ -49,12 +49,19 @@ describeOpenRouterLive('OpenRouter 2026-08 model catalog (live)', () => {
         timeout: 45_000,
       });
       const reasoningTokens = getReasoningTokens(result.usage);
+      const reportedCost = (result.usage as { cost?: number }).cost;
 
       console.log(
-        `[openrouter-catalog-live] model=${key} textLength=${result.text.trim().length} reasoningTokens=${reasoningTokens}`,
+        `[openrouter-catalog-live] model=${key} textLength=${result.text.trim().length}` +
+          ` reasoningTokens=${reasoningTokens} reportedCost=${reportedCost}`,
       );
       expect(result.text.trim().length).toBeGreaterThan(0);
-      if (reasoningRequired) expect(reasoningTokens).toBeGreaterThan(0);
+      // 不断言 reasoningTokens > 0：reasoningRequired 的语义是「API 拒绝 disable reasoning」
+      // （由下方 400 探测守护），不等于每次调用都产生 reasoning token —— low effort 下
+      // 模型可以思考 0 token。实测 gemini-3.7/3.8 在 thinking:'none' 下该值在 0 与数十之间波动，
+      // 断言它 > 0 会得到一个 flaky 测试（2026-08 那份 spec 就有这个问题）。
+      // provider 报告的权威成本必须流到 usage —— 否则成本核算会静默退回标价估算
+      expect(reportedCost).toBeGreaterThan(0);
     }, 60_000);
   }
 

@@ -5,6 +5,8 @@
  * 设计意图:tier 支持度随账号/区域动态变化,库不写死矩阵,只保证探测与判定逻辑正确。
  */
 
+import 'reflect-metadata';
+
 import { LLM } from './llm.class';
 
 import { describe, expect, it } from 'bun:test';
@@ -53,7 +55,9 @@ describe('LLM.checkBedrockServiceTierSupport', () => {
 
   it('defaults to all registered bedrock keys', async () => {
     const matrix = await LLM.checkBedrockServiceTierSupport({ probe: async () => {} });
-    expect(matrix.length).toBeGreaterThanOrEqual(12);
+    // 不断言具体条数：注册表增删模型时这个数字必然过期，而它并不说明默认行为对不对。
+    // 只保证非空 —— 否则下面两条 every() 对空数组恒真，测试会静默失去意义。
+    expect(matrix.length).toBeGreaterThan(0);
     expect(matrix.every((r) => r.key.startsWith('bedrock:'))).toBe(true);
     expect(matrix.every((r) => r.flex === true && r.priority === true)).toBe(true);
   });

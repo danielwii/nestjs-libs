@@ -102,7 +102,9 @@ import type {
   ModelMessage,
   PrepareStepFunction,
   PrepareStepResult,
+  ProviderMetadata,
   StopCondition,
+  StreamTextOnErrorRetryCallback,
   StreamTextResult,
   TelemetryOptions,
   ToolChoice,
@@ -157,6 +159,11 @@ export interface TokenUsage {
    * `raw.trafficType`，例如 `ON_DEMAND_PRIORITY` / `ON_DEMAND_FLEX` / `ON_DEMAND`。
    */
   raw?: unknown;
+  /**
+   * Provider 报告的权威成本（USD）。存在时优先于 MODEL_PRICING 估算。
+   * @see sumProviderReportedCost
+   */
+  cost?: number;
 }
 
 type LLMReservedAIKeys = 'model' | 'providerOptions' | 'output';
@@ -204,6 +211,15 @@ export type LLMStreamTextAIOptions<
 > = Omit<Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, OUTPUT>>[0], LLMWrappedAIKeys> & {
   prepareStep?: LLMPrepareStepFunction<TOOLS, RUNTIME_CONTEXT>;
 };
+
+/**
+ * `onError` 的返回值：AI SDK 用它承载 `{ retry: true }` 重试指令
+ * （需调用方显式配置 `streamRetries`）。lifecycle 包装器必须原样透传。
+ */
+type StreamOnErrorResult = Awaited<ReturnType<StreamTextOnErrorRetryCallback>>;
+
+/** SDK 契约下 onError 的非空返回值只有 `{ retry: true }` 一种形态，故「是对象」即等价于请求重试。 */
+const isStreamRetryRequested = (result: StreamOnErrorResult | undefined): boolean => typeof result === 'object';
 
 /** Canonical AI SDK v7 stream result. The deprecated `fullStream` alias is intentionally hidden. */
 export type LLMStreamTextResult<
@@ -704,6 +720,44 @@ export function buildTierHeaders(
   };
 }
 
+/** 一步生成的 provider metadata 载体 —— `StepResult` 与 end event 的 steps 都满足。 */
+interface StepProviderMetadataCarrier {
+  readonly providerMetadata?: ProviderMetadata;
+}
+
+/**
+ * Provider 报告的权威成本（USD）。
+ *
+ * OpenRouter 的 usage accounting 默认开启，每次响应都在
+ * `providerMetadata.openrouter.usage.cost` 带回实际扣费额 —— 它反映真实命中的
+ * provider 与 service tier，而 MODEL_PRICING 只是标价快照，可能过期或记错档位。
+ *
+ * 多步生成里每一步各有自己的 cost，必须逐步累加：`finalStep` 只是 `steps.at(-1)`，
+ * 拿它单独算会漏掉前面所有步骤。
+ *
+ * 返回 undefined 表示该 provider 没报告成本（如 Google/Vertex/Bedrock 直连），
+ * 调用方回退到定价表估算。
+ */
+export function sumProviderReportedCost(steps: readonly StepProviderMetadataCarrier[]): number | undefined {
+  let total = 0;
+  let reported = false;
+  for (const step of steps) {
+    const openrouter = step.providerMetadata?.openrouter as { usage?: { cost?: unknown } } | undefined;
+    const cost = openrouter?.usage?.cost;
+    if (typeof cost === 'number') {
+      total += cost;
+      reported = true;
+    }
+  }
+  return reported ? total : undefined;
+}
+
+/** 把 provider 报告的成本并入 usage，让 getCostFromUsage 优先采用它而非估算。 */
+function withReportedCost(usage: TokenUsage, steps: readonly StepProviderMetadataCarrier[]): TokenUsage {
+  const cost = sumProviderReportedCost(steps);
+  return cost === undefined ? usage : { ...usage, cost };
+}
+
 function extractTrafficType(usage: TokenUsage): string | undefined {
   const raw = usage.raw;
   if (!raw || typeof raw !== 'object') return undefined;
@@ -1088,7 +1142,9 @@ export class LLM {
     const outputTokens = usage.outputTokens ?? usage.completionTokens ?? 0;
     const totalTokens = inputTokens + outputTokens;
     const cost = getCostFromUsage(usage, modelKey, { bedrockServiceTier });
-    const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}` : '';
+    // 标注来源：reported=provider 实际扣费额，est=MODEL_PRICING 标价估算（可能过期/档位不符）
+    const costSource = usage.cost !== undefined ? 'reported' : 'est';
+    const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}(${costSource})` : '';
     const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
     const trafficType = extractTrafficType(usage);
     const trafficPart = trafficType ? `, trafficType=${trafficType}` : '';
@@ -1143,8 +1199,28 @@ export class LLM {
     });
   }
 
-  private static logErrorEvent(id: string, method: string, modelKey: string, error: unknown): void {
-    LLM.logger.warning`[LLM:error-event] id=${id}, method=${method}, model=${modelKey} ${error}`;
+  /**
+   * 流式错误事件（非终态）。
+   *
+   * `onErrorResult` 是 caller onError 回调透传回 AI SDK 的返回值 —— 记录它是为了让
+   * 「retry 指令确实被交回 SDK」这件事在生产可观测；`streamRetries` 未配置时 SDK 会
+   * 静默忽略该指令，这里显式告警，避免又一个「注册了但没进管线」。
+   */
+  private static logErrorEvent(
+    id: string,
+    method: string,
+    modelKey: string,
+    error: unknown,
+    onErrorResult?: StreamOnErrorResult,
+    streamRetries?: number,
+  ): void {
+    // onErrorResult 原值直出，不经任何判断 —— 判断写错会让日志本身骗人
+    LLM.logger
+      .warning`[LLM:error-event] id=${id}, method=${method}, model=${modelKey}, onErrorResult=${onErrorResult} ${error}`;
+    if (isStreamRetryRequested(onErrorResult) && streamRetries === undefined) {
+      LLM.logger
+        .warning`[LLM:retry-ignored] id=${id}, method=${method}, model=${modelKey} — onError returned {retry:true} but ai.streamRetries is unset, the AI SDK will ignore it`;
+    }
   }
 
   private static toResult<T>(promise: Promise<T>, modelSpec: LLMModelKey | LLMModelSpec): ResultAsync<T, OopsError> {
@@ -1225,7 +1301,7 @@ export class LLM {
           'generateObject',
           modelKey,
           startTime,
-          result.usage,
+          withReportedCost(result.usage, result.steps),
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
@@ -1234,7 +1310,7 @@ export class LLM {
 
         return {
           object: result.output,
-          usage: result.usage,
+          usage: withReportedCost(result.usage, result.steps),
         };
       } catch (error) {
         cleanup();
@@ -1471,7 +1547,7 @@ export class LLM {
           'generateText',
           modelKey,
           startTime,
-          result.usage,
+          withReportedCost(result.usage, result.steps),
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
@@ -1480,7 +1556,7 @@ export class LLM {
 
         return {
           text: result.text,
-          usage: result.usage,
+          usage: withReportedCost(result.usage, result.steps),
           sources: extractWebSources(result.sources),
         };
       } catch (error) {
@@ -1578,7 +1654,12 @@ export class LLM {
       ...restAiOptions
     } = aiOptions ?? {};
 
-    const lifecycle = createStreamLifecycle<StreamOnErrorEvent, StreamOnEndEvent, StreamOnAbortEvent>(
+    const lifecycle = createStreamLifecycle<
+      StreamOnErrorEvent,
+      StreamOnEndEvent,
+      StreamOnAbortEvent,
+      StreamOnErrorResult
+    >(
       {
         onError: callerOnError,
         onEnd: callerOnEnd,
@@ -1586,8 +1667,8 @@ export class LLM {
       },
       {
         cleanup,
-        logErrorEvent: (event) => {
-          LLM.logErrorEvent(id, 'streamObject', modelKey, event.error);
+        logErrorEvent: (event, result) => {
+          LLM.logErrorEvent(id, 'streamObject', modelKey, event.error, result, aiOptions?.streamRetries);
         },
         logSuccess: (event) => {
           LLM.logEnd(
@@ -1595,7 +1676,7 @@ export class LLM {
             'streamObject',
             modelKey,
             startTime,
-            event.usage,
+            withReportedCost(event.usage, event.steps),
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
@@ -1741,7 +1822,12 @@ export class LLM {
       ...restAiOptions
     } = aiOptions ?? {};
 
-    const lifecycle = createStreamLifecycle<StreamOnErrorEvent, StreamOnEndEvent, StreamOnAbortEvent>(
+    const lifecycle = createStreamLifecycle<
+      StreamOnErrorEvent,
+      StreamOnEndEvent,
+      StreamOnAbortEvent,
+      StreamOnErrorResult
+    >(
       {
         onError: callerOnError,
         onEnd: callerOnEnd,
@@ -1749,8 +1835,8 @@ export class LLM {
       },
       {
         cleanup,
-        logErrorEvent: (event) => {
-          LLM.logErrorEvent(id, 'streamText', modelKey, event.error);
+        logErrorEvent: (event, result) => {
+          LLM.logErrorEvent(id, 'streamText', modelKey, event.error, result, aiOptions?.streamRetries);
         },
         logSuccess: (event) => {
           LLM.logEnd(
@@ -1758,7 +1844,7 @@ export class LLM {
             'streamText',
             modelKey,
             startTime,
-            event.usage,
+            withReportedCost(event.usage, event.steps),
             undefined,
             spec.vertex?.tier,
             spec.vertex?.requestType,
@@ -1940,7 +2026,7 @@ export class LLM {
           'generateObjectViaTool',
           modelKey,
           startTime,
-          result.usage,
+          withReportedCost(result.usage, result.steps),
           fb,
           spec.vertex?.tier,
           spec.vertex?.requestType,
@@ -1994,7 +2080,7 @@ export class LLM {
 
         return {
           object: parseResult.data,
-          usage: result.usage,
+          usage: withReportedCost(result.usage, result.steps),
         };
       } catch (error) {
         cleanup();
@@ -2151,7 +2237,7 @@ export class LLM {
         }
       }
 
-      const usage = await result.usage;
+      const usage = withReportedCost(await result.usage, await result.steps);
       LLM.logEnd(
         id,
         'streamObjectViaTool',
