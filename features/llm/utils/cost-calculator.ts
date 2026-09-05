@@ -121,9 +121,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // 'anthropic/claude-3.5-sonnet': { input: 6.0, output: 30.0 }, // 不考虑使用
   // 'anthropic/claude-3.5-haiku': { input: 0.8, output: 4.0 }, // 绝对 legacy
   'anthropic/claude-sonnet-4': { input: 3.0, output: 15.0 },
-  'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 }, // alias
+  // 'anthropic/claude-4-sonnet': { input: 3.0, output: 15.0 }, // claude-sonnet-4 的旧命名别名；registry 未注册，2026-09-05 起不可达
   // 'anthropic/claude-opus-4.1': { input: 15.0, output: 75.0 }, // 不考虑使用
-  'anthropic/claude-4-opus': { input: 5.0, output: 25.0 },
+  // 'anthropic/claude-4-opus': { input: 5.0, output: 25.0 }, // registry 未注册，2026-09-05 起不可达
   'anthropic/claude-haiku-4.5': { input: 1.0, output: 5.0 },
   'anthropic/claude-sonnet-4.5': {
     input: 3.0,
@@ -190,7 +190,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'openai/gpt-4o-mini': { input: 0.15, output: 0.6 },
   'openai/gpt-5.1': { input: 1.25, output: 10.0 },
   'openai/gpt-5.2': { input: 1.75, output: 14.0 },
-  'openai/gpt-5.2-pro': { input: 21.0, output: 168.0 },
+  // 'openai/gpt-5.2-pro': { input: 21.0, output: 168.0 }, // registry 未注册，2026-09-05 起不可达
   'openai/gpt-5.4': { input: 2.5, output: 15.0 },
   'openai/gpt-5.4-mini': { input: 0.75, output: 4.5 },
   'openai/gpt-5.4-nano': { input: 0.2, output: 1.25 },
