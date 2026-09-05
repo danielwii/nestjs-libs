@@ -670,6 +670,15 @@ function mergeHeaders(
 }
 
 /** 导出给测试文件共享同一真相源 */
+/**
+ * 非 standard tier 命中时 Vertex 在 `usageMetadata.trafficType` 回报的值。
+ * 实测 2026-09-05：无 header → `ON_DEMAND`，`tier=priority` → `ON_DEMAND_PRIORITY`。
+ */
+const VERTEX_TIER_TRAFFIC_TYPE: Record<Exclude<VertexTier, 'standard'>, string> = {
+  priority: 'ON_DEMAND_PRIORITY',
+  flex: 'ON_DEMAND_FLEX',
+};
+
 export const VERTEX_TIER_HEADER = 'X-Vertex-AI-LLM-Shared-Request-Type';
 export const VERTEX_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Request-Type';
 
@@ -1181,6 +1190,16 @@ export class LLM {
     const serviceTierPart = bedrockServiceTier ? `, bedrockServiceTier=${bedrockServiceTier}` : '';
     LLM.logger
       .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}${serviceTierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}${trafficPart}`;
+
+    // 请求了非 standard tier 但 Vertex 实际按别的档路由 —— 不报错、按标准价计费，
+    // 只有把请求的 tier 与回报的 trafficType 并排比才看得出来。不改路由行为，只暴露事实。
+    if (tier && tier !== 'standard' && trafficType) {
+      const expected = VERTEX_TIER_TRAFFIC_TYPE[tier];
+      if (trafficType !== expected) {
+        LLM.logger
+          .warning`[LLM:tier-not-honored] id=${id}, model=${modelKey}, requested=${tier}, expected=${expected}, actual=${trafficType}`;
+      }
+    }
   }
 
   private static logTTFT(id: string, startTime: number): void {
