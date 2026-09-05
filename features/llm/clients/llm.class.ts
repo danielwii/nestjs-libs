@@ -748,17 +748,19 @@ interface StepProviderMetadataCarrier {
  * 调用方回退到定价表估算。
  */
 export function sumProviderReportedCost(steps: readonly StepProviderMetadataCarrier[]): number | undefined {
+  if (steps.length === 0) return undefined;
   let total = 0;
-  let reported = false;
   for (const step of steps) {
     const openrouter = step.providerMetadata?.openrouter as { usage?: { cost?: unknown } } | undefined;
     const cost = openrouter?.usage?.cost;
-    if (typeof cost === 'number') {
-      total += cost;
-      reported = true;
-    }
+    // 覆盖不全就整体不可信：prepareStep 的 llm.model 可以逐 step 切 provider，
+    // 混合调用里只有 OpenRouter 步骤带 cost。返回部分和会被 getCostFromUsage 当成权威值、
+    // 跳过兜底估算，于是非 OpenRouter 步骤的花费被静默漏掉 —— 方向是低估。
+    // 宁可整体退回估算（口径一致、覆盖全部 token），也不要「权威值 + 漏项」。
+    if (typeof cost !== 'number') return undefined;
+    total += cost;
   }
-  return reported ? total : undefined;
+  return total;
 }
 
 /**

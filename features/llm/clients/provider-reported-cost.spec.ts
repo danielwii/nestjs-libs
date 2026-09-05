@@ -18,11 +18,16 @@ describe('sumProviderReportedCost', () => {
     expect(total).toBeCloseTo(0.007, 10);
   });
 
-  it('sums only the steps that reported a cost', () => {
-    expect(sumProviderReportedCost([step(0.001), { providerMetadata: undefined } as never, step(0.002)])).toBeCloseTo(
-      0.003,
-      10,
-    );
+  it('returns undefined when any step is missing a reported cost', () => {
+    // prepareStep 的 llm.model 可逐 step 切 provider；混合调用里只有 OpenRouter 步骤带 cost。
+    // 返回部分和会被当成权威值并跳过兜底估算，导致非 OpenRouter 步骤被静默漏掉（低估）。
+    expect(
+      sumProviderReportedCost([step(0.001), { providerMetadata: undefined } as never, step(0.002)]),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined for an empty step list', () => {
+    expect(sumProviderReportedCost([])).toBeUndefined();
   });
 
   it('returns undefined when no step reported a cost so callers fall back to the pricing table', () => {
