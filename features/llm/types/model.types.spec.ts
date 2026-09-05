@@ -335,6 +335,22 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     }
   });
 
+  it('registers both OpenRouter gemini-3.8-flash aliases with mandatory reasoning', () => {
+    for (const key of ['openrouter:gemini-3.8-flash', 'openrouter:google/gemini-3.8-flash'] as const) {
+      const config = getModel(key);
+      expect(config.provider).toBe('openrouter');
+      expect(config.modelId).toBe('google/gemini-3.8-flash');
+      expect(config.reasoningRequired).toBe(true);
+      expect(config.reasoningDefaultEffort).toBe('low');
+    }
+  });
+
+  it('falls gemini-3.8-flash none back to low like the other mandatory-reasoning routes', () => {
+    for (const key of ['openrouter:gemini-3.8-flash', 'openrouter:google/gemini-3.8-flash'] as const) {
+      expect(resolveThinkingForModel(key, 'none')).toEqual({ thinking: 'low', paramFallbackApplied: true });
+    }
+  });
+
   it('keeps live-probed Vertex Express Gemini Flash routes non-mandatory', () => {
     expect(getModel('vertex:gemini-3.5-flash').reasoningRequired).not.toBe(true);
     expect(getModel('vertex:gemini-3.6-flash')).toMatchObject({
@@ -638,16 +654,17 @@ describe('OpenRouter 2026-07 model catalog additions', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const openRouterAugustCatalogAdditions = [
-  {
-    keys: ['openrouter:claude-opus-4.8', 'openrouter:anthropic/claude-opus-4.8'],
-    modelId: 'anthropic/claude-opus-4.8',
-    reasoningRequired: false,
-  },
-  {
-    keys: ['openrouter:claude-opus-5', 'openrouter:anthropic/claude-opus-5'],
-    modelId: 'anthropic/claude-opus-5',
-    reasoningRequired: false,
-  },
+  // opus-4.8 / opus-5 停用于 2026-09-05，见 model.types.ts
+  // {
+  //   keys: ['openrouter:claude-opus-4.8', 'openrouter:anthropic/claude-opus-4.8'],
+  //   modelId: 'anthropic/claude-opus-4.8',
+  //   reasoningRequired: false,
+  // },
+  // {
+  //   keys: ['openrouter:claude-opus-5', 'openrouter:anthropic/claude-opus-5'],
+  //   modelId: 'anthropic/claude-opus-5',
+  //   reasoningRequired: false,
+  // },
   {
     keys: ['openrouter:grok-4.6', 'openrouter:x-ai/grok-4.6'],
     modelId: 'x-ai/grok-4.6',
@@ -736,8 +753,9 @@ describe('bedrock model keys', () => {
       'bedrock:claude-haiku-4.5': 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
       'bedrock:claude-sonnet-4.5': 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
       'bedrock:claude-sonnet-4.6': 'us.anthropic.claude-sonnet-4-6',
-      'bedrock:claude-opus-4.5': 'us.anthropic.claude-opus-4-5-20251101-v1:0',
-      'bedrock:claude-opus-4.6': 'us.anthropic.claude-opus-4-6-v1',
+      // opus-4.5 / opus-4.6 停用于 2026-09-05（input ≥ $5/M），见 model.types.ts
+      // 'bedrock:claude-opus-4.5': 'us.anthropic.claude-opus-4-5-20251101-v1:0',
+      // 'bedrock:claude-opus-4.6': 'us.anthropic.claude-opus-4-6-v1',
       'bedrock:kimi-k2.5': 'moonshotai.kimi-k2.5',
       'bedrock:kimi-k2-thinking': 'moonshot.kimi-k2-thinking',
       'bedrock:deepseek-v3.2': 'deepseek.v3.2',

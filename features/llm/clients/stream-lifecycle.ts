@@ -1,23 +1,24 @@
 export type StreamTerminalState = 'pending' | 'success' | 'failure' | 'abort';
 
-type MaybePromise = void | PromiseLike<void>;
+type MaybePromise<T = void> = T | PromiseLike<T>;
 
-export interface StreamLifecycleCallbacks<ERROR_EVENT, END_EVENT, ABORT_EVENT> {
-  onError?: (event: ERROR_EVENT) => MaybePromise;
+export interface StreamLifecycleCallbacks<ERROR_EVENT, END_EVENT, ABORT_EVENT, ERROR_RESULT = void> {
+  onError?: (event: ERROR_EVENT) => MaybePromise<ERROR_RESULT>;
   onEnd?: (event: END_EVENT) => MaybePromise;
   onAbort?: (event: ABORT_EVENT) => MaybePromise;
 }
 
-export interface StreamLifecycleEffects<ERROR_EVENT, END_EVENT, ABORT_EVENT> {
+export interface StreamLifecycleEffects<ERROR_EVENT, END_EVENT, ABORT_EVENT, ERROR_RESULT = void> {
   cleanup: () => void;
-  logErrorEvent: (event: ERROR_EVENT) => void;
+  /** `result` 是 caller onError 的返回值；caller 抛错时为 `undefined`。 */
+  logErrorEvent: (event: ERROR_EVENT, result: ERROR_RESULT | undefined) => void;
   logSuccess: (event: END_EVENT) => void;
   logAbort: (event: ABORT_EVENT) => void;
   logFailure: (error: unknown) => void;
 }
 
-export interface StreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT> {
-  onError: (event: ERROR_EVENT) => Promise<void>;
+export interface StreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT, ERROR_RESULT = void> {
+  onError: (event: ERROR_EVENT) => Promise<ERROR_RESULT | undefined>;
   onEnd: (event: END_EVENT) => Promise<void>;
   onAbort: (event: ABORT_EVENT) => Promise<void>;
   fail: (error: unknown) => boolean;
@@ -27,11 +28,15 @@ export interface StreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT> {
 /**
  * Owns one stream's terminal state. Error events remain non-terminal; the first
  * success, abort, or failure claim owns cleanup and terminal summary logging.
+ *
+ * `onError` forwards the caller callback's resolved value back to the SDK so
+ * directives carried by the return value (e.g. `{ retry: true }`) survive the wrapper,
+ * and hands the same value to `logErrorEvent` so the forwarded directive is observable.
  */
-export function createStreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT>(
-  callbacks: StreamLifecycleCallbacks<ERROR_EVENT, END_EVENT, ABORT_EVENT>,
-  effects: StreamLifecycleEffects<ERROR_EVENT, END_EVENT, ABORT_EVENT>,
-): StreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT> {
+export function createStreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT, ERROR_RESULT = void>(
+  callbacks: StreamLifecycleCallbacks<ERROR_EVENT, END_EVENT, ABORT_EVENT, ERROR_RESULT>,
+  effects: StreamLifecycleEffects<ERROR_EVENT, END_EVENT, ABORT_EVENT, ERROR_RESULT>,
+): StreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT, ERROR_RESULT> {
   let state: StreamTerminalState = 'pending';
 
   const claim = (next: Exclude<StreamTerminalState, 'pending'>): boolean => {
@@ -50,10 +55,12 @@ export function createStreamLifecycle<ERROR_EVENT, END_EVENT, ABORT_EVENT>(
 
   return {
     onError: async (event) => {
+      let result: ERROR_RESULT | undefined;
       try {
-        await callbacks.onError?.(event);
+        result = await callbacks.onError?.(event);
+        return result;
       } finally {
-        effects.logErrorEvent(event);
+        effects.logErrorEvent(event, result);
       }
     },
     onEnd: async (event) => {
