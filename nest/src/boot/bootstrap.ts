@@ -23,7 +23,7 @@ import { getAppLogger } from '@app/utils/app-logger';
 import { normalizeTimezone } from '@app/utils/datetime';
 import { maskSecret } from '@app/utils/security';
 
-import { redactHttpUrl } from '../interceptors/http-url-redaction';
+import { configurePrivateHttpPaths, redactHttpUrl } from '../interceptors/http-url-redaction';
 
 import os from 'node:os';
 
@@ -232,6 +232,7 @@ export async function bootstrap(
   onInit?: (app: INestApplication) => Promise<void>,
   options?: BootstrapOptions,
 ) {
+  configurePrivateHttpPaths(options?.privateHttpPaths ?? []);
   const mode: BootstrapMode = options?.mode ?? 'api';
   const isApi = mode === 'api';
   const isGrpc = mode === 'grpc';
@@ -437,8 +438,8 @@ export async function bootstrap(
       morgan(
         ':remote-addr xff=":xff" - :remote-user [:date[clf]] ":method :safe-url HTTP/:http-version" :status :res[content-length] ":response-time ms" ":safe-referrer" ":user-agent"',
         {
-           
           skip: (req) =>
+            // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- boolean OR, not nullish fallback
             req.url?.startsWith('/health') ||
             req.url === '/' ||
             (options?.privateHttpPaths ?? []).some(
