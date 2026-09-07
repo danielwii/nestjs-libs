@@ -64,7 +64,7 @@ const FINGERPRINT_HEX_LENGTH = 12;
 const EPHEMERAL_REDACTION_KEY = randomBytes(32).toString('hex');
 
 const SENSITIVE_PAYLOAD_KEY_PATTERN =
-  /^(authorization|cookie|set-cookie|password|passcode|token|secret|api[-_]?key|apikey|access[-_]?token|refresh[-_]?token|fromAddress|subject|snippet|bodyText)$/i;
+  /^(authorization|cookie|set-cookie|password|passcode|token|secret|api[-_]?key|apikey|access[-_]?token|refresh[-_]?token)$/i;
 const SENSITIVE_HEADER_KEY_PATTERN =
   /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token|x-service-token|x-access-token|x-refresh-token|x-csrf-token)$/i;
 
@@ -308,8 +308,14 @@ function binaryPayload(input: ArrayBuffer | ArrayBufferView): Extract<LogSafePay
   };
 }
 
+/** Domain field names an app declares through `bootstrap({ privatePayloadKeys })`. */
+let appSensitivePayloadKeys: ReadonlySet<string> = new Set();
+export function configureSensitivePayloadKeys(keys: readonly string[]): void {
+  appSensitivePayloadKeys = new Set(keys.map((key) => key.toLowerCase()));
+}
+
 function isSensitivePayloadKey(key: string): boolean {
-  return SENSITIVE_PAYLOAD_KEY_PATTERN.test(key);
+  return SENSITIVE_PAYLOAD_KEY_PATTERN.test(key) || appSensitivePayloadKeys.has(key.toLowerCase());
 }
 
 export function normalizePayloadForLog(

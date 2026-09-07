@@ -67,7 +67,11 @@ import {
   resolveAiSdkOtelMissingDependencyDiagnostic,
   resolveLangfuseBaseUrl,
 } from './instrument-helpers';
-import { redactHttpRequestForTelemetry, redactHttpUrl } from './nest/src/interceptors/http-url-redaction';
+import {
+  redactHttpRequestForTelemetry,
+  redactHttpUrlForPath,
+  redactQueryString,
+} from './nest/src/interceptors/http-url-redaction';
 
 import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
@@ -337,9 +341,10 @@ function bootstrapOtel(langfuseProcessor: unknown | null, otlpProcessor: unknown
         }) {
           for (const key of ['http.url', 'http.target', 'url.full', 'url.path', 'http.request.header.referer']) {
             const value = span.attributes?.[key];
-            if (typeof value === 'string') span.setAttribute(key, redactHttpUrl(value));
+            if (typeof value === 'string') span.setAttribute(key, redactHttpUrlForPath(value));
           }
-          if (span.attributes?.['url.query'] !== undefined) span.setAttribute('url.query', '[redacted]');
+          const query = span.attributes?.['url.query'];
+          if (typeof query === 'string') span.setAttribute('url.query', redactQueryString(query));
         },
       }),
     );

@@ -23,7 +23,8 @@ import { getAppLogger } from '@app/utils/app-logger';
 import { normalizeTimezone } from '@app/utils/datetime';
 import { maskSecret } from '@app/utils/security';
 
-import { configurePrivateHttpPaths, redactHttpUrl } from '../interceptors/http-url-redaction';
+import { configurePrivateHttpPaths, redactHttpUrlForPath } from '../interceptors/http-url-redaction';
+import { configureSensitivePayloadKeys } from '../interceptors/log-redaction';
 
 import os from 'node:os';
 
@@ -79,6 +80,8 @@ export interface BootstrapOptions {
   mode?: BootstrapMode;
   /** Paths whose request URLs/referrers contain private authorization material. */
   privateHttpPaths?: readonly string[];
+  /** Domain field names whose values must never reach generic request logs. */
+  privatePayloadKeys?: readonly string[];
   packageJson?: {
     name: string;
     version: string;
@@ -233,6 +236,7 @@ export async function bootstrap(
   options?: BootstrapOptions,
 ) {
   configurePrivateHttpPaths(options?.privateHttpPaths ?? []);
+  configureSensitivePayloadKeys(options?.privatePayloadKeys ?? []);
   const mode: BootstrapMode = options?.mode ?? 'api';
   const isApi = mode === 'api';
   const isGrpc = mode === 'grpc';
@@ -431,8 +435,10 @@ export async function bootstrap(
       return typeof raw === 'string' ? raw : '-';
     });
 
-    morgan.token('safe-url', (req) => redactHttpUrl(req.url ?? ''));
-    morgan.token('safe-referrer', (req) => redactHttpUrl(String(req.headers.referer ?? req.headers.referrer ?? '-')));
+    morgan.token('safe-url', (req) => redactHttpUrlForPath(req.url ?? ''));
+    morgan.token('safe-referrer', (req) =>
+      redactHttpUrlForPath(String(req.headers.referer ?? req.headers.referrer ?? '-')),
+    );
     // combined 格式 + response-time（毫秒）
     app.use(
       morgan(
