@@ -227,12 +227,17 @@ export class AnyExceptionFilter implements ExceptionFilter {
     } catch (internalError) {
       this.logger
         .error`#catchHttpOrGraphql HTTP filter itself failed while handling ${getErrorName(exception)} ${exception}: ${internalError}`;
-      this.respond(
-        response,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Internal server error' },
-        request,
-      );
+      // 兜底写 500 本身也可能抛（如 body 序列化失败）；这是最后一道，只记日志。
+      try {
+        this.respond(
+          response,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Internal server error' },
+          request,
+        );
+      } catch (fallbackError) {
+        this.logger.error`#catchHttpOrGraphql fallback 500 write failed ${fallbackError}`;
+      }
       return;
     }
   }

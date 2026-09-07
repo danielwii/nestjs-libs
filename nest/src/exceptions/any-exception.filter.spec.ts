@@ -526,6 +526,13 @@ describe('AnyExceptionFilter', () => {
       expect(response.end).toHaveBeenCalled();
     });
 
+    it('M7 未提交响应但 json() 本身抛（如序列化失败）→ 仍 resolve，不向上抛', async () => {
+      const response = createMockResponse({ headersSent: false, throwOnWrite: true });
+      const { host } = createHttpHost({ response });
+      await expect(filter.catch(new Error('boom'), host)).resolves.toBeUndefined();
+      expect(response.end).not.toHaveBeenCalled();
+    });
+
     it('M6 GraphQL 分支不受影响：异常仍然原样 throw GraphQLError（不被 HTTP 的兜底吞掉）', async () => {
       const { host } = createGraphqlHost();
 
