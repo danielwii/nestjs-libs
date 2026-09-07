@@ -67,6 +67,11 @@ import {
   resolveAiSdkOtelMissingDependencyDiagnostic,
   resolveLangfuseBaseUrl,
 } from './instrument-helpers';
+import {
+  redactHttpRequestForTelemetry,
+  redactHttpUrlForPath,
+  redactQueryString,
+} from './nest/src/interceptors/http-url-redaction';
 
 import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
@@ -245,10 +250,12 @@ function bootstrapSentry() {
       // 不做 performance monitoring，只做错误追踪
       tracesSampleRate: 0,
       beforeSend(event: {
+        request?: { url?: string; query_string?: unknown };
         message?: string;
         logentry?: { formatted?: string; message?: string };
         exception?: { values?: Array<{ type?: string; value?: string }> };
       }) {
+        if (event.request) event.request = redactHttpRequestForTelemetry(event.request);
         const message = event.message ?? event.logentry?.formatted ?? event.logentry?.message;
         const exceptionValues = event.exception?.values ?? [];
         const exceptionTexts = exceptionValues.map((v) => [v.type, v.value].filter(Boolean).join(':')).filter(Boolean);
@@ -326,7 +333,21 @@ function bootstrapOtel(langfuseProcessor: unknown | null, otlpProcessor: unknown
     //
     // Apps that want span name like `GET /users/:id` should install framework
     // instrumentation that resolves the route template and enriches the span.
-    instrumentations.push(new HttpInstrumentation());
+    instrumentations.push(
+      new HttpInstrumentation({
+        applyCustomAttributesOnSpan(span: {
+          attributes?: Record<string, unknown>;
+          setAttribute: (key: string, value: string) => void;
+        }) {
+          for (const key of ['http.url', 'http.target', 'url.full', 'url.path', 'http.request.header.referer']) {
+            const value = span.attributes?.[key];
+            if (typeof value === 'string') span.setAttribute(key, redactHttpUrlForPath(value));
+          }
+          const query = span.attributes?.['url.query'];
+          if (typeof query === 'string') span.setAttribute('url.query', redactQueryString(query));
+        },
+      }),
+    );
   } else if (httpInstrumentationEnabled && !HttpInstrumentation) {
     otelLogger.warning`${'APP_OTEL_HTTP_INSTRUMENTATION_ENABLED=true but @opentelemetry/instrumentation-http not installed'}`;
   }

@@ -308,8 +308,14 @@ function binaryPayload(input: ArrayBuffer | ArrayBufferView): Extract<LogSafePay
   };
 }
 
+/** Domain field names an app declares through `bootstrap({ privatePayloadKeys })`. */
+let appSensitivePayloadKeys: ReadonlySet<string> = new Set();
+export function configureSensitivePayloadKeys(keys: readonly string[]): void {
+  appSensitivePayloadKeys = new Set(keys.map((key) => key.toLowerCase()));
+}
+
 function isSensitivePayloadKey(key: string): boolean {
-  return SENSITIVE_PAYLOAD_KEY_PATTERN.test(key);
+  return SENSITIVE_PAYLOAD_KEY_PATTERN.test(key) || appSensitivePayloadKeys.has(key.toLowerCase());
 }
 
 export function normalizePayloadForLog(
