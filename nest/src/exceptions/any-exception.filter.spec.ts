@@ -15,11 +15,11 @@ import { AnyExceptionFilter, clientAddr, toErrorDescriptor } from './any-excepti
 import { ErrorCodes } from './error-codes';
 import { Oops } from './oops';
 
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { status as GrpcStatus } from '@grpc/grpc-js';
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { GraphQLError } from 'graphql';
 import { ZodError } from 'zod';
 
@@ -34,17 +34,36 @@ afterEach(() => {
   SysEnv.I18N_EXCEPTION_ENABLED = ORIGINAL_I18N_EXCEPTION_ENABLED;
 });
 
-function createMockResponse() {
-  const res: Record<string, unknown> = {};
+function createMockResponse(overrides?: { headersSent?: boolean; throwOnWrite?: boolean; endThrows?: boolean }) {
+  const res: Record<string, unknown> = { headersSent: overrides?.headersSent ?? false };
   res.status = mock((code: number) => {
+    if (overrides?.throwOnWrite) {
+      throw new Error('Cannot set headers after they are sent to the client');
+    }
     (res as { _statusCode: number })._statusCode = code;
     return res;
   });
   res.json = mock((body: unknown) => {
+    if (overrides?.throwOnWrite) {
+      throw new Error('Cannot set headers after they are sent to the client');
+    }
     (res as { _body: unknown })._body = body;
     return res;
   });
-  return res as { status: ReturnType<typeof mock>; json: ReturnType<typeof mock>; _statusCode: number; _body: unknown };
+  res.end = mock(() => {
+    if (overrides?.endThrows) {
+      throw new Error('response.end() failed too');
+    }
+    return res;
+  });
+  return res as {
+    status: ReturnType<typeof mock>;
+    json: ReturnType<typeof mock>;
+    end: ReturnType<typeof mock>;
+    headersSent: boolean;
+    _statusCode: number;
+    _body: unknown;
+  };
 }
 
 function createMockRequest(
@@ -64,8 +83,11 @@ function createMockRequest(
   };
 }
 
-function createHttpHost(overrides?: { request?: ReturnType<typeof createMockRequest> }) {
-  const response = createMockResponse();
+function createHttpHost(overrides?: {
+  request?: ReturnType<typeof createMockRequest>;
+  response?: ReturnType<typeof createMockResponse>;
+}) {
+  const response = overrides?.response ?? createMockResponse();
   const request = overrides?.request ?? createMockRequest();
 
   const host = {
@@ -436,6 +458,86 @@ describe('AnyExceptionFilter', () => {
       await filter.catch(null, host);
 
       expect(response.status).toHaveBeenCalledWith(500);
+    });
+  });
+
+  // ==================== HTTP: 响应已提交（headersSent）====================
+  //
+  // 事故背景：客户端 socket 在响应中途超时/断开 → Bun 的 HTTP 层在响应过程中抛错
+  // （例如 `TypeError (kRequest)`）→ Nest 把这次抛错也路由给过滤器 → 过滤器的 HTTP
+  // 分支无条件 response.status().json() → `Cannot set headers after they are sent`。
+  // 因为 Nest 的 ExceptionsHandler.invokeCustomFilters 调用自定义过滤器**不 await**，
+  // 这个 async 方法里漏出的 reject 变成 floating promise 的 unhandledRejection ——
+  // libs/lifecycle.ts 的处理器在 EXIT_ON_ERROR 下 process.exit(2)，一次客户端超时
+  // 就能打挂整个进程。这组用例锁住：headersSent 时不再重复写入，且过滤器永远 resolve。
+  describe('HTTP: 响应已提交（headersSent）', () => {
+    it('M1 未知 Error + 已提交响应 → resolve，不重复写入，end 被调用', async () => {
+      const response = createMockResponse({ headersSent: true, throwOnWrite: true });
+      const { host } = createHttpHost({ response });
+
+      await filter.catch(new Error('client disconnected mid-response'), host);
+
+      expect(response.json).not.toHaveBeenCalled();
+      expect(response.end).toHaveBeenCalled();
+    });
+
+    it('M2 BadRequestException（toErrorDescriptor 分支）+ 已提交响应 → resolve，不重复写入', async () => {
+      const response = createMockResponse({ headersSent: true, throwOnWrite: true });
+      const { host } = createHttpHost({ response });
+
+      await filter.catch(new BadRequestException('invalid field'), host);
+
+      expect(response.json).not.toHaveBeenCalled();
+      expect(response.end).toHaveBeenCalled();
+    });
+
+    it('M3 Oops.Panic（handleOopsError，含 await 翻译）+ 已提交响应 → resolve，不重复写入', async () => {
+      const response = createMockResponse({ headersSent: true, throwOnWrite: true });
+      const { host } = createHttpHost({ response });
+
+      await filter.catch(Oops.Panic.Database('insert'), host);
+
+      expect(response.json).not.toHaveBeenCalled();
+      expect(response.end).toHaveBeenCalled();
+    });
+
+    it('M4 未提交响应时三条路径 status/body 与之前完全一致，且不调用 end', async () => {
+      const cases: Array<[unknown, number]> = [
+        [new Error('boom'), 500],
+        [new BadRequestException('bad'), HttpStatus.BAD_REQUEST],
+        [Oops.Panic.Database('insert'), 500],
+      ];
+
+      for (const [exception, expectedStatus] of cases) {
+        const { host, response } = createHttpHost();
+        await filter.catch(exception, host);
+        expect(response.status).toHaveBeenCalledWith(expectedStatus);
+        expect(response.json).toHaveBeenCalled();
+        expect(response.end).not.toHaveBeenCalled();
+      }
+    });
+
+    it('M5 已提交响应且 response.end() 本身也抛 → 仍 resolve，不向上抛', async () => {
+      const response = createMockResponse({ headersSent: true, throwOnWrite: true, endThrows: true });
+      const { host } = createHttpHost({ response });
+
+      await filter.catch(new Error('boom'), host);
+
+      expect(response.end).toHaveBeenCalled();
+    });
+
+    it('M7 未提交响应但 json() 本身抛（如序列化失败）→ 仍 resolve，不向上抛', async () => {
+      const response = createMockResponse({ headersSent: false, throwOnWrite: true });
+      const { host } = createHttpHost({ response });
+      await expect(filter.catch(new Error('boom'), host)).resolves.toBeUndefined();
+      expect(response.end).not.toHaveBeenCalled();
+    });
+
+    it('M6 GraphQL 分支不受影响：异常仍然原样 throw GraphQLError（不被 HTTP 的兜底吞掉）', async () => {
+      const { host } = createGraphqlHost();
+
+      await expect(filter.catch(new Error('unexpected graphql error'), host)).rejects.toBeInstanceOf(GraphQLError);
+      await expect(filter.catch(Oops.Panic.ExternalService('provider'), host)).rejects.toBeInstanceOf(GraphQLError);
     });
   });
 

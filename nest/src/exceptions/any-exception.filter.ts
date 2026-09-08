@@ -214,6 +214,44 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
     const response = rawResponse as Response;
 
+    // HTTP 分支绝不能向 Nest 抛 rejection：ExceptionsHandler.invokeCustomFilters 调用
+    // 自定义过滤器时不 await 返回值，一个从 async 方法漏出的 reject（比如响应已提交后
+    // response.status().json() 抛 `Cannot set headers after they are sent`）会变成
+    // floating promise 的 unhandledRejection —— libs/lifecycle.ts 在 EXIT_ON_ERROR 下
+    // 因此 process.exit(2)，一次客户端提前断开就能打挂整个进程。这里兜底吞掉过滤器
+    // 自身的内部失败，只记日志 + 尽力写一个 500（GraphQL / ws / rpc 分支不受影响，
+    // 它们的 throw / Observable 是 Nest 期望的正常传播通道，不能被这层吞掉）。
+    try {
+      await this.handleHttp(exception, request, response, host);
+      return;
+    } catch (internalError) {
+      this.logger
+        .error`#catchHttpOrGraphql HTTP filter itself failed while handling ${getErrorName(exception)} ${exception}: ${internalError}`;
+      // 兜底写 500 本身也可能抛（如 body 序列化失败）；这是最后一道，只记日志。
+      try {
+        this.respond(
+          response,
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Internal server error' },
+          request,
+        );
+      } catch (fallbackError) {
+        this.logger.error`#catchHttpOrGraphql fallback 500 write failed ${fallbackError}`;
+      }
+      return;
+    }
+  }
+
+  /**
+   * HTTP 分支的实际处理逻辑，从 catchHttpOrGraphql 里抽出来是为了让调用方能用一层
+   * try/catch 兜住过滤器自身的内部失败（见上方注释），而不影响 GraphQL/ws/rpc 分支。
+   */
+  private async handleHttp(
+    exception: unknown,
+    request: IdentityRequest | undefined,
+    response: Response,
+    host: ArgumentsHost,
+  ): Promise<void> {
     if (exception instanceof OopsError) {
       return this.handleOopsError(exception, request, response, host);
     }
@@ -225,13 +263,17 @@ export class AnyExceptionFilter implements ExceptionFilter {
       if (isServerError(descriptor.httpStatus)) {
         this.captureExceptionBySentry(exception, host);
       }
-      return response.status(descriptor.httpStatus).json(
+      this.respond(
+        response,
+        descriptor.httpStatus,
         ApiRes.failure({
           code: descriptor.code,
           message: descriptor.message,
           errors: descriptor.errors,
         }),
+        request,
       );
+      return;
     }
 
     // 只有未被识别的异常才交给 Sentry
@@ -249,11 +291,33 @@ export class AnyExceptionFilter implements ExceptionFilter {
     const status = HttpStatus.INTERNAL_SERVER_ERROR;
     const message = getErrorMessage(exception);
 
-    response.status(status).json({
-      statusCode: status,
-      message,
-    });
-    return;
+    this.respond(response, status, { statusCode: status, message }, request);
+  }
+
+  /**
+   * 唯一的 HTTP 响应写入点（三处 HTTP 写响应——toErrorDescriptor 分支、未知异常 500
+   * 兜底、handleOopsError——都经过这里）。
+   *
+   * 为什么需要它：响应可能在过滤器执行到这里之前就已经提交（客户端提前断开连接时，
+   * Bun/Node 的 HTTP 层会在响应中途抛错，framework 把这次抛错也路由给过滤器）。此时
+   * 再调用 response.status().json() 会抛 `Cannot set headers after they are sent`。
+   * 语义对齐 Nest 自带 BaseExceptionFilter 的 `isHeadersSent` / `end`：已提交的响应
+   * 不再写 body，只尽力 end() 收尾；end() 本身失败也只记日志，绝不向上抛
+   * （由 catchHttpOrGraphql 的 try/catch 兜底，这里提前处理是为了避免重复写日志）。
+   */
+  private respond(response: Response, status: number, body: unknown, request?: IdentityRequest): void {
+    if (response.headersSent) {
+      this.logger
+        .warning`#respond response already committed, error body dropped status=${status} (${request?.user?.uid})[${clientAddr(request)}]`;
+      try {
+        response.end();
+      } catch (endError) {
+        this.logger.warning`#respond response.end() failed after headersSent ${endError}`;
+      }
+      return;
+    }
+
+    response.status(status).json(body);
   }
 
   /**
@@ -318,11 +382,14 @@ export class AnyExceptionFilter implements ExceptionFilter {
 
     const translatedMessage = await this.getTranslatedMessage(exception, request);
 
-    return response.status(exception.httpStatus).json(
+    this.respond(
+      response,
+      exception.httpStatus,
       ApiRes.failure({
         code: exception.getCombinedCode(),
         message: translatedMessage,
       }),
+      request,
     );
   }
 
