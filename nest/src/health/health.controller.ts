@@ -65,17 +65,24 @@ export class HealthController implements OnApplicationShutdown {
 
     const results = await Promise.all(indicators.map((i) => i.check()));
     const checks: Record<string, HealthIndicatorResult> = {};
-    for (const r of results) {
+    let criticalFailed = false;
+    let softFailed = false;
+    for (const [index, r] of results.entries()) {
       checks[r.name] = r;
+      if (r.healthy) continue;
+      // critical 缺省为 true：没声明的 indicator 一律按硬依赖处理（与改动前行为一致）
+      if (indicators[index]?.critical === false) softFailed = true;
+      else criticalFailed = true;
     }
 
-    const allHealthy = results.every((r) => r.healthy);
-    if (!allHealthy) {
+    if (criticalFailed) {
       res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ status: 'not_ready', checks });
       return;
     }
 
-    res.status(HttpStatus.OK).json({ status: 'ready', checks });
+    // 软依赖失败：进程仍能接请求（依赖方自己有降级路径），不能让整服务摘流。
+    // 200 + degraded 让监控能看见，K8s 不动作。
+    res.status(HttpStatus.OK).json({ status: softFailed ? 'degraded' : 'ready', checks });
   }
 
   /**
