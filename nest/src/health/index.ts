@@ -7,4 +7,4 @@ export { HealthRegistry } from './health-registry';
 export type { HealthIndicator, HealthIndicatorResult, HealthIndicatorType } from './health-indicator';
 export { createDbHealthIndicator } from './indicators/db.health-indicator';
 export { createGrpcHealthIndicator } from './indicators/grpc.health-indicator';
-export { createRedisHealthIndicator } from './indicators/redis.health-indicator';
+export { createRedisHealthIndicator, type RedisHealthIndicatorOptions } from './indicators/redis.health-indicator';

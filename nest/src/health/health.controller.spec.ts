@@ -50,7 +50,60 @@ function mockRes() {
   };
 }
 
+function readinessIndicator(name: string, healthy: boolean, critical?: boolean): HealthIndicator {
+  return {
+    type: 'readiness',
+    ...(critical === undefined ? {} : { critical }),
+    check: async () => ({ name, healthy, latencyMs: 3, ...(healthy ? {} : { error: 'ECONNRESET' }) }),
+  };
+}
+
 // ==================== Tests ====================
+
+describe('HealthController /health/ready — critical vs soft dependencies', () => {
+  test('全部健康 → 200 ready', async () => {
+    const controller = setup(readinessIndicator('database', true), readinessIndicator('redis', true, false));
+    const mock = mockRes();
+    await controller.ready(mock.res);
+    expect(mock.statusCode).toBe(200);
+    expect(mock.body.status).toBe('ready');
+  });
+
+  test('critical（database）失败 → 503 not_ready', async () => {
+    const controller = setup(readinessIndicator('database', false), readinessIndicator('redis', true, false));
+    const mock = mockRes();
+    await controller.ready(mock.res);
+    expect(mock.statusCode).toBe(503);
+    expect(mock.body.status).toBe('not_ready');
+  });
+
+  test('未声明 critical 的 indicator 失败 → 仍按硬依赖 503（向后兼容）', async () => {
+    const controller = setup(readinessIndicator('legacy', false));
+    const mock = mockRes();
+    await controller.ready(mock.res);
+    expect(mock.statusCode).toBe(503);
+  });
+
+  test('只有软依赖（redis, critical:false）失败 → 200 degraded，checks 里仍能看到失败', async () => {
+    const controller = setup(readinessIndicator('database', true), readinessIndicator('redis', false, false));
+    const mock = mockRes();
+    await controller.ready(mock.res);
+    expect(mock.statusCode).toBe(200);
+    expect(mock.body.status).toBe('degraded');
+    const checks = mock.body.checks as Record<string, { healthy: boolean; error?: string }>;
+    expect(checks.redis?.healthy).toBe(false);
+    expect(checks.redis?.error).toBe('ECONNRESET');
+    expect(checks.database?.healthy).toBe(true);
+  });
+
+  test('软依赖和硬依赖同时失败 → 503（硬依赖优先）', async () => {
+    const controller = setup(readinessIndicator('database', false), readinessIndicator('redis', false, false));
+    const mock = mockRes();
+    await controller.ready(mock.res);
+    expect(mock.statusCode).toBe(503);
+    expect(mock.body.status).toBe('not_ready');
+  });
+});
 
 describe('HealthController /health/topology', () => {
   test('无 indicator → 200 ok', async () => {
