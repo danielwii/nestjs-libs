@@ -489,16 +489,16 @@ function buildProviderOptions(
     aiLogger.warning`[buildProviderOptions] unknown OpenRouter routing profile="${name}" (model=${modelKey}), ignoring`;
   });
 
-  if (routingOptions?.openrouter) {
-    return {
-      openrouter: {
-        ...thinkingOptions.openrouter,
-        ...routingOptions.openrouter,
-      },
-    };
-  }
-
-  return thinkingOptions;
+  // Request-level cache_control → OpenRouter "Anthropic automatic caching". Claude via OpenRouter never
+  // caches unless the request carries cache_control; other providers cache on their own and ignore it.
+  // Measured 2026-09-15 (STG, claude-sonnet-5): cacheReadTokens=0 on every step without this.
+  return {
+    openrouter: {
+      ...thinkingOptions.openrouter,
+      cacheControl: { type: 'ephemeral' },
+      ...routingOptions?.openrouter,
+    },
+  };
 }
 
 const aiLogger = getAppLogger('features', 'LLM', 'ai');
