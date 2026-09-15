@@ -429,9 +429,9 @@ describe('cache-aware prompt decorators', () => {
     expect(decorateUserInput('我后天呢？')).toBe('<user_input>我后天呢？</user_input>');
   });
 
-  it('render can omit the trailing Now line so the system prompt stays static', () => {
+  it('render with now:null omits the trailing Now line so the system prompt stays static', () => {
     const prompt = PromptBuilder.from({ id: 't', role: 'r', objective: 'o' });
     expect(prompt.render({ timezone: 'Asia/Hong_Kong' })).toMatch(/\nNow:/);
-    expect(prompt.render({ timezone: 'Asia/Hong_Kong', includeNow: false })).not.toMatch(/Now:/);
+    expect(prompt.render({ timezone: 'Asia/Hong_Kong', now: null })).not.toMatch(/Now:/);
   });
 });

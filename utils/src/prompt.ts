@@ -109,7 +109,7 @@ export function formatLocalDateTime(
  *
  * Cache-aware prompt layout: the current time is the most volatile input, so it belongs at the
  * front of the per-turn (dynamic) message, never inside the static system prompt. Callers that
- * move the time here render their system prompt with `includeNow: false`. The zoned time carries
+ * move the time here render their system prompt with `now: null`. The zoned time carries
  * its own timezone, so nothing else needs to be configured.
  *
  * @example
