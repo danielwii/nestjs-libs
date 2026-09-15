@@ -107,6 +107,8 @@ export interface RenderOptions {
   sensitivity?: TimeSensitivity;
   /** Deterministic clock injection for evals/replays. Defaults to the current instant. */
   now?: PromptDateTime;
+  /** Append the trailing `Now:` line (default true). Pass false when the time is supplied per turn via `decorateWithNow`. */
+  includeNow?: boolean;
   /** Whether to output token metrics in the log */
   verbose?: boolean;
 }
@@ -153,7 +155,7 @@ class XmlPrompt implements Prompt {
    * 渲染为最终 prompt 字符串
    */
   render(options: RenderOptions = {}): string {
-    const { timezone, sensitivity = TimeSensitivity.Minute, now, verbose = false } = options;
+    const { timezone, sensitivity = TimeSensitivity.Minute, now, includeNow = true, verbose = false } = options;
 
     const sections = this.data.sections;
     const sectionMetrics: Record<string, number> = {};
@@ -262,7 +264,7 @@ class XmlPrompt implements Prompt {
       languagePart,
       '------',
       'When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.',
-      `Now:${timestamp}`,
+      includeNow ? `Now:${timestamp}` : '',
     ]
       .filter(Boolean)
       .join('\n');

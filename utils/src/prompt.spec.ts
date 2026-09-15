@@ -1,7 +1,7 @@
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { formatLocalDateTime, TimeSensitivity } from './prompt';
+import { decorateUserInput, decorateWithNow, formatLocalDateTime, TimeSensitivity } from './prompt';
 import { PromptBuilder, renderStandingLanguagePreference } from './prompt.xml';
 
 import { Temporal } from '@js-temporal/polyfill';
@@ -410,5 +410,24 @@ describe('PromptBuilder', () => {
         internalDetails: 'Configuration error: PromptBuilder: objective is required',
       });
     }
+  });
+});
+
+describe('cache-aware prompt decorators', () => {
+  it('decorateWithNow prepends a single <now> block with the zoned time', () => {
+    const now = Temporal.ZonedDateTime.from('2026-09-15T18:22:00+08:00[Asia/Hong_Kong]');
+    expect(decorateWithNow('<task>x</task>', now)).toBe(
+      '<now timezone="Asia/Hong_Kong">2026-09-15 Tuesday 18:22 in the evening</now>\n<task>x</task>',
+    );
+  });
+
+  it('decorateUserInput wraps the verbatim words', () => {
+    expect(decorateUserInput('我后天呢？')).toBe('<user_input>我后天呢？</user_input>');
+  });
+
+  it('render can omit the trailing Now line so the system prompt stays static', () => {
+    const prompt = PromptBuilder.from({ id: 't', role: 'r', objective: 'o' });
+    expect(prompt.render({ timezone: 'Asia/Hong_Kong' })).toMatch(/\nNow:/);
+    expect(prompt.render({ timezone: 'Asia/Hong_Kong', includeNow: false })).not.toMatch(/Now:/);
   });
 });
