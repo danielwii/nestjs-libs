@@ -121,6 +121,9 @@ export function formatLocalDateTime(
  */
 /** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value; timezone defaults like the rest of this module: TZ env, then host. */
 export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
+  // A fixed-instant API must never silently become the current clock: reject blank inputs here
+  // (toTemporalZdt only defaults for null/undefined by contract of zonedNow).
+  if (typeof at === 'string' && at.trim() === '') throw new TypeError('zonedAt: empty timestamp');
   return toTemporalZdt(at, timezone);
 }
 
@@ -139,7 +142,9 @@ export function decorateWithNow(content: string, now: Temporal.ZonedDateTime): s
  * the actual human input apart from context the runtime placed next to it.
  */
 export function decorateUserInput(text: string): string {
-  return `<user_input>${text}</user_input>`;
+  // Entity-escape so verbatim text can never close or open a wrapper (e.g. a literal `</user_input>`).
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<user_input>${escaped}</user_input>`;
 }
 
 export function formatLocalDate(dateOrIso: PromptDateTime, timezone?: string | null): string {
