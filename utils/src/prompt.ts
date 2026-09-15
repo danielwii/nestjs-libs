@@ -119,6 +119,11 @@ export function formatLocalDateTime(
  * // ...payload
  * ```
  */
+/** Current time as a zoned Temporal value (timezone defaults like the rest of this module: TZ env, then host). */
+export function zonedNow(timezone?: string | null): Temporal.ZonedDateTime {
+  return toTemporalZdt(undefined, timezone);
+}
+
 export function decorateWithNow(content: string, now: Temporal.ZonedDateTime): string {
   const label = `${formatTemporal(now, TimeSensitivity.Minute)} ${formatDayPeriod(now)}`;
   return `<now timezone="${now.timeZoneId}">${label}</now>\n${content}`;
