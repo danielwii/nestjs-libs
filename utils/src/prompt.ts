@@ -104,6 +104,39 @@ export function formatLocalDateTime(
  * 替代 `toISOString().slice(0, 10)` — 避免 UTC 日期边界错位。
  * 用于只需日期精度的场景（任务截止、存储条目、curriculum 执行时间等）。
  */
+/**
+ * Prepend a `<now>` block to dynamic prompt content.
+ *
+ * Cache-aware prompt layout: the current time is the most volatile input, so it belongs at the
+ * front of the per-turn (dynamic) message, never inside the static system prompt. Callers that
+ * move the time here render their system prompt with `now: null`. The zoned time carries
+ * its own timezone, so nothing else needs to be configured.
+ *
+ * @example
+ * ```typescript
+ * decorateWithNow(payload, Temporal.Now.zonedDateTimeISO('Asia/Hong_Kong'))
+ * // <now timezone="Asia/Hong_Kong">2026-09-15 Tuesday 18:22 in the evening</now>
+ * // ...payload
+ * ```
+ */
+/** Current time as a zoned Temporal value (timezone defaults like the rest of this module: TZ env, then host). */
+export function zonedNow(timezone?: string | null): Temporal.ZonedDateTime {
+  return toTemporalZdt(undefined, timezone);
+}
+
+export function decorateWithNow(content: string, now: Temporal.ZonedDateTime): string {
+  const label = `${formatTemporal(now, TimeSensitivity.Minute)} ${formatDayPeriod(now)}`;
+  return `<now timezone="${now.timeZoneId}">${label}</now>\n${content}`;
+}
+
+/**
+ * Mark the person's verbatim words inside a runtime-composed user message, so the model can tell
+ * the actual human input apart from context the runtime placed next to it.
+ */
+export function decorateUserInput(text: string): string {
+  return `<user_input>${text}</user_input>`;
+}
+
 export function formatLocalDate(dateOrIso: PromptDateTime, timezone?: string | null): string {
   return toTemporalZdt(dateOrIso, timezone).toPlainDate().toString();
 }

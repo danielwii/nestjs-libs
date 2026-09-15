@@ -106,7 +106,8 @@ export interface RenderOptions {
   timezone?: string | null;
   sensitivity?: TimeSensitivity;
   /** Deterministic clock injection for evals/replays. Defaults to the current instant. */
-  now?: PromptDateTime;
+  /** Time for the trailing `Now:` line. Omit = current time; `null` = no Now line (time supplied per turn via `decorateWithNow`). */
+  now?: PromptDateTime | null;
   /** Whether to output token metrics in the log */
   verbose?: boolean;
 }
@@ -249,7 +250,7 @@ class XmlPrompt implements Prompt {
     const contextXml = renderedSections.length > 0 ? `<context>\n${renderedSections.join('\n')}\n</context>` : '';
 
     // 3. Final Composition
-    const timestamp = formatLocalDateTime(now, sensitivity, timezone);
+    const timestamp = now === null ? undefined : formatLocalDateTime(now, sensitivity, timezone);
 
     const epiloguePart = this.data.epilogue ? `<epilogue priority="critical">${this.data.epilogue}</epilogue>` : '';
 
@@ -262,7 +263,7 @@ class XmlPrompt implements Prompt {
       languagePart,
       '------',
       'When responding, always consider all context items, and always prioritize higher-priority items first: critical > high > medium > low.',
-      `Now:${timestamp}`,
+      timestamp ? `Now:${timestamp}` : '',
     ]
       .filter(Boolean)
       .join('\n');

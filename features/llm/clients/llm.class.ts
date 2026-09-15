@@ -448,6 +448,23 @@ function resolveOpenRouterCallOptions(
  * reasoningRequired 模型（如 MiniMax M2.5、Grok 4.1 Fast）：
  * thinking='none' 时不发送 disableThinking，避免 400 错误。
  */
+/**
+ * OpenRouter/Anthropic prompt caching is prefix-based and only materialises at explicit breakpoints.
+ * OpenRouter's automatic mode breakpoints the last message only, so the static prefix (tools +
+ * system) is never cached on its own and every new turn re-bills it. Carrying the system prompt as
+ * a system message with its own cacheControl adds a breakpoint right after it, making tools +
+ * system a reusable cache entry across turns. Other providers get the plain string.
+ */
+function cachedInstructions(modelKey: LLMModelKey, instructions: string | undefined) {
+  if (instructions === undefined) return undefined;
+  if (getProvider(modelKey) !== 'openrouter') return instructions;
+  return {
+    role: 'system' as const,
+    content: instructions,
+    providerOptions: { openrouter: { cacheControl: { type: 'ephemeral' } } },
+  };
+}
+
 function buildProviderOptions(
   provider: LLMProviderType,
   thinking: ThinkingEffort,
@@ -1332,7 +1349,7 @@ export class LLM {
         const result = await generateText({
           model: languageModel,
           output: Output.object({ schema }),
-          instructions,
+          instructions: cachedInstructions(modelKey, instructions),
           messages,
           providerOptions,
           headers: tierHeaders,
@@ -1571,7 +1588,7 @@ export class LLM {
         const result = await generateText({
           ...(aiOptions ?? {}),
           model: languageModel,
-          ...(instructions !== undefined ? { instructions } : {}),
+          ...(instructions !== undefined ? { instructions: cachedInstructions(modelKey, instructions) } : {}),
           prompt: undefined,
           messages,
           providerOptions,
@@ -1748,7 +1765,7 @@ export class LLM {
       ...restAiOptions,
       model,
       output,
-      ...(instructions !== undefined ? { instructions } : {}),
+      ...(instructions !== undefined ? { instructions: cachedInstructions(modelKey, instructions) } : {}),
       prompt: undefined,
       messages,
       providerOptions,
@@ -1914,7 +1931,7 @@ export class LLM {
     const streamRequest: Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, OUTPUT>>[0] = {
       ...restAiOptions,
       model: languageModel,
-      ...(instructions !== undefined ? { instructions } : {}),
+      ...(instructions !== undefined ? { instructions: cachedInstructions(modelKey, instructions) } : {}),
       prompt: undefined,
       messages,
       providerOptions,
@@ -2055,7 +2072,7 @@ export class LLM {
       try {
         const result = await generateText({
           model: languageModel,
-          instructions,
+          instructions: cachedInstructions(modelKey, instructions),
           messages,
           tools,
           toolChoice,
@@ -2234,7 +2251,7 @@ export class LLM {
 
     const result = streamText({
       model: languageModel,
-      instructions,
+      instructions: cachedInstructions(modelKey, instructions),
       messages,
       tools,
       toolChoice,
