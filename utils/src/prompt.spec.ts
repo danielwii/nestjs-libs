@@ -1,7 +1,7 @@
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { decorateUserInput, decorateWithNow, formatLocalDateTime, TimeSensitivity, zonedNow } from './prompt';
+import { decorateUserInput, decorateWithNow, formatLocalDateTime, TimeSensitivity, zonedAt, zonedNow } from './prompt';
 import { PromptBuilder, renderStandingLanguagePreference } from './prompt.xml';
 
 import { Temporal } from '@js-temporal/polyfill';
@@ -419,6 +419,10 @@ describe('cache-aware prompt decorators', () => {
     expect(decorateWithNow('<task>x</task>', now)).toBe(
       '<now timezone="Asia/Hong_Kong">2026-09-15 Tuesday 18:22 in the evening</now>\n<task>x</task>',
     );
+  });
+
+  it('zonedAt converts a fixed instant into the requested timezone', () => {
+    expect(zonedAt('2026-09-15T10:22:00Z', 'Asia/Hong_Kong').toString()).toBe('2026-09-15T18:22:00+08:00[Asia/Hong_Kong]');
   });
 
   it('zonedNow carries the requested timezone', () => {

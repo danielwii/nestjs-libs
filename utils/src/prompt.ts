@@ -119,6 +119,11 @@ export function formatLocalDateTime(
  * // ...payload
  * ```
  */
+/** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value; timezone defaults like the rest of this module: TZ env, then host. */
+export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
+  return toTemporalZdt(at, timezone);
+}
+
 /** Current time as a zoned Temporal value (timezone defaults like the rest of this module: TZ env, then host). */
 export function zonedNow(timezone?: string | null): Temporal.ZonedDateTime {
   return toTemporalZdt(undefined, timezone);
