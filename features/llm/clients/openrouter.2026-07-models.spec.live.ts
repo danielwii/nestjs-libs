@@ -20,6 +20,7 @@ const catalogModels = [
   { key: 'openrouter:gemini-3.5-flash-lite', modelId: 'google/gemini-3.5-flash-lite', reasoningRequired: true },
   { key: 'openrouter:claude-sonnet-5', modelId: 'anthropic/claude-sonnet-5', reasoningRequired: false },
   { key: 'openrouter:gpt-5.6-luna', modelId: 'openai/gpt-5.6-luna', reasoningRequired: false },
+  { key: 'openrouter:glm-5.3-flash', modelId: 'z-ai/glm-5.3-flash', reasoningRequired: true },
   { key: 'openrouter:gpt-5.6-terra', modelId: 'openai/gpt-5.6-terra', reasoningRequired: false },
   { key: 'openrouter:gpt-5.6-sol', modelId: 'openai/gpt-5.6-sol', reasoningRequired: false },
   { key: 'openrouter:grok-4.5', modelId: 'x-ai/grok-4.5', reasoningRequired: true },

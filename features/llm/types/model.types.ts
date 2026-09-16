@@ -386,6 +386,17 @@ export interface LLMModelRegistry {
   // 'openrouter:glm-5': ModelConfig<'openrouter'>;
   // 'openrouter:z-ai/glm-5': ModelConfig<'openrouter'>;
   /**
+   * GLM 5.3 Flash（Z.ai）— 2026-09-16 注册为 calo V2 Root 候选，仅注册、未路由。
+   *
+   * OpenRouter 目录（2026-09-16）：canonical `z-ai/glm-5.3-flash-20260826`，context 1,310,720
+   * （top provider 1,048,576 / max completion 131,072），$0.10/$0.3333 per 1M，cache read $0.02。
+   * `reasoning.mandatory = true`：thinking=none 走参数层 fallback（见 reasoningRequired）。
+   *
+   * @see https://openrouter.ai/z-ai/glm-5.3-flash
+   */
+  'openrouter:glm-5.3-flash': ModelConfig<'openrouter'>;
+  'openrouter:z-ai/glm-5.3-flash': ModelConfig<'openrouter'>;
+  /**
    * MiniMax M2.5 - Programming #1, Technology #1
    *
    * 定价参考（2026.02）：Input $0.30/M, Output $1.10/M, Context 196K
@@ -1174,6 +1185,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   // GLM 5 - 不考虑使用
   // ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
   // ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
+  // GLM 5.3 Flash — OpenRouter metadata 2026-09-16: reasoning mandatory
+  ['openrouter:glm-5.3-flash', { provider: 'openrouter', modelId: 'z-ai/glm-5.3-flash', reasoningRequired: true }],
+  ['openrouter:z-ai/glm-5.3-flash', { provider: 'openrouter', modelId: 'z-ai/glm-5.3-flash', reasoningRequired: true }],
   // MiniMax M2.5 — LIVE 2026-08-15 OpenRouter disable → 400 mandatory
   ['openrouter:minimax-m2.5', { provider: 'openrouter', modelId: 'minimax/minimax-m2.5', reasoningRequired: true }],
   [
