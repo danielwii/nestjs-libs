@@ -164,6 +164,11 @@ export interface TokenUsage {
    * @see sumProviderReportedCost
    */
   cost?: number;
+  /**
+   * 命中提示缓存的输入 token（AI SDK v7 usage 字段）。OpenRouter 上的 Anthropic 只有在
+   * 请求带 cache_control 时才可能 > 0（见 buildProviderOptions）。
+   */
+  cachedInputTokens?: number;
 }
 
 type LLMReservedAIKeys = 'model' | 'providerOptions' | 'output';
@@ -1203,12 +1208,16 @@ export class LLM {
     const costSource = usage.cost !== undefined ? 'reported' : 'est';
     const costStr = cost !== null ? `, cost=$${cost.toFixed(6)}(${costSource})` : '';
     const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
+    // 缓存命中此前只能从 cost 的数量级反推：同样输入量、成本差一个量级。直接报出来，
+    // 因为提示布局改动（静态在前、时钟只出现一次）的收益就体现在这个比例上。
+    const cached = usage.cachedInputTokens ?? 0;
+    const cachePart = inputTokens > 0 ? `, cached=${cached}/${inputTokens}` : '';
     const trafficType = extractTrafficType(usage);
     const trafficPart = trafficType ? `, trafficType=${trafficType}` : '';
     const tierPart = formatTierLogPart(tier, vertexRequestType);
     const serviceTierPart = bedrockServiceTier ? `, bedrockServiceTier=${bedrockServiceTier}` : '';
     LLM.logger
-      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}${serviceTierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${costStr}${fbPart}${trafficPart}`;
+      .info`[LLM:end] id=${id}, method=${method}, model=${modelKey}${tierPart}${serviceTierPart}, duration=${duration}ms, tokens=${totalTokens || '-'} (in=${inputTokens}, out=${outputTokens})${cachePart}${costStr}${fbPart}${trafficPart}`;
 
     // 请求了非 standard tier 但 Vertex 实际按别的档路由 —— 不报错、按标准价计费，
     // 只有把请求的 tier 与回报的 trafficType 并排比才看得出来。不改路由行为，只暴露事实。
