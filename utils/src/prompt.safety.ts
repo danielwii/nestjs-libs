@@ -44,7 +44,11 @@ export function escapePromptStructure(value: string): string {
  */
 const ENVELOPE_PATTERN = /<(?=\s*\/?\s*untrusted\b)/gi;
 
-function escapeInsideEnvelope(value: string): string {
+/**
+ * 任何外部可控文本进提示词前都该过这一层：结构标签与信封标签一起中和。
+ * 渲染器只用 escapePromptStructure，因为它必须让调用方拼出的真信封原样通过。
+ */
+export function escapePromptText(value: string): string {
   return escapePromptStructure(value).replace(ENVELOPE_PATTERN, '<\\');
 }
 
@@ -53,7 +57,7 @@ function escapeInsideEnvelope(value: string): string {
  * 不是对它的指令；内容先转义，攻击者无法自行闭合信封跳出去。
  */
 export function untrusted(input: { readonly source: string; readonly content: string }): string {
-  return `<untrusted source="${escapeInsideEnvelope(input.source)}">${escapeInsideEnvelope(input.content)}</untrusted>`;
+  return `<untrusted source="${escapePromptText(input.source)}">${escapePromptText(input.content)}</untrusted>`;
 }
 
 /** 放在含 `untrusted` 信封的段落里，一次即可，告诉模型信封的含义。 */
