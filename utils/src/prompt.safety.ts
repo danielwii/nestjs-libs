@@ -25,7 +25,6 @@ export const PROMPT_STRUCTURE_TAGS = [
   'section',
   'style',
   'tone',
-  'untrusted',
 ] as const;
 
 const STRUCTURE_TAG_PATTERN = new RegExp(`<(?=\\s*/?\\s*(${PROMPT_STRUCTURE_TAGS.join('|')})\\b)`, 'gi');
@@ -39,11 +38,22 @@ export function escapePromptStructure(value: string): string {
 }
 
 /**
+ * 信封标签本身不是渲染器发出的结构标签，所以它不在 PROMPT_STRUCTURE_TAGS 里：调用方
+ * 自己拼出的 `<untrusted>` 必须能原样通过渲染。但信封内部的文本要连它一起中和，否则
+ * 攻击者写一个 `</untrusted>` 就跳出去了。
+ */
+const ENVELOPE_PATTERN = /<(?=\s*\/?\s*untrusted\b)/gi;
+
+function escapeInsideEnvelope(value: string): string {
+  return escapePromptStructure(value).replace(ENVELOPE_PATTERN, '<\\');
+}
+
+/**
  * 把外部可控文本包成数据信封。`source` 说明它从哪来，模型据此知道这是待引用的数据，
  * 不是对它的指令；内容先转义，攻击者无法自行闭合信封跳出去。
  */
 export function untrusted(input: { readonly source: string; readonly content: string }): string {
-  return `<untrusted source="${escapePromptStructure(input.source)}">${escapePromptStructure(input.content)}</untrusted>`;
+  return `<untrusted source="${escapeInsideEnvelope(input.source)}">${escapeInsideEnvelope(input.content)}</untrusted>`;
 }
 
 /** 放在含 `untrusted` 信封的段落里，一次即可，告诉模型信封的含义。 */

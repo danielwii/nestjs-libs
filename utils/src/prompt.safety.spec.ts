@@ -16,6 +16,11 @@ describe('escapePromptStructure', () => {
     expect(escapePromptStructure(once)).toBe(once);
   });
 
+  it('leaves a genuine untrusted envelope intact, because the renderer must not break it', () => {
+    const envelope = '<untrusted source="user_memory">blue</untrusted>';
+    expect(escapePromptStructure(envelope)).toBe(envelope);
+  });
+
   it('leaves text without structure tags byte-identical', () => {
     const value = 'a < b, 5<6, <div>, <script>, 明天 3 点';
     expect(escapePromptStructure(value)).toBe(value);
