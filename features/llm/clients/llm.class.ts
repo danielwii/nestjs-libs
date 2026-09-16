@@ -165,10 +165,15 @@ export interface TokenUsage {
    */
   cost?: number;
   /**
-   * 命中提示缓存的输入 token（AI SDK v7 usage 字段）。OpenRouter 上的 Anthropic 只有在
-   * 请求带 cache_control 时才可能 > 0（见 buildProviderOptions）。
+   * 命中/写入提示缓存的输入 token。AI SDK v7 把它放在 usage.inputTokenDetails 下，
+   * 不是顶层 cachedInputTokens（那是 provider 层 LanguageModelV2Usage 的字段）。
+   * OpenRouter 上的 Anthropic 只有在请求带 cache_control 时才可能 > 0（见 buildProviderOptions）。
    */
-  cachedInputTokens?: number;
+  inputTokenDetails?: {
+    noCacheTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
 }
 
 type LLMReservedAIKeys = 'model' | 'providerOptions' | 'output';
@@ -1210,8 +1215,9 @@ export class LLM {
     const fbPart = fb && fb.total > 1 ? `, attempt=${fb.attempt}/${fb.total}` : '';
     // 缓存命中此前只能从 cost 的数量级反推：同样输入量、成本差一个量级。直接报出来，
     // 因为提示布局改动（静态在前、时钟只出现一次）的收益就体现在这个比例上。
-    const cached = usage.cachedInputTokens ?? 0;
-    const cachePart = inputTokens > 0 ? `, cached=${cached}/${inputTokens}` : '';
+    const cacheRead = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+    const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+    const cachePart = inputTokens > 0 ? `, cache=${cacheRead}r/${cacheWrite}w of ${inputTokens}` : '';
     const trafficType = extractTrafficType(usage);
     const trafficPart = trafficType ? `, trafficType=${trafficType}` : '';
     const tierPart = formatTierLogPart(tier, vertexRequestType);
