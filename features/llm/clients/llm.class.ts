@@ -34,6 +34,8 @@ import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
+import { getTypeSafeClient } from '../../typesafe/client';
+import { classifyTypeSafeError } from '../../typesafe/errors';
 import { llmCaptureSchema } from '../schemas/capture.schema';
 import { EMBEDDING_MODELS } from '../types/embedding.types';
 import {
@@ -97,6 +99,7 @@ import type {
 import type { JSONObject } from '@ai-sdk/provider';
 import type { Context } from '@ai-sdk/provider-utils';
 import type { OopsError } from '@app/nest/exceptions/oops-error';
+import type { Questions, SystemOneRequest, SystemOneResult } from '@typesafe-ai/sdk';
 import type {
   LanguageModel,
   ModelMessage,
@@ -2580,6 +2583,44 @@ export class LLM {
           throw error;
         }
       }
+    }
+  }
+
+  /**
+   * TypeSafe System One：state + questions 原样走官方请求类型。
+   * state 是任意可 JSON 的内容（字符串、对象、数组、null），不是固定 `{ document }`。
+   * 不是聊天模型，不进 LLMModelRegistry。钥匙走 AI_TYPESAFE_API_KEY。
+   */
+  static async systemOne<const Q extends Questions>(
+    params: SystemOneRequest<Q> & {
+      id: string;
+      timeout?: number;
+      abortSignal?: AbortSignal;
+    },
+  ): Promise<SystemOneResult<Q>> {
+    const { id, timeout, abortSignal, ...request } = params;
+    const model = request.model ?? 'jev-latest';
+    const modelKey = `typesafe:${model}`;
+    const startTime = Date.now();
+
+    const questionNames = Object.keys(request.questions).join(',');
+    LLM.logger.debug`[LLM:input] id=${id}, method=systemOne, questions=[${questionNames}]`;
+    LLM.logStart(id, 'systemOne', modelKey);
+
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+    try {
+      const result = await getTypeSafeClient().systemOne(request, { signal });
+      cleanup();
+      LLM.logEnd(id, 'systemOne', `typesafe:${result.model}`, startTime, {
+        inputTokens: result.usage.input_tokens,
+        outputTokens: result.usage.output_tokens,
+      });
+      return result;
+    } catch (error) {
+      cleanup();
+      const classified = classifyTypeSafeError(error, modelKey);
+      LLM.logError(id, 'systemOne', modelKey, classified);
+      throw classified;
     }
   }
 

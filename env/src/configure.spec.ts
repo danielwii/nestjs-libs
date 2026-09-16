@@ -1295,6 +1295,7 @@ describe('AppConfigure', () => {
         'SENTRY_DSN',
         'REDIS_PASSWORD',
         'DATABASE_URL',
+        'AI_TYPESAFE_API_KEY',
       ]) {
         expect(AppConfigure.isSensitive(key)).toBe(true);
       }

@@ -80,6 +80,7 @@ type CanonicalVertexKey = AbstractEnvironmentVariables['AI_GOOGLE_VERTEX_API_KEY
 type CanonicalOpenAIKey = AbstractEnvironmentVariables['AI_OPENAI_API_KEY'];
 type CanonicalJinaKey = AbstractEnvironmentVariables['AI_JINA_API_KEY'];
 type CanonicalVoyageKey = AbstractEnvironmentVariables['AI_VOYAGE_API_KEY'];
+type CanonicalTypeSafeKey = AbstractEnvironmentVariables['AI_TYPESAFE_API_KEY'];
 type CanonicalVertexProject = AbstractEnvironmentVariables['GOOGLE_VERTEX_PROJECT'];
 type CanonicalVertexLocation = AbstractEnvironmentVariables['GOOGLE_VERTEX_LOCATION'];
 
@@ -95,6 +96,8 @@ type RemovedOpenAIKey = AbstractEnvironmentVariables['OPENAI_API_KEY'];
 type RemovedJinaKey = AbstractEnvironmentVariables['JINA_API_KEY'];
 // @ts-expect-error removed wrapper env key; use AI_VOYAGE_API_KEY
 type RemovedVoyageKey = AbstractEnvironmentVariables['VOYAGE_API_KEY'];
+// @ts-expect-error official SDK env name is not a SysEnv field; use AI_TYPESAFE_API_KEY
+type RemovedTypeSafeKey = AbstractEnvironmentVariables['TYPESAFE_API_KEY'];
 // @ts-expect-error use the AI SDK v7 canonical GOOGLE_VERTEX_PROJECT
 type RemovedGoogleCloudProject = AbstractEnvironmentVariables['GOOGLE_CLOUD_PROJECT'];
 // @ts-expect-error use the AI SDK v7 canonical GOOGLE_VERTEX_LOCATION

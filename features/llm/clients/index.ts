@@ -43,6 +43,7 @@ export {
 } from './openrouter.client';
 
 // LLM 统一入口
+export { choice, noul, score } from '../../typesafe/questions';
 export {
   LLM,
   type LLMGenerateTextAIOptions,

@@ -14,6 +14,7 @@ type AssertFalse<T extends false> = T;
 
 type VertexIsKey = IsAssignable<'AI_GOOGLE_VERTEX_API_KEY', SysEnvConfigKey>;
 type OpenRouterIsKey = IsAssignable<'AI_OPENROUTER_API_KEY', SysEnvConfigKey>;
+type TypeSafeIsKey = IsAssignable<'AI_TYPESAFE_API_KEY', SysEnvConfigKey>;
 type TypoIsKey = IsAssignable<'NOT_A_SYSENV_KEY', SysEnvConfigKey>;
 type FreeStringIsKey = IsAssignable<string, SysEnvConfigKey>;
 type EnvironmentIsKey = IsAssignable<'environment', SysEnvConfigKey>;
@@ -24,6 +25,7 @@ type IsCliModeIsKey = IsAssignable<'isCliMode', SysEnvConfigKey>;
 
 type _vertex = AssertTrue<VertexIsKey>;
 type _openrouter = AssertTrue<OpenRouterIsKey>;
+type _typesafe = AssertTrue<TypeSafeIsKey>;
 type _typo = AssertFalse<TypoIsKey>;
 type _free = AssertFalse<FreeStringIsKey>;
 type _env = AssertFalse<EnvironmentIsKey>;
@@ -34,7 +36,12 @@ type _isCli = AssertFalse<IsCliModeIsKey>;
 
 describe('SysEnvConfigKey type contract', () => {
   it('accepts known scalar config keys at the value level', () => {
-    const keys: SysEnvConfigKey[] = ['AI_GOOGLE_VERTEX_API_KEY', 'AI_OPENROUTER_API_KEY', 'DATABASE_URL'];
-    expect(keys).toHaveLength(3);
+    const keys: SysEnvConfigKey[] = [
+      'AI_GOOGLE_VERTEX_API_KEY',
+      'AI_OPENROUTER_API_KEY',
+      'AI_TYPESAFE_API_KEY',
+      'DATABASE_URL',
+    ];
+    expect(keys).toHaveLength(4);
   });
 });

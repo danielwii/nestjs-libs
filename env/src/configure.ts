@@ -222,6 +222,11 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() AI_BEDROCK_REGION?: string;
   @IsString() @IsOptional() AI_JINA_API_KEY?: string;
   @IsString() @IsOptional() AI_VOYAGE_API_KEY?: string;
+  /**
+   * TypeSafe System One API key.
+   * Official SDK default env is TYPESAFE_API_KEY — pass this value into TypeSafeClient({ apiKey }).
+   */
+  @IsString() @IsOptional() AI_TYPESAFE_API_KEY?: string;
   /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境）。值须为已注册的 LLMModelKey（如 'openrouter:gemini-2.5-flash'） */
   @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string;
 
