@@ -44,6 +44,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
 
 import { formatLocalDateTime, TimeSensitivity } from './prompt';
+import { escapePromptStructure } from './prompt.safety';
 import { estimateTokens } from './tokenizer';
 
 import type { PromptDateTime } from './prompt';
@@ -235,7 +236,9 @@ class XmlPrompt implements Prompt {
     const renderedSections: string[] = [];
     let totalContextTokens = 0;
     for (const section of sections) {
-      const baseContent = section.content ?? '<empty />';
+      // 默认转义，不靠调用方记得调：section 内容几乎总是外部可控文本（用户原话、网页、
+      // 邮件正文、日历标题），忘一次就是一个注入口子。幂等，已转义的值不会被二次处理。
+      const baseContent = section.content === undefined ? '<empty />' : escapePromptStructure(String(section.content));
       const content = section.strategy ? `${baseContent}\n（${section.strategy}）` : baseContent;
       const label = typeof section.priority === 'number' ? numericPriorityLabel(section.priority) : section.priority;
       const priority = label ? ` priority="${label}"` : '';
