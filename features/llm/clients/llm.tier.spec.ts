@@ -171,6 +171,12 @@ describe('getSupportedTiers', () => {
     }
   });
 
+  it('returns [standard, flex, priority] for gemini-3.8-flash Vertex PayGo lists', () => {
+    for (const key of ['vertex:gemini-3.8-flash', 'vertex-global:gemini-3.8-flash'] as const) {
+      expect(getSupportedTiers(key)).toEqual(['standard', 'flex', 'priority']);
+    }
+  });
+
   it('returns [standard] for openrouter models (not a vertex concept)', () => {
     const tiers = getSupportedTiers('openrouter:gemini-2.5-flash');
     expect(tiers).toEqual(['standard']);

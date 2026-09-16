@@ -519,7 +519,8 @@ export interface LLMModelRegistry {
    * Live 2026-09-05 OpenRouter：raw `reasoning:{enabled:false}` → 400 mandatory（3 次稳定复现，
    * 见 openrouter.2026-09-models.spec.live.ts），故 reasoningRequired: true。
    * 注意 thinking:'none' 下 reasoningTokens 实测在 0 与数十之间波动 —— mandatory 指
-   * 「不可 disable」，不代表每次都产生 reasoning token。未注册 google: / vertex: 路由。
+   * 「不可 disable」，不代表每次都产生 reasoning token。
+   * google: / vertex: / vertex-global: 已注册；直连 disable 尚未 live-probed，none→low。
    *
    * @see https://openrouter.ai/google/gemini-3.8-flash
    */
@@ -813,6 +814,7 @@ export interface LLMModelRegistry {
   // TESTED thinkingLevel=low：3-preview 21、3.1-lite 57、3.5-flash 57、3.7-flash 57
   // 2.5 thinkingLevel=low → 400 "Thinking level is not supported"（保持缺省 budget）
   // 3.5-flash-lite / 3.6：thinkingBudget:0 → 400；none 走 thinkingLevel:minimal（reasoning_tokens=0）
+  // 3.8-flash：2026-09-17 注册；disable 未 live-probed，none→low。
   'google:gemini-2.5-flash': ModelConfig<'google'>;
   // 'google:gemini-2.5-pro': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
   'google:gemini-2.5-flash-lite': ModelConfig<'google'>;
@@ -822,6 +824,7 @@ export interface LLMModelRegistry {
   'google:gemini-3.5-flash-lite': ModelConfig<'google'>;
   'google:gemini-3.6-flash': ModelConfig<'google'>;
   'google:gemini-3.7-flash': ModelConfig<'google'>;
+  'google:gemini-3.8-flash': ModelConfig<'google'>;
   // 'google:gemini-3.1-pro-preview': ModelConfig<'google'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (Express Mode) ====================
@@ -829,6 +832,7 @@ export interface LLMModelRegistry {
   // TESTED disable → reasoning_tokens=0：2.5-flash/lite、3-flash-preview、3.1-flash-lite、3.5-flash/lite、3.6-flash、3.7-flash
   // TESTED thinkingLevel：3-preview 57 / 3.1-lite 58 / 3.5 55 / 3.5-lite 50 / 3.6 59 / 3.7 medium=60 high=107（low=0）
   // 2.5 thinkingLevel=low → 400 thinking_level is not supported（保持缺省 budget）
+  // 3.8-flash：2026-09-17 注册；Flex/Priority listed；disable 未 live-probed，none→low。
   'vertex:gemini-2.5-flash': ModelConfig<'vertex'>;
   // 'vertex:gemini-2.5-pro': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
   'vertex:gemini-2.5-flash-lite': ModelConfig<'vertex'>;
@@ -838,11 +842,13 @@ export interface LLMModelRegistry {
   'vertex:gemini-3.5-flash-lite': ModelConfig<'vertex'>;
   'vertex:gemini-3.6-flash': ModelConfig<'vertex'>;
   'vertex:gemini-3.7-flash': ModelConfig<'vertex'>;
+  'vertex:gemini-3.8-flash': ModelConfig<'vertex'>;
   // 'vertex:gemini-3.1-pro-preview': ModelConfig<'vertex'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== Vertex AI (project/global mode) ====================
   // UNTESTED 2026-08-15：Doppler unee-server/stg 无 GOOGLE_VERTEX_PROJECT，未做 live generateText。
   // 不得把上面 Express「可关 thinking」的结论套到这些 key。
+  // 3.8-flash：2026-09-17 注册；与 3.6 一样保守 none→low。
   'vertex-global:gemini-2.5-flash': ModelConfig<'vertex-global'>;
   // 'vertex-global:gemini-2.5-pro': ModelConfig<'vertex-global'>; // 不考虑使用（output ≥ $10/M）
   'vertex-global:gemini-2.5-flash-lite': ModelConfig<'vertex-global'>;
@@ -851,6 +857,7 @@ export interface LLMModelRegistry {
   'vertex-global:gemini-3.5-flash': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.5-flash-lite': ModelConfig<'vertex-global'>;
   'vertex-global:gemini-3.6-flash': ModelConfig<'vertex-global'>;
+  'vertex-global:gemini-3.8-flash': ModelConfig<'vertex-global'>;
   // 'vertex-global:gemini-3.1-pro-preview': ModelConfig<'vertex-global'>; // 不考虑使用（output ≥ $10/M）
 
   // ==================== AWS Bedrock ====================
@@ -1485,6 +1492,16 @@ const modelRegistry = new Map<string, ModelConfig>([
     },
   ],
   ['google:gemini-3.7-flash', { provider: 'google', modelId: 'gemini-3.7-flash', googleThinkingMode: 'level' }],
+  // Official thinking levels: low/medium/high（无 minimal）；disable 尚未 live-probed，none→low。
+  [
+    'google:gemini-3.8-flash',
+    {
+      provider: 'google',
+      modelId: 'gemini-3.8-flash',
+      googleThinkingMode: 'level',
+      reasoningDefaultEffort: 'low',
+    },
+  ],
   // ['google:gemini-3.1-pro-preview', { provider: 'google', modelId: 'gemini-3.1-pro-preview' }], // 不考虑使用
 
   // Vertex Express — LIVE 2026-08-15 Doppler AI_GOOGLE_VERTEX_API_KEY
@@ -1561,6 +1578,17 @@ const modelRegistry = new Map<string, ModelConfig>([
       googleThinkingMode: 'level',
     },
   ],
+  // Flex/Priority PayGo listed. Express disable 尚未 live-probed；none→low，不把 OR mandatory 套过来。
+  [
+    'vertex:gemini-3.8-flash',
+    {
+      provider: 'vertex',
+      modelId: 'gemini-3.8-flash',
+      googleThinkingMode: 'level',
+      reasoningDefaultEffort: 'low',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
   // [
   //   'vertex:gemini-3.1-pro-preview',
   //   {
@@ -1620,6 +1648,16 @@ const modelRegistry = new Map<string, ModelConfig>([
     {
       provider: 'vertex-global',
       modelId: 'gemini-3.6-flash',
+      reasoningDefaultEffort: 'low',
+      googleThinkingMode: 'level',
+      supportedTiers: ['standard', 'flex', 'priority'],
+    },
+  ],
+  [
+    'vertex-global:gemini-3.8-flash',
+    {
+      provider: 'vertex-global',
+      modelId: 'gemini-3.8-flash',
       reasoningDefaultEffort: 'low',
       googleThinkingMode: 'level',
       supportedTiers: ['standard', 'flex', 'priority'],

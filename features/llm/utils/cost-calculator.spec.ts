@@ -113,6 +113,9 @@ describe('getCostFromUsage bedrock', () => {
     expect(getCostFromUsage(usage, 'vertex-global:gemini-3.5-flash')).toBeCloseTo(10.5);
     expect(getCostFromUsage(usage, 'vertex:gemini-3.5-flash-lite')).toBeCloseTo(2.8);
     expect(getCostFromUsage(usage, 'vertex-global:gemini-3.5-flash-lite')).toBeCloseTo(2.8);
+    expect(getCostFromUsage(usage, 'vertex:gemini-3.8-flash')).toBeCloseTo(4.5);
+    expect(getCostFromUsage(usage, 'vertex-global:gemini-3.8-flash')).toBeCloseTo(4.5);
+    expect(getCostFromUsage(usage, 'google:gemini-3.8-flash')).toBeCloseTo(4.5);
     expect(getCostFromUsage(usage, 'vertex:no-such-model')).toBeNull();
   });
 });

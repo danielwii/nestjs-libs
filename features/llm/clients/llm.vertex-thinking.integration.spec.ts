@@ -80,6 +80,16 @@ describe('LLM Vertex Gemini 3.5 Flash-Lite thinking requests', () => {
     expect(await captureThinkingConfig('vertex:gemini-3.6-flash', 'none')).toEqual({ thinkingBudget: 0 });
   });
 
+  it('falls untested gemini-3.8-flash none back to thinkingLevel low on google and vertex routes', async () => {
+    for (const model of [
+      'google:gemini-3.8-flash',
+      'vertex:gemini-3.8-flash',
+      'vertex-global:gemini-3.8-flash',
+    ] as const) {
+      expect(await captureThinkingConfig(model, 'none')).toEqual({ thinkingLevel: 'low' });
+    }
+  });
+
   it('emits thinkingLevel for non-none effort on both access profiles', async () => {
     for (const model of [
       'vertex:gemini-3.5-flash-lite',

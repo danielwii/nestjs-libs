@@ -114,7 +114,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
   'gemini-3.6-flash': { input: 1.5, output: 7.5 },
   'gemini-3.7-flash': { input: 0.375, output: 1.875 },
-  // gemini-3.8-flash 无前缀条目待 google:/vertex: 路由注册后再加 —— openrouter 走 'google/gemini-3.8-flash'
+  'gemini-3.8-flash': { input: 0.75, output: 3.75 },
   // 'gemini-3.1-pro-preview': { input: 2.0, output: 12.0 }, // 不考虑使用
 
   // Anthropic Claude 系列

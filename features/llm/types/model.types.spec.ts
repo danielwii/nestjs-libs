@@ -351,6 +351,33 @@ describe('reasoning policy: OpenRouter vs direct Vertex Gemini Flash', () => {
     }
   });
 
+  it('registers untested google/vertex/vertex-global gemini-3.8-flash with conservative none→low', () => {
+    const routes = [
+      { key: 'google:gemini-3.8-flash', provider: 'google' },
+      { key: 'vertex:gemini-3.8-flash', provider: 'vertex' },
+      { key: 'vertex-global:gemini-3.8-flash', provider: 'vertex-global' },
+    ] as const;
+
+    for (const { key, provider } of routes) {
+      expect(isModelRegistered(key)).toBe(true);
+      const config = getModel(key);
+      expect(config).toMatchObject({
+        provider,
+        modelId: 'gemini-3.8-flash',
+        googleThinkingMode: 'level',
+        reasoningDefaultEffort: 'low',
+      });
+      expect(config.reasoningRequired).not.toBe(true);
+      expect(resolveThinkingForModel(key, 'none')).toEqual({
+        thinking: 'low',
+        paramFallbackApplied: true,
+      });
+    }
+
+    expect(getModel('vertex:gemini-3.8-flash').supportedTiers).toEqual(['standard', 'flex', 'priority']);
+    expect(getModel('vertex-global:gemini-3.8-flash').supportedTiers).toEqual(['standard', 'flex', 'priority']);
+  });
+
   it('keeps live-probed Vertex Express Gemini Flash routes non-mandatory', () => {
     expect(getModel('vertex:gemini-3.5-flash').reasoningRequired).not.toBe(true);
     expect(getModel('vertex:gemini-3.6-flash')).toMatchObject({
