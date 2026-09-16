@@ -13,12 +13,21 @@ import { getCostFromUsage } from './cost-calculator';
 import { describe, expect, it } from 'bun:test';
 
 describe('pricing table coverage', () => {
+  // 路由器模型没有静态定价：底层模型按请求决定，成本以 API 返回值为准。
+  const DYNAMIC_PRICING = ['openrouter:openrouter/auto'];
+
   it('resolves a cost for every registered openrouter key', () => {
     // 守两类静默失效：①表里漏定价 ②key→modelId 映射把 key 推导到不存在的条目
     // （stepfun 曾因不在前缀白名单里而恒返回 null）
     const usage = { inputTokens: 1_000_000, outputTokens: 0 };
-    const unresolved = getModelsByProvider('openrouter').filter((key) => getCostFromUsage(usage, key) === null);
+    const unresolved = getModelsByProvider('openrouter')
+      .filter((key) => !DYNAMIC_PRICING.includes(key))
+      .filter((key) => getCostFromUsage(usage, key) === null);
     expect(unresolved).toEqual([]);
+  });
+
+  it('returns no static cost for a router model, so callers use the provider-reported cost', () => {
+    expect(getCostFromUsage({ inputTokens: 1_000_000, outputTokens: 0 }, 'openrouter:openrouter/auto')).toBeNull();
   });
 });
 

@@ -382,6 +382,13 @@ export interface LLMModelRegistry {
    */
   'openrouter:kimi-k2.5': ModelConfig<'openrouter'>;
   'openrouter:moonshotai/kimi-k2.5': ModelConfig<'openrouter'>;
+  /**
+   * OpenRouter Auto — 路由器，不是固定模型：底层模型/供应商由 OpenRouter 按请求选择，
+   * 因此没有静态定价（成本按 API 返回值计）。注册于此使它成为模型设置的合法取值。
+   *
+   * @see https://openrouter.ai/openrouter/auto
+   */
+  'openrouter:openrouter/auto': ModelConfig<'openrouter'>;
   // GLM 5 - 不考虑使用（Z.ai，质量不够稳定）
   // 'openrouter:glm-5': ModelConfig<'openrouter'>;
   // 'openrouter:z-ai/glm-5': ModelConfig<'openrouter'>;
@@ -1185,6 +1192,8 @@ const modelRegistry = new Map<string, ModelConfig>([
   // GLM 5 - 不考虑使用
   // ['openrouter:glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
   // ['openrouter:z-ai/glm-5', { provider: 'openrouter', modelId: 'z-ai/glm-5' }],
+  // OpenRouter Auto — 路由器；底层模型按请求决定，成本以 API 返回为准
+  ['openrouter:openrouter/auto', { provider: 'openrouter', modelId: 'openrouter/auto' }],
   // GLM 5.3 Flash — OpenRouter metadata 2026-09-16: reasoning mandatory
   ['openrouter:glm-5.3-flash', { provider: 'openrouter', modelId: 'z-ai/glm-5.3-flash', reasoningRequired: true }],
   ['openrouter:z-ai/glm-5.3-flash', { provider: 'openrouter', modelId: 'z-ai/glm-5.3-flash', reasoningRequired: true }],
