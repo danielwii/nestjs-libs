@@ -592,6 +592,11 @@ const openRouterCatalogAdditions = [
     reasoningRequired: false,
   },
   {
+    keys: ['openrouter:glm-5.3-flash', 'openrouter:z-ai/glm-5.3-flash'],
+    modelId: 'z-ai/glm-5.3-flash',
+    reasoningRequired: true,
+  },
+  {
     keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'],
     modelId: 'openai/gpt-5.6-terra',
     reasoningRequired: false,

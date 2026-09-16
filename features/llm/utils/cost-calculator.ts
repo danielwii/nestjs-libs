@@ -166,6 +166,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'deepseek/deepseek-v4-flash': { input: 0.0679, output: 0.168 }, // digitalocean
   'deepseek/deepseek-v4-pro': { input: 1.2, output: 1.2 }, // fireworks
 
+  // Z.ai GLM 5.3 Flash（OpenRouter 2026-09-16 目录价：$0.10 / $0.3333 per 1M，cache read $0.02）
+  'z-ai/glm-5.3-flash': { input: 0.1, output: 0.3333 },
+
   // MoonshotAI Kimi（OpenRouter 最低价 provider：SiliconFlow；Venice 约 $0.75/$3.75）
   'moonshotai/kimi-k2.5': { input: 0.45, output: 2.25 }, // siliconflow/int4
   'moonshotai/kimi-k2.6': { input: 0.5484, output: 2.3089 }, // decart/fp4

@@ -116,6 +116,7 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
     },
     { keys: ['openrouter:claude-sonnet-5', 'openrouter:anthropic/claude-sonnet-5'], expected: 1.2 },
     { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 0.14 },
+    { keys: ['openrouter:glm-5.3-flash', 'openrouter:z-ai/glm-5.3-flash'], expected: 0.04333 },
     { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 1.4 },
     { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 1.2 },
     { keys: ['openrouter:grok-4.5', 'openrouter:x-ai/grok-4.5'], expected: 0.8 },
