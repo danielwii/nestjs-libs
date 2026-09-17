@@ -46,7 +46,6 @@
  * Anchored.time('07:00', 'Asia/Tokyo').in('Asia/Singapore').ownZone; // 'Asia/Tokyo'
  * ```
  */
-import { Temporal } from '@js-temporal/polyfill';
 
 /** 跟着观察者走。等价于 RFC 5545 §3.3.5 FORM #1 的 "floating"。 */
 export const FLOATING = 'floating' as const;

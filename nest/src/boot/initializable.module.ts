@@ -1,8 +1,6 @@
 import { Trace } from '@app/nest/trace';
 import { getAppLogger } from '@app/utils/app-logger';
 
-import { Temporal } from '@js-temporal/polyfill';
-
 import type { Logger } from '@app/utils/app-logger';
 import type { OnApplicationBootstrap, OnApplicationShutdown, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 

@@ -2,8 +2,6 @@ import { Controller, Get } from '@nestjs/common';
 
 import { LocalOnly } from '@app/nest/guards';
 
-import { Temporal } from '@js-temporal/polyfill';
-
 /**
  * Sentry Debug Controller
  *

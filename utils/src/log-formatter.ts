@@ -9,8 +9,6 @@
 
 import { r } from './logging';
 
-import { Temporal } from '@js-temporal/polyfill';
-
 // ==================== ANSI Colors ====================
 
 const ansi = {

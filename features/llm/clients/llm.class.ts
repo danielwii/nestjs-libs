@@ -56,7 +56,6 @@ import { disableThinkingOptions, reasoningEffortOptions } from './options.helper
 import { createStreamLifecycle } from './stream-lifecycle';
 import { DEFAULT_LLM_TELEMETRY as DEFAULT_TELEMETRY } from './telemetry-policy';
 
-import { Temporal } from '@js-temporal/polyfill';
 import * as Sentry from '@sentry/nestjs';
 import {
   APICallError,

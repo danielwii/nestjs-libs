@@ -4,8 +4,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { decorateUserInput, decorateWithNow, formatLocalDateTime, TimeSensitivity, zonedAt, zonedNow } from './prompt';
 import { PromptBuilder, renderStandingLanguagePreference } from './prompt.xml';
 
-import { Temporal } from '@js-temporal/polyfill';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from 'bun:test';
 import dedent from 'dedent';
 
 import type { Prompt, PromptData } from './prompt.xml';
@@ -19,29 +18,18 @@ void directPromptConstructionIsUnavailable;
 
 describe('Prompt', () => {
   const ORIGINAL_TZ = process.env.TZ;
-  const ORIGINAL_DATE = globalThis.Date;
   const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
     process.env.TZ = 'UTC';
-    // Mock Date constructor to return fixed time
-    globalThis.Date = class extends ORIGINAL_DATE {
-      constructor(...args: any[]) {
-        if (args.length === 0) {
-          super(mockDate.getTime());
-        } else {
-          super(...(args as [any]));
-        }
-      }
-      static now() {
-        return mockDate.getTime();
-      }
-    } as typeof Date;
+    // 必须用 setSystemTime 而不是替换 globalThis.Date：原生 Temporal.Now 直接读引擎时钟，
+    // 不经过 Date。替换 Date 曾经能冻住它，只是因为当时的 Temporal 是 JS polyfill。
+    setSystemTime(mockDate);
   });
 
   afterEach(() => {
     process.env.TZ = ORIGINAL_TZ;
-    globalThis.Date = ORIGINAL_DATE;
+    setSystemTime();
   });
 
   it('基础 prompt 渲染', () => {
@@ -124,29 +112,18 @@ describe('Prompt', () => {
 
 describe('PromptBuilder', () => {
   const ORIGINAL_TZ = process.env.TZ;
-  const ORIGINAL_DATE = globalThis.Date;
   const mockDate = new Date('2024-01-15T10:30:00Z');
 
   beforeEach(() => {
     process.env.TZ = 'UTC';
-    // Mock Date constructor to return fixed time
-    globalThis.Date = class extends ORIGINAL_DATE {
-      constructor(...args: any[]) {
-        if (args.length === 0) {
-          super(mockDate.getTime());
-        } else {
-          super(...(args as [any]));
-        }
-      }
-      static now() {
-        return mockDate.getTime();
-      }
-    } as typeof Date;
+    // 必须用 setSystemTime 而不是替换 globalThis.Date：原生 Temporal.Now 直接读引擎时钟，
+    // 不经过 Date。替换 Date 曾经能冻住它，只是因为当时的 Temporal 是 JS polyfill。
+    setSystemTime(mockDate);
   });
 
   afterEach(() => {
     process.env.TZ = ORIGINAL_TZ;
-    globalThis.Date = ORIGINAL_DATE;
+    setSystemTime();
   });
 
   it('构造完整 prompt 并生成', () => {
@@ -422,7 +399,9 @@ describe('cache-aware prompt decorators', () => {
   });
 
   it('zonedAt converts a fixed instant into the requested timezone', () => {
-    expect(zonedAt('2026-09-15T10:22:00Z', 'Asia/Hong_Kong').toString()).toBe('2026-09-15T18:22:00+08:00[Asia/Hong_Kong]');
+    expect(zonedAt('2026-09-15T10:22:00Z', 'Asia/Hong_Kong').toString()).toBe(
+      '2026-09-15T18:22:00+08:00[Asia/Hong_Kong]',
+    );
   });
 
   it('zonedNow carries the requested timezone', () => {
