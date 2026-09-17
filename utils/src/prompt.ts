@@ -1,6 +1,5 @@
 import { normalizeTimezone } from './datetime';
 
-import { Temporal } from '@js-temporal/polyfill';
 import dedent from 'dedent';
 import { z } from 'zod';
 

@@ -25,7 +25,6 @@ import { maskSecret } from '@app/utils/security';
 
 import os from 'node:os';
 
-import { Temporal } from '@js-temporal/polyfill';
 import compression from 'compression';
 import { RedisStore } from 'connect-redis';
 import cookieParser from 'cookie-parser';

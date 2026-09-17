@@ -4,8 +4,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { decorateUserInput, decorateWithNow, formatLocalDateTime, TimeSensitivity, zonedAt, zonedNow } from './prompt';
 import { PromptBuilder, renderStandingLanguagePreference } from './prompt.xml';
 
-import { Temporal } from '@js-temporal/polyfill';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from 'bun:test';
 import dedent from 'dedent';
 
 import type { Prompt, PromptData } from './prompt.xml';
@@ -17,33 +16,31 @@ function directPromptConstructionIsUnavailable(data: PromptData): void {
 
 void directPromptConstructionIsUnavailable;
 
+/**
+ * 全文件统一冻结时钟与时区。
+ *
+ * 三个 describe 都必须在同一个固定时刻下跑——尤其是 zonedNow，它的全部工作就是读当前时钟，不冻住
+ * 就会「测试照常绿，但测的是当前时间」。放在文件顶层，bun 会把它应用到每个 describe。
+ *
+ * 必须用 setSystemTime 而不是替换 globalThis.Date：原生 Temporal.Now 直接读引擎时钟，不经过 Date。
+ * 替换 Date 曾经能冻住它，只是因为当时的 Temporal 是 JS polyfill。
+ */
+const ORIGINAL_TZ = process.env.TZ;
+const mockDate = new Date('2024-01-15T10:30:00Z');
+
+beforeEach(() => {
+  process.env.TZ = 'UTC';
+  setSystemTime(mockDate);
+});
+
+afterEach(() => {
+  // 直接赋 undefined 会把字符串 "undefined" 写进环境变量，毒化同进程里后跑的每个 spec 文件。
+  if (ORIGINAL_TZ === undefined) delete process.env.TZ;
+  else process.env.TZ = ORIGINAL_TZ;
+  setSystemTime();
+});
+
 describe('Prompt', () => {
-  const ORIGINAL_TZ = process.env.TZ;
-  const ORIGINAL_DATE = globalThis.Date;
-  const mockDate = new Date('2024-01-15T10:30:00Z');
-
-  beforeEach(() => {
-    process.env.TZ = 'UTC';
-    // Mock Date constructor to return fixed time
-    globalThis.Date = class extends ORIGINAL_DATE {
-      constructor(...args: any[]) {
-        if (args.length === 0) {
-          super(mockDate.getTime());
-        } else {
-          super(...(args as [any]));
-        }
-      }
-      static now() {
-        return mockDate.getTime();
-      }
-    } as typeof Date;
-  });
-
-  afterEach(() => {
-    process.env.TZ = ORIGINAL_TZ;
-    globalThis.Date = ORIGINAL_DATE;
-  });
-
   it('基础 prompt 渲染', () => {
     const prompt = new PromptBuilder('emotion-analysis', '1.0')
       .role('你是AI助手，负责分析用户情感')
@@ -123,32 +120,6 @@ describe('Prompt', () => {
 });
 
 describe('PromptBuilder', () => {
-  const ORIGINAL_TZ = process.env.TZ;
-  const ORIGINAL_DATE = globalThis.Date;
-  const mockDate = new Date('2024-01-15T10:30:00Z');
-
-  beforeEach(() => {
-    process.env.TZ = 'UTC';
-    // Mock Date constructor to return fixed time
-    globalThis.Date = class extends ORIGINAL_DATE {
-      constructor(...args: any[]) {
-        if (args.length === 0) {
-          super(mockDate.getTime());
-        } else {
-          super(...(args as [any]));
-        }
-      }
-      static now() {
-        return mockDate.getTime();
-      }
-    } as typeof Date;
-  });
-
-  afterEach(() => {
-    process.env.TZ = ORIGINAL_TZ;
-    globalThis.Date = ORIGINAL_DATE;
-  });
-
   it('构造完整 prompt 并生成', () => {
     const prompt = new PromptBuilder('builder-test', '1.2')
       .role('测试角色')
@@ -422,11 +393,16 @@ describe('cache-aware prompt decorators', () => {
   });
 
   it('zonedAt converts a fixed instant into the requested timezone', () => {
-    expect(zonedAt('2026-09-15T10:22:00Z', 'Asia/Hong_Kong').toString()).toBe('2026-09-15T18:22:00+08:00[Asia/Hong_Kong]');
+    expect(zonedAt('2026-09-15T10:22:00Z', 'Asia/Hong_Kong').toString()).toBe(
+      '2026-09-15T18:22:00+08:00[Asia/Hong_Kong]',
+    );
   });
 
-  it('zonedNow carries the requested timezone', () => {
-    expect(zonedNow('Asia/Hong_Kong').timeZoneId).toBe('Asia/Hong_Kong');
+  it('zonedNow carries the requested timezone and reads the frozen clock', () => {
+    const now = zonedNow('Asia/Hong_Kong');
+    expect(now.timeZoneId).toBe('Asia/Hong_Kong');
+    // 钉住时钟接缝：冻结一旦失效，这里读到的是真实当前时间而不是 mockDate
+    expect(now.epochMilliseconds).toBe(mockDate.getTime());
   });
 
   it('decorateUserInput wraps the verbatim words and escapes delimiter characters', () => {
