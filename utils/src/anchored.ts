@@ -122,7 +122,12 @@ export class Anchored {
     const checked = assertZone(viewer, 'viewer', { allowFloating: false });
     if (this.shape === 'instant') {
       const own = this.value as Temporal.ZonedDateTime;
-      return { shape: 'instant', at: own.withTimeZone(checked), ownZone: this.zone, sameZone: this.zone === checked };
+      return {
+        shape: 'instant',
+        at: own.withTimeZone(checked),
+        ownZone: this.zone,
+        sameZone: sameZone(this.zone, checked),
+      };
     }
     if (this.shape === 'date') {
       // 日历日不随观察者位移：东京的 9 月 21 日在任何地方都叫 9 月 21 日，
@@ -131,7 +136,7 @@ export class Anchored {
         shape: 'date',
         date: this.value as Temporal.PlainDate,
         ownZone: this.zone,
-        sameZone: this.zone === checked,
+        sameZone: sameZone(this.zone, checked),
       };
     }
     const floating = this.zone === FLOATING;
@@ -140,7 +145,7 @@ export class Anchored {
       time: this.value as Temporal.PlainTime,
       // floating 的归属在渲染那一刻才确定，就是看的人所在的时区。
       ownZone: floating ? checked : this.zone,
-      sameZone: floating || this.zone === checked,
+      sameZone: floating || sameZone(this.zone, checked),
     };
   }
 
@@ -207,13 +212,36 @@ function assertZone(zone: Zone, shape: string, options: { allowFloating?: boolea
     if (!allowFloating) throw new Error(`Anchored: 只有 time 可以是 ${FLOATING}，收到 shape=${shape}`);
     return zone;
   }
-  if (zone === 'UTC' || zone === 'GMT') return zone;
-  if (!/^[A-Za-z][A-Za-z0-9_+-]*\/[A-Za-z0-9_+\-/]+$/.test(zone))
-    throw new Error(`Anchored: 归属必须是 IANA 时区名，收到 "${zone}"`);
+  // 长得像偏移量的先拦下来给对的解释。Temporal 只认 +08:00 / +0800 这两种写法，"+8" 会被它当成
+  // 未知标识——但对调用方来说问题不是「不认识」，是「偏移量不是归属」。
+  if (/^[+-]\d/.test(zone)) throw new Error(`Anchored: 归属必须是 IANA 时区名，不能是偏移量，收到 "${zone}"`);
+  // 让 Temporal 做唯一的校验，并拿回它规范化过的标识（大小写归一：asia/tokyo → Asia/Tokyo）。
+  // 不再用正则预筛：正则会误拒 Japan、GB 这类没有斜杠的合法名，却放过 Foo/Bar。
+  let canonical: string;
   try {
-    Temporal.Now.instant().toZonedDateTimeISO(zone);
-  } catch {
-    throw new Error(`Anchored: 未知的 IANA 时区 "${zone}"`);
+    canonical = REFERENCE_INSTANT.toZonedDateTimeISO(zone).timeZoneId;
+  } catch (cause) {
+    // 只有 RangeError 表示「不是合法的时区标识」。别的错误（例如运行时根本没有 Temporal）
+    // 原样抛出，不冒充成坏时区——否则运维会去查 tzdata，而真正的原因是跑错了运行时。
+    if (cause instanceof RangeError) throw new Error(`Anchored: 未知的 IANA 时区 "${zone}"`, { cause });
+    throw cause;
   }
-  return zone;
+  // Temporal 本身接受 "+08:00" 这样的偏移时区，规范化后以符号开头。偏移量不是归属，理由见上。
+  if (canonical.startsWith('+') || canonical.startsWith('-'))
+    throw new Error(`Anchored: 归属必须是 IANA 时区名，不能是偏移量，收到 "${zone}"`);
+  return canonical;
+}
+
+/** 任意一个固定时刻即可：时区相等比较的是标识身份，不是那一刻的偏移。 */
+const REFERENCE_INSTANT = Temporal.Instant.fromEpochMilliseconds(0);
+
+/**
+ * 同一个时区的两种拼法算同一个。
+ *
+ * 字符串相等做不到：Asia/Calcutta 与 Asia/Kolkata 是同一时区的新旧名，`timeZoneId` 会保留调用方
+ * 给的拼写而不解析别名；只有 Temporal 的相等比较会把两边都解析到主标识再比。迁移时新旧名
+ * 混存是常态，靠字符串比就会给同一时区的观察者多标一个时区后缀。
+ */
+function sameZone(a: Zone, b: Zone): boolean {
+  return REFERENCE_INSTANT.toZonedDateTimeISO(a).equals(REFERENCE_INSTANT.toZonedDateTimeISO(b));
 }

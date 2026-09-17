@@ -1,5 +1,73 @@
 # Migrations
 
+## Native Temporal and datetime trim
+
+This Libs revision removes the `@js-temporal/polyfill` dependency and seven
+unused exports from `utils/src/datetime.ts`, and establishes a runtime floor:
+**Bun ≥ 1.4** (native `Temporal`). Consumers pin Libs by an exact Git gitlink;
+a consumer that keeps its old pin is unaffected.
+
+### What changed
+
+- `@js-temporal/polyfill` is no longer a dependency. Every Libs file that
+  imported `{ Temporal }` from it now uses the global that Bun 1.4 provides.
+- Removed from `@app/utils/datetime` (zero references in every locally checked
+  consumer at removal time): `normalizeTimezoneWithLog`, `parseTimezoneOffset`,
+  `formatDateToYmd`, `parseYmdToUtcDate`, `isValidYmdDate`, `dateToPlainDate`,
+  `plainDateToUtcDate`.
+- `normalizeTimezone` is kept and now validates non-offset input through
+  Temporal: unknown identifiers return `null` instead of passing through, and
+  identifiers are case-normalized (`asia/tokyo` → `Asia/Tokyo`).
+- New module: `@app/utils/anchored` (`Anchored`, `FLOATING`).
+
+### Required consumer changes
+
+All of these land in the **same change** as the gitlink advance.
+
+#### 1. Regenerate `bun.lock`
+
+Libs is a workspace member, so the consumer's committed `bun.lock` records
+`@js-temporal/polyfill` inside the libs workspace block. CI and Docker install
+with `--frozen-lockfile` and fail before typecheck runs. After advancing the
+gitlink, run `bun install` in the consumer and commit the resulting lockfile.
+
+#### 2. Enable Temporal types in `tsconfig`
+
+The global `Temporal` is typed only by TypeScript's own
+`lib.esnext.temporal.d.ts`; `@types/bun` does not declare it. A consumer whose
+`lib` omits it fails with `TS2304: Cannot find name 'Temporal'` in the vendored
+Libs files.
+
+```jsonc
+"lib": ["ES2022", "ESNext.Temporal"] // or ["ESNext"]
+```
+
+A consumer whose `tsconfig` extends `libs/tsconfig.base.json` inherits
+`lib: ["ESNext"]` and needs no change. A consumer that sets its own `lib`
+without `ESNext.Temporal` must add it.
+
+#### 3. Own any `Date ↔ PlainDate` boundary codec
+
+`dateToPlainDate` / `plainDateToUtcDate` have no successor in Libs. A consumer
+that needs a Prisma `@db.Date` codec owns it, and keeps the invariant the removed
+code carried: read with **UTC** accessors (`getUTCFullYear` / `getUTCMonth` /
+`getUTCDate`) and write `Date.UTC(y, m - 1, d)`; otherwise a date column crosses
+a day boundary in any non-UTC process.
+
+### How migration is proven
+
+1. the recorded `libs` gitlink advances to this revision;
+2. the consumer's `bun.lock` no longer lists `@js-temporal/polyfill`;
+3. the consumer's `tsconfig` `lib` resolves `Temporal`;
+4. no active reference to any removed export;
+5. the consumer's normal typecheck, tests, and lint pass against the advanced
+   gitlink **on Bun ≥ 1.4**.
+
+Passing typecheck is not runtime evidence for this revision: `tsc` resolves
+`Temporal` from `lib` on any runtime, while only Bun ≥ 1.4 provides the global.
+A Temporal-less runtime fails at boot with `ReferenceError: Temporal is not
+defined`.
+
 ## Oops hard retirement
 
 This Libs revision hard-removes three historical compatibility paths:

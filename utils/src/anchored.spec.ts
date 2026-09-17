@@ -156,10 +156,37 @@ describe('Anchored', () => {
     });
   });
 
+  describe('归属身份：别名、大小写、同偏移不同身份', () => {
+    const d = new Date('2026-09-21T10:00:00Z');
+
+    it('同一时区的新旧名算同一个：Asia/Calcutta 与 Asia/Kolkata', () => {
+      expect(Anchored.instant(d, 'Asia/Calcutta').in('Asia/Kolkata').sameZone).toBe(true);
+      expect(Anchored.date('2026-09-21', 'Asia/Kolkata').in('Asia/Calcutta').sameZone).toBe(true);
+    });
+
+    it('大小写归一：asia/tokyo 的归属记为 Asia/Tokyo', () => {
+      const v = Anchored.instant(d, 'asia/tokyo').in('Asia/Tokyo');
+      expect(v.ownZone).toBe('Asia/Tokyo');
+      expect(v.sameZone).toBe(true);
+      expect(Anchored.instant(d, 'utc').zone).toBe('UTC');
+    });
+
+    it('同一偏移不等于同一时区：Asia/Shanghai 与 Asia/Singapore 此刻都是 +08:00，仍是两个归属', () => {
+      expect(Anchored.instant(d, 'Asia/Shanghai').in('Asia/Singapore').sameZone).toBe(false);
+    });
+
+    it('没有斜杠的合法 IANA 名也接受：Japan、GB', () => {
+      expect(Anchored.instant(d, 'Japan').zone).toBe('Japan');
+      expect(Anchored.date('2026-09-21', 'GB').zone).toBe('GB');
+    });
+  });
+
   describe('归属取值：IANA 名或 floating，不接受裸偏移量', () => {
     it('拒绝偏移量：同一时区在夏令时前后是两个偏移，用它算墙上时间会静默差一小时', () => {
       expect(() => Anchored.instant(new Date(), '+08:00')).toThrow(/必须是 IANA 时区名/);
       expect(() => Anchored.instant(new Date(), '+8')).toThrow(/必须是 IANA 时区名/);
+      // Temporal 自己接受 +0800 并规范化成 +08:00；拒绝要看规范化之后的结果
+      expect(() => Anchored.instant(new Date(), '+0800')).toThrow(/不能是偏移量/);
     });
 
     it('拒绝未知的 IANA 名', () => {

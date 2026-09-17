@@ -110,4 +110,30 @@ describe('timezone.helper', () => {
       });
     });
   });
+  describe('非偏移量一律交给 Temporal 校验：脏字符串在这里变 null，不穿到渲染处抛错', () => {
+    it('拼错的 IANA 名返回 null，而不是原样放行', () => {
+      expect(normalizeTimezone('Asia/Shangai')).toBeNull();
+      expect(normalizeTimezone('Foo/Bar')).toBeNull();
+    });
+
+    it('大小写归一', () => {
+      expect(normalizeTimezone('asia/tokyo')).toBe('Asia/Tokyo');
+      expect(normalizeTimezone('utc')).toBe('UTC');
+      expect(normalizeTimezone('gmt')).toBe('GMT');
+    });
+
+    it('没有斜杠的合法 IANA 名也接受', () => {
+      expect(normalizeTimezone('Japan')).toBe('Japan');
+      expect(normalizeTimezone('GB')).toBe('GB');
+    });
+  });
+
+  describe('偏移量范围：±14:00 含端点', () => {
+    it('+14:00 接受，+14:30 拒绝', () => {
+      expect(normalizeTimezone('+14:00')).toBe('+14:00');
+      expect(normalizeTimezone('-14:00')).toBe('-14:00');
+      expect(normalizeTimezone('+14:30')).toBeNull();
+      expect(normalizeTimezone('-14:01')).toBeNull();
+    });
+  });
 });
