@@ -1,5 +1,14 @@
 # Migrations
 
+## `assertZone` exported from `@app/utils/anchored`
+
+Additive. The zone check that `Anchored` already applies at construction is now
+also exported as `assertZone(zone, shape)`, so a consumer's write boundary can
+validate and canonicalize an attribution zone with the same rule the read side
+uses. `shape` (`'instant' | 'date' | 'time'`) is the shape being stored; it
+decides whether `FLOATING` is acceptable (only for `'time'`). No consumer change is required; consumers that keep their
+own IANA check may replace it with this one.
+
 ## Native Temporal and datetime trim
 
 This Libs revision removes the `@js-temporal/polyfill` dependency and seven

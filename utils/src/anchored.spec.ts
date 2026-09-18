@@ -1,4 +1,4 @@
-import { Anchored, FLOATING } from './anchored';
+import { Anchored, assertZone, FLOATING } from './anchored';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -196,6 +196,25 @@ describe('Anchored', () => {
     it('接受 UTC 与 GMT', () => {
       expect(Anchored.instant(new Date('2026-09-21T10:00:00Z'), 'UTC').zone).toBe('UTC');
       expect(Anchored.instant(new Date('2026-09-21T10:00:00Z'), 'GMT').zone).toBe('GMT');
+    });
+  });
+
+  describe('assertZone：写入闸门与构造共用同一份归属判定', () => {
+    it('合法名返回规范化标识', () => {
+      expect(assertZone('asia/tokyo', 'instant')).toBe('Asia/Tokyo');
+      expect(assertZone('UTC', 'date')).toBe('UTC');
+    });
+
+    it('偏移量、未知名、空值都在闸门处抛错', () => {
+      expect(() => assertZone('+08:00', 'instant')).toThrow(/必须是 IANA 时区名/);
+      expect(() => assertZone('Asia/Atlantis', 'date')).toThrow(/未知的 IANA 时区/);
+      expect(() => assertZone('', 'instant')).toThrow(/instant 缺少归属/);
+    });
+
+    it('floating 由形态决定：只有 time 接受，时刻与日期拒绝', () => {
+      expect(assertZone(FLOATING, 'time')).toBe(FLOATING);
+      expect(() => assertZone(FLOATING, 'instant')).toThrow(/只有 time 可以是/);
+      expect(() => assertZone(FLOATING, 'date')).toThrow(/只有 time 可以是/);
     });
   });
 

@@ -119,7 +119,7 @@ export class Anchored {
 
   /** 投影给看的人。`viewer` 不可省，也没有默认值。 */
   in(viewer: Zone): AnchoredProjection {
-    const checked = assertZone(viewer, 'viewer', { allowFloating: false });
+    const checked = assertViewerZone(viewer);
     if (this.shape === 'instant') {
       const own = this.value as Temporal.ZonedDateTime;
       return {
@@ -205,8 +205,28 @@ export class Anchored {
  * 补不出来的就是坏数据，应当被标出来。本模块在这里抛错，是把一个在写入那一刻就已经错了的业务事实暴
  * 露出来，而不是替它猜一个看起来能渲染的答案。
  */
-function assertZone(zone: Zone, shape: string, options: { allowFloating?: boolean } = {}): Zone {
-  const allowFloating = options.allowFloating ?? shape === 'time';
+/**
+ * 校验并规范化一个归属时区名。这是本模块内部构造时用的同一份判定，导出给写入闸门使用：
+ * 应用层在落库前调它，和读出来构造 `Anchored` 时用的是同一条规则，不会出现「写得进去、读不出来」。
+ *
+ * `shape` 是调用方正在校验的形态（instant / date / time）——它决定 `FLOATING` 是否合法：
+ * 只有钟点（time）能跟着人走，一个时刻或一个日期不能。规则留在这里，调用方只陈述形态。
+ *
+ * - 返回 Temporal 规范化后的 IANA 标识（`asia/tokyo` → `Asia/Tokyo`）。
+ * - 空值、未知名、偏移量（`+08:00` / `+8`，以及规范化后以符号开头的任何写法）抛错。
+ * - `FLOATING`：`shape === 'time'` 接受并原样返回，其它形态抛错。
+ *
+ */
+export function assertZone(zone: Zone, shape: AnchoredShape): Zone {
+  return checkZone(zone, shape, shape === 'time');
+}
+
+/** 观察者时区：只做 IANA 判定，永远不能是 floating；标签只进文案。 */
+function assertViewerZone(viewer: Zone): Zone {
+  return checkZone(viewer, 'viewer', false);
+}
+
+function checkZone(zone: Zone, shape: string, allowFloating: boolean): Zone {
   if (!zone) throw new Error(`Anchored: ${shape} 缺少归属`);
   if (zone === FLOATING) {
     if (!allowFloating) throw new Error(`Anchored: 只有 time 可以是 ${FLOATING}，收到 shape=${shape}`);
