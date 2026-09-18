@@ -202,19 +202,19 @@ describe('Anchored', () => {
   describe('assertZone：写入闸门与构造共用同一份归属判定', () => {
     it('合法名返回规范化标识', () => {
       expect(assertZone('asia/tokyo')).toBe('Asia/Tokyo');
-      expect(assertZone('UTC', 'original_timezone')).toBe('UTC');
+      expect(assertZone('UTC', { label: 'original_timezone' })).toBe('UTC');
     });
 
     it('偏移量、未知名、空值都在闸门处抛错，文案带上调用方给的标签', () => {
-      expect(() => assertZone('+08:00', 'original_timezone')).toThrow(/必须是 IANA 时区名/);
+      expect(() => assertZone('+08:00', { label: 'original_timezone' })).toThrow(/必须是 IANA 时区名/);
       expect(() => assertZone('Asia/Atlantis')).toThrow(/未知的 IANA 时区/);
-      expect(() => assertZone('', 'original_timezone')).toThrow(/original_timezone 缺少归属/);
+      expect(() => assertZone('', { label: 'original_timezone' })).toThrow(/original_timezone 缺少归属/);
     });
 
-    it('floating 默认只对 time 放行，其它需显式允许', () => {
-      expect(() => assertZone(FLOATING, 'original_timezone')).toThrow(/只有 time 可以是/);
-      expect(assertZone(FLOATING, 'time')).toBe(FLOATING);
-      expect(assertZone(FLOATING, 'original_timezone', { allowFloating: true })).toBe(FLOATING);
+    it('floating 默认拒绝，只有显式允许才放行；标签不影响判定', () => {
+      expect(() => assertZone(FLOATING)).toThrow(/只有 time 可以是/);
+      expect(() => assertZone(FLOATING, { label: 'time' })).toThrow(/只有 time 可以是/);
+      expect(assertZone(FLOATING, { allowFloating: true })).toBe(FLOATING);
     });
   });
 

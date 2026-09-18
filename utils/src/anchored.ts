@@ -75,19 +75,23 @@ export class Anchored {
 
   /** 某个绝对时刻。`zone` 是它「属于」的时区，与观察者无关。 */
   static instant(at: Date | Temporal.Instant, zone: Zone): Anchored {
-    const checked = assertZone(zone, 'instant');
+    const checked = assertZone(zone, { label: 'instant' });
     const instant = at instanceof Date ? Temporal.Instant.fromEpochMilliseconds(at.getTime()) : at;
     return new Anchored('instant', instant.toZonedDateTimeISO(checked), checked);
   }
 
   /** 一整个日历日。`zone` 决定这是谁的日历上的那一天。 */
   static date(date: Temporal.PlainDate | string, zone: Zone): Anchored {
-    return new Anchored('date', Temporal.PlainDate.from(date), assertZone(zone, 'date'));
+    return new Anchored('date', Temporal.PlainDate.from(date), assertZone(zone, { label: 'date' }));
   }
 
   /** 一个钟点。`zone` 可以是 `FLOATING`，表示跟着人走。 */
   static time(time: Temporal.PlainTime | string, zone: Zone): Anchored {
-    return new Anchored('time', Temporal.PlainTime.from(time), assertZone(zone, 'time'));
+    return new Anchored(
+      'time',
+      Temporal.PlainTime.from(time),
+      assertZone(zone, { label: 'time', allowFloating: true }),
+    );
   }
 
   /**
@@ -119,7 +123,7 @@ export class Anchored {
 
   /** 投影给看的人。`viewer` 不可省，也没有默认值。 */
   in(viewer: Zone): AnchoredProjection {
-    const checked = assertZone(viewer, 'viewer', { allowFloating: false });
+    const checked = assertZone(viewer, { label: 'viewer' });
     if (this.shape === 'instant') {
       const own = this.value as Temporal.ZonedDateTime;
       return {
@@ -171,7 +175,11 @@ export class Anchored {
     const shape: string = json.shape;
     if (shape === 'instant') {
       if (!json.zone) throw new Error('Anchored: instant 缺少归属');
-      return new Anchored('instant', Temporal.ZonedDateTime.from(json.value), assertZone(json.zone, 'instant'));
+      return new Anchored(
+        'instant',
+        Temporal.ZonedDateTime.from(json.value),
+        assertZone(json.zone, { label: 'instant' }),
+      );
     }
     if (shape === 'date' || shape === 'time') return Anchored.fromStored(json.value, json.zone, shape);
     throw new Error(`Anchored: 未知形态 "${shape}"`);
@@ -211,13 +219,12 @@ export class Anchored {
  *
  * - 返回 Temporal 规范化后的 IANA 标识（`asia/tokyo` → `Asia/Tokyo`）。
  * - 空值、未知名、偏移量（`+08:00` / `+8`，以及规范化后以符号开头的任何写法）抛错。
- * - `FLOATING` 只在 `options.allowFloating` 为真时接受（默认：仅 `label === 'time'`）。
- *
- * `label` 只用于错误文案（构造时传形态名，写入闸门可传列名）。
+ * - `FLOATING` 只在 `options.allowFloating` 为真时接受（默认拒绝）。
+ * - `options.label` 只进错误文案（列名、字段名），不影响判定。
  */
-export function assertZone(zone: Zone, label = 'zone', options: { allowFloating?: boolean } = {}): Zone {
-  const shape = label;
-  const allowFloating = options.allowFloating ?? shape === 'time';
+export function assertZone(zone: Zone, options: { allowFloating?: boolean; label?: string } = {}): Zone {
+  const allowFloating = options.allowFloating ?? false;
+  const shape = options.label ?? 'zone';
   if (!zone) throw new Error(`Anchored: ${shape} 缺少归属`);
   if (zone === FLOATING) {
     if (!allowFloating) throw new Error(`Anchored: 只有 time 可以是 ${FLOATING}，收到 shape=${shape}`);

@@ -3,7 +3,7 @@
 ## `assertZone` exported from `@app/utils/anchored`
 
 Additive. The zone check that `Anchored` already applies at construction is now
-also exported as `assertZone(zone, label?, options?)`, so a consumer's write
+also exported as `assertZone(zone, { allowFloating?, label? })`, so a consumer's write
 boundary can validate and canonicalize an attribution zone with the same rule
 the read side uses. No consumer change is required; consumers that keep their
 own IANA check may replace it with this one.
