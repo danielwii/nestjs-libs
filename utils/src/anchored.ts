@@ -205,7 +205,18 @@ export class Anchored {
  * 补不出来的就是坏数据，应当被标出来。本模块在这里抛错，是把一个在写入那一刻就已经错了的业务事实暴
  * 露出来，而不是替它猜一个看起来能渲染的答案。
  */
-function assertZone(zone: Zone, shape: string, options: { allowFloating?: boolean } = {}): Zone {
+/**
+ * 校验并规范化一个归属时区名。这是本模块内部构造时用的同一份判定，导出给写入闸门使用：
+ * 应用层在落库前调它，和读出来构造 `Anchored` 时用的是同一条规则，不会出现「写得进去、读不出来」。
+ *
+ * - 返回 Temporal 规范化后的 IANA 标识（`asia/tokyo` → `Asia/Tokyo`）。
+ * - 空值、未知名、偏移量（`+08:00` / `+8`，以及规范化后以符号开头的任何写法）抛错。
+ * - `FLOATING` 只在 `options.allowFloating` 为真时接受（默认：仅 `label === 'time'`）。
+ *
+ * `label` 只用于错误文案（构造时传形态名，写入闸门可传列名）。
+ */
+export function assertZone(zone: Zone, label = 'zone', options: { allowFloating?: boolean } = {}): Zone {
+  const shape = label;
   const allowFloating = options.allowFloating ?? shape === 'time';
   if (!zone) throw new Error(`Anchored: ${shape} 缺少归属`);
   if (zone === FLOATING) {
