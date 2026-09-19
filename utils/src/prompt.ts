@@ -126,7 +126,7 @@ export function formatLocalDateTime(
  * // ...payload
  * ```
  */
-/** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value; timezone defaults like the rest of this module: TZ env, then host. */
+/** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `toTemporalZdt`). */
 export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
   // A fixed-instant API must never silently become the current clock: reject blank inputs here
   // (toTemporalZdt only defaults for null/undefined by contract of zonedNow).
@@ -134,7 +134,7 @@ export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.
   return toTemporalZdt(at, timezone);
 }
 
-/** Current time as a zoned Temporal value (timezone defaults like the rest of this module: TZ env, then host). */
+/** Current time as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `toTemporalZdt`). */
 export function zonedNow(timezone?: string | null): Temporal.ZonedDateTime {
   return toTemporalZdt(undefined, timezone);
 }
@@ -296,7 +296,7 @@ export function createEnhancedPrompt<Response>({
   };
 }) {
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- this deprecated adapter preserves its legacy output.
-  const prompt = createPrompt(`${id}-${version}`, timezone ?? process.env.TZ, sensitivity, data);
+  const prompt = createPrompt(`${id}-${version}`, timezone, sensitivity, data);
   const logicErrorPromptCreator = logicErrorContext
     ? (response: Response) => {
         if (logicErrorContext.condition && !logicErrorContext.condition(response)) return null;
