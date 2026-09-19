@@ -9,20 +9,20 @@ core function that both `formatLocalDateTime` and a new span renderer build on.
 
 ### What changed
 
-- **New**: `projectLocalTime(value, observer, ownZone?, sensitivity?)` — the one validate +
+- **New**: `readLocalTime(value, observer, ownZone?, sensitivity?)` — the one validate +
   project + render implementation for model-facing local time. `value` is an instant or a
   `Temporal.PlainDate`. `observer` (required, no default) is whoever is reading the text.
   `ownZone` (optional) is the value's own attribution zone when it differs from the observer
   (e.g. someone else's event); omitted, it equals `observer` and the result is trivially
   same-zone. Returns `{ text, shape, zone, ownZone, sameZone, ownText?, weekday, dayPeriod? }`
   (`dayPeriod` only for `shape: 'instant'`). `formatLocalDateTime`'s body is now
-  `projectLocalTime(...).text`.
-- **New**: `formatLocalSpan(start, end, observer)` — a start–end instant range in the same
+  `readLocalTime(...).text`.
+- **New**: `readLocalSpan(start, end, observer)` — a start–end instant range in the same
   wording (`2026-09-23 15:00–16:00 (Asia/Taipei)`, or `→` across a local day boundary).
-  When the two endpoints carry different UTC offsets (a span crossing a DST transition) each clock is printed with its offset, e.g. `01:30-07:00–01:30-08:00`, because identical local clocks can name different instants there. Blank endpoints throw; a blank attribution zone passed to `projectLocalTime` throws instead of being treated as omitted.
-- **New types**: `ModelTime`, `ModelSpan`, `LocalTimeValue`.
+  When the two endpoints carry different UTC offsets (a span crossing a DST transition) each clock is printed with its offset, e.g. `01:30-07:00–01:30-08:00`, because identical local clocks can name different instants there. Blank endpoints throw; a blank attribution zone passed to `readLocalTime` throws instead of being treated as omitted.
+- **New types**: `TimeReading`, `SpanReading`, `LocalTimeValue` — a *reading* is a time as one reader sees it: `text` is presentation for the model, never an identity; `instant` / `start` / `end` (ISO-8601 UTC) are for code. Ambiguous local clocks (DST repeated hour) carry their UTC offset in `text`; a cross-midnight owner date rides in `ownText`.
 - **Breaking**: a raw UTC offset (`"+8"`, `"+08:00"`) as `timezone`/`observer` — to
-  `formatLocalDateTime`, `zonedAt`, `formatLocalSpan`, `projectLocalTime`, or
+  `formatLocalDateTime`, `zonedAt`, `readLocalSpan`, `readLocalTime`, or
   `PromptBuilder.render()`'s `timezone` option — now throws instead of being tolerated. Only
   IANA identifiers (and, where the shape allows it, `FLOATING`) are accepted; this is the same
   rule `Anchored` already applied to stored attribution, now applied uniformly to observer
@@ -43,7 +43,7 @@ None for a consumer that only ever passes IANA zone identifiers (the norm since 
 boundary work in this same effort started enforcing that on stored attribution). A consumer
 still passing a raw UTC offset as an observer/render timezone must resolve it to an IANA
 identifier first. A consumer importing `zonedNow`, `formatLocalDate`, or
-`formatLocalShortTime` must migrate to `projectLocalTime`/`formatLocalDateTime` — the import
+`formatLocalShortTime` must migrate to `readLocalTime`/`formatLocalDateTime` — the import
 will no longer resolve.
 
 ### How migration is proven

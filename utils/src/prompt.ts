@@ -14,7 +14,7 @@ export function generateJsonFormat(schema: z.ZodType, indent = 0): string {
 }
 
 /**
- * Temporal formatting patterns（不含 dayPeriod 和时区，由 projectLocalTime 拼接）。
+ * Temporal formatting patterns（不含 dayPeriod 和时区，由 readLocalTime 拼接）。
  *
  * dayPeriod 通过 Intl toLocaleString({ dayPeriod: 'long' }) 获取（"in the morning" 等）。
  */
@@ -25,21 +25,49 @@ export enum TimeSensitivity {
 }
 
 export type PromptDateTime = string | Temporal.Instant | Temporal.ZonedDateTime;
-/** `projectLocalTime` 的输入：一个绝对时刻（`PromptDateTime`），或一整个日历日（`Temporal.PlainDate`）。 */
+/** `readLocalTime` 的输入：一个绝对时刻（`PromptDateTime`），或一整个日历日（`Temporal.PlainDate`）。 */
 export type LocalTimeValue = PromptDateTime | Temporal.PlainDate;
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 
 /**
- * 给模型看的单个时间点。`text` 是唯一能直接拼进 prompt 的一行；其余字段是同一次投影的结构化
- * 结果，供需要单独判断形状/归属的消费者用（裁判状态、跨区标注），不必重新解析 `text`。
+ * 一个时间在某个读者眼中的「读数」（reading）：投影到读者的时区之后，写成 AI 能直接读的一行，
+ * 再附上同一次投影得到的事实字段。
  *
- * `dayPeriod` 只有 `shape === 'instant'` 才有——日历日没有确定的时段。`ownZone`/`sameZone`/
- * `ownText` 描述"这个值本来属于谁"跟"现在给谁看"是否一致：`projectLocalTime` 不传 `ownZone`
- * 时两者是同一个值（`formatLocalDateTime`/Now 行走的就是这条路径，恒为同区）；传了不同的
- * `ownZone`（例如别人时区的事件）时才会出现 `sameZone: false` 与 `ownText`。
+ * **为谁存在**：读这段文字的是语言模型（prompt 里的 Now 行、日历候选、空档、受理回话、
+ * 裁判状态）。它防的失败是「模型拿到裸 UTC 或没有时区的钟点，只能自己换算或猜」——
+ * 换算会错、猜会静默。所以本类型只回答一个问题：**这个时间，在读者看来，是几点、哪一天、
+ * 属于谁**。
+ *
+ * **不是什么**：`text` 是给人／模型读的呈现，不是时间的序列化，也不是事件的身份。两个不同
+ * 瞬时在墙钟上本来就可能撞（DST 回拨那一小时、跨午夜），呈现层只在会撞的地方补偏移量让读者
+ * 分得开，身份与精确比较请用 {@link TimeReading.instant}（ISO-8601 UTC，程序用），不要从
+ * `text` 反解析。
+ *
+ * **字段为什么存在**：
+ * - `text`：只有一行能放时给模型读的完整形态。instant 保留一直以来的 Now 行措辞——
+ *   `2026-03-21 Saturday 04:20 in the morning (Asia/Tokyo)`——星期与时段短语不是装饰：模型曾
+ *   经常忽略当前时间说出不合时宜的话，把时间写成人话是让它注意到时间的手段（时间注意力锚点）。
+ *   date 就是日期本身（`2026-09-20`），不随读者位移。读者本地钟点在其时区有两个可能瞬时
+ *   （回拨重叠小时）时，钟点后附 UTC 偏移量，例如 `01:30-07:00`。
+ * - `instant`：这个读数对应的绝对时刻（ISO-8601 UTC）；只有 instant 形态有。程序要比较、
+ *   排序、去重时用它，不用 `text`。
+ * - `shape`：instant 还是 date。消费者据此决定要不要附钟点、要不要按观察者换算。
+ * - `zone`：`text` 所用的读者时区。prompt 只需宣告一次「以下时间均为 X」。
+ * - `ownZone`：这个值本来属于谁的时区（归属，来自存储的 originalTimezone 或调用方）；
+ *   `Anchored` 的规则是没有归属的值不存在，所以这里永远有值。
+ * - `sameZone`：归属是否就是读者时区。要不要标注归属由代码据此决定，不交给模型判断。
+ * - `ownText`：仅 `sameZone === false` 时有——同一时刻在归属时区里读起来是几点；若归属方的
+ *   日期与读者的不同（跨午夜），一并带上日期，例如 `2026-09-22 17:30 (America/Los_Angeles)`，
+ *   否则读者无法知道「对方那边其实还是前一天」。
+ * - `weekday`：星期是模型判「周日」「下周三」这类词的事实依据，不让模型自己算。
+ * - `dayPeriod`：时段短语（见 `text`），仅 instant 有——日历日没有确定的时段。
+ *
+ * **延展**：新增字段只能是同一次投影的事实（additive），不改既有字段语义；需要另一种措辞
+ * 的消费者先说明是谁、为什么，再加参数，不给默认开关。全天多日区间见 {@link SpanReading}。
  */
-export interface ModelTime {
+export interface TimeReading {
   text: string;
+  instant?: string;
   shape: 'instant' | 'date';
   zone: Zone;
   ownZone: Zone;
@@ -49,9 +77,19 @@ export interface ModelTime {
   dayPeriod?: string;
 }
 
-/** 一段起止时间给模型看的样子，语义同 {@link ModelTime}，`text` 换成一段而非一个点。 */
-export interface ModelSpan {
+/**
+ * 一段起止时间在读者眼中的读数，语义同 {@link TimeReading}，`text` 换成一段：
+ * `2026-09-23 15:00–16:00 (Asia/Taipei)`，本地跨日则 `2026-09-23 23:30 → 2026-09-24 00:30 (…)`。
+ * 两端任一钟点在读者时区里有歧义（回拨重叠小时），或两端偏移量不同（跨转换点），两端钟点都
+ * 附偏移量：`01:30-07:00–01:30-08:00`。`start`/`end` 是两端的绝对时刻（ISO-8601 UTC），程序用。
+ *
+ * 只覆盖 instant 起止（事件、空档的开始/结束）。全天多日区间还没有消费者要求过这个函数产出，
+ * 出现时再加，不先猜格式。
+ */
+export interface SpanReading {
   text: string;
+  start: string;
+  end: string;
   shape: 'instant';
   zone: Zone;
   ownZone: Zone;
@@ -76,7 +114,7 @@ function toInstant(dateOrIso?: PromptDateTime | null): Temporal.Instant {
 /**
  * 构造 + 投影一个 instant，各只走一次：校验交给 `Anchored`（`assertZone`），换算交给
  * `Anchored.in()`，这里不重新判定时区合法性。`ownZone` 与 `observerZone` 相同时（`zonedAt`、
- * `projectLocalTime` 的默认路径）这一步是恒等投影，只是复用同一实现，不是特别绕路。
+ * `readLocalTime` 的默认路径）这一步是恒等投影，只是复用同一实现，不是特别绕路。
  */
 function projectInstant(
   value: PromptDateTime | null | undefined,
@@ -137,34 +175,48 @@ function weekdayOf(dayOfWeek: number): string {
  * `decorateWithNow` 的 `<now>` 标签内文都是这句话——前者在外面再拼一段 `(zone)`，后者的时区
  * 走 XML 属性——共用这一步是为了不让同一段措辞在两处各自拼一遍。
  */
-function renderLocalMoment(zdt: Temporal.ZonedDateTime, sensitivity: TimeSensitivity, dayPeriod: string): string {
-  return `${formatTemporal(zdt, sensitivity)} ${dayPeriod}`;
+function renderLocalMoment(
+  zdt: Temporal.ZonedDateTime,
+  sensitivity: TimeSensitivity,
+  dayPeriod: string,
+  clockSuffix = '',
+): string {
+  const suffix = sensitivity === TimeSensitivity.Day ? '' : clockSuffix;
+  return `${formatTemporal(zdt, sensitivity)}${suffix} ${dayPeriod}`;
 }
 
 /**
- * 给模型看的时间投影：本模块**唯一**的校验 + 投影 + 渲染实现，其余导出函数都是它的薄壳。
- *
- * - `value` 是 instant（会议、"现在"）或 `Temporal.PlainDate`（生日、假期这类全天日期）。
- * - `observer` 是看这段文字的人所在的时区，必填——没有默认值，缺省或非法直接抛错
- *   （`Anchored`/`assertZone` 的协议），不会像以前那样悄悄落回 `process.env.TZ`。
- * - `ownZone` 省略时等于 `observer`（值本来就是"观察者自己的现在"，如 Now 行），
- *   传入时表示这个值实际归属另一个时区（例如别人时区的事件），会产生 `sameZone: false`
- *   与 `ownText`（这件事在归属方自己时区里读起来是几点/哪一天）。
- *
- * `text` 对 instant 保留一直以来的 Now 行措辞——星期 + 钟点 + 时段短语 + 时区，例如
- * `2026-03-21 Saturday 04:20 in the morning (Asia/Tokyo)`——这不是装饰：模型曾经常忽略
- * 当前时间说出不合时宜的话，把"现在"写成人话是让它注意到时间的手段，不只是给一个可解析的
- * 时间戳。对 date，`text` 就是日期本身（`2026-09-20`），不随观察者位移。
+ * 读者本地钟点在其时区里是否对应两个瞬时（DST 回拨的重叠小时）。是的话呈现层要在钟点后附
+ * 偏移量，否则两个不同时刻会写成同一行字。用 Temporal 的 earlier/later 消歧比较，不自己算规则。
  */
-export function projectLocalTime(
+function isAmbiguousLocalClock(zdt: Temporal.ZonedDateTime): boolean {
+  const wall = zdt.toPlainDateTime();
+  const earlier = wall.toZonedDateTime(zdt.timeZoneId, { disambiguation: 'earlier' });
+  const later = wall.toZonedDateTime(zdt.timeZoneId, { disambiguation: 'later' });
+  return !earlier.equals(later);
+}
+
+/**
+ * 把一个时间读给读者：本模块**唯一**的校验 + 投影 + 渲染实现，其余导出函数都是它的薄壳。
+ * 返回值的字段与措辞的理由见 {@link TimeReading}。
+ *
+ * - `value`：instant（会议、"现在"）或 `Temporal.PlainDate`（生日、假期这类全天日期）。
+ *   `null`/`undefined` 表示"现在"，只允许在 Now 行这条路径上出现（`formatLocalDateTime`）。
+ * - `observer`：读这段文字的人所在的时区，**必填、无默认**。缺省或非法直接抛错
+ *   （`Anchored`/`assertZone` 的协议）——默认值本身就是事故来源：曾经缺省时静默落回
+ *   `process.env.TZ`，让台北的家庭读到洛杉矶的 Now 行。
+ * - `ownZone`：这个值实际归属的时区。`undefined` 表示"就是读者自己的"（Now 行）；一旦传入
+ *   ——包括从缺失归属的行转发来的空串——都经 `assertZone`，空串在那里失败而不是被当成没传
+ *   后悄悄改写成读者时区（那会把别人的事件标成 `sameZone: true`）。
+ * - `sensitivity`：Now 行的精度（分钟/小时/日），沿用既有 `formatLocalDateTime` 的参数。
+ */
+export function readLocalTime(
   value: LocalTimeValue | null | undefined,
   observer: Zone,
   ownZone?: Zone,
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
-): ModelTime {
+): TimeReading {
   const observerZone = assertZone(observer, 'instant');
-  // `undefined` = attribution is the observer; anything supplied — including '' forwarded from a
-  // row with missing stored attribution — goes through assertZone and fails there (Codex P1).
   const attribution = ownZone === undefined ? observerZone : assertZone(ownZone, 'instant');
 
   if (value instanceof Temporal.PlainDate) {
@@ -172,7 +224,7 @@ export function projectLocalTime(
       AnchoredProjection,
       { shape: 'date' }
     >;
-    const result: ModelTime = {
+    const result: TimeReading = {
       text: projection.date.toString(),
       shape: 'date',
       zone: observerZone,
@@ -187,9 +239,11 @@ export function projectLocalTime(
   const projection = projectInstant(value, observerZone, attribution);
   const zdt = projection.at;
   const dayPeriod = formatDayPeriod(zdt);
-  const text = `${renderLocalMoment(zdt, sensitivity, dayPeriod)} (${formatZoneName(zdt)})`;
-  const result: ModelTime = {
+  const clockSuffix = isAmbiguousLocalClock(zdt) ? zdt.offset : '';
+  const text = `${renderLocalMoment(zdt, sensitivity, dayPeriod, clockSuffix)} (${formatZoneName(zdt)})`;
+  const result: TimeReading = {
     text,
+    instant: zdt.toInstant().toString(),
     shape: 'instant',
     zone: observerZone,
     ownZone: projection.ownZone,
@@ -198,8 +252,10 @@ export function projectLocalTime(
     dayPeriod,
   };
   if (!projection.sameZone) {
-    const ownClock = plainTimeToClock(zdt.withTimeZone(projection.ownZone).toPlainTime());
-    result.ownText = `${ownClock} (${projection.ownZone})`;
+    const own = zdt.withTimeZone(projection.ownZone);
+    const ownClock = plainTimeToClock(own.toPlainTime());
+    const crossesDay = !own.toPlainDate().equals(zdt.toPlainDate());
+    result.ownText = `${crossesDay ? own.toPlainDate().toString() + ' ' : ''}${ownClock} (${projection.ownZone})`;
   }
   return result;
 }
@@ -209,32 +265,31 @@ export function formatLocalDateTime(
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
   timezone?: string | null,
 ): string {
-  return projectLocalTime(dateOrIso, timezone ?? '', undefined, sensitivity).text;
+  return readLocalTime(dateOrIso, timezone ?? '', undefined, sensitivity).text;
 }
 
 /**
- * 一段起止时间给模型看的样子：`2026-09-23 15:00–16:00 (Asia/Taipei)`，本地跨日则
- * `2026-09-23 23:30 → 2026-09-24 00:30 (Asia/Taipei)`。
- *
- * 只覆盖 instant 起止（会议、事件的开始/结束）——全天多日区间还没有消费者要求过这个函数
- * 产出，出现时再加，不先猜格式。
+ * 把一段起止时间读给读者：语义与理由见 {@link SpanReading}。两端都必须是确定的瞬时——空值
+ * 不会被当成"现在"（`requireFixedInstant`）。
  */
-export function formatLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone): ModelSpan {
+export function readLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone): SpanReading {
   const observerZone = assertZone(observer, 'instant');
-  const startZdt = projectInstant(requireFixedInstant(start, 'formatLocalSpan'), observerZone, observerZone).at;
-  const endZdt = projectInstant(requireFixedInstant(end, 'formatLocalSpan'), observerZone, observerZone).at;
+  const startZdt = projectInstant(requireFixedInstant(start, 'readLocalSpan'), observerZone, observerZone).at;
+  const endZdt = projectInstant(requireFixedInstant(end, 'readLocalSpan'), observerZone, observerZone).at;
   const sameDay = startZdt.toPlainDate().equals(endZdt.toPlainDate());
   const zoneLabel = formatZoneName(startZdt);
-  // Across a DST transition the two endpoints carry different offsets and identical local clocks can
-  // name different instants (fall-back 01:30 twice); print the offset on each clock then (Codex P2).
-  const offsetsDiffer = startZdt.offset !== endZdt.offset;
-  const startClock = plainTimeToClock(startZdt.toPlainTime()) + (offsetsDiffer ? startZdt.offset : '');
-  const endClock = plainTimeToClock(endZdt.toPlainTime()) + (offsetsDiffer ? endZdt.offset : '');
+  // 一条规则覆盖所有会撞的情况：两端任一钟点有歧义（重叠小时内），或两端偏移量不同（跨转换点）。
+  const disambiguate =
+    startZdt.offset !== endZdt.offset || isAmbiguousLocalClock(startZdt) || isAmbiguousLocalClock(endZdt);
+  const startClock = plainTimeToClock(startZdt.toPlainTime()) + (disambiguate ? startZdt.offset : '');
+  const endClock = plainTimeToClock(endZdt.toPlainTime()) + (disambiguate ? endZdt.offset : '');
   const text = sameDay
     ? `${startZdt.toPlainDate().toString()} ${startClock}–${endClock} (${zoneLabel})`
     : `${startZdt.toPlainDate().toString()} ${startClock} → ${endZdt.toPlainDate().toString()} ${endClock} (${zoneLabel})`;
   return {
     text,
+    start: startZdt.toInstant().toString(),
+    end: endZdt.toInstant().toString(),
     shape: 'instant',
     zone: observerZone,
     ownZone: observerZone,
