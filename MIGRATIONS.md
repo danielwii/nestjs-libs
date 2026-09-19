@@ -1,5 +1,65 @@
 # Migrations
 
+## `@app/utils/prompt` time rendering consolidates onto `Anchored`; offsets rejected; 3 zero-consumer exports removed
+
+`@app/utils/prompt` had its own, second implementation of "is this timezone valid" and
+"project an instant into it" — the same rules `@app/utils/anchored`'s `Anchored`/`assertZone`
+already enforce for stored attribution. This revision removes the duplicate and adds one new
+core function that both `formatLocalDateTime` and a new span renderer build on.
+
+### What changed
+
+- **New**: `readLocalTime(value, observer, ownZone?, sensitivity?)` — the one validate +
+  project + render implementation for model-facing local time. `value` is an instant or a
+  `Temporal.PlainDate`. `observer` (required, no default) is whoever is reading the text.
+  `ownZone` (optional) is the value's own attribution zone when it differs from the observer
+  (e.g. someone else's event); omitted, it equals `observer` and the result is trivially
+  same-zone. Returns `{ text, shape, zone, ownZone, sameZone, ownText?, weekday, dayPeriod? }`
+  (`dayPeriod` only for `shape: 'instant'`). `formatLocalDateTime`'s body is now
+  `readLocalTime(...).text`.
+- **New**: `readLocalSpan(start, end, observer, ownZone?)` — a start–end instant range in the same
+  wording (`2026-09-23 15:00–16:00 (Asia/Taipei)`, or `→` across a local day boundary).
+  When the two endpoints carry different UTC offsets (a span crossing a DST transition) each clock is printed with its offset, e.g. `01:30-07:00–01:30-08:00`, because identical local clocks can name different instants there. Blank endpoints throw; a blank attribution zone passed to `readLocalTime` throws instead of being treated as omitted.
+- **New types**: `TimeReading`, `SpanReading`, `LocalTimeValue` — a *reading* is a time as one reader sees it: `text` is presentation for the model, never an identity; `instant` / `start` / `end` (ISO-8601 UTC) are for code. Ambiguous local clocks (DST repeated hour) carry their UTC offset in `text`; a cross-midnight owner date rides in `ownText`.
+- **Breaking**: a raw UTC offset (`"+8"`, `"+08:00"`) as `timezone`/`observer` — to
+  `formatLocalDateTime`, `zonedAt`, `readLocalSpan`, `readLocalTime`, or
+  `PromptBuilder.render()`'s `timezone` option — now throws instead of being tolerated. Only
+  IANA identifiers (and, where the shape allows it, `FLOATING`) are accepted; this is the same
+  rule `Anchored` already applied to stored attribution, now applied uniformly to observer
+  zones too. A caller with a legacy offset-format zone must resolve it to an IANA identifier
+  before calling.
+- **Removed** (zero call sites in every downstream consumer checked at removal time):
+  `zonedNow`, `formatLocalDate`, `formatLocalShortTime`. `zonedAt` is kept — it has an active
+  consumer — as a thin shell over the same projection, same signature and return type
+  (`Temporal.ZonedDateTime`).
+- `decorateWithNow`'s `<now>` label now shares the same weekday/day-period wording assembly as
+  `formatLocalDateTime`'s Now-line text (previously two separate copies of the same
+  concatenation); its own output format (time embedded in the tag body, zone as a separate XML
+  attribute) is unchanged.
+- **Breaking**: an explicit empty string as `readLocalTime`'s/`formatLocalDateTime`'s `value`
+  now throws instead of being read as "now" — only omitting the argument (`undefined`) means
+  "now". A caller that built an empty string to mean "no value" must omit the argument instead.
+- `TimeSensitivity.Hour` (`"01 AM"`) falls back to `Minute` granularity only inside a DST-repeated
+  hour, so the disambiguating UTC offset reads as `01:30-07:00` instead of appending after
+  `AM`/`PM` (`01 AM-07:00`, which reads as a range). Unambiguous `Hour`-sensitivity renders are
+  unchanged.
+
+### Required consumer changes
+
+None for a consumer that only ever passes IANA zone identifiers (the norm since the write
+boundary work in this same effort started enforcing that on stored attribution). A consumer
+still passing a raw UTC offset as an observer/render timezone must resolve it to an IANA
+identifier first. A consumer importing `zonedNow`, `formatLocalDate`, or
+`formatLocalShortTime` must migrate to `readLocalTime`/`formatLocalDateTime` — the import
+will no longer resolve. A consumer building an empty string to mean "use the current time"
+must omit the argument instead.
+
+### How migration is proven
+
+`bun run typecheck`, `bun run lint`, and `bun run test` (828 pass / 0 fail) are clean.
+`zonedNow`/`formatLocalDate`/`formatLocalShortTime` had zero references in every downstream
+consumer checked at removal time and zero references in this repo's own test suite.
+
 ## Removed the 3 deprecated prompt factory functions
 
 `createBasePrompt`, `createPrompt`, and `createEnhancedPrompt` (all in
