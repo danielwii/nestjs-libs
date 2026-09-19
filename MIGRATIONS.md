@@ -19,6 +19,7 @@ core function that both `formatLocalDateTime` and a new span renderer build on.
   `projectLocalTime(...).text`.
 - **New**: `formatLocalSpan(start, end, observer)` — a start–end instant range in the same
   wording (`2026-09-23 15:00–16:00 (Asia/Taipei)`, or `→` across a local day boundary).
+  When the two endpoints carry different UTC offsets (a span crossing a DST transition) each clock is printed with its offset, e.g. `01:30-07:00–01:30-08:00`, because identical local clocks can name different instants there. Blank endpoints throw; a blank attribution zone passed to `projectLocalTime` throws instead of being treated as omitted.
 - **New types**: `ModelTime`, `ModelSpan`, `LocalTimeValue`.
 - **Breaking**: a raw UTC offset (`"+8"`, `"+08:00"`) as `timezone`/`observer` — to
   `formatLocalDateTime`, `zonedAt`, `formatLocalSpan`, `projectLocalTime`, or

@@ -59,6 +59,14 @@ export interface ModelSpan {
   ownText?: string;
 }
 
+/** A fixed-instant parameter must never silently become the current clock (Codex P2). */
+function requireFixedInstant(at: PromptDateTime | null | undefined, fn: string): PromptDateTime {
+  if (at === null || at === undefined || (typeof at === 'string' && at.trim() === '')) {
+    throw new TypeError(`${fn}: a fixed instant is required (got ${JSON.stringify(at)})`);
+  }
+  return at;
+}
+
 function toInstant(dateOrIso?: PromptDateTime | null): Temporal.Instant {
   if (!dateOrIso) return Temporal.Now.instant();
   if (dateOrIso instanceof Temporal.ZonedDateTime) return dateOrIso.toInstant();
@@ -155,7 +163,9 @@ export function projectLocalTime(
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
 ): ModelTime {
   const observerZone = assertZone(observer, 'instant');
-  const attribution = ownZone ? assertZone(ownZone, 'instant') : observerZone;
+  // `undefined` = attribution is the observer; anything supplied — including '' forwarded from a
+  // row with missing stored attribution — goes through assertZone and fails there (Codex P1).
+  const attribution = ownZone === undefined ? observerZone : assertZone(ownZone, 'instant');
 
   if (value instanceof Temporal.PlainDate) {
     const projection = Anchored.date(value, attribution).in(observerZone) as Extract<
@@ -211,12 +221,15 @@ export function formatLocalDateTime(
  */
 export function formatLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone): ModelSpan {
   const observerZone = assertZone(observer, 'instant');
-  const startZdt = projectInstant(start, observerZone, observerZone).at;
-  const endZdt = projectInstant(end, observerZone, observerZone).at;
+  const startZdt = projectInstant(requireFixedInstant(start, 'formatLocalSpan'), observerZone, observerZone).at;
+  const endZdt = projectInstant(requireFixedInstant(end, 'formatLocalSpan'), observerZone, observerZone).at;
   const sameDay = startZdt.toPlainDate().equals(endZdt.toPlainDate());
   const zoneLabel = formatZoneName(startZdt);
-  const startClock = plainTimeToClock(startZdt.toPlainTime());
-  const endClock = plainTimeToClock(endZdt.toPlainTime());
+  // Across a DST transition the two endpoints carry different offsets and identical local clocks can
+  // name different instants (fall-back 01:30 twice); print the offset on each clock then (Codex P2).
+  const offsetsDiffer = startZdt.offset !== endZdt.offset;
+  const startClock = plainTimeToClock(startZdt.toPlainTime()) + (offsetsDiffer ? startZdt.offset : '');
+  const endClock = plainTimeToClock(endZdt.toPlainTime()) + (offsetsDiffer ? endZdt.offset : '');
   const text = sameDay
     ? `${startZdt.toPlainDate().toString()} ${startClock}–${endClock} (${zoneLabel})`
     : `${startZdt.toPlainDate().toString()} ${startClock} → ${endZdt.toPlainDate().toString()} ${endClock} (${zoneLabel})`;
@@ -251,10 +264,8 @@ export function decorateWithNow(content: string, now: Temporal.ZonedDateTime): s
 
 /** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `Anchored`/`assertZone`). */
 export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
-  // A fixed-instant API must never silently become the current clock: reject blank inputs here.
-  if (typeof at === 'string' && at.trim() === '') throw new TypeError('zonedAt: empty timestamp');
   const observerZone = assertZone(timezone ?? '', 'instant');
-  return projectInstant(at, observerZone, observerZone).at;
+  return projectInstant(requireFixedInstant(at, 'zonedAt'), observerZone, observerZone).at;
 }
 
 /**
