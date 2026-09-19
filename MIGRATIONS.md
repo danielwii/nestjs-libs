@@ -17,7 +17,7 @@ core function that both `formatLocalDateTime` and a new span renderer build on.
   same-zone. Returns `{ text, shape, zone, ownZone, sameZone, ownText?, weekday, dayPeriod? }`
   (`dayPeriod` only for `shape: 'instant'`). `formatLocalDateTime`'s body is now
   `readLocalTime(...).text`.
-- **New**: `readLocalSpan(start, end, observer)` — a start–end instant range in the same
+- **New**: `readLocalSpan(start, end, observer, ownZone?)` — a start–end instant range in the same
   wording (`2026-09-23 15:00–16:00 (Asia/Taipei)`, or `→` across a local day boundary).
   When the two endpoints carry different UTC offsets (a span crossing a DST transition) each clock is printed with its offset, e.g. `01:30-07:00–01:30-08:00`, because identical local clocks can name different instants there. Blank endpoints throw; a blank attribution zone passed to `readLocalTime` throws instead of being treated as omitted.
 - **New types**: `TimeReading`, `SpanReading`, `LocalTimeValue` — a *reading* is a time as one reader sees it: `text` is presentation for the model, never an identity; `instant` / `start` / `end` (ISO-8601 UTC) are for code. Ambiguous local clocks (DST repeated hour) carry their UTC offset in `text`; a cross-midnight owner date rides in `ownText`.

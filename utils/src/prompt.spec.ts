@@ -457,6 +457,30 @@ describe('cache-aware prompt decorators', () => {
     expect(reading.instant).toBe('2026-09-23T00:30:00Z');
   });
 
+  it("readLocalSpan keeps another member's span attributed to its own zone", () => {
+    // A London member's 09:00–10:00 event read by a Taipei observer: Taipei clocks in text, London clocks in ownText.
+    const span = readLocalSpan('2026-09-23T08:00:00Z', '2026-09-23T09:00:00Z', 'Asia/Taipei', 'Europe/London');
+    expect(span.text).toBe('2026-09-23 16:00–17:00 (Asia/Taipei)');
+    expect(span).toMatchObject({ zone: 'Asia/Taipei', ownZone: 'Europe/London', sameZone: false });
+    expect(span.ownText).toBe('09:00–10:00 (Europe/London)');
+    // Owner still on the previous day → ownText carries the owner's date.
+    const late = readLocalSpan('2026-09-23T00:30:00Z', '2026-09-23T01:00:00Z', 'Asia/Tokyo', 'America/Los_Angeles');
+    expect(late.text).toBe('2026-09-23 09:30–10:00 (Asia/Tokyo)');
+    expect(late.ownText).toBe('2026-09-22 17:30–18:00 (America/Los_Angeles)');
+    expect(() => readLocalSpan('2026-09-23T08:00:00Z', '2026-09-23T09:00:00Z', 'Asia/Taipei', '')).toThrow();
+  });
+
+  it('ownText disambiguates the owner-side repeated hour even when the observer is unambiguous', () => {
+    // UTC observer, Los Angeles owner: 08:30Z and 09:30Z are both 01:30 on the owner's wall clock.
+    const first = readLocalTime('2026-11-01T08:30:00Z', 'UTC', 'America/Los_Angeles');
+    const second = readLocalTime('2026-11-01T09:30:00Z', 'UTC', 'America/Los_Angeles');
+    expect(first.ownText).toBe('01:30-07:00 (America/Los_Angeles)');
+    expect(second.ownText).toBe('01:30-08:00 (America/Los_Angeles)');
+    const span = readLocalSpan('2026-11-01T08:30:00Z', '2026-11-01T09:30:00Z', 'UTC', 'America/Los_Angeles');
+    expect(span.text).toBe('2026-11-01 08:30–09:30 (UTC)');
+    expect(span.ownText).toBe('01:30-07:00–01:30-08:00 (America/Los_Angeles)');
+  });
+
   it('readLocalTime rejects a blank attribution zone instead of substituting the observer', () => {
     expect(() => readLocalTime('2026-09-23T07:00:00Z', 'Asia/Taipei', '')).toThrow();
     const same = readLocalTime('2026-09-23T07:00:00Z', 'Asia/Taipei');

@@ -82,6 +82,8 @@ export interface TimeReading {
  * `2026-09-23 15:00–16:00 (Asia/Taipei)`，本地跨日则 `2026-09-23 23:30 → 2026-09-24 00:30 (…)`。
  * 两端任一钟点在读者时区里有歧义（回拨重叠小时），或两端偏移量不同（跨转换点），两端钟点都
  * 附偏移量：`01:30-07:00–01:30-08:00`。`start`/`end` 是两端的绝对时刻（ISO-8601 UTC），程序用。
+ * 归属（`ownZone`/`sameZone`/`ownText`）与 {@link TimeReading} 同义：别人的事件区间在读者钟点里
+ * 是几点到几点，在其本人钟点里是几点到几点（`ownText`，本人日期与读者不同时带日期）。
  *
  * 只覆盖 instant 起止（事件、空档的开始/结束）。全天多日区间还没有消费者要求过这个函数产出，
  * 出现时再加，不先猜格式。
@@ -185,6 +187,30 @@ function renderLocalMoment(
   return `${formatTemporal(zdt, sensitivity)}${suffix} ${dayPeriod}`;
 }
 
+/** 钟点 + 偏移量后缀（仅在该钟点有歧义时）：观察者文本与归属方文本用同一条规则。 */
+function clockWithDisambiguation(zdt: Temporal.ZonedDateTime, force = false): string {
+  return plainTimeToClock(zdt.toPlainTime()) + (force || isAmbiguousLocalClock(zdt) ? zdt.offset : '');
+}
+
+/**
+ * 一段起止在某个时区里写成一行：同日 `2026-09-23 15:00–16:00`，跨日 `2026-09-23 23:30 → 2026-09-24 00:30`。
+ * 两端任一钟点有歧义或两端偏移量不同时两端都附偏移量。`leadingDate=false` 时同日形态省掉日期
+ * （归属方文本已在观察者文本旁，日期相同就不重复）。
+ */
+function renderSpanClocks(
+  startZdt: Temporal.ZonedDateTime,
+  endZdt: Temporal.ZonedDateTime,
+  leadingDate: boolean,
+): string {
+  const force = startZdt.offset !== endZdt.offset || isAmbiguousLocalClock(startZdt) || isAmbiguousLocalClock(endZdt);
+  const startClock = clockWithDisambiguation(startZdt, force);
+  const endClock = clockWithDisambiguation(endZdt, force);
+  const startDate = startZdt.toPlainDate();
+  const endDate = endZdt.toPlainDate();
+  if (startDate.equals(endDate)) return `${leadingDate ? `${startDate.toString()} ` : ''}${startClock}–${endClock}`;
+  return `${startDate.toString()} ${startClock} → ${endDate.toString()} ${endClock}`;
+}
+
 /**
  * 读者本地钟点在其时区里是否对应两个瞬时（DST 回拨的重叠小时）。是的话呈现层要在钟点后附
  * 偏移量，否则两个不同时刻会写成同一行字。用 Temporal 的 earlier/later 消歧比较，不自己算规则。
@@ -252,10 +278,10 @@ export function readLocalTime(
     dayPeriod,
   };
   if (!projection.sameZone) {
+    // 归属方钟点套同一条歧义规则：归属方处在回拨重叠小时而读者不在时，两个瞬时的 ownText 否则会一样。
     const own = zdt.withTimeZone(projection.ownZone);
-    const ownClock = plainTimeToClock(own.toPlainTime());
     const crossesDay = !own.toPlainDate().equals(zdt.toPlainDate());
-    result.ownText = `${crossesDay ? own.toPlainDate().toString() + ' ' : ''}${ownClock} (${projection.ownZone})`;
+    result.ownText = `${crossesDay ? `${own.toPlainDate().toString()} ` : ''}${clockWithDisambiguation(own)} (${projection.ownZone})`;
   }
   return result;
 }
@@ -270,31 +296,32 @@ export function formatLocalDateTime(
 
 /**
  * 把一段起止时间读给读者：语义与理由见 {@link SpanReading}。两端都必须是确定的瞬时——空值
- * 不会被当成"现在"（`requireFixedInstant`）。
+ * 不会被当成"现在"（`requireFixedInstant`）。`ownZone` 与 {@link readLocalTime} 同义：这段区间
+ * 本来属于谁的时区（别人的事件、别人的空档）；不传即读者自己的。
  */
-export function readLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone): SpanReading {
+export function readLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone, ownZone?: Zone): SpanReading {
   const observerZone = assertZone(observer, 'instant');
-  const startZdt = projectInstant(requireFixedInstant(start, 'readLocalSpan'), observerZone, observerZone).at;
-  const endZdt = projectInstant(requireFixedInstant(end, 'readLocalSpan'), observerZone, observerZone).at;
-  const sameDay = startZdt.toPlainDate().equals(endZdt.toPlainDate());
-  const zoneLabel = formatZoneName(startZdt);
-  // 一条规则覆盖所有会撞的情况：两端任一钟点有歧义（重叠小时内），或两端偏移量不同（跨转换点）。
-  const disambiguate =
-    startZdt.offset !== endZdt.offset || isAmbiguousLocalClock(startZdt) || isAmbiguousLocalClock(endZdt);
-  const startClock = plainTimeToClock(startZdt.toPlainTime()) + (disambiguate ? startZdt.offset : '');
-  const endClock = plainTimeToClock(endZdt.toPlainTime()) + (disambiguate ? endZdt.offset : '');
-  const text = sameDay
-    ? `${startZdt.toPlainDate().toString()} ${startClock}–${endClock} (${zoneLabel})`
-    : `${startZdt.toPlainDate().toString()} ${startClock} → ${endZdt.toPlainDate().toString()} ${endClock} (${zoneLabel})`;
-  return {
-    text,
+  const attribution = ownZone === undefined ? observerZone : assertZone(ownZone, 'instant');
+  const startProjection = projectInstant(requireFixedInstant(start, 'readLocalSpan'), observerZone, attribution);
+  const endProjection = projectInstant(requireFixedInstant(end, 'readLocalSpan'), observerZone, attribution);
+  const startZdt = startProjection.at;
+  const endZdt = endProjection.at;
+  const result: SpanReading = {
+    text: `${renderSpanClocks(startZdt, endZdt, true)} (${formatZoneName(startZdt)})`,
     start: startZdt.toInstant().toString(),
     end: endZdt.toInstant().toString(),
     shape: 'instant',
     zone: observerZone,
-    ownZone: observerZone,
-    sameZone: true,
+    ownZone: startProjection.ownZone,
+    sameZone: startProjection.sameZone,
   };
+  if (!startProjection.sameZone) {
+    const ownStart = startZdt.withTimeZone(startProjection.ownZone);
+    const ownEnd = endZdt.withTimeZone(startProjection.ownZone);
+    const crossesDay = !ownStart.toPlainDate().equals(startZdt.toPlainDate());
+    result.ownText = `${renderSpanClocks(ownStart, ownEnd, crossesDay)} (${startProjection.ownZone})`;
+  }
+  return result;
 }
 
 /**
