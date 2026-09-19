@@ -32,12 +32,20 @@ const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
  *
  * 输出示例：`2026-03-21 Saturday 04:20 in the morning (Asia/Tokyo)`
  *
- * 默认使用 process.env.TZ 作为时区。
- * 用于 prompt 中展示时间给 LLM，避免 UTC 导致的时间误判。
+ * 用于 prompt 中展示时间给 LLM，避免 UTC 导致的时间误判——因此这个时区必须是**看这段
+ * prompt 的人**所在的时区，调用方必须显式给出。没有时区的时间值不存在（同 `Anchored` 的
+ * 协议）：以前缺省会回落到 `process.env.TZ`（进程/宿主所在时区），这会让本地开发环境和
+ * 生产宿主机的时区悄悄泄漏进给模型看的文本——对方看到的「现在」其实是别人的时区，且没有
+ * 任何报错信号。缺省或非法时区一律抛错，调用方必须显式传入这段 prompt 实际的观察者时区。
  */
 function toTemporalZdt(dateOrIso?: PromptDateTime | null, timezone?: string | null): Temporal.ZonedDateTime {
-  const raw = timezone ?? process.env.TZ;
-  const tz = normalizeTimezone(raw) ?? Temporal.Now.timeZoneId();
+  const tz = normalizeTimezone(timezone);
+  if (!tz) {
+    throw new TypeError(
+      `toTemporalZdt: a valid IANA timezone is required (got ${JSON.stringify(timezone)}) — ` +
+        'the caller must pass the timezone of whoever is meant to read this time, not a host default.',
+    );
+  }
 
   if (!dateOrIso) return Temporal.Now.instant().toZonedDateTimeISO(tz);
   if (dateOrIso instanceof Temporal.ZonedDateTime) return dateOrIso.withTimeZone(tz);

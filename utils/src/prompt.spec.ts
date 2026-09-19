@@ -174,11 +174,11 @@ describe('PromptBuilder', () => {
       language: 'en',
     };
 
-    const without = PromptBuilder.from({ ...base }).render({});
+    const without = PromptBuilder.from({ ...base }).render({ timezone: 'UTC' });
     expect(without).not.toContain('Standing language request');
 
     const passage = 'The user explicitly asked you to speak English with them — treat this as a standing request.';
-    const withStanding = PromptBuilder.from({ ...base, languageStanding: passage }).render({});
+    const withStanding = PromptBuilder.from({ ...base, languageStanding: passage }).render({ timezone: 'UTC' });
     expect(withStanding).toContain(
       `Standing language request (it takes precedence over the dominant language of the current message and over the configured fallback above, and stays in effect until the user makes a new explicit request): ${passage}`,
     );
@@ -196,7 +196,7 @@ describe('PromptBuilder', () => {
       objective: 'Reply',
       instructions: ['Be helpful'],
       languageStanding: passage,
-    }).render({});
+    }).render({ timezone: 'UTC' });
     expect(rendered).toContain('<language priority="critical">');
     expect(rendered).toContain(
       `Standing language request (it takes precedence over the dominant language of the current message, and stays in effect until the user makes a new explicit request): ${passage}`,
@@ -216,7 +216,7 @@ describe('PromptBuilder', () => {
       language: 'en',
       languagePolicy: 'system-output',
       languageStanding: passage,
-    }).render({});
+    }).render({ timezone: 'UTC' });
     expect(rendered).toContain('System output language: "en"');
     expect(rendered).not.toContain(passage);
     expect(rendered).not.toContain('Standing language request');
@@ -230,7 +230,7 @@ describe('PromptBuilder', () => {
       instructions: ['Be helpful'],
       languagePolicy: 'system-output',
       languageStanding: 'The user explicitly asked you to speak English with them.',
-    }).render({});
+    }).render({ timezone: 'UTC' });
     expect(rendered).not.toContain('<language priority="critical">');
     expect(rendered).not.toContain('Standing language request');
   });
@@ -415,6 +415,18 @@ describe('cache-aware prompt decorators', () => {
   it('zonedAt rejects an empty timestamp instead of using the current clock', () => {
     expect(() => zonedAt('', 'Asia/Hong_Kong')).toThrow(TypeError);
     expect(() => zonedAt('   ', 'Asia/Hong_Kong')).toThrow(TypeError);
+  });
+
+  // A2/T4 — a missing or invalid timezone must never fall back to process.env.TZ (the host's
+  // zone, not the reader's): that silently leaked the pod's own timezone into text meant to
+  // read as someone else's "now". No default; the caller states whose clock this is.
+  it('rejects a missing or invalid timezone instead of falling back to process.env.TZ', () => {
+    process.env.TZ = 'America/Los_Angeles';
+    expect(() => zonedNow(undefined)).toThrow(/timezone/);
+    expect(() => zonedNow(null)).toThrow(/timezone/);
+    expect(() => zonedAt('2026-09-15T10:22:00Z', undefined)).toThrow(/timezone/);
+    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, undefined)).toThrow(/timezone/);
+    expect(() => zonedNow('not-a-real-zone')).toThrow(/timezone/);
   });
 
   it('render with now:null omits the trailing Now line so the system prompt stays static', () => {

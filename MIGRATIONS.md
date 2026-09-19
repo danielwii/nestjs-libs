@@ -1,5 +1,34 @@
 # Migrations
 
+## `@app/utils/prompt` time formatting requires an explicit timezone
+
+Breaking at runtime (not a type error). `formatLocalDateTime`, `formatLocalDate`,
+`formatLocalShortTime`, `zonedNow`, `zonedAt`, and anything that renders through
+`PromptBuilder.render()`'s `now`/`timezone` — every one of these previously
+fell back to `process.env.TZ`, then the host's own timezone, whenever the
+caller omitted (or passed an invalid) `timezone`. That default silently leaked
+the process's own timezone into text meant to read as someone else's "now": a
+prompt built for a person in one zone, running on a host or local machine in
+another, showed the WRONG local time with no error to signal it.
+
+### What changed
+
+A missing or unrecognized `timezone` now throws `TypeError` (message contains
+`timezone`) instead of defaulting. There is no fallback value; the caller must
+always know and pass the timezone of whoever is meant to read the rendered
+time.
+
+### Required consumer changes
+
+Audit every call site that renders a time through this module (`formatLocalDateTime`,
+`zonedNow`, `zonedAt`, `formatLocalDate`, `formatLocalShortTime`, `PromptBuilder.render()`
+with `now` not explicitly `null`) and confirm each one passes the timezone of
+the actual reader — the requesting member's timezone, falling back to the
+family/org's own timezone only when there is no individual to attribute it to.
+A call site that has no such value available and only wants to omit the time
+entirely should pass `render({ now: null, ... })` (or skip calling these
+functions), not invent a placeholder zone.
+
 ## `assertZone` exported from `@app/utils/anchored`
 
 Additive. The zone check that `Anchored` already applies at construction is now
