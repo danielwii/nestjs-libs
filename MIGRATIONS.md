@@ -1,5 +1,39 @@
 # Migrations
 
+## Removed the 3 deprecated prompt factory functions
+
+`createBasePrompt`, `createPrompt`, and `createEnhancedPrompt` (all in
+`@app/utils/prompt`, all marked `@deprecated` in favor of
+`PromptBuilder.from(config).render(options)` from `@app/utils/prompt.xml`)
+are removed, along with their private helpers (`PromptSchema`,
+`RequirementsSchema`, `SpecialConsiderationsSchema`, `renderList`) that had no
+other caller.
+
+### What changed
+
+The three functions, their supporting types/schemas, and the `dedent` import
+they alone used are gone from `@app/utils/prompt`. Nothing else in that module
+changed — `formatLocalDateTime`, `formatLocalDate`, `formatLocalShortTime`,
+`zonedNow`, `zonedAt`, `generateJsonFormat`, `customJsonFormatSupportOutput`,
+and the cache-aware prompt decorators (`decorateWithNow`, `decorateUserInput`)
+are all untouched.
+
+### Required consumer changes
+
+None for a consumer that has already migrated to `PromptBuilder` — this was
+the only supported path since these three were deprecated. A consumer that
+still imports `createBasePrompt`, `createPrompt`, or `createEnhancedPrompt`
+must move to `PromptBuilder.from(config).render(options)` before advancing
+past this revision; the import will no longer resolve.
+
+### How migration is proven
+
+Zero call sites in every downstream consumer checked at removal time, and
+zero references in this repo's own test suite — the functions had been fully
+superseded by `PromptBuilder`, which already carries its own spec coverage in
+`prompt.spec.ts`. `bun run typecheck`, `bun run lint`, and `bun run test`
+(813 pass / 0 fail) are clean after removal with no other file touched.
+
 ## `@app/utils/prompt` time formatting requires an explicit timezone
 
 Breaking at runtime (not a type error). `formatLocalDateTime`, `formatLocalDate`,
