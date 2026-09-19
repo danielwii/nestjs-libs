@@ -36,6 +36,13 @@ core function that both `formatLocalDateTime` and a new span renderer build on.
   `formatLocalDateTime`'s Now-line text (previously two separate copies of the same
   concatenation); its own output format (time embedded in the tag body, zone as a separate XML
   attribute) is unchanged.
+- **Breaking**: an explicit empty string as `readLocalTime`'s/`formatLocalDateTime`'s `value`
+  now throws instead of being read as "now" — only omitting the argument (`undefined`) means
+  "now". A caller that built an empty string to mean "no value" must omit the argument instead.
+- `TimeSensitivity.Hour` (`"01 AM"`) falls back to `Minute` granularity only inside a DST-repeated
+  hour, so the disambiguating UTC offset reads as `01:30-07:00` instead of appending after
+  `AM`/`PM` (`01 AM-07:00`, which reads as a range). Unambiguous `Hour`-sensitivity renders are
+  unchanged.
 
 ### Required consumer changes
 
@@ -44,11 +51,12 @@ boundary work in this same effort started enforcing that on stored attribution).
 still passing a raw UTC offset as an observer/render timezone must resolve it to an IANA
 identifier first. A consumer importing `zonedNow`, `formatLocalDate`, or
 `formatLocalShortTime` must migrate to `readLocalTime`/`formatLocalDateTime` — the import
-will no longer resolve.
+will no longer resolve. A consumer building an empty string to mean "use the current time"
+must omit the argument instead.
 
 ### How migration is proven
 
-`bun run typecheck`, `bun run lint`, and `bun run test` (819 pass / 0 fail) are clean.
+`bun run typecheck`, `bun run lint`, and `bun run test` (828 pass / 0 fail) are clean.
 `zonedNow`/`formatLocalDate`/`formatLocalShortTime` had zero references in every downstream
 consumer checked at removal time and zero references in this repo's own test suite.
 

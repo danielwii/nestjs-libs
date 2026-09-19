@@ -581,4 +581,24 @@ describe('readLocalTime (tz-d6: the one validate+project+render core)', () => {
     expect(() => readLocalTime('2026-09-23T07:00:00Z', 'not-a-real-zone')).toThrow(/Anchored/);
     expect(() => readLocalTime(Temporal.PlainDate.from('2026-09-20'), '')).toThrow(/Anchored/);
   });
+
+  // Codex P2: an explicit '' was falsy, same as omitting the value, so it silently became "now"
+  // instead of signaling a caller bug (a missed interpolation, a wrong variable).
+  it('rejects an explicit empty string instead of silently reading it as "now"', () => {
+    expect(() => readLocalTime('', 'Asia/Taipei')).toThrow(/not "now"/);
+    expect(() => readLocalTime('   ', 'Asia/Taipei')).toThrow(/not "now"/);
+    expect(() => formatLocalDateTime('', TimeSensitivity.Minute, 'Asia/Taipei')).toThrow(/not "now"/);
+  });
+
+  // Codex P2: TimeSensitivity.Hour writes "01 AM"; appending the DST-ambiguity offset after
+  // "AM"/"PM" reads as a range ("01 AM-07:00"), not a clock + its zone. Falling back to Minute
+  // granularity only when the clock is actually ambiguous keeps every unambiguous Hour-sensitivity
+  // render exactly as before.
+  it('TimeSensitivity.Hour falls back to Minute granularity inside a DST-ambiguous hour, unaffected otherwise', () => {
+    const ambiguous = readLocalTime('2026-11-01T08:30:00Z', 'America/Los_Angeles', undefined, TimeSensitivity.Hour);
+    expect(ambiguous.text).toBe('2026-11-01 Sunday 01:30-07:00 in the morning (America/Los_Angeles)');
+
+    const unambiguous = readLocalTime('2026-11-01T12:00:00Z', 'America/Los_Angeles', undefined, TimeSensitivity.Hour);
+    expect(unambiguous.text).toBe('2026-11-01 Sunday 04 AM in the morning (America/Los_Angeles)');
+  });
 });

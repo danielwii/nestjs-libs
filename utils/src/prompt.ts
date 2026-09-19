@@ -107,8 +107,20 @@ function requireFixedInstant(at: PromptDateTime | null | undefined, fn: string):
   return at;
 }
 
+/**
+ * `null`/`undefined` 表示"现在"——只有 `readLocalTime`/`formatLocalDateTime` 的 Now 行路径
+ * 会省略这个参数。显式传入的空串是别的东西（漏了插值、拼错了变量），不是"没给"，不能被同一个
+ * falsy 判断悄悄读成"现在"（Codex P2）：那会让一个本该报错的调用方看到一个能用但错误的
+ * Now 行。`readLocalSpan`/`zonedAt` 走 `requireFixedInstant`，到这里之前已经排除了空串，
+ * 这条分支实际只服务 `readLocalTime` 的省略参数场景。
+ */
 function toInstant(dateOrIso?: PromptDateTime | null): Temporal.Instant {
-  if (!dateOrIso) return Temporal.Now.instant();
+  if (dateOrIso === null || dateOrIso === undefined) return Temporal.Now.instant();
+  if (typeof dateOrIso === 'string' && dateOrIso.trim() === '') {
+    throw new TypeError(
+      'readLocalTime: an empty string is not "now" — omit the value entirely for the current instant',
+    );
+  }
   if (dateOrIso instanceof Temporal.ZonedDateTime) return dateOrIso.toInstant();
   return typeof dateOrIso === 'string' ? Temporal.Instant.from(dateOrIso) : dateOrIso;
 }
@@ -183,13 +195,27 @@ function renderLocalMoment(
   dayPeriod: string,
   clockSuffix = '',
 ): string {
-  const suffix = sensitivity === TimeSensitivity.Day ? '' : clockSuffix;
-  return `${formatTemporal(zdt, sensitivity)}${suffix} ${dayPeriod}`;
+  if (sensitivity === TimeSensitivity.Day) return `${formatTemporal(zdt, sensitivity)} ${dayPeriod}`;
+  // Hour 精度写成 "01 AM" 这种形状——偏移量接在 AM/PM 后面会读成别的东西（"01 AM-07:00" 像一段
+  // 范围，不像"一个钟点+它的时区"）。Minute 精度是 "01:30"，偏移量接在数字后面本身就清楚
+  // （Codex P2）。所以只在真的有歧义（`clockSuffix` 非空）时退化成 Minute，不影响不歧义的
+  // 调用方；歧义时"退化成更细精度"永远安全，因为更细精度只会多给信息，不会丢信息。
+  const effective = clockSuffix && sensitivity === TimeSensitivity.Hour ? TimeSensitivity.Minute : sensitivity;
+  return `${formatTemporal(zdt, effective)}${clockSuffix} ${dayPeriod}`;
+}
+
+/**
+ * 歧义时的偏移量后缀，否则空串——这是本模块**唯一**把"这个钟点有没有歧义"变成"要不要附
+ * 偏移量"的地方。单点的观察者钟点、单点的归属方钟点（`ownText`）、区间两端的钟点，都调这
+ * 一个函数，不是各自重新判一遍 `isAmbiguousLocalClock(...) ? zdt.offset : ''`。
+ */
+function ambiguityOffset(zdt: Temporal.ZonedDateTime, force = false): string {
+  return force || isAmbiguousLocalClock(zdt) ? zdt.offset : '';
 }
 
 /** 钟点 + 偏移量后缀（仅在该钟点有歧义时）：观察者文本与归属方文本用同一条规则。 */
 function clockWithDisambiguation(zdt: Temporal.ZonedDateTime, force = false): string {
-  return plainTimeToClock(zdt.toPlainTime()) + (force || isAmbiguousLocalClock(zdt) ? zdt.offset : '');
+  return plainTimeToClock(zdt.toPlainTime()) + ambiguityOffset(zdt, force);
 }
 
 /**
@@ -265,7 +291,7 @@ export function readLocalTime(
   const projection = projectInstant(value, observerZone, attribution);
   const zdt = projection.at;
   const dayPeriod = formatDayPeriod(zdt);
-  const clockSuffix = isAmbiguousLocalClock(zdt) ? zdt.offset : '';
+  const clockSuffix = ambiguityOffset(zdt);
   const text = `${renderLocalMoment(zdt, sensitivity, dayPeriod, clockSuffix)} (${formatZoneName(zdt)})`;
   const result: TimeReading = {
     text,
