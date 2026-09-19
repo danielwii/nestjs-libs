@@ -1,5 +1,6 @@
-import { normalizeTimezone } from './datetime';
+import { Anchored, assertZone } from './anchored';
 
+import type { AnchoredProjection, Zone } from './anchored';
 import type { z } from 'zod';
 
 export function generateJsonFormat(schema: z.ZodType, indent = 0): string {
@@ -13,7 +14,7 @@ export function generateJsonFormat(schema: z.ZodType, indent = 0): string {
 }
 
 /**
- * Temporal formatting patterns（不含 dayPeriod 和时区，由 formatLocalDateTime 拼接）。
+ * Temporal formatting patterns（不含 dayPeriod 和时区，由 projectLocalTime 拼接）。
  *
  * dayPeriod 通过 Intl toLocaleString({ dayPeriod: 'long' }) 获取（"in the morning" 等）。
  */
@@ -24,33 +25,58 @@ export enum TimeSensitivity {
 }
 
 export type PromptDateTime = string | Temporal.Instant | Temporal.ZonedDateTime;
+/** `projectLocalTime` 的输入：一个绝对时刻（`PromptDateTime`），或一整个日历日（`Temporal.PlainDate`）。 */
+export type LocalTimeValue = PromptDateTime | Temporal.PlainDate;
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 
 /**
- * 将 ISO datetime 字符串或 Temporal 时间格式化为带时区和 dayPeriod 的可读时间。
+ * 给模型看的单个时间点。`text` 是唯一能直接拼进 prompt 的一行；其余字段是同一次投影的结构化
+ * 结果，供需要单独判断形状/归属的消费者用（裁判状态、跨区标注），不必重新解析 `text`。
  *
- * 输出示例：`2026-03-21 Saturday 04:20 in the morning (Asia/Tokyo)`
- *
- * 用于 prompt 中展示时间给 LLM，避免 UTC 导致的时间误判——因此这个时区必须是**看这段
- * prompt 的人**所在的时区，调用方必须显式给出。没有时区的时间值不存在（同 `Anchored` 的
- * 协议）：以前缺省会回落到 `process.env.TZ`（进程/宿主所在时区），这会让本地开发环境和
- * 生产宿主机的时区悄悄泄漏进给模型看的文本——对方看到的「现在」其实是别人的时区，且没有
- * 任何报错信号。缺省或非法时区一律抛错，调用方必须显式传入这段 prompt 实际的观察者时区。
+ * `dayPeriod` 只有 `shape === 'instant'` 才有——日历日没有确定的时段。`ownZone`/`sameZone`/
+ * `ownText` 描述"这个值本来属于谁"跟"现在给谁看"是否一致：`projectLocalTime` 不传 `ownZone`
+ * 时两者是同一个值（`formatLocalDateTime`/Now 行走的就是这条路径，恒为同区）；传了不同的
+ * `ownZone`（例如别人时区的事件）时才会出现 `sameZone: false` 与 `ownText`。
  */
-function toTemporalZdt(dateOrIso?: PromptDateTime | null, timezone?: string | null): Temporal.ZonedDateTime {
-  const tz = normalizeTimezone(timezone);
-  if (!tz) {
-    throw new TypeError(
-      `toTemporalZdt: a valid IANA timezone is required (got ${JSON.stringify(timezone)}) — ` +
-        'the caller must pass the timezone of whoever is meant to read this time, not a host default.',
-    );
-  }
+export interface ModelTime {
+  text: string;
+  shape: 'instant' | 'date';
+  zone: Zone;
+  ownZone: Zone;
+  sameZone: boolean;
+  ownText?: string;
+  weekday: string;
+  dayPeriod?: string;
+}
 
-  if (!dateOrIso) return Temporal.Now.instant().toZonedDateTimeISO(tz);
-  if (dateOrIso instanceof Temporal.ZonedDateTime) return dateOrIso.withTimeZone(tz);
+/** 一段起止时间给模型看的样子，语义同 {@link ModelTime}，`text` 换成一段而非一个点。 */
+export interface ModelSpan {
+  text: string;
+  shape: 'instant';
+  zone: Zone;
+  ownZone: Zone;
+  sameZone: boolean;
+  ownText?: string;
+}
 
-  const instant = typeof dateOrIso === 'string' ? Temporal.Instant.from(dateOrIso) : dateOrIso;
-  return instant.toZonedDateTimeISO(tz);
+function toInstant(dateOrIso?: PromptDateTime | null): Temporal.Instant {
+  if (!dateOrIso) return Temporal.Now.instant();
+  if (dateOrIso instanceof Temporal.ZonedDateTime) return dateOrIso.toInstant();
+  return typeof dateOrIso === 'string' ? Temporal.Instant.from(dateOrIso) : dateOrIso;
+}
+
+/**
+ * 构造 + 投影一个 instant，各只走一次：校验交给 `Anchored`（`assertZone`），换算交给
+ * `Anchored.in()`，这里不重新判定时区合法性。`ownZone` 与 `observerZone` 相同时（`zonedAt`、
+ * `projectLocalTime` 的默认路径）这一步是恒等投影，只是复用同一实现，不是特别绕路。
+ */
+function projectInstant(
+  value: PromptDateTime | null | undefined,
+  observerZone: Zone,
+  ownZone: Zone,
+): Extract<AnchoredProjection, { shape: 'instant' }> {
+  const instant = toInstant(value);
+  return Anchored.instant(instant, ownZone).in(observerZone) as Extract<AnchoredProjection, { shape: 'instant' }>;
 }
 
 function formatZoneName(zdt: Temporal.ZonedDateTime): string {
@@ -66,7 +92,7 @@ function formatZoneName(zdt: Temporal.ZonedDateTime): string {
 
 function formatTemporal(zdt: Temporal.ZonedDateTime, sensitivity: TimeSensitivity): string {
   const date = `${zdt.year.toString().padStart(4, '0')}-${zdt.month.toString().padStart(2, '0')}-${zdt.day.toString().padStart(2, '0')}`;
-  const weekday = WEEKDAYS[zdt.dayOfWeek - 1];
+  const weekday = weekdayOf(zdt.dayOfWeek);
   const hour24 = zdt.hour.toString().padStart(2, '0');
   const minute = zdt.minute.toString().padStart(2, '0');
 
@@ -87,29 +113,122 @@ function formatDayPeriod(zdt: Temporal.ZonedDateTime): string {
   return 'at night';
 }
 
+function plainTimeToClock(time: Temporal.PlainTime): string {
+  return `${time.hour.toString().padStart(2, '0')}:${time.minute.toString().padStart(2, '0')}`;
+}
+
+/** ISO `dayOfWeek`（1=Monday..7=Sunday，Temporal 的 date/zoned-date-time 都用这个编号）→ 英文星期名。 */
+function weekdayOf(dayOfWeek: number): string {
+  const weekday = WEEKDAYS[dayOfWeek - 1];
+  if (!weekday) throw new Error(`prompt: 非法的 dayOfWeek ${dayOfWeek}`);
+  return weekday;
+}
+
 /**
- * 完整时间：`2026-03-21 Saturday 04:20 in the morning (Asia/Tokyo)`
- *
- * 用于 prompt 的 `Now:` 行、时间提取基准等需要完整时间+时区的场景。
+ * 星期 + 钟点 + 时段短语的人话本体，不含时区。`formatLocalDateTime` 的 `Now:` 行文本与
+ * `decorateWithNow` 的 `<now>` 标签内文都是这句话——前者在外面再拼一段 `(zone)`，后者的时区
+ * 走 XML 属性——共用这一步是为了不让同一段措辞在两处各自拼一遍。
  */
+function renderLocalMoment(zdt: Temporal.ZonedDateTime, sensitivity: TimeSensitivity, dayPeriod: string): string {
+  return `${formatTemporal(zdt, sensitivity)} ${dayPeriod}`;
+}
+
+/**
+ * 给模型看的时间投影：本模块**唯一**的校验 + 投影 + 渲染实现，其余导出函数都是它的薄壳。
+ *
+ * - `value` 是 instant（会议、"现在"）或 `Temporal.PlainDate`（生日、假期这类全天日期）。
+ * - `observer` 是看这段文字的人所在的时区，必填——没有默认值，缺省或非法直接抛错
+ *   （`Anchored`/`assertZone` 的协议），不会像以前那样悄悄落回 `process.env.TZ`。
+ * - `ownZone` 省略时等于 `observer`（值本来就是"观察者自己的现在"，如 Now 行），
+ *   传入时表示这个值实际归属另一个时区（例如别人时区的事件），会产生 `sameZone: false`
+ *   与 `ownText`（这件事在归属方自己时区里读起来是几点/哪一天）。
+ *
+ * `text` 对 instant 保留一直以来的 Now 行措辞——星期 + 钟点 + 时段短语 + 时区，例如
+ * `2026-03-21 Saturday 04:20 in the morning (Asia/Tokyo)`——这不是装饰：模型曾经常忽略
+ * 当前时间说出不合时宜的话，把"现在"写成人话是让它注意到时间的手段，不只是给一个可解析的
+ * 时间戳。对 date，`text` 就是日期本身（`2026-09-20`），不随观察者位移。
+ */
+export function projectLocalTime(
+  value: LocalTimeValue | null | undefined,
+  observer: Zone,
+  ownZone?: Zone,
+  sensitivity: TimeSensitivity = TimeSensitivity.Minute,
+): ModelTime {
+  const observerZone = assertZone(observer, 'instant');
+  const attribution = ownZone ? assertZone(ownZone, 'instant') : observerZone;
+
+  if (value instanceof Temporal.PlainDate) {
+    const projection = Anchored.date(value, attribution).in(observerZone) as Extract<
+      AnchoredProjection,
+      { shape: 'date' }
+    >;
+    const result: ModelTime = {
+      text: projection.date.toString(),
+      shape: 'date',
+      zone: observerZone,
+      ownZone: projection.ownZone,
+      sameZone: projection.sameZone,
+      weekday: weekdayOf(projection.date.dayOfWeek),
+    };
+    if (!projection.sameZone) result.ownText = `(${projection.ownZone})`;
+    return result;
+  }
+
+  const projection = projectInstant(value, observerZone, attribution);
+  const zdt = projection.at;
+  const dayPeriod = formatDayPeriod(zdt);
+  const text = `${renderLocalMoment(zdt, sensitivity, dayPeriod)} (${formatZoneName(zdt)})`;
+  const result: ModelTime = {
+    text,
+    shape: 'instant',
+    zone: observerZone,
+    ownZone: projection.ownZone,
+    sameZone: projection.sameZone,
+    weekday: weekdayOf(zdt.dayOfWeek),
+    dayPeriod,
+  };
+  if (!projection.sameZone) {
+    const ownClock = plainTimeToClock(zdt.withTimeZone(projection.ownZone).toPlainTime());
+    result.ownText = `${ownClock} (${projection.ownZone})`;
+  }
+  return result;
+}
+
 export function formatLocalDateTime(
   dateOrIso?: PromptDateTime | null,
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
   timezone?: string | null,
 ): string {
-  const dt = toTemporalZdt(dateOrIso, timezone);
-  const main = formatTemporal(dt, sensitivity);
-  const dayPeriod = formatDayPeriod(dt);
-  const zone = formatZoneName(dt);
-  return `${main} ${dayPeriod} (${zone})`;
+  return projectLocalTime(dateOrIso, timezone ?? '', undefined, sensitivity).text;
 }
 
 /**
- * 本地日期：`2026-03-21`
+ * 一段起止时间给模型看的样子：`2026-09-23 15:00–16:00 (Asia/Taipei)`，本地跨日则
+ * `2026-09-23 23:30 → 2026-09-24 00:30 (Asia/Taipei)`。
  *
- * 替代 `toISOString().slice(0, 10)` — 避免 UTC 日期边界错位。
- * 用于只需日期精度的场景（任务截止、存储条目、curriculum 执行时间等）。
+ * 只覆盖 instant 起止（会议、事件的开始/结束）——全天多日区间还没有消费者要求过这个函数
+ * 产出，出现时再加，不先猜格式。
  */
+export function formatLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone): ModelSpan {
+  const observerZone = assertZone(observer, 'instant');
+  const startZdt = projectInstant(start, observerZone, observerZone).at;
+  const endZdt = projectInstant(end, observerZone, observerZone).at;
+  const sameDay = startZdt.toPlainDate().equals(endZdt.toPlainDate());
+  const zoneLabel = formatZoneName(startZdt);
+  const startClock = plainTimeToClock(startZdt.toPlainTime());
+  const endClock = plainTimeToClock(endZdt.toPlainTime());
+  const text = sameDay
+    ? `${startZdt.toPlainDate().toString()} ${startClock}–${endClock} (${zoneLabel})`
+    : `${startZdt.toPlainDate().toString()} ${startClock} → ${endZdt.toPlainDate().toString()} ${endClock} (${zoneLabel})`;
+  return {
+    text,
+    shape: 'instant',
+    zone: observerZone,
+    ownZone: observerZone,
+    sameZone: true,
+  };
+}
+
 /**
  * Prepend a `<now>` block to dynamic prompt content.
  *
@@ -125,22 +244,17 @@ export function formatLocalDateTime(
  * // ...payload
  * ```
  */
-/** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `toTemporalZdt`). */
-export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
-  // A fixed-instant API must never silently become the current clock: reject blank inputs here
-  // (toTemporalZdt only defaults for null/undefined by contract of zonedNow).
-  if (typeof at === 'string' && at.trim() === '') throw new TypeError('zonedAt: empty timestamp');
-  return toTemporalZdt(at, timezone);
-}
-
-/** Current time as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `toTemporalZdt`). */
-export function zonedNow(timezone?: string | null): Temporal.ZonedDateTime {
-  return toTemporalZdt(undefined, timezone);
-}
-
 export function decorateWithNow(content: string, now: Temporal.ZonedDateTime): string {
-  const label = `${formatTemporal(now, TimeSensitivity.Minute)} ${formatDayPeriod(now)}`;
+  const label = renderLocalMoment(now, TimeSensitivity.Minute, formatDayPeriod(now));
   return `<now timezone="${now.timeZoneId}">${label}</now>\n${content}`;
+}
+
+/** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `Anchored`/`assertZone`). */
+export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
+  // A fixed-instant API must never silently become the current clock: reject blank inputs here.
+  if (typeof at === 'string' && at.trim() === '') throw new TypeError('zonedAt: empty timestamp');
+  const observerZone = assertZone(timezone ?? '', 'instant');
+  return projectInstant(at, observerZone, observerZone).at;
 }
 
 /**
@@ -151,21 +265,6 @@ export function decorateUserInput(text: string): string {
   // Entity-escape so verbatim text can never close or open a wrapper (e.g. a literal `</user_input>`).
   const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<user_input>${escaped}</user_input>`;
-}
-
-export function formatLocalDate(dateOrIso: PromptDateTime, timezone?: string | null): string {
-  return toTemporalZdt(dateOrIso, timezone).toPlainDate().toString();
-}
-
-/**
- * 本地短时间：`03-21 07:30`
- *
- * 替代 `isoString.slice(5, 16)` — 避免 UTC 时间错位。
- * 用于行为时间线等需要月日时分但不需年份的场景。
- */
-export function formatLocalShortTime(dateOrIso: PromptDateTime, timezone?: string | null): string {
-  const dt = toTemporalZdt(dateOrIso, timezone);
-  return `${dt.month.toString().padStart(2, '0')}-${dt.day.toString().padStart(2, '0')} ${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}`;
 }
 
 export const customJsonFormatSupportOutput = (

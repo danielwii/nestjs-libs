@@ -1,5 +1,56 @@
 # Migrations
 
+## `@app/utils/prompt` time rendering consolidates onto `Anchored`; offsets rejected; 3 zero-consumer exports removed
+
+`@app/utils/prompt` had its own, second implementation of "is this timezone valid" and
+"project an instant into it" — the same rules `@app/utils/anchored`'s `Anchored`/`assertZone`
+already enforce for stored attribution. This revision removes the duplicate and adds one new
+core function that both `formatLocalDateTime` and a new span renderer build on.
+
+### What changed
+
+- **New**: `projectLocalTime(value, observer, ownZone?, sensitivity?)` — the one validate +
+  project + render implementation for model-facing local time. `value` is an instant or a
+  `Temporal.PlainDate`. `observer` (required, no default) is whoever is reading the text.
+  `ownZone` (optional) is the value's own attribution zone when it differs from the observer
+  (e.g. someone else's event); omitted, it equals `observer` and the result is trivially
+  same-zone. Returns `{ text, shape, zone, ownZone, sameZone, ownText?, weekday, dayPeriod? }`
+  (`dayPeriod` only for `shape: 'instant'`). `formatLocalDateTime`'s body is now
+  `projectLocalTime(...).text`.
+- **New**: `formatLocalSpan(start, end, observer)` — a start–end instant range in the same
+  wording (`2026-09-23 15:00–16:00 (Asia/Taipei)`, or `→` across a local day boundary).
+- **New types**: `ModelTime`, `ModelSpan`, `LocalTimeValue`.
+- **Breaking**: a raw UTC offset (`"+8"`, `"+08:00"`) as `timezone`/`observer` — to
+  `formatLocalDateTime`, `zonedAt`, `formatLocalSpan`, `projectLocalTime`, or
+  `PromptBuilder.render()`'s `timezone` option — now throws instead of being tolerated. Only
+  IANA identifiers (and, where the shape allows it, `FLOATING`) are accepted; this is the same
+  rule `Anchored` already applied to stored attribution, now applied uniformly to observer
+  zones too. A caller with a legacy offset-format zone must resolve it to an IANA identifier
+  before calling.
+- **Removed** (zero call sites in every downstream consumer checked at removal time):
+  `zonedNow`, `formatLocalDate`, `formatLocalShortTime`. `zonedAt` is kept — it has an active
+  consumer — as a thin shell over the same projection, same signature and return type
+  (`Temporal.ZonedDateTime`).
+- `decorateWithNow`'s `<now>` label now shares the same weekday/day-period wording assembly as
+  `formatLocalDateTime`'s Now-line text (previously two separate copies of the same
+  concatenation); its own output format (time embedded in the tag body, zone as a separate XML
+  attribute) is unchanged.
+
+### Required consumer changes
+
+None for a consumer that only ever passes IANA zone identifiers (the norm since the write
+boundary work in this same effort started enforcing that on stored attribution). A consumer
+still passing a raw UTC offset as an observer/render timezone must resolve it to an IANA
+identifier first. A consumer importing `zonedNow`, `formatLocalDate`, or
+`formatLocalShortTime` must migrate to `projectLocalTime`/`formatLocalDateTime` — the import
+will no longer resolve.
+
+### How migration is proven
+
+`bun run typecheck`, `bun run lint`, and `bun run test` (819 pass / 0 fail) are clean.
+`zonedNow`/`formatLocalDate`/`formatLocalShortTime` had zero references in every downstream
+consumer checked at removal time and zero references in this repo's own test suite.
+
 ## Removed the 3 deprecated prompt factory functions
 
 `createBasePrompt`, `createPrompt`, and `createEnhancedPrompt` (all in

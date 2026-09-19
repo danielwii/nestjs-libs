@@ -1,7 +1,15 @@
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { decorateUserInput, decorateWithNow, formatLocalDateTime, TimeSensitivity, zonedAt, zonedNow } from './prompt';
+import {
+  decorateUserInput,
+  decorateWithNow,
+  formatLocalDateTime,
+  formatLocalSpan,
+  projectLocalTime,
+  TimeSensitivity,
+  zonedAt,
+} from './prompt';
 import { PromptBuilder, renderStandingLanguagePreference } from './prompt.xml';
 
 import { afterEach, beforeEach, describe, expect, it, setSystemTime } from 'bun:test';
@@ -19,8 +27,9 @@ void directPromptConstructionIsUnavailable;
 /**
  * 全文件统一冻结时钟与时区。
  *
- * 三个 describe 都必须在同一个固定时刻下跑——尤其是 zonedNow，它的全部工作就是读当前时钟，不冻住
- * 就会「测试照常绿，但测的是当前时间」。放在文件顶层，bun 会把它应用到每个 describe。
+ * 三个 describe 都必须在同一个固定时刻下跑——尤其是省略 `dateOrIso` 的 `formatLocalDateTime`
+ * 调用，它会取 `Temporal.Now.instant()`，不冻住就会「测试照常绿，但测的是当前时间」。放在
+ * 文件顶层，bun 会把它应用到每个 describe。
  *
  * 必须用 setSystemTime 而不是替换 globalThis.Date：原生 Temporal.Now 直接读引擎时钟，不经过 Date。
  * 替换 Date 曾经能冻住它，只是因为当时的 Temporal 是 JS polyfill。
@@ -266,7 +275,7 @@ describe('PromptBuilder', () => {
 
     const renderOptions = {
       now: '2024-01-15T02:30:00Z',
-      timezone: '+08:00',
+      timezone: 'Asia/Shanghai',
       sensitivity: TimeSensitivity.Minute,
     } as const;
 
@@ -318,18 +327,19 @@ describe('PromptBuilder', () => {
     expect(rendered).not.toContain("Match the user's current message language");
   });
 
-  it('应该正确处理旧格式时区 "+8"', () => {
+  // tz-d6：渲染现在完全经过 Anchored/assertZone，它的协议本来就拒绝裸偏移量（"+8"/"+08:00"）
+  // ——偏移量不是归属，见 anchored.ts 的doc（同一时刻不同季节真实偏移会变，偏移量本身
+  // 无法判断该按哪个 IANA 规则找 DST）。旧格式时区曾经被容忍，现在跟其它非法时区一样抛错。
+  it('拒绝裸偏移量格式时区 "+8"（不再是被容忍的旧格式）', () => {
     const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
 
-    const result = prompt.render({ timezone: '+8', sensitivity: TimeSensitivity.Minute });
-    expect(result).toContain('Now:2024-01-15 Monday 18:30 in the evening (UTC+8)');
+    expect(() => prompt.render({ timezone: '+8', sensitivity: TimeSensitivity.Minute })).toThrow(/Anchored/);
   });
 
-  it('应该正确处理新格式时区 "+08:00"', () => {
+  it('拒绝裸偏移量格式时区 "+08:00"', () => {
     const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
 
-    const result = prompt.render({ timezone: '+08:00', sensitivity: TimeSensitivity.Minute });
-    expect(result).toContain('Now:2024-01-15 Monday 18:30 in the evening (UTC+8)');
+    expect(() => prompt.render({ timezone: '+08:00', sensitivity: TimeSensitivity.Minute })).toThrow(/Anchored/);
   });
 
   it('应该正确处理 IANA 格式时区 "Asia/Tokyo"', () => {
@@ -398,11 +408,21 @@ describe('cache-aware prompt decorators', () => {
     );
   });
 
-  it('zonedNow carries the requested timezone and reads the frozen clock', () => {
-    const now = zonedNow('Asia/Hong_Kong');
-    expect(now.timeZoneId).toBe('Asia/Hong_Kong');
+  it('formatLocalDateTime with no dateOrIso carries the requested timezone and reads the frozen clock', () => {
     // 钉住时钟接缝：冻结一旦失效，这里读到的是真实当前时间而不是 mockDate
-    expect(now.epochMilliseconds).toBe(mockDate.getTime());
+    expect(formatLocalDateTime(undefined, TimeSensitivity.Minute, 'Asia/Hong_Kong')).toBe(
+      '2024-01-15 Monday 18:30 in the evening (Asia/Hong_Kong)',
+    );
+  });
+
+  it('formatLocalSpan renders a same-day range and a locally cross-day range', () => {
+    const sameDay = formatLocalSpan('2026-09-23T07:00:00Z', '2026-09-23T08:00:00Z', 'Asia/Taipei');
+    expect(sameDay.text).toBe('2026-09-23 15:00–16:00 (Asia/Taipei)');
+    expect(sameDay).toMatchObject({ shape: 'instant', zone: 'Asia/Taipei', ownZone: 'Asia/Taipei', sameZone: true });
+
+    // 2026-09-23T15:30Z = Taipei 09-23 23:30；2026-09-23T16:30Z = Taipei 09-24 00:30 — 本地跨日。
+    const crossDay = formatLocalSpan('2026-09-23T15:30:00Z', '2026-09-23T16:30:00Z', 'Asia/Taipei');
+    expect(crossDay.text).toBe('2026-09-23 23:30 → 2026-09-24 00:30 (Asia/Taipei)');
   });
 
   it('decorateUserInput wraps the verbatim words and escapes delimiter characters', () => {
@@ -422,16 +442,75 @@ describe('cache-aware prompt decorators', () => {
   // read as someone else's "now". No default; the caller states whose clock this is.
   it('rejects a missing or invalid timezone instead of falling back to process.env.TZ', () => {
     process.env.TZ = 'America/Los_Angeles';
-    expect(() => zonedNow(undefined)).toThrow(/timezone/);
-    expect(() => zonedNow(null)).toThrow(/timezone/);
-    expect(() => zonedAt('2026-09-15T10:22:00Z', undefined)).toThrow(/timezone/);
-    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, undefined)).toThrow(/timezone/);
-    expect(() => zonedNow('not-a-real-zone')).toThrow(/timezone/);
+    // 校验现在完全交给 Anchored/assertZone，错误文案是它的（"Anchored: ... 缺少归属" /
+    // "Anchored: 未知的 IANA 时区 ..."），不再是这里自己拼的英文 TypeError。
+    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, undefined)).toThrow(/Anchored/);
+    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, null)).toThrow(/Anchored/);
+    expect(() => zonedAt('2026-09-15T10:22:00Z', undefined)).toThrow(/Anchored/);
+    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, 'not-a-real-zone')).toThrow(/Anchored/);
   });
 
   it('render with now:null omits the trailing Now line so the system prompt stays static', () => {
     const prompt = PromptBuilder.from({ id: 't', role: 'r', objective: 'o' });
     expect(prompt.render({ timezone: 'Asia/Hong_Kong' })).toMatch(/\nNow:/);
     expect(prompt.render({ timezone: 'Asia/Hong_Kong', now: null })).not.toMatch(/Now:/);
+  });
+});
+
+describe('projectLocalTime (tz-d6: the one validate+project+render core)', () => {
+  it('instant: local wall clock + weekday + day period + observer zone', () => {
+    const result = projectLocalTime('2026-09-23T07:00:00Z', 'Asia/Taipei');
+    expect(result).toMatchObject({
+      text: '2026-09-23 Wednesday 15:00 in the afternoon (Asia/Taipei)',
+      shape: 'instant',
+      zone: 'Asia/Taipei',
+      ownZone: 'Asia/Taipei',
+      sameZone: true,
+      weekday: 'Wednesday',
+      dayPeriod: 'in the afternoon',
+    });
+    expect(result.ownText).toBeUndefined();
+  });
+
+  it('all-day date: does not shift under a lagging observer, only gains an ownText marker', () => {
+    const birthday = Temporal.PlainDate.from('2026-09-20');
+    // America/Los_Angeles 比 Asia/Tokyo 晚一整天以上——日期不因观察者落后而改变。
+    const result = projectLocalTime(birthday, 'America/Los_Angeles', 'Asia/Tokyo');
+    expect(result).toMatchObject({
+      text: '2026-09-20',
+      shape: 'date',
+      zone: 'America/Los_Angeles',
+      ownZone: 'Asia/Tokyo',
+      sameZone: false,
+      weekday: 'Sunday',
+      ownText: '(Asia/Tokyo)',
+    });
+  });
+
+  it('cross-zone instant: observer sees their own local time, ownText carries the attribution zone reading', () => {
+    // S3 sarina 案例的形状：事件本身属于 Europe/London，观察者在 Asia/Taipei。
+    const result = projectLocalTime('2026-09-23T07:00:00Z', 'Asia/Taipei', 'Europe/London');
+    expect(result).toMatchObject({
+      text: '2026-09-23 Wednesday 15:00 in the afternoon (Asia/Taipei)',
+      ownZone: 'Europe/London',
+      sameZone: false,
+      ownText: '08:00 (Europe/London)',
+    });
+  });
+
+  it('DST 2026-11-01 fall-back: the ambiguous 01:30 local hour resolves the same way on both sides of the transition', () => {
+    // 2026-11-01T08:30Z = 01:30 PDT（转换前）；09:30Z = 01:30 PST（转换后）——本地墙钟相同，
+    // 但底层偏移不同；两次都必须落在 "01:30 in the morning"，不能混淆成别的钟点。
+    const preTransition = projectLocalTime('2026-11-01T08:30:00Z', 'America/Los_Angeles');
+    const postTransition = projectLocalTime('2026-11-01T09:30:00Z', 'America/Los_Angeles');
+    const expectedText = '2026-11-01 Sunday 01:30 in the morning (America/Los_Angeles)';
+    expect(preTransition.text).toBe(expectedText);
+    expect(postTransition.text).toBe(expectedText);
+  });
+
+  it('missing or invalid observer throws instead of guessing a default zone', () => {
+    expect(() => projectLocalTime('2026-09-23T07:00:00Z', '')).toThrow(/Anchored/);
+    expect(() => projectLocalTime('2026-09-23T07:00:00Z', 'not-a-real-zone')).toThrow(/Anchored/);
+    expect(() => projectLocalTime(Temporal.PlainDate.from('2026-09-20'), '')).toThrow(/Anchored/);
   });
 });
