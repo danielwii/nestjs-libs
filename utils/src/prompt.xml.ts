@@ -34,7 +34,7 @@
  *
  * await generateObject({
  *   model,
- *   prompt: prompt.render(),
+ *   prompt: prompt.render({ timezone: 'Asia/Shanghai' }),
  *   schema: userSchema,
  * });
  * ```
