@@ -322,7 +322,7 @@ export function formatLocalDateTime(
 ): string {
   // This function (like `zonedAt`) is the untrusted boundary — `timezone` is a raw caller string
   // (possibly missing/empty), validated here once via `assertZone` before it ever becomes a `Zone`.
-  return readLocalTime(dateOrIso, assertZone(timezone ?? '', 'instant'), undefined, sensitivity).text;
+  return readLocalTime(dateOrIso, assertZone(timezone ?? ''), undefined, sensitivity).text;
 }
 
 /**
@@ -377,7 +377,7 @@ export function decorateWithNow(content: string, now: Temporal.ZonedDateTime): s
 
 /** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `Anchored`/`assertZone`). */
 export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
-  const observerZone = assertZone(timezone ?? '', 'instant');
+  const observerZone = assertZone(timezone ?? '');
   return projectInstant(requireFixedInstant(at, 'zonedAt'), observerZone, observerZone).at;
 }
 

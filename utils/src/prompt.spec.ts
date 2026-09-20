@@ -41,11 +41,11 @@ const mockDate = new Date('2024-01-15T10:30:00Z');
 // tz-d7 (Zone 品牌化) — `readLocalTime`/`readLocalSpan` only accept an already-validated `Zone`
 // (the caller — a resolver function, or `formatLocalDateTime`/`zonedAt` — runs `assertZone` first);
 // these are this file's shared validated constants for every direct call below.
-const TAIPEI = assertZone('Asia/Taipei', 'instant');
-const LA = assertZone('America/Los_Angeles', 'instant');
-const TOKYO = assertZone('Asia/Tokyo', 'instant');
-const LONDON = assertZone('Europe/London', 'instant');
-const UTC = assertZone('UTC', 'instant');
+const TAIPEI = assertZone('Asia/Taipei');
+const LA = assertZone('America/Los_Angeles');
+const TOKYO = assertZone('Asia/Tokyo');
+const LONDON = assertZone('Europe/London');
+const UTC = assertZone('UTC');
 
 beforeEach(() => {
   process.env.TZ = 'UTC';

@@ -1,23 +1,21 @@
-import { Anchored, assertViewerZone, assertZone, FLOATING } from './anchored';
+import { Anchored, assertZone } from './anchored';
 
 import { describe, expect, it } from 'bun:test';
 
-// tz-d7 (Zone 品牌化) — 品牌类型唯一的构造者是 assertZone/assertViewerZone；下面这些常量是
-// 本文件所有测试共用的、已校验过的 Zone 值。构造/投影方法（Anchored.instant/date/time、.in()）
-// 不再接受裸字符串，也不再自己二次校验——校验只在这里发生一次。真实 IANA 名对哪个 shape 校验
-// 结果都一样（shape 只影响 FLOATING 是否放行），所以一套常量可以喂给所有形态。
-const TOKYO = assertZone('Asia/Tokyo', 'instant');
-const LA = assertZone('America/Los_Angeles', 'instant');
-const SINGAPORE = assertZone('Asia/Singapore', 'instant');
-const CALCUTTA = assertZone('Asia/Calcutta', 'instant');
-const KOLKATA = assertZone('Asia/Kolkata', 'instant');
-const SHANGHAI = assertZone('Asia/Shanghai', 'instant');
-const KIRITIMATI = assertZone('Pacific/Kiritimati', 'instant');
-const UTC = assertZone('UTC', 'instant');
-const GMT = assertZone('GMT', 'instant');
-const JAPAN = assertZone('Japan', 'instant');
-const GB = assertZone('GB', 'instant');
-const FLOATING_ZONE = assertZone(FLOATING, 'time');
+// tz-d7 (Zone 品牌化) — 品牌类型唯一的构造者是 assertZone；下面这些常量是本文件所有测试共用的、
+// 已校验过的 Zone 值。构造/投影方法（Anchored.instant/date/time、.in()）不再接受裸字符串，也
+// 不再自己二次校验——校验只在这里发生一次。
+const TOKYO = assertZone('Asia/Tokyo');
+const LA = assertZone('America/Los_Angeles');
+const SINGAPORE = assertZone('Asia/Singapore');
+const CALCUTTA = assertZone('Asia/Calcutta');
+const KOLKATA = assertZone('Asia/Kolkata');
+const SHANGHAI = assertZone('Asia/Shanghai');
+const KIRITIMATI = assertZone('Pacific/Kiritimati');
+const UTC = assertZone('UTC');
+const GMT = assertZone('GMT');
+const JAPAN = assertZone('Japan');
+const GB = assertZone('GB');
 
 /**
  * Anchored 测试
@@ -106,9 +104,9 @@ describe('Anchored', () => {
     });
   });
 
-  describe('time：钟点，floating 跟着人走', () => {
+  describe('time：钟点，floating 跟着人走（裁定 H：floating 是 time 的另一种锚定方式，不是一个 Zone）', () => {
     it('floating 的归属在渲染时才确定，就是观察者所在时区', () => {
-      const reminder = Anchored.time('07:00', FLOATING_ZONE);
+      const reminder = Anchored.floatingTime('07:00');
 
       const sg = reminder.in(SINGAPORE);
       if (sg.shape !== 'time') throw new Error('unreachable');
@@ -131,24 +129,23 @@ describe('Anchored', () => {
     });
 
     it('同一个观察者下，floating 与锚定时区给出不同结果', () => {
-      const floating = Anchored.time('07:00', FLOATING_ZONE).in(SINGAPORE);
+      const floating = Anchored.floatingTime('07:00').in(SINGAPORE);
       const anchored = Anchored.time('07:00', TOKYO).in(SINGAPORE);
       expect(floating.ownZone).not.toBe(anchored.ownZone);
       expect(floating.sameZone).not.toBe(anchored.sameZone);
     });
 
     it('观察者本身不能是 floating：渲染必须发生在某个具体时区', () => {
-      // `.in()` 现在只收已校验的 `Zone`，本身不再二次判定——floating-观察者的拒绝发生在
-      // `assertViewerZone`（.in() 的调用方在拿到 Zone 之前必经的闸门），不是 `.in()` 内部。
-      expect(() => assertViewerZone(FLOATING)).toThrow(/只有 time 可以是 floating/);
+      // `.in()` 只收 `Zone`，而 `Zone` 永远不是 floating（assertZone 无条件拒绝它）——
+      // 「观察者不能是 floating」这条规则现在是 Zone 本身的定义，不需要 .in() 或某个专门的
+      // 观察者构造者再单独判定一次。
+      expect(() => assertZone('floating')).toThrow(/不是 Zone/);
     });
   });
 
   describe('归属缺失：在构造处失败，不进入渲染', () => {
     it('空归属在写入闸门（assertZone）处失败——Anchored.instant/date/time 不再自己校验', () => {
-      expect(() => assertZone('', 'instant')).toThrow(/缺少归属/);
-      expect(() => assertZone('', 'date')).toThrow(/缺少归属/);
-      expect(() => assertZone('', 'time')).toThrow(/缺少归属/);
+      expect(() => assertZone('')).toThrow(/缺少归属/);
     });
 
     it('fromStored 对 null / undefined 归属抛错，指明由应用层补齐', () => {
@@ -169,6 +166,15 @@ describe('Anchored', () => {
       expect(() => Anchored.fromStored('2026-09-21T10:00:00Z', 'Asia/Tokyo', 'instant')).toThrow(/需要 Date/);
       expect(() => Anchored.fromStored(new Date(), 'Asia/Tokyo', 'date')).toThrow(/需要字符串/);
     });
+
+    it('fromStored 对 "floating" 且 shape 为 time 走 floatingTime；其它形态把它当成一个（非法的）普通时区字符串拒绝', () => {
+      const stored = Anchored.fromStored('07:00', 'floating', 'time');
+      expect(stored.toString()).toBe('07:00:00[floating]');
+      expect(stored.in(TOKYO).sameZone).toBe(true);
+
+      expect(() => Anchored.fromStored(new Date(), 'floating', 'instant')).toThrow(/不是 Zone/);
+      expect(() => Anchored.fromStored('2026-09-21', 'floating', 'date')).toThrow(/不是 Zone/);
+    });
   });
 
   describe('归属身份：别名、大小写、同偏移不同身份', () => {
@@ -180,10 +186,10 @@ describe('Anchored', () => {
     });
 
     it('大小写归一：asia/tokyo 的归属记为 Asia/Tokyo（归一化发生在 assertZone 本身）', () => {
-      const v = Anchored.instant(d, assertZone('asia/tokyo', 'instant')).in(TOKYO);
+      const v = Anchored.instant(d, assertZone('asia/tokyo')).in(TOKYO);
       expect(v.ownZone).toBe(TOKYO);
       expect(v.sameZone).toBe(true);
-      expect(Anchored.instant(d, assertZone('utc', 'instant')).zone).toBe(UTC);
+      expect(Anchored.instant(d, assertZone('utc')).in(UTC).ownZone).toBe(UTC);
     });
 
     it('同一偏移不等于同一时区：Asia/Shanghai 与 Asia/Singapore 此刻都是 +08:00，仍是两个归属', () => {
@@ -191,44 +197,32 @@ describe('Anchored', () => {
     });
 
     it('没有斜杠的合法 IANA 名也接受：Japan、GB', () => {
-      expect(Anchored.instant(d, JAPAN).zone).toBe(JAPAN);
-      expect(Anchored.date('2026-09-21', GB).zone).toBe(GB);
+      expect(Anchored.instant(d, JAPAN).in(JAPAN).ownZone).toBe(JAPAN);
+      expect(Anchored.date('2026-09-21', GB).in(GB).ownZone).toBe(GB);
     });
   });
 
   describe('assertZone：唯一的写入闸门——构造与投影信任它一次性给出的结果', () => {
     it('合法名返回规范化标识', () => {
-      expect(assertZone('asia/tokyo', 'instant')).toBe(TOKYO);
-      expect(assertZone('UTC', 'date')).toBe(UTC);
-      expect(assertZone('GMT', 'instant')).toBe(GMT);
+      expect(assertZone('asia/tokyo')).toBe(TOKYO);
+      expect(assertZone('UTC')).toBe(UTC);
+      expect(assertZone('GMT')).toBe(GMT);
     });
 
     it('偏移量、未知名、空值都在闸门处抛错', () => {
       // 同一时区在夏令时前后是两个偏移，用偏移量算墙上时间会在切换那天静默差一小时——
       // 见文件头注释；这里钉死三种偏移写法都被拒绝，不只是最常见的 "+08:00"。
-      expect(() => assertZone('+08:00', 'instant')).toThrow(/必须是 IANA 时区名/);
-      expect(() => assertZone('+8', 'instant')).toThrow(/必须是 IANA 时区名/);
+      expect(() => assertZone('+08:00')).toThrow(/必须是 IANA 时区名/);
+      expect(() => assertZone('+8')).toThrow(/必须是 IANA 时区名/);
       // Temporal 自己接受 +0800 并规范化成 +08:00；拒绝要看规范化之后的结果。
-      expect(() => assertZone('+0800', 'instant')).toThrow(/不能是偏移量/);
-      expect(() => assertZone('Asia/Atlantis', 'date')).toThrow(/未知的 IANA 时区/);
-      expect(() => assertZone('', 'instant')).toThrow(/instant 缺少归属/);
+      expect(() => assertZone('+0800')).toThrow(/不能是偏移量/);
+      expect(() => assertZone('Asia/Atlantis')).toThrow(/未知的 IANA 时区/);
+      expect(() => assertZone('')).toThrow(/缺少归属/);
     });
 
-    it('floating 由形态决定：只有 time 接受，时刻与日期拒绝', () => {
-      expect(assertZone(FLOATING, 'time')).toBe(FLOATING_ZONE);
-      expect(() => assertZone(FLOATING, 'instant')).toThrow(/只有 time 可以是/);
-      expect(() => assertZone(FLOATING, 'date')).toThrow(/只有 time 可以是/);
+    it('floating 无条件拒绝——它不是一个 Zone，是 Anchored.floatingTime() 的另一种构造路径（裁定 H）', () => {
+      expect(() => assertZone('floating')).toThrow(/不是 Zone/);
     });
-
-    it(
-      '构造方法信任品牌、不重复判定 shape 是否允许 floating——一个为 time 校验出的 Zone 若被' +
-        '误用于 date/instant 不会在这里被拦下，那道拒绝已经在 assertZone(zone, 该 shape) 那一步' +
-        '发生过一次；这不是漏洞，是「校验只在构造者那一处发生一次」这个设计选择的直接后果',
-      () => {
-        const misusedFloatingZone = FLOATING_ZONE; // 为 'time' 校验得到，非 'date'/'instant'
-        expect(() => Anchored.date('2026-09-21', misusedFloatingZone)).not.toThrow();
-      },
-    );
   });
 
   describe('序列化：可往返，且归属不在往返中丢失', () => {
@@ -239,27 +233,28 @@ describe('Anchored', () => {
 
     it('date / time 的 toString 供人读，归属以方括号附在后面', () => {
       expect(Anchored.date('2026-09-21', TOKYO).toString()).toBe('2026-09-21[Asia/Tokyo]');
-      expect(Anchored.time('07:00', FLOATING_ZONE).toString()).toBe('07:00:00[floating]');
+      expect(Anchored.floatingTime('07:00').toString()).toBe('07:00:00[floating]');
     });
 
-    it('三种形态都能 JSON 往返', () => {
+    it('三种形态都能 JSON 往返，锚定时区不丢失', () => {
       const cases = [
         Anchored.instant(new Date('2026-09-21T10:00:00Z'), TOKYO),
         Anchored.date('2026-09-21', LA),
         Anchored.time('07:00', SINGAPORE),
-        Anchored.time('07:00', FLOATING_ZONE),
       ];
       for (const original of cases) {
         const restored = Anchored.fromJSON(JSON.parse(JSON.stringify(original)));
         expect(restored.shape).toBe(original.shape);
-        expect(restored.zone).toBe(original.zone);
         expect(restored.toString()).toBe(original.toString());
       }
     });
 
-    it('往返后 floating 仍是 floating，不被折叠成某个具体时区', () => {
-      const restored = Anchored.fromJSON(Anchored.time('07:00', FLOATING_ZONE).toJSON());
-      expect(restored.zone).toBe(FLOATING_ZONE);
+    it('floating 单独往返：toJSON 在存储边界落地为字面量 "floating"，读回后仍是 floating，不折叠成某个具体时区', () => {
+      const json = Anchored.floatingTime('07:00').toJSON();
+      expect(json.zone).toBe('floating');
+
+      const restored = Anchored.fromJSON(JSON.parse(JSON.stringify(json)));
+      expect(restored.toString()).toBe('07:00:00[floating]');
       expect(restored.in(TOKYO).ownZone).toBe(TOKYO);
       expect(restored.in(LA).ownZone).toBe(LA);
     });
@@ -271,16 +266,31 @@ describe('Anchored', () => {
       expect(() => Anchored.fromJSON({ shape: 'date', value: '2026-09-21', zone: '' })).toThrow(/缺少归属/);
       expect(() => Anchored.fromJSON({ shape: 'duration' as never, value: 'PT1H', zone: 'UTC' })).toThrow(/未知形态/);
     });
+
+    it('fromJSON 对 instant/date 传入 "floating" 归属仍然拒绝——floating 只是 time 的锚定方式', () => {
+      expect(() =>
+        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]', zone: 'floating' }),
+      ).toThrow(/不是 Zone/);
+      expect(() => Anchored.fromJSON({ shape: 'date', value: '2026-09-21', zone: 'floating' })).toThrow(/不是 Zone/);
+    });
   });
 
   describe('类型层：一个裸字符串不满足 Zone（tz-d7 compile-time 断言）', () => {
-    it('未经 assertZone/assertViewerZone 的裸字符串不能喂给构造者或 .in()', () => {
+    it('未经 assertZone 的裸字符串不能喂给构造者或 .in()', () => {
       // @ts-expect-error a bare string literal, even a valid IANA name, is not a `Zone` — only
-      // `assertZone`/`assertViewerZone` can produce one. Catches "forgot to validate" at compile
-      // time instead of letting an unchecked string reach Anchored's write boundary.
+      // `assertZone` can produce one. Catches "forgot to validate" at compile time instead of
+      // letting an unchecked string reach Anchored's write boundary.
       Anchored.instant(new Date(), 'Asia/Tokyo');
       // @ts-expect-error same rule for the observer side of a projection.
-      Anchored.time('07:00', FLOATING_ZONE).in('Asia/Tokyo');
+      Anchored.time('07:00', TOKYO).in('Asia/Tokyo');
+    });
+
+    it('字面量 "floating" 在类型层面也只是个 string——没有捷径能让它变成一个 floating 的 Zone', () => {
+      // @ts-expect-error `Zone` no longer has a floating variant at all: floating time is
+      // `Anchored.floatingTime()`, a different constructor, not a special `Zone` value. The
+      // literal 'floating' here is typed as a plain string, same as any other unchecked zone
+      // literal — it fails to compile for the same brand reason, not a floating-specific rule.
+      Anchored.time('07:00', 'floating');
     });
   });
 });
