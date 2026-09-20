@@ -1,4 +1,12 @@
-import { AbstractEnvironmentVariables, AppConfigure, DatabaseField, IsString, Min } from './configure';
+import {
+  AbstractEnvironmentVariables,
+  AppConfigure,
+  DatabaseField,
+  IsEnum,
+  IsOptional,
+  IsString,
+  Min,
+} from './configure';
 
 import { describe, expect, it, mock } from 'bun:test';
 
@@ -538,6 +546,33 @@ describe('AppConfigure', () => {
       try {
         expect(() => new AppConfigure(InvalidEnvs)).toThrow();
       } finally {
+        process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+      }
+    });
+
+    it('should validate empty strings on optional fields instead of treating them as missing', () => {
+      enum SampleEnum {
+        FOO = 'foo',
+        BAR = 'bar',
+      }
+      class TestEnvs extends AbstractEnvironmentVariables {
+        @IsEnum(SampleEnum)
+        @IsOptional()
+        SAMPLE_ENUM?: SampleEnum;
+      }
+
+      const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        // empty string should fail @IsEnum
+        process.env.SAMPLE_ENUM = '';
+        expect(() => new AppConfigure(TestEnvs)).toThrow();
+
+        // undefined should pass @IsOptional
+        delete process.env.SAMPLE_ENUM;
+        expect(() => new AppConfigure(TestEnvs)).not.toThrow();
+      } finally {
+        delete process.env.SAMPLE_ENUM;
         process.env.NODE_ENV = ORIGINAL_NODE_ENV;
       }
     });
