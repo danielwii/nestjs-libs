@@ -77,6 +77,18 @@ export function toPlain(obj: unknown, depth = 0, seen = new Set()): unknown {
     return obj.map((item) => toPlain(item, depth + 1, seen));
   }
 
+  if (obj instanceof Set) {
+    return Array.from(obj).map((item) => toPlain(item, depth + 1, seen));
+  }
+
+  if (obj instanceof Map) {
+    const plainMap: Record<string, unknown> = {};
+    for (const [key, value] of obj.entries()) {
+      plainMap[String(key)] = toPlain(value, depth + 1, seen);
+    }
+    return plainMap;
+  }
+
   const plain: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value !== 'function') {
