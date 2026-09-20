@@ -577,6 +577,28 @@ describe('AppConfigure', () => {
       }
     });
 
+    it('should honor existing class-validator metadata when imported from class-validator', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const cv = require('class-validator') as { IsString: () => PropertyDecorator };
+      class DownstreamLegacyEnvs extends AbstractEnvironmentVariables {
+        REQUIRED_CV_STRING!: string;
+      }
+      cv.IsString()(DownstreamLegacyEnvs.prototype, 'REQUIRED_CV_STRING');
+
+      const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        delete process.env.REQUIRED_CV_STRING;
+        expect(() => new AppConfigure(DownstreamLegacyEnvs)).toThrow();
+
+        process.env.REQUIRED_CV_STRING = 'valid-string';
+        expect(() => new AppConfigure(DownstreamLegacyEnvs)).not.toThrow();
+      } finally {
+        delete process.env.REQUIRED_CV_STRING;
+        process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+      }
+    });
+
     it('should cover debug logging paths', () => {
       const ORIGINAL_DEBUG = process.env.CONFIGURE_DEBUG;
       process.env.CONFIGURE_DEBUG = 'true';

@@ -76,6 +76,20 @@ describe('logging.utils', () => {
       expect(result).toContain('2026-01-01T00:00:00.000Z');
     });
 
+    it('should preserve Map and Set objects during formatting', () => {
+      const set = new Set(['foo', 'bar']);
+      const map = new Map<string, unknown>([['key', 'val']]);
+      expect(toPlain(set)).toEqual(['foo', 'bar']);
+      expect(toPlain(map)).toEqual({ key: 'val' });
+
+      process.env.NODE_ENV = 'production';
+      const result = r({ tags: set, dict: map });
+      expect(result).toContain('foo');
+      expect(result).toContain('bar');
+      expect(result).toContain('key');
+      expect(result).toContain('val');
+    });
+
     it('should handle non-object/null/array values by stringifying them', () => {
       process.env.NO_COLOR = 'true';
       expect(r(null)).toBe('null');
