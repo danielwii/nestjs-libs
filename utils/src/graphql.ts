@@ -65,8 +65,9 @@ export type CursoredRequestShape = z.infer<typeof cursoredRequestSchema>;
  * 设计意图：提供标准的 GraphQL Code-First 游标分页请求参数。
  * 架构演进：
  * - 结构定义：由 @Field() 声明 GraphQL SDL，由 GraphQL 引擎负责类型约束与未知字段拦截。
- * - 业务校验：挂载 Standard Schema 契约（cursoredRequestSchema），供 NestJS 12 校验管道自动识别。
  * - 彻底移除 class-validator 装饰器（如 @Allow()），杜绝全域白名单误杀。
+ * - 原型安全：作为可继承的基础输入类，自身不绑定静态 Schema，避免原型链继承污染子类扩展字段。
+ *   若 Resolver 需要对分页参数进行 Standard Schema 显式校验，请直接引用配套导出的 `cursoredRequestSchema`。
  */
 @InputType({
   description: '标准游标分页输入：first 控制每页数量，after 指定起始游标。可直接复用或在业务输入上继承扩展。',
@@ -79,7 +80,6 @@ export class CursoredRequestInput implements CursoredRequest, CursoredRequestSha
   after?: string | number;
 
   static DEFAULT = { first: 20 };
-  static readonly schema = cursoredRequestSchema;
 }
 
 /**
