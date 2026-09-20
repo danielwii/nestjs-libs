@@ -153,7 +153,11 @@ export function Min(minVal: number, options?: { message?: string }): PropertyDec
 export function Transform(fn: (params: TransformFnParams) => unknown): PropertyDecorator {
   return (target, propertyKey) => {
     recordDecoratedKey(target, propertyKey as string);
-    Reflect.defineMetadata(TransformsSymbol, fn, target, propertyKey);
+    const existing =
+      (Reflect.getMetadata(TransformsSymbol, target, propertyKey) as
+        Array<(params: TransformFnParams) => unknown> | undefined) ?? [];
+    // TypeScript 装饰器自下而上求值，保持声明在最上方的 decorator 先执行
+    Reflect.defineMetadata(TransformsSymbol, [fn, ...existing], target, propertyKey);
   };
 }
 
@@ -192,15 +196,21 @@ export function plainToInstance<T extends object>(
 
     const hasPlainKey = plain != null && Object.prototype.hasOwnProperty.call(plain, key);
     const rawValue = hasPlainKey ? plain[key] : undefined;
-    const transformFn = Reflect.getMetadata(TransformsSymbol, prototype as object, key) as
-      ((params: TransformFnParams) => unknown) | undefined;
+    const rawTransformMeta = Reflect.getMetadata(TransformsSymbol, prototype as object, key) as unknown;
+    const transformFns: Array<(params: TransformFnParams) => unknown> = Array.isArray(rawTransformMeta)
+      ? (rawTransformMeta as Array<(params: TransformFnParams) => unknown>)
+      : typeof rawTransformMeta === 'function'
+        ? [rawTransformMeta as (params: TransformFnParams) => unknown]
+        : [];
     const typeFn = Reflect.getMetadata(TypesSymbol, prototype as object, key) as (() => unknown) | undefined;
 
     let val = hasPlainKey ? rawValue : (instance as Record<string, unknown>)[key];
 
     if (hasPlainKey) {
-      if (transformFn) {
-        val = transformFn({ key, value: rawValue, obj: plain });
+      if (transformFns.length > 0) {
+        for (const fn of transformFns) {
+          val = fn({ key, value: val, obj: plain });
+        }
       } else if (typeFn && options?.enableImplicitConversion && val !== undefined && val !== null && val !== '') {
         const targetType = typeFn();
         if (targetType === Number && typeof val !== 'number') {
@@ -1372,6 +1382,21 @@ function coerceNumber<T extends z.ZodType>(schema: T) {
 }
 
 /**
+ * 安全布尔值转换：未提供、空字串或纯空格预处理为 undefined（使 default / optional 生效）
+ */
+function coerceBoolean<T extends z.ZodType>(schema: T) {
+  return z.preprocess((v) => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v === 'string' && v.trim() === '') return undefined;
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'string' || typeof v === 'number') {
+      return [true, 'true', '1', 1].includes(v);
+    }
+    return false;
+  }, schema);
+}
+
+/**
  * 现代通用环境变量 Schema，包含系统基础服务与默认 AI 配置
  */
 export const baseEnvSchema = z.object({
@@ -1396,22 +1421,10 @@ export const baseEnvSchema = z.object({
   OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
   OTEL_EXPORTER_OTLP_TRACES_HEADERS: z.string().optional(),
   OTEL_LOG_LEVEL: z.string().optional(),
-  APP_PROXY_ENABLED: z.preprocess(
-    (v) =>
-      typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
-        ? [true, 'true', '1', 1].includes(v)
-        : false,
-    z.boolean().optional(),
-  ),
+  APP_PROXY_ENABLED: coerceBoolean(z.boolean().optional()),
   APP_PROXY_HOST: z.string().optional(),
   APP_PROXY_PORT: coerceNumber(z.number().int().min(1).max(65535).optional()),
-  GRAPHQL_PLAYGROUND_ENABLED: z.preprocess(
-    (v) =>
-      typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
-        ? [true, 'true', '1', 1].includes(v)
-        : false,
-    z.boolean().optional(),
-  ),
+  GRAPHQL_PLAYGROUND_ENABLED: coerceBoolean(z.boolean().optional()),
   AI_OPENROUTER_API_KEY: z.string().optional(),
   AI_GOOGLE_API_KEY: z.string().optional(),
   AI_GOOGLE_VERTEX_API_KEY: z.string().optional(),
@@ -1426,25 +1439,9 @@ export const baseEnvSchema = z.object({
   DEFAULT_LLM_MODEL: z.string().default('openrouter:gemini-2.5-flash').describe('llm-model'),
   AI_LLM_TIMEOUT_MS: coerceNumber(z.number().min(30_000).default(120_000)).describe('db-sync:number'),
   AI_LLM_MAX_RETRIES: coerceNumber(z.number().min(0).default(2)).describe('db-sync:number'),
-  AI_LLM_FETCH_VERBOSE: z
-    .preprocess(
-      (v) =>
-        typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
-          ? [true, 'true', '1', 1].includes(v)
-          : false,
-      z.boolean().default(false),
-    )
-    .describe('db-sync:boolean'),
+  AI_LLM_FETCH_VERBOSE: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
   PRISMA_TRANSACTION_TIMEOUT: coerceNumber(z.number().default(30_000)).describe('db-sync:number'),
-  I18N_EXCEPTION_ENABLED: z
-    .preprocess(
-      (v) =>
-        typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
-          ? [true, 'true', '1', 1].includes(v)
-          : false,
-      z.boolean().default(false),
-    )
-    .describe('db-sync:boolean'),
+  I18N_EXCEPTION_ENABLED: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;
