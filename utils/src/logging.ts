@@ -3,7 +3,6 @@ import { onelineStack } from './error';
 import * as process from 'node:process';
 import util from 'node:util';
 
-import { instanceToPlain } from 'class-transformer';
 import JSON5 from 'json5';
 import * as _ from 'radash';
 
@@ -56,11 +55,34 @@ export function r(o: unknown): string {
 
   // 对象和数组都需要格式化
   try {
-    const value = instanceToPlain(o);
+    const value = toPlain(o);
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(value) : inspect(value);
   } catch {
     return inspect(o);
   }
+}
+
+/**
+ * 将 Class 实例或复杂对象安全转换为 plain object，去除函数属性；若遇循环引用则交由 inspect 处理
+ */
+export function toPlain(obj: unknown, depth = 0, seen = new Set()): unknown {
+  if (depth > 5 || obj === null || typeof obj !== 'object') return obj;
+  if (seen.has(obj)) {
+    throw new Error('Circular structure detected');
+  }
+  seen.add(obj);
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => toPlain(item, depth + 1, seen));
+  }
+
+  const plain: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value !== 'function') {
+      plain[key] = toPlain(value, depth + 1, seen);
+    }
+  }
+  return plain;
 }
 
 export function inspect(o: unknown, options: util.InspectOptions = { colors: true, depth: 5 }): string {
