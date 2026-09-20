@@ -26,6 +26,7 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
 - **Environment variables**:
   - Do not use `@Transform()` or legacy `@Is*` / `@Type` decorators on environment classes. Subclasses of `AbstractEnvironmentVariables` no longer require reflection decorators.
   - Core system environments are validated at bootstrap via `baseEnvSchema` (Fail-Fast). For modular or custom service configurations, pass Zod schemas directly to `createEnvConfig(schema)`.
+  - **Decouple `DEFAULT_LLM_MODEL` from SysEnv**: `DEFAULT_LLM_MODEL` is no longer a system-level environment variable on `AbstractEnvironmentVariables` / `SysEnv`. Downstream applications requiring a default LLM model should declare it directly in their own application environment class (e.g. `class AppEnvironmentVariables extends AbstractEnvironmentVariables { @LLMModelField() DEFAULT_LLM_MODEL?: string; }`). This prevents non-AI API services from being blocked by mandatory AI provider key validations during bootstrap.
 - **GraphQL Code-First DTOs**:
   - **Pure inputs (e.g. pagination, ID lookups)**: Remove all `class-validator` decorators (including `@Allow()`, `@IsOptional()`). Let `@Field()` define the schema.
   - **Inputs requiring business validation (e.g. email, min length)**:

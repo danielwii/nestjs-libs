@@ -1723,16 +1723,16 @@ export function getModel(spec: LLMModelSpec): ModelConfig {
   }
 
   // Model 不存在，检查环境决定处理方式
-  const fallbackKey = SysEnv.DEFAULT_LLM_MODEL;
+  const fallbackKey = process.env.DEFAULT_LLM_MODEL;
   const isProd = SysEnv.environment.isProd;
 
-  if (!isProd) {
-    // 开发环境：直接报错，快速发现问题
+  if (!isProd || !fallbackKey) {
+    // 开发环境或未设置 fallback 模型：直接报错，快速发现问题 (Fail-Fast)
     throw new Error(`Unknown model: "${key}". Registered models: ${getRegisteredModels().join(', ')}`);
   }
 
-  // 生产环境：warning + fallback
-  const fallbackConfig = modelRegistry.get(fallbackKey as string);
+  // 生产环境且配置了 fallback 模型：warning + fallback
+  const fallbackConfig = modelRegistry.get(fallbackKey);
   if (!fallbackConfig) {
     // fallback 模型也不存在，必须报错
     throw new Error(
@@ -2089,7 +2089,7 @@ export function validateLLMConfiguration(): LLMConfigurationValidationResult {
 
   // 验证每个配置的 model
   for (const fieldName of llmModelFields) {
-    const modelKey = envValues[fieldName];
+    const modelKey = envValues[fieldName] ?? process.env[fieldName];
 
     // 跳过未配置的字段
     if (!modelKey) {
