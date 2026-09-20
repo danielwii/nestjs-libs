@@ -3,6 +3,8 @@ import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/gr
 import { Oops } from '@app/nest/exceptions/oops';
 import { isOopsError } from '@app/nest/exceptions/oops-error';
 
+import { z } from 'zod';
+
 // import type { RequestInfo } from '../app/auth/types';
 // import type * as DBTypes from '@/generated/prisma/client';
 //
@@ -22,8 +24,18 @@ import { isOopsError } from '@app/nest/exceptions/oops-error';
  * 业务场景：适用于所有需要分页的列表查询
  * 默认行为：每页 20 条记录
  */
+
 /**
- * 无操作属性装饰器（保持接口签名向后兼容）
+ * @deprecated 历史遗留装饰器，仅用于迁移期向后兼容。
+ *
+ * 架构演进说明：
+ * 在 NestJS 12 + Standard Schema 现代化架构中，GraphQL Code-First 的输入结构与基础白名单
+ * 完全由 GraphQL SDL 引擎（@Field）原生保障，不再依赖 class-validator 的元数据存储。
+ * 历史遗留的 @Allow() 仅是为了绕过 REST 时代的 ValidationPipe({ whitelist: true }) 误杀而设置的创可贴补丁。
+ *
+ * 迁移建议：
+ * - 纯 GraphQL 输入：直接移除 @Allow()，纯粹保留 @Field()。
+ * - 包含业务规则的输入：使用 Standard Schema（如 Zod）配合 NestJS 12 的 @Args('input', { schema }) 或 static schema。
  */
 export function Allow(): PropertyDecorator {
   return () => {};
@@ -34,19 +46,40 @@ export interface CursoredRequest {
   after?: string | number;
 }
 
+/**
+ * 游标分页请求 Standard Schema 校验契约（Zod）
+ *
+ * 设计意图：为需要在 NestJS 12 中使用 Standard Schema (StandardSchemaValidationPipe)
+ * 对分页参数进行显式边界校验的 Resolver 提供开箱即用的校验契约。
+ */
+export const cursoredRequestSchema = z.object({
+  first: z.number().int().positive().optional().default(20),
+  after: z.union([z.string(), z.number()]).optional(),
+});
+
+export type CursoredRequestShape = z.infer<typeof cursoredRequestSchema>;
+
+/**
+ * 游标分页请求输入
+ *
+ * 设计意图：提供标准的 GraphQL Code-First 游标分页请求参数。
+ * 架构演进：
+ * - 结构定义：由 @Field() 声明 GraphQL SDL，由 GraphQL 引擎负责类型约束与未知字段拦截。
+ * - 业务校验：挂载 Standard Schema 契约（cursoredRequestSchema），供 NestJS 12 校验管道自动识别。
+ * - 彻底移除 class-validator 装饰器（如 @Allow()），杜绝全域白名单误杀。
+ */
 @InputType({
   description: '标准游标分页输入：first 控制每页数量，after 指定起始游标。可直接复用或在业务输入上继承扩展。',
 })
-export class CursoredRequestInput implements CursoredRequest {
+export class CursoredRequestInput implements CursoredRequest, CursoredRequestShape {
   @Field(() => Int, { description: 'page size', nullable: true, defaultValue: 20 })
-  @Allow()
   first: number = 20;
 
   @Field(() => ID, { description: 'latest cursor', nullable: true })
-  @Allow()
   after?: string | number;
 
   static DEFAULT = { first: 20 };
+  static readonly schema = cursoredRequestSchema;
 }
 
 /**

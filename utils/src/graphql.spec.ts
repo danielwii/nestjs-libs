@@ -1,6 +1,6 @@
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { CursoredRequestInput, CursorUtils } from './graphql';
+import { CursoredRequestInput, cursoredRequestSchema, CursorUtils } from './graphql';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -32,5 +32,16 @@ describe('CursoredRequestInput', () => {
     const input = new CursoredRequestInput();
     expect(input.first).toBe(20);
     expect(input.after).toBeUndefined();
+  });
+
+  it('binds cursoredRequestSchema as static schema', () => {
+    expect(CursoredRequestInput.schema).toBe(cursoredRequestSchema);
+    const parsedDefault = cursoredRequestSchema.parse({});
+    expect(parsedDefault.first).toBe(20);
+    expect(parsedDefault.after).toBeUndefined();
+
+    const parsedCustom = cursoredRequestSchema.parse({ first: 50, after: 'cursor-token' });
+    expect(parsedCustom.first).toBe(50);
+    expect(parsedCustom.after).toBe('cursor-token');
   });
 });

@@ -1,5 +1,53 @@
 # Migrations
 
+## Decouple class-validator / class-transformer in favor of NestJS 12 Standard Schema & GraphQL SDL
+
+`@danielwii/libs-cli` has completely decoupled from `class-validator` and `class-transformer` as core dependencies,
+migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkType) and native GraphQL SDL boundaries.
+
+### What changed
+
+- **Environment configuration (`@app/env`)**:
+  - `@Transform()` and legacy transform functions (`booleanTransformFn`, `objectTransformFn`, `arrayTransformFn`) are completely eradicated.
+  - Configuration parsing and coercion are now Schema-First via `createEnvConfig` and `zod` schemas.
+- **GraphQL Code-First (`@app/utils/graphql`)**:
+  - `@Allow()` decorators are removed from `CursoredRequestInput`. In GraphQL Code-First, the GraphQL SDL engine (`@Field()`) natively enforces input types and strips unknown fields, making `class-validator` whitelisting decorators obsolete.
+  - `export function Allow()` is marked `@deprecated` and remains as a no-op only for migration compatibility.
+  - Added exportable `cursoredRequestSchema` (Zod) and bound it as `CursoredRequestInput.schema` for consumers validating pagination with NestJS 12 Standard Schema.
+- **Bootstrap Validation Pipes (`@app/nest/boot`)**:
+  - `bootstrap()` now registers `AppStandardSchemaValidationPipe` (extending NestJS 12 `StandardSchemaValidationPipe`) to natively validate Standard Schemas from parameter metadata (`@Body({ schema })`, `@Args({ schema })`) and static class schemas (`metatype.schema`).
+  - Added `DualBoundaryValidationPipe` which automatically bypasses `class-validator` `whitelist: true` filtering when a Standard Schema is present, eliminating the legacy conflict where non-class-validator inputs were stripped to empty objects.
+  - Added `validationPipe` option to `BootstrapOptions`. Consumers can pass `validationPipe: false` to completely disable the legacy `ValidationPipe` for pure Standard Schema environments.
+
+### Required consumer changes
+
+- **Environment variables**:
+  - Do not use `@Transform()` decorators on environment classes. Pass Zod schemas directly to `createEnvConfig({ schema: ... })`.
+- **GraphQL Code-First DTOs**:
+  - **Pure inputs (e.g. pagination, ID lookups)**: Remove all `class-validator` decorators (including `@Allow()`, `@IsOptional()`). Let `@Field()` define the schema.
+  - **Inputs requiring business validation (e.g. email, min length)**:
+    1. Define the validation contract using Zod: `export const CreateUserInputSchema = z.object({ ... });`
+    2. Derive TypeScript type: `export type CreateUserInputType = z.infer<typeof CreateUserInputSchema>;`
+    3. Implement in Code-First class:
+       ```typescript
+       @InputType()
+       export class CreateUserInput implements CreateUserInputType {
+         @Field(() => String)
+         name!: string;
+
+         static readonly schema = CreateUserInputSchema;
+       }
+       ```
+    4. In Resolvers, pass schema via `@Args('input', { schema: CreateUserInput.schema })`, or rely on `AppStandardSchemaValidationPipe` auto-detection.
+- **Full modernization**:
+  - Consumers ready to retire `class-validator` entirely can configure `bootstrap({ validationPipe: false })` and remove `class-validator` / `class-transformer` from their application dependencies.
+
+### How migration is proven
+
+- `bun run typecheck`, `bun run lint`, and `bun test` (850 pass / 0 fail across 68 test files) pass cleanly.
+- `CursoredRequestInput` static schema integration verified via unit tests in `graphql.spec.ts`.
+- gRPC microservice boundary enhancer tests in `bootstrap.spec.ts` pass without regression.
+
 ## `@app/utils/prompt` time rendering consolidates onto `Anchored`; offsets rejected; 3 zero-consumer exports removed
 
 `@app/utils/prompt` had its own, second implementation of "is this timezone valid" and
