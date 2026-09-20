@@ -67,6 +67,7 @@ export function r(o: unknown): string {
  */
 export function toPlain(obj: unknown, depth = 0, seen = new Set()): unknown {
   if (depth > 5 || obj === null || typeof obj !== 'object') return obj;
+  if (obj instanceof Date || obj instanceof RegExp) return obj;
   if (seen.has(obj)) {
     throw new Error('Circular structure detected');
   }

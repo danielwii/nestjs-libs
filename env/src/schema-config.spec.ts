@@ -58,8 +58,7 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(isSensitive('PORT')).toBe(false);
     });
 
-    it('should throw validation error when required field is missing in production', () => {
-      process.env.NODE_ENV = 'production';
+    it('should throw validation error when required field is missing', () => {
       delete process.env.REQUIRED_TOKEN;
 
       const appSchema = z.object({
