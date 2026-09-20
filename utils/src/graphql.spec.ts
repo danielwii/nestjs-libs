@@ -26,3 +26,25 @@ describe('CursorUtils.decodeCursor', () => {
     expect(error.internalDetails).toBe(`cursor="${cursor}"`);
   });
 });
+
+describe('CursoredRequestInput', () => {
+  it('registers whitelist metadata for first and after when class-validator is present', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const cv = require('class-validator') as {
+      getMetadataStorage: () => {
+        getTargetValidationMetadatas: (
+          target: Function, // eslint-disable-line @typescript-eslint/no-unsafe-function-type
+          schema: string,
+          always: boolean,
+          strict: boolean,
+        ) => Array<{ propertyName: string }>;
+      };
+    };
+    const { CursoredRequestInput } = require('./graphql');
+    const storage = cv.getMetadataStorage();
+    const metadatas = storage.getTargetValidationMetadatas(CursoredRequestInput, '', false, false);
+    const propertyNames = metadatas.map((m) => m.propertyName);
+    expect(propertyNames).toContain('first');
+    expect(propertyNames).toContain('after');
+  });
+});

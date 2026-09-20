@@ -22,6 +22,28 @@ import { isOopsError } from '@app/nest/exceptions/oops-error';
  * 业务场景：适用于所有需要分页的列表查询
  * 默认行为：每页 20 条记录
  */
+/**
+ * 桥接 class-validator 的 Allow 装饰器（运行时按需桥接）
+ *
+ * 共享 bootstrap 注册了带有 whitelist: true 的 NestJS ValidationPipe。
+ * GraphQL 的 @Field 不被 class-validator 视为白名单元数据；
+ * 此装饰器在运行时若检测到 class-validator 存在，则注册 WHITELIST 元数据避免字段被剥离；
+ * 若未安装 class-validator 则作为 no-op 安全执行。
+ */
+export function Allow(): PropertyDecorator {
+  return (target: object, propertyKey: string | symbol) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const cv = require('class-validator') as { Allow?: () => PropertyDecorator };
+      if (typeof cv.Allow === 'function') {
+        cv.Allow()(target, propertyKey);
+      }
+    } catch {
+      // class-validator 未安装，纯原生模式
+    }
+  };
+}
+
 export interface CursoredRequest {
   first: number;
   after?: string | number;
@@ -32,9 +54,11 @@ export interface CursoredRequest {
 })
 export class CursoredRequestInput implements CursoredRequest {
   @Field(() => Int, { description: 'page size', nullable: true, defaultValue: 20 })
+  @Allow()
   first: number = 20;
 
   @Field(() => ID, { description: 'latest cursor', nullable: true })
+  @Allow()
   after?: string | number;
 
   static DEFAULT = { first: 20 };
