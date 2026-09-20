@@ -62,27 +62,6 @@ export function r(o: unknown): string {
   }
 }
 
-interface CtStorage {
-  findExcludeMetadata?: (
-    target: unknown,
-    propertyName: string,
-  ) => { options?: { toPlainOnly?: boolean; toClassOnly?: boolean; groups?: string[] } } | undefined;
-  findExposeMetadata?: (
-    target: unknown,
-    propertyName: string,
-  ) => { options?: { name?: string; toPlainOnly?: boolean; toClassOnly?: boolean; groups?: string[] } } | undefined;
-  getStrategy?: (target: unknown) => 'exposeAll' | 'excludeAll' | undefined;
-}
-
-let ctStorage: CtStorage | undefined;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const storageModule = require('class-transformer/cjs/storage') as { defaultMetadataStorage?: CtStorage };
-  ctStorage = storageModule.defaultMetadataStorage;
-} catch {
-  // class-transformer 未安装
-}
-
 const MAX_TO_PLAIN_DEPTH = 15;
 
 /**
@@ -138,36 +117,11 @@ export function toPlain(
       return plainMap;
     }
 
-    const cls = obj.constructor;
-    const isClassInstance = cls !== Object && cls !== Array;
-    const strategy = isClassInstance && ctStorage?.getStrategy ? ctStorage.getStrategy(cls) : undefined;
-
     const plain: Record<string, unknown> = {};
     memo.set(obj, plain);
     for (const [key, value] of Object.entries(obj)) {
       if (typeof value === 'function') continue;
-
-      if (isClassInstance && ctStorage) {
-        const exposeMeta = ctStorage.findExposeMetadata?.(cls, key);
-        const excludeMeta = ctStorage.findExcludeMetadata?.(cls, key);
-
-        // 若标注 toClassOnly: true，则在 toPlain (classToPlain) 序列化中绝不暴露
-        if (exposeMeta?.options?.toClassOnly === true) continue;
-
-        // 若标注了特定 groups（例如 ['admin']），而在日志格式化无上下文组时绝不暴露
-        if (exposeMeta?.options?.groups && exposeMeta.options.groups.length > 0) continue;
-
-        if (strategy === 'excludeAll') {
-          if (!exposeMeta) continue;
-        } else if (excludeMeta && excludeMeta.options?.toClassOnly !== true) {
-          continue;
-        }
-
-        const outputKey = exposeMeta?.options?.name ?? key;
-        plain[outputKey] = toPlain(value, depth + 1, activeStack, memo);
-      } else {
-        plain[key] = toPlain(value, depth + 1, activeStack, memo);
-      }
+      plain[key] = toPlain(value, depth + 1, activeStack, memo);
     }
     return plain;
   } finally {
