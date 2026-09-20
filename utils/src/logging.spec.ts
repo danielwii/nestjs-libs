@@ -1,4 +1,4 @@
-import { f, inspect, r } from './logging';
+import { f, inspect, r, toPlain } from './logging';
 
 import * as process from 'node:process';
 
@@ -65,6 +65,15 @@ describe('logging.utils', () => {
       const result = r(obj);
       const parsed = JSON5.parse(result);
       expect(parsed).toEqual({ a: 1, b: '2' });
+    });
+
+    it('should preserve Date objects during formatting', () => {
+      const date = new Date('2026-01-01T00:00:00.000Z');
+      expect(toPlain(date)).toBe(date);
+
+      process.env.NODE_ENV = 'production';
+      const result = r({ time: date });
+      expect(result).toContain('2026-01-01T00:00:00.000Z');
     });
 
     it('should handle non-object/null/array values by stringifying them', () => {
