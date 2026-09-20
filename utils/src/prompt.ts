@@ -249,17 +249,17 @@ function isAmbiguousLocalClock(zdt: Temporal.ZonedDateTime): boolean {
 }
 
 /**
- * 把一个时间读给读者：本模块**唯一**的校验 + 投影 + 渲染实现，其余导出函数都是它的薄壳。
+ * 把一个时间读给读者：本模块唯一的投影 + 渲染实现，其余导出函数都是它的薄壳。
  * 返回值的字段与措辞的理由见 {@link TimeReading}。
  *
  * - `value`：instant（会议、"现在"）或 `Temporal.PlainDate`（生日、假期这类全天日期）。
  *   `null`/`undefined` 表示"现在"，只允许在 Now 行这条路径上出现（`formatLocalDateTime`）。
- * - `observer`：读这段文字的人所在的时区，**必填、无默认**。缺省或非法直接抛错
- *   （`Anchored`/`assertZone` 的协议）——默认值本身就是事故来源：曾经缺省时静默落回
- *   `process.env.TZ`，让台北的家庭读到洛杉矶的 Now 行。
- * - `ownZone`：这个值实际归属的时区。`undefined` 表示"就是读者自己的"（Now 行）；一旦传入
- *   ——包括从缺失归属的行转发来的空串——都经 `assertZone`，空串在那里失败而不是被当成没传
- *   后悄悄改写成读者时区（那会把别人的事件标成 `sameZone: true`）。
+ * - `observer`：读这段文字的人所在的时区，**必填、无默认**，且必须已是 `Zone`——校验只发生
+ *   一次，在调用方把裸字符串变成 `Zone` 的那一步（`assertZone`，例如 `formatLocalDateTime`/
+ *   `zonedAt` 这类真正的写入闸门），不在这里重来一遍。默认值本身曾是事故来源：缺省时静默落回
+ *   `process.env.TZ`，让台北的家庭读到洛杉矶的 Now 行——这条规则没变，只是校验点挪到了闸门。
+ * - `ownZone`：这个值实际归属的时区，同样必须已是 `Zone`。`undefined` 表示"就是读者自己的"
+ *   （Now 行），不会悄悄改写成读者时区去把别人的事件标成 `sameZone: true`。
  * - `sensitivity`：Now 行的精度（分钟/小时/日），沿用既有 `formatLocalDateTime` 的参数。
  */
 export function readLocalTime(
@@ -268,8 +268,11 @@ export function readLocalTime(
   ownZone?: Zone,
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
 ): TimeReading {
-  const observerZone = assertZone(observer, 'instant');
-  const attribution = ownZone === undefined ? observerZone : assertZone(ownZone, 'instant');
+  // `observer`/`ownZone` are `Zone`, not `string` — the caller (a resolver function, or one of
+  // this module's own boundary entry points below) already ran `assertZone`; re-validating here
+  // would be exactly the redundant runtime check the brand exists to make unnecessary.
+  const observerZone = observer;
+  const attribution = ownZone ?? observerZone;
 
   if (value instanceof Temporal.PlainDate) {
     const projection = Anchored.date(value, attribution).in(observerZone) as Extract<
@@ -317,7 +320,9 @@ export function formatLocalDateTime(
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
   timezone?: string | null,
 ): string {
-  return readLocalTime(dateOrIso, timezone ?? '', undefined, sensitivity).text;
+  // This function (like `zonedAt`) is the untrusted boundary — `timezone` is a raw caller string
+  // (possibly missing/empty), validated here once via `assertZone` before it ever becomes a `Zone`.
+  return readLocalTime(dateOrIso, assertZone(timezone ?? ''), undefined, sensitivity).text;
 }
 
 /**
@@ -326,8 +331,8 @@ export function formatLocalDateTime(
  * 本来属于谁的时区（别人的事件、别人的空档）；不传即读者自己的。
  */
 export function readLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone, ownZone?: Zone): SpanReading {
-  const observerZone = assertZone(observer, 'instant');
-  const attribution = ownZone === undefined ? observerZone : assertZone(ownZone, 'instant');
+  const observerZone = observer;
+  const attribution = ownZone ?? observerZone;
   const startProjection = projectInstant(requireFixedInstant(start, 'readLocalSpan'), observerZone, attribution);
   const endProjection = projectInstant(requireFixedInstant(end, 'readLocalSpan'), observerZone, attribution);
   const startZdt = startProjection.at;
@@ -372,7 +377,7 @@ export function decorateWithNow(content: string, now: Temporal.ZonedDateTime): s
 
 /** A given instant (ISO string / Instant / ZonedDateTime) as a zoned Temporal value. `timezone` is required — a missing or invalid one throws (see `Anchored`/`assertZone`). */
 export function zonedAt(at: PromptDateTime, timezone?: string | null): Temporal.ZonedDateTime {
-  const observerZone = assertZone(timezone ?? '', 'instant');
+  const observerZone = assertZone(timezone ?? '');
   return projectInstant(requireFixedInstant(at, 'zonedAt'), observerZone, observerZone).at;
 }
 

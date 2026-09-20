@@ -1,5 +1,94 @@
 # Migrations
 
+## `Zone` is a branded type, never floating; `assertZone` is its only constructor; floating time is a separate constructor
+
+Breaking at compile time. `Zone` was `export type Zone = string` — any string satisfied it,
+so "did anyone actually validate this zone" was a convention enforced only by code review, not
+by `tsc`. It is now `string & { readonly [zoneBrand]: unique symbol }`: a bare string literal, a
+`string`-typed variable, or a value returned by anything other than `assertZone` no longer
+satisfies `Zone`. This closes the exact gap that let an unchecked, un-normalized zone string
+reach a stored-attribution write boundary or a rendered observer zone by accident — the brand
+makes "forgot to validate" a `tsc` error instead of a runtime data-correctness bug found later.
+
+`Zone` also no longer has a floating variant. Floating ("跟着人走" / RFC 5545's "floating" —
+a recurring clock time with no fixed zone, e.g. a daily 7am reminder that's 7am wherever the
+person currently is) was previously a special string value (`FLOATING`) that a `Zone` could
+equal, gated by a `shape` parameter at the one call site (`Anchored.time`) that accepted it.
+That modeled floating as a degenerate zone, when it's actually a wholly different kind of
+anchoring that only the `time` shape has: a real timezone *is* an attribution; floating
+*defers* attribution to whoever eventually reads the value. Squeezing it into the `Zone` slot
+meant every `Zone` consumer had to know, or forget, that one specific shape's zone value might
+not be a zone at all.
+
+### What changed
+
+- `Zone`'s only constructor is `assertZone(zone: string): Zone`. It no longer takes a `shape`
+  parameter and unconditionally rejects the string `'floating'` — there is no shape for which
+  it's an acceptable `Zone` value anymore.
+- `assertViewerZone` is now a **deprecated alias** for `assertZone` (identical rules now that
+  `Zone` never allows floating, so there's nothing left for a separate observer-side validator
+  to do). It will be removed in a future version; call sites should migrate to `assertZone`.
+- Floating time is a **separate constructor**, not a `Zone` value: `Anchored.floatingTime(time)`
+  (no zone parameter — there is no zone to pass). `Anchored.time(time, zone: Zone)` now only
+  ever anchors to a real, non-floating zone. Internally, `time`'s anchoring is a discriminated
+  union (`{kind: 'zone', zone: Zone} | {kind: 'floating'}`); `instant`/`date` don't have this
+  union at all, since they only ever anchor to a real `Zone`.
+- `Anchored.instant`/`Anchored.date`/`Anchored.time`/`.in()` accept **only** `Zone` and no
+  longer re-validate internally — the brand is the proof that validation already happened once,
+  at construction. Calling any of them with a bare string is a compile error, not a runtime
+  400.
+- `AnchoredJson.zone` is now `Zone | 'floating'` — the storage/wire boundary is the *only* place
+  the literal `'floating'` still appears (`toJSON()` emits it for a floating `time`; `fromStored`/
+  `fromJSON` recognize it only for `shape === 'time'` and route to `floatingTime`; any other
+  shape carrying `'floating'` is rejected the same as any other invalid zone string, by
+  `assertZone`). The exported `FLOATING` constant is **removed** — there is no longer a typed
+  value business code should reference; a piece of code that means "floating" should call
+  `Anchored.floatingTime`, not compare a zone to a sentinel.
+- `Anchored.fromStored`/`Anchored.fromJSON` are unchanged in spirit and stay the genuine
+  untrusted-boundary entry points: their `zone` parameter is still `string | null | undefined`
+  (persistence/JSON carries no brand), and they still call `assertZone` internally before
+  constructing.
+- `readLocalTime`/`readLocalSpan` (`@app/utils/prompt`) take `Zone` for `observer`/`ownZone`
+  and no longer validate internally, for the same reason. `formatLocalDateTime`/`zonedAt` are
+  unchanged in signature (`timezone?: string | null`) — they remain the boundary functions that
+  call `assertZone` before ever constructing an `Anchored` or calling `readLocalTime`. Neither
+  of these ever accepted floating (they're `instant`-shape only), so nothing changes for them
+  beyond `assertZone`'s narrower signature.
+
+### Required consumer changes
+
+A consumer that already resolves its own zone value through some validating step before handing
+it to `Anchored.*`/`readLocalTime`/`readLocalSpan` — i.e. it passes a variable, not a literal —
+needs no source change; `tsc` will simply confirm (or refute) that the value flowing in actually
+came from `assertZone` at some point upstream. A call site passing a bare string literal, or a
+`string`-typed value it never validated, fails to compile and must first resolve it through
+`assertZone`.
+
+A consumer calling `assertZone(x, shape)` with the two-argument form must drop the second
+argument — `assertZone` is now single-arity. A consumer calling `Anchored.time(t, someFloatingZone)`
+where `someFloatingZone` came from validating the string `'floating'` must switch to
+`Anchored.floatingTime(t)` instead; `assertZone('floating')` now throws. As of this PR, no
+call site in this repo's own consumers does either — floating and `Anchored.time` had zero
+adoption outside this library's own tests, so this ships as a clean model rather than a
+transitional one.
+
+### How migration is proven
+
+`bun run typecheck`, `bun run lint`, and `bun run test` are clean, including `@ts-expect-error`
+compile-time assertions (in this repo's own spec files, which — unlike some consumers'
+`tsconfig` — are not excluded from typecheck) proving: a bare string literal no longer satisfies
+`Zone` at `Anchored.instant`/`.in()`; and the literal `'floating'` specifically has no type-level
+shortcut into a `Zone`-typed parameter either — it's rejected as an ordinary unchecked string,
+not because of any floating-specific rule.
+
+### Open naming question
+
+`assertZone` now does double duty as both "the validator" and "the only way to construct a
+`Zone`" — a caller reading `assertZone(x)` for the first time may read it as a pure assertion
+(throws-or-void) rather than a parse-and-return. `parseZone` would read more accurately as
+"parse, don't validate," matching the pattern's usual name. Deferred to a follow-up rename
+(if wanted) rather than bundled into this PR, to keep this diff to the brand itself.
+
 ## `@app/utils/prompt` time rendering consolidates onto `Anchored`; offsets rejected; 3 zero-consumer exports removed
 
 `@app/utils/prompt` had its own, second implementation of "is this timezone valid" and
