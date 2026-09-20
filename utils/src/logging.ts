@@ -63,11 +63,14 @@ export function r(o: unknown): string {
 }
 
 interface CtStorage {
-  findExcludeMetadata?: (target: unknown, propertyName: string) => { options?: { toPlainOnly?: boolean } } | undefined;
+  findExcludeMetadata?: (
+    target: unknown,
+    propertyName: string,
+  ) => { options?: { toPlainOnly?: boolean; toClassOnly?: boolean } } | undefined;
   findExposeMetadata?: (
     target: unknown,
     propertyName: string,
-  ) => { options?: { name?: string; toPlainOnly?: boolean } } | undefined;
+  ) => { options?: { name?: string; toPlainOnly?: boolean; toClassOnly?: boolean } } | undefined;
   getStrategy?: (target: unknown) => 'exposeAll' | 'excludeAll' | undefined;
 }
 
@@ -80,6 +83,8 @@ try {
   // class-transformer 未安装
 }
 
+const MAX_TO_PLAIN_DEPTH = 15;
+
 /**
  * 将 Class 实例或复杂对象安全转换为 plain object，去除函数属性；若遇循环引用则交由 inspect 处理
  */
@@ -89,8 +94,12 @@ export function toPlain(
   activeStack = new Set<unknown>(),
   memo = new Map<unknown, unknown>(),
 ): unknown {
-  if (depth > 5 || obj === null || typeof obj !== 'object') return obj;
+  if (obj === null || typeof obj !== 'object') return obj;
   if (obj instanceof Date || obj instanceof RegExp) return obj;
+
+  if (depth >= MAX_TO_PLAIN_DEPTH) {
+    return Array.isArray(obj) || obj instanceof Set ? '[Array]' : '[Object]';
+  }
 
   if (activeStack.has(obj)) {
     throw new Error('Circular structure detected');
@@ -142,9 +151,12 @@ export function toPlain(
         const exposeMeta = ctStorage.findExposeMetadata?.(cls, key);
         const excludeMeta = ctStorage.findExcludeMetadata?.(cls, key);
 
+        // 若标注 toClassOnly: true，则在 toPlain (classToPlain) 序列化中绝不暴露
+        if (exposeMeta?.options?.toClassOnly === true) continue;
+
         if (strategy === 'excludeAll') {
           if (!exposeMeta) continue;
-        } else if (excludeMeta) {
+        } else if (excludeMeta && excludeMeta.options?.toClassOnly !== true) {
           continue;
         }
 
