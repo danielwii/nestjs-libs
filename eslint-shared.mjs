@@ -52,6 +52,7 @@ export function createEslintConfig({ rootDir, tsconfigPath = './tsconfig.json', 
         // ====== Type Safety ======
         '@typescript-eslint/no-explicit-any': 'error',
         '@typescript-eslint/no-floating-promises': 'error',
+        '@typescript-eslint/no-require-imports': 'error',
         '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
         '@typescript-eslint/ban-ts-comment': [
           'error',
