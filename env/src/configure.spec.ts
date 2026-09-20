@@ -540,6 +540,40 @@ describe('AppConfigure', () => {
       }
     });
 
+    it('should correctly coerce optional boolean and number environment variables', () => {
+      const origPrismaMigration = process.env.PRISMA_MIGRATION;
+      const origAppProxy = process.env.APP_PROXY_ENABLED;
+      const origFeatureScheduler = process.env.FEATURE_SCHEDULER;
+      const origInFlight = process.env.IN_FLIGHT_TIMEOUT_MS;
+      const origProxyPort = process.env.APP_PROXY_PORT;
+
+      process.env.PRISMA_MIGRATION = 'false';
+      process.env.APP_PROXY_ENABLED = 'false';
+      process.env.FEATURE_SCHEDULER = 'true';
+      process.env.IN_FLIGHT_TIMEOUT_MS = '5000';
+      process.env.APP_PROXY_PORT = '8080';
+
+      try {
+        const appConfig = new AppConfigure(AbstractEnvironmentVariables);
+        expect(appConfig.vars.PRISMA_MIGRATION).toBe(false);
+        expect(appConfig.vars.APP_PROXY_ENABLED).toBe(false);
+        expect(appConfig.vars.FEATURE_SCHEDULER).toBe(true);
+        expect(appConfig.vars.IN_FLIGHT_TIMEOUT_MS).toBe(5000);
+        expect(appConfig.vars.APP_PROXY_PORT).toBe(8080);
+      } finally {
+        if (origPrismaMigration !== undefined) process.env.PRISMA_MIGRATION = origPrismaMigration;
+        else delete process.env.PRISMA_MIGRATION;
+        if (origAppProxy !== undefined) process.env.APP_PROXY_ENABLED = origAppProxy;
+        else delete process.env.APP_PROXY_ENABLED;
+        if (origFeatureScheduler !== undefined) process.env.FEATURE_SCHEDULER = origFeatureScheduler;
+        else delete process.env.FEATURE_SCHEDULER;
+        if (origInFlight !== undefined) process.env.IN_FLIGHT_TIMEOUT_MS = origInFlight;
+        else delete process.env.IN_FLIGHT_TIMEOUT_MS;
+        if (origProxyPort !== undefined) process.env.APP_PROXY_PORT = origProxyPort;
+        else delete process.env.APP_PROXY_PORT;
+      }
+    });
+
     it('should cover debug logging paths', () => {
       const ORIGINAL_DEBUG = process.env.CONFIGURE_DEBUG;
       process.env.CONFIGURE_DEBUG = 'true';

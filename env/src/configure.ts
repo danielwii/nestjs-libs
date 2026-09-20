@@ -121,6 +121,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
 
   PORT: number = 3100;
   GRPC_PORT: number = 50051;
+  /** gRPC 服务间通信共享密钥，用于微服务鉴权 */
+  GRPC_SERVICE_TOKEN?: string;
   TZ = 'UTC';
 
   // 因为 有些服务器的 hostname 是 localhost，所以需要添加一个随机数来区分
@@ -529,12 +531,28 @@ export const baseEnvSchema = z.object({
   LLM_FETCH_VERBOSE: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
   PRISMA_TRANSACTION_TIMEOUT: coerceNumber(z.number().default(30_000)).describe('db-sync:number'),
   I18N_EXCEPTION_ENABLED: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
+  INFRA_REDIS_URL: z.string().optional(),
+  CLUSTER_ENABLED: coerceBoolean(z.boolean().default(true)),
+  CLUSTER_NODE_TTL_SECONDS: z.string().optional(),
+  CLUSTER_HEARTBEAT_INTERVAL_MS: z.string().optional(),
+  DATABASE_URL: z.string().optional(),
+  PRISMA_QUERY_LOGGER: coerceBoolean(z.boolean().optional()),
+  PRISMA_QUERY_LOGGER_WITH_PARAMS: coerceBoolean(z.boolean().optional()),
+  PRISMA_MIGRATION: coerceBoolean(z.boolean().optional()),
+  APP_CONFIG_SYNC_WRITE_ENABLED: coerceBoolean(z.boolean().default(false)),
+  FEATURE_SCHEDULER: coerceBoolean(z.boolean().optional()),
+  EXIT_ON_ERROR: coerceBoolean(z.boolean().default(true)),
+  IN_FLIGHT_TIMEOUT_MS: coerceNumber(z.number().default(60_000)),
+  DRAIN_DELAY_MS: coerceNumber(z.number().default(15_000)),
+  GRPC_DRAIN_MS: coerceNumber(z.number().default(60_000)),
+  GRPC_SERVICE_TOKEN: z.string().optional(),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;
 
 // 🛡️ 静态编译期类型防卫：确保 baseEnvSchema 的每一个键名都与 AbstractEnvironmentVariables 中的属性对齐，杜绝命名漂移
 export type _AssertBaseEnvKeys<T extends keyof AbstractEnvironmentVariables = keyof BaseEnv> = T;
+export type _AssertBaseEnvCoverage<T extends SysEnvConfigKey = keyof BaseEnv> = T;
 
 /**
  * 获取标准环境信息（对齐 AbstractEnvironmentVariables.environment 行为，支持 DOPPLER_ENVIRONMENT 回退）
@@ -644,9 +662,27 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const instance = new this.EnvsClass();
     const config = process.env;
 
-    // 原生赋值：无隐式装饰器反射，根据实例已有属性类型做确定的原生类型转换
+    const isEnvClass = instance instanceof AbstractEnvironmentVariables;
+
+    // 1. 核心契约先行 (Single Source of Truth & Ingress Coercion)
+    // 只要是 AbstractEnvironmentVariables 及其子类，基础系统环境变量一律由 baseEnvSchema 完成强类型转换与清洗
+    if (isEnvClass) {
+      const parseResult = baseEnvSchema.safeParse(config);
+      if (!parseResult.success) {
+        this.logger.error`[SYS] Base environment validation failed:`;
+        for (const issue of parseResult.error.issues) {
+          this.logger.error`  ${issue.path.join('.')}: ${issue.message}`;
+        }
+        throw new Error(parseResult.error.issues.map((i) => i.path.join('.')).join(', '));
+      }
+      // 关键：将由 Schema 严格校验与类型转换 (Coercion) 后的强类型数据回赋给实例
+      Object.assign(instance, parseResult.data);
+    }
+
+    // 2. 针对子类扩展的自定义属性（不在 baseEnvSchema 中的属性），做原生补充赋值与类型转换
+    const baseKeys = isEnvClass ? new Set(Object.keys(baseEnvSchema.shape)) : new Set<string>();
     for (const key of Object.getOwnPropertyNames(instance)) {
-      if (key === 'constructor' || key === 'logger') continue;
+      if (key === 'constructor' || key === 'logger' || baseKeys.has(key)) continue;
       const rawVal = config[key];
       if (rawVal !== undefined && rawVal !== '') {
         const defaultVal = (instance as Record<string, unknown>)[key];
@@ -667,34 +703,23 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       }
     }
 
-    // 权威门禁契约（Single Source of Truth & Fail-Fast）
+    // 启动时打印配置项来源
     if (process.env.NODE_ENV !== NODE_ENV.Test) {
-      if (this.sys) {
-        const parseResult = baseEnvSchema.safeParse(process.env);
-        if (!parseResult.success) {
-          this.logger.error`[SYS] Base environment validation failed:`;
-          for (const issue of parseResult.error.issues) {
-            this.logger.error`  ${issue.path.join('.')}: ${issue.message}`;
-          }
-          throw new Error(parseResult.error.issues.map((i) => i.path.join('.')).join(', '));
-        }
-      }
-
-      // 启动时打印配置项来源
       const src = (key: string) => this.envSourceMap.get(key) ?? 'default';
 
-      if (this.sys) {
+      if (isEnvClass) {
         Object.entries(instance as object).forEach(([key, value]) => {
           if (
             key.includes('_ENABLE') ||
             key.startsWith('APP_') ||
-            !AbstractEnvironmentVariables.allFields.includes(key) ||
-            ['logger'].includes(key)
-          )
-            return;
-          const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
-          const display = AppConfigure.isSensitive(key) ? '***' : value;
-          this.logger.info`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}[${src(key)}] ${{ key, value: display }}`;
+            key.startsWith('AI_') ||
+            key.startsWith('LOG_') ||
+            key.startsWith('OTEL_') ||
+            key.startsWith('FEATURE_')
+          ) {
+            const display = AppConfigure.isSensitive(key) ? '***' : value;
+            this.logger.debug`[ENV] ${key}=${display} (from ${src(key)})`;
+          }
         });
       }
 
