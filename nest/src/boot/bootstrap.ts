@@ -166,6 +166,7 @@ export function connectGrpcMicroserviceWithBoundary(
   microserviceOptions: MicroserviceOptions,
   mode: BootstrapMode,
   provider: string,
+  validationPipeOption?: boolean | ValidationPipeOptions,
 ): INestMicroservice {
   const { inheritAppConfig } = resolveGrpcHybridAppOptions(mode);
 
@@ -181,9 +182,31 @@ export function connectGrpcMicroserviceWithBoundary(
 
   if (!inheritAppConfig) {
     grpcMs.setIsInitHookCalled(true);
-    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider);
+    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider, validationPipeOption);
   }
   return grpcMs;
+}
+
+/**
+ * 解析参数或类自身显式绑定的 Standard Schema。
+ *
+ * 核心设计（原型继承安全）：
+ * 使用 Object.prototype.hasOwnProperty 确保只解析类自身直接声明的静态 schema，
+ * 杜绝子类沿 JavaScript 原型链隐式继承父类 schema（如 CursoredRequestInput），
+ * 从而彻底消灭子类业务字段被父类 closed schema 默认剥离（strip）的安全盲区。
+ */
+function resolveOwnedStandardSchema(metadata: ArgumentMetadata): StandardSchemaV1 | undefined {
+  if (metadata.schema && '~standard' in metadata.schema) {
+    return metadata.schema;
+  }
+  const metatype = metadata.metatype;
+  if (metatype && typeof metatype === 'function' && Object.prototype.hasOwnProperty.call(metatype, 'schema')) {
+    const owned = (metatype as { schema?: StandardSchemaV1 }).schema;
+    if (owned && typeof owned === 'object' && '~standard' in owned) {
+      return owned;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -191,8 +214,8 @@ export function connectGrpcMicroserviceWithBoundary(
  */
 export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
   override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
-    const rawSchema = metadata.schema ?? (metadata.metatype as { schema?: StandardSchemaV1 } | undefined)?.schema;
-    if (!rawSchema || !('~standard' in rawSchema)) return value;
+    const rawSchema = resolveOwnedStandardSchema(metadata);
+    if (!rawSchema) return value;
     return super.transform(value, { ...metadata, schema: rawSchema });
   }
 }
@@ -206,8 +229,8 @@ export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPip
  */
 export class DualBoundaryValidationPipe extends ValidationPipe {
   override toValidate(metadata: ArgumentMetadata): boolean {
-    const rawSchema = metadata.schema ?? (metadata.metatype as { schema?: StandardSchemaV1 } | undefined)?.schema;
-    if (rawSchema && '~standard' in rawSchema) {
+    const rawSchema = resolveOwnedStandardSchema(metadata);
+    if (rawSchema) {
       return false;
     }
     return super.toValidate(metadata);
@@ -239,7 +262,7 @@ export function configureGrpcMicroserviceBoundary(
   provider: string,
   validationPipeOption?: boolean | ValidationPipeOptions,
 ): void {
-  target.useGlobalPipes(createGlobalValidationPipe(validationPipeOption));
+  target.useGlobalPipes(...createGlobalValidationPipes(validationPipeOption));
   target.useGlobalFilters(new GrpcExceptionFilter(provider));
   target.useGlobalGuards(new GrpcServiceTokenGuard());
   target.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(reflector), new LoggerInterceptor());
@@ -565,6 +588,7 @@ export async function bootstrap(
       },
       mode,
       grpcProvider,
+      options.validationPipe,
     );
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 

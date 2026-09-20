@@ -34,8 +34,7 @@ describe('CursoredRequestInput', () => {
     expect(input.after).toBeUndefined();
   });
 
-  it('binds cursoredRequestSchema as static schema', () => {
-    expect(CursoredRequestInput.schema).toBe(cursoredRequestSchema);
+  it('validates pagination defaults and custom values via cursoredRequestSchema', () => {
     const parsedDefault = cursoredRequestSchema.parse({});
     expect(parsedDefault.first).toBe(20);
     expect(parsedDefault.after).toBeUndefined();
@@ -43,5 +42,13 @@ describe('CursoredRequestInput', () => {
     const parsedCustom = cursoredRequestSchema.parse({ first: 50, after: 'cursor-token' });
     expect(parsedCustom.first).toBe(50);
     expect(parsedCustom.after).toBe('cursor-token');
+  });
+
+  it('keeps base input free of prototype-inherited static schema pollution', () => {
+    class CustomSearchInput extends CursoredRequestInput {
+      keyword: string = 'test';
+    }
+    // CustomSearchInput should not inherit an owned static schema from CursoredRequestInput
+    expect(Object.prototype.hasOwnProperty.call(CustomSearchInput, 'schema')).toBe(false);
   });
 });

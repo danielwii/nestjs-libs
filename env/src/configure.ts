@@ -1397,12 +1397,15 @@ export const baseEnvSchema = z.object({
   DEFAULT_LLM_MODEL: z.string().default('openrouter:gemini-2.5-flash').describe('llm-model'),
   AI_LLM_TIMEOUT_MS: coerceNumber(z.number().min(30_000).default(120_000)).describe('db-sync:number'),
   AI_LLM_MAX_RETRIES: coerceNumber(z.number().min(0).default(2)).describe('db-sync:number'),
-  AI_LLM_FETCH_VERBOSE: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
+  LLM_FETCH_VERBOSE: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
   PRISMA_TRANSACTION_TIMEOUT: coerceNumber(z.number().default(30_000)).describe('db-sync:number'),
   I18N_EXCEPTION_ENABLED: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;
+
+// 🛡️ 静态编译期类型防卫：确保 baseEnvSchema 的每一个键名都与 AbstractEnvironmentVariables 中的属性对齐，杜绝命名漂移
+export type _AssertBaseEnvKeys<T extends keyof AbstractEnvironmentVariables = keyof BaseEnv> = T;
 
 /**
  * 获取标准环境信息（对齐 AbstractEnvironmentVariables.environment 行为，支持 DOPPLER_ENVIRONMENT 回退）
