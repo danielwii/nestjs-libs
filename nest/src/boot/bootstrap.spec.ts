@@ -11,6 +11,7 @@ import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/g
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 
 import {
+  AppStandardSchemaValidationPipe,
   assertGrpcServiceTokenConfiguredForMode,
   assertRequiredEnvs,
   configureGrpcMicroserviceBoundary,
@@ -397,8 +398,9 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
       'TestProvider',
     );
 
-    expect(target.pipes).toHaveLength(1);
-    expect(target.pipes[0]).toBeInstanceOf(ValidationPipe);
+    expect(target.pipes).toHaveLength(2);
+    expect(target.pipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+    expect(target.pipes[1]).toBeInstanceOf(ValidationPipe);
     expect(target.filters).toHaveLength(1);
     expect(target.filters[0]).toBeInstanceOf(GrpcExceptionFilter);
     expect(target.guards).toHaveLength(1);
