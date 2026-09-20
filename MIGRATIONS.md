@@ -11,7 +11,10 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
   - **Clean Cut & Zero Shims**: Completely eradicated legacy validation decorator shims (`@IsString`, `@IsNumber`, `@IsBoolean`, `@IsOptional`, `@IsEnum`, `@Min`, `@Type`, `plainToInstance`, `validateSync`). The library no longer maintains reflection-based shims.
   - `@Transform()` and legacy transform functions (`booleanTransformFn`, `objectTransformFn`, `arrayTransformFn`) are completely eradicated.
   - Configuration parsing and coercion are now strictly Schema-First / Contract-First via `baseEnvSchema` (Fail-Fast at bootstrap) and `createEnvConfig` with Zod / Standard Schema.
-  - Database sync validation in `@DatabaseField` now uses zero-reflection, pure native type checks (`format: 'number' | 'boolean' | 'string' | 'json'`).
+  - **Dynamic Database Fields (`asDatabaseField` / `dbField`)**:
+    - Introduced `asDatabaseField` (with alias `dbField`) for colocated, self-documenting database-managed field declarations directly on Zod schemas.
+    - Database sync validation (`syncFromDB`) now enforces **Single Source of Truth via Schema**: overrides from `sys_app_settings` are strictly parsed and coerced via the field's schema node (e.g. `min(30_000)` constraints). Invalid values are safely rejected (Safe-Reject) without corrupting memory or crashing runtime.
+    - Legacy `@DatabaseField` class decorator remains backward-compatible.
 - **GraphQL Code-First (`@app/utils/graphql`)**:
   - `@Allow()` decorators are removed from `CursoredRequestInput`. In GraphQL Code-First, the GraphQL SDL engine (`@Field()`) natively enforces input types and strips unknown fields, making `class-validator` whitelisting decorators obsolete.
   - `export function Allow()` is marked `@deprecated` and remains as a no-op only for migration compatibility.
@@ -48,7 +51,7 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
 
 ### How migration is proven
 
-- `bun run typecheck`, `bun run lint`, and `bun test` (850 pass / 0 fail across 68 test files) pass cleanly.
+- `bun run typecheck`, `bun run lint`, and `bun test` (855 pass / 0 fail across 68 test files) pass cleanly.
 - `CursoredRequestInput` static schema integration verified via unit tests in `graphql.spec.ts`.
 - gRPC microservice boundary enhancer tests in `bootstrap.spec.ts` pass without regression.
 
