@@ -40,6 +40,30 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(parsed.AI_LLM_MAX_RETRIES).toBe(5);
       expect(parsed.I18N_EXCEPTION_ENABLED).toBe(true);
     });
+
+    it('should treat blank or whitespace-only strings in numeric fields as missing and apply defaults/optional', () => {
+      const parsed = baseEnvSchema.parse({
+        PORT: '',
+        GRPC_PORT: '   ',
+        APP_PROXY_PORT: '',
+        AI_LLM_TIMEOUT_MS: '',
+        AI_LLM_MAX_RETRIES: '  ',
+        PRISMA_TRANSACTION_TIMEOUT: '',
+      });
+      expect(parsed.PORT).toBe(3100);
+      expect(parsed.GRPC_PORT).toBe(50051);
+      expect(parsed.APP_PROXY_PORT).toBeUndefined();
+      expect(parsed.AI_LLM_TIMEOUT_MS).toBe(120_000);
+      expect(parsed.AI_LLM_MAX_RETRIES).toBe(2);
+      expect(parsed.PRISMA_TRANSACTION_TIMEOUT).toBe(30_000);
+    });
+
+    it('should reject invalid ports such as 0, negative values, or non-numeric strings', () => {
+      expect(() => baseEnvSchema.parse({ PORT: '0' })).toThrow();
+      expect(() => baseEnvSchema.parse({ PORT: '-1' })).toThrow();
+      expect(() => baseEnvSchema.parse({ PORT: 'invalid' })).toThrow();
+      expect(() => baseEnvSchema.parse({ GRPC_PORT: '70000' })).toThrow();
+    });
   });
 
   describe('createEnvConfig', () => {
