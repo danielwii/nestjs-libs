@@ -65,37 +65,63 @@ export function r(o: unknown): string {
 /**
  * 将 Class 实例或复杂对象安全转换为 plain object，去除函数属性；若遇循环引用则交由 inspect 处理
  */
-export function toPlain(obj: unknown, depth = 0, seen = new Set()): unknown {
+export function toPlain(
+  obj: unknown,
+  depth = 0,
+  activeStack = new Set<unknown>(),
+  memo = new Map<unknown, unknown>(),
+): unknown {
   if (depth > 5 || obj === null || typeof obj !== 'object') return obj;
   if (obj instanceof Date || obj instanceof RegExp) return obj;
-  if (seen.has(obj)) {
+
+  if (activeStack.has(obj)) {
     throw new Error('Circular structure detected');
   }
-  seen.add(obj);
 
-  if (Array.isArray(obj)) {
-    return obj.map((item) => toPlain(item, depth + 1, seen));
+  if (memo.has(obj)) {
+    return memo.get(obj);
   }
 
-  if (obj instanceof Set) {
-    return Array.from(obj).map((item) => toPlain(item, depth + 1, seen));
-  }
-
-  if (obj instanceof Map) {
-    const plainMap: Record<string, unknown> = {};
-    for (const [key, value] of obj.entries()) {
-      plainMap[String(key)] = toPlain(value, depth + 1, seen);
+  activeStack.add(obj);
+  try {
+    if (Array.isArray(obj)) {
+      const arr: unknown[] = [];
+      memo.set(obj, arr);
+      for (const item of obj) {
+        arr.push(toPlain(item, depth + 1, activeStack, memo));
+      }
+      return arr;
     }
-    return plainMap;
-  }
 
-  const plain: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value !== 'function') {
-      plain[key] = toPlain(value, depth + 1, seen);
+    if (obj instanceof Set) {
+      const arr: unknown[] = [];
+      memo.set(obj, arr);
+      for (const item of obj) {
+        arr.push(toPlain(item, depth + 1, activeStack, memo));
+      }
+      return arr;
     }
+
+    if (obj instanceof Map) {
+      const plainMap: Record<string, unknown> = {};
+      memo.set(obj, plainMap);
+      for (const [key, value] of obj.entries()) {
+        plainMap[String(key)] = toPlain(value, depth + 1, activeStack, memo);
+      }
+      return plainMap;
+    }
+
+    const plain: Record<string, unknown> = {};
+    memo.set(obj, plain);
+    for (const [key, value] of Object.entries(obj)) {
+      if (typeof value !== 'function') {
+        plain[key] = toPlain(value, depth + 1, activeStack, memo);
+      }
+    }
+    return plain;
+  } finally {
+    activeStack.delete(obj);
   }
-  return plain;
 }
 
 export function inspect(o: unknown, options: util.InspectOptions = { colors: true, depth: 5 }): string {

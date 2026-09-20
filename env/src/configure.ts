@@ -1461,7 +1461,7 @@ export const SysEnv = new AppConfigure(AbstractEnvironmentVariables).vars;
  * 现代通用环境变量 Schema，包含系统基础服务与默认 AI 配置
  */
 export const baseEnvSchema = z.object({
-  ENV: z.enum(['prd', 'stg', 'dev']).default('dev'),
+  ENV: z.enum(['prd', 'stg', 'dev']).optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3100),
   GRPC_PORT: z.coerce.number().default(50051),
@@ -1535,6 +1535,20 @@ export const baseEnvSchema = z.object({
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;
 
+/**
+ * 获取标准环境信息（对齐 AbstractEnvironmentVariables.environment 行为，支持 DOPPLER_ENVIRONMENT 回退）
+ */
+export function getEnvironment(vars: { ENV?: string; DOPPLER_ENVIRONMENT?: string }): {
+  env: 'prd' | 'stg' | 'dev' | string;
+  isProd: boolean;
+} {
+  const env = vars.ENV ?? vars.DOPPLER_ENVIRONMENT ?? 'dev';
+  return {
+    env,
+    isProd: env === 'prd',
+  };
+}
+
 export interface CreateEnvConfigOptions {
   scope?: string;
   loadDotEnv?: boolean;
@@ -1554,6 +1568,10 @@ export function createEnvConfig<T extends z.ZodRawShape>(
   vars: z.infer<z.ZodObject<T>>;
   envSourceMap: Map<string, string>;
   isSensitive: (key: string) => boolean;
+  environment: {
+    env: string;
+    isProd: boolean;
+  };
 } {
   const envSourceMap = new Map<string, string>();
   for (const key of Object.keys(process.env)) {
@@ -1594,9 +1612,20 @@ export function createEnvConfig<T extends z.ZodRawShape>(
     throw new Error(`Environment validation failed: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
   }
 
+  const rawVars = parsed.data as Record<string, unknown>;
+  const resolvedEnv =
+    (typeof rawVars.ENV === 'string' ? rawVars.ENV : undefined) ??
+    (typeof rawVars.DOPPLER_ENVIRONMENT === 'string' ? rawVars.DOPPLER_ENVIRONMENT : undefined) ??
+    'dev';
+  const environment = {
+    env: resolvedEnv,
+    isProd: resolvedEnv === 'prd',
+  };
+
   return {
     vars: parsed.data,
     envSourceMap,
     isSensitive: AppConfigure.isSensitive,
+    environment,
   };
 }
