@@ -1463,13 +1463,25 @@ export const SysEnv = new AppConfigure(AbstractEnvironmentVariables).vars;
 // ==================== Modern Schema-First Env Configuration ====================
 
 /**
+ * 安全数值转换：空字串或純空格預處理為 undefined（使 default/optional 生效），非法字串交由 Zod 報錯
+ */
+function coerceNumber<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((v) => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v === 'string' && v.trim() === '') return undefined;
+    const n = Number(v);
+    return Number.isNaN(n) ? v : n;
+  }, schema);
+}
+
+/**
  * 现代通用环境变量 Schema，包含系统基础服务与默认 AI 配置
  */
 export const baseEnvSchema = z.object({
   ENV: z.enum(['prd', 'stg', 'dev']).optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3100),
-  GRPC_PORT: z.coerce.number().default(50051),
+  PORT: coerceNumber(z.number().int().min(1).max(65535).default(3100)),
+  GRPC_PORT: coerceNumber(z.number().int().min(1).max(65535).default(50051)),
   TZ: z.string().default('UTC'),
   LOG_LEVEL: z.enum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal']).default('debug'),
   API_KEY: z.string().optional(),
@@ -1495,7 +1507,7 @@ export const baseEnvSchema = z.object({
     z.boolean().optional(),
   ),
   APP_PROXY_HOST: z.string().optional(),
-  APP_PROXY_PORT: z.coerce.number().optional(),
+  APP_PROXY_PORT: coerceNumber(z.number().int().min(1).max(65535).optional()),
   GRAPHQL_PLAYGROUND_ENABLED: z.preprocess(
     (v) =>
       typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
@@ -1515,8 +1527,8 @@ export const baseEnvSchema = z.object({
   AI_VOYAGE_API_KEY: z.string().optional(),
   AI_TYPESAFE_API_KEY: z.string().optional(),
   DEFAULT_LLM_MODEL: z.string().default('openrouter:gemini-2.5-flash').describe('llm-model'),
-  AI_LLM_TIMEOUT_MS: z.coerce.number().min(30_000).default(120_000).describe('db-sync:number'),
-  AI_LLM_MAX_RETRIES: z.coerce.number().min(0).default(2).describe('db-sync:number'),
+  AI_LLM_TIMEOUT_MS: coerceNumber(z.number().min(30_000).default(120_000)).describe('db-sync:number'),
+  AI_LLM_MAX_RETRIES: coerceNumber(z.number().min(0).default(2)).describe('db-sync:number'),
   AI_LLM_FETCH_VERBOSE: z
     .preprocess(
       (v) =>
@@ -1526,7 +1538,7 @@ export const baseEnvSchema = z.object({
       z.boolean().default(false),
     )
     .describe('db-sync:boolean'),
-  PRISMA_TRANSACTION_TIMEOUT: z.coerce.number().default(30_000).describe('db-sync:number'),
+  PRISMA_TRANSACTION_TIMEOUT: coerceNumber(z.number().default(30_000)).describe('db-sync:number'),
   I18N_EXCEPTION_ENABLED: z
     .preprocess(
       (v) =>
