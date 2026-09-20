@@ -1,11 +1,14 @@
 import {
   AbstractEnvironmentVariables,
   AppConfigure,
+  arrayTransformFn,
+  booleanTransformFn,
   DatabaseField,
   IsEnum,
   IsOptional,
   IsString,
   Min,
+  objectTransformFn,
   plainToInstance,
   Type,
   validateSync,
@@ -608,28 +611,6 @@ describe('AppConfigure', () => {
       }
     });
 
-    it('should honor existing class-validator metadata when imported from class-validator', () => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const cv = require('class-validator') as { IsString: () => PropertyDecorator };
-      class DownstreamLegacyEnvs extends AbstractEnvironmentVariables {
-        REQUIRED_CV_STRING!: string;
-      }
-      cv.IsString()(DownstreamLegacyEnvs.prototype, 'REQUIRED_CV_STRING');
-
-      const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
-      try {
-        delete process.env.REQUIRED_CV_STRING;
-        expect(() => new AppConfigure(DownstreamLegacyEnvs)).toThrow();
-
-        process.env.REQUIRED_CV_STRING = 'valid-string';
-        expect(() => new AppConfigure(DownstreamLegacyEnvs)).not.toThrow();
-      } finally {
-        delete process.env.REQUIRED_CV_STRING;
-        process.env.NODE_ENV = ORIGINAL_NODE_ENV;
-      }
-    });
-
     it('should cover debug logging paths', () => {
       const ORIGINAL_DEBUG = process.env.CONFIGURE_DEBUG;
       process.env.CONFIGURE_DEBUG = 'true';
@@ -651,7 +632,6 @@ describe('AppConfigure', () => {
 
   describe('Transformers', () => {
     it('booleanTransformFn should handle various inputs', () => {
-      const { booleanTransformFn } = require('./configure');
       expect(booleanTransformFn({ key: 'k', obj: { k: 'true' } })).toBe(true);
       expect(booleanTransformFn({ key: 'k', obj: { k: '1' } })).toBe(true);
       expect(booleanTransformFn({ key: 'k', obj: { k: true } })).toBe(true);
@@ -661,7 +641,6 @@ describe('AppConfigure', () => {
     });
 
     it('objectTransformFn should parse JSON5 strings or return objects', () => {
-      const { objectTransformFn } = require('./configure');
       expect(objectTransformFn({ key: 'k', obj: { k: { a: 1 } } })).toEqual({ a: 1 });
       expect(objectTransformFn({ key: 'k', obj: { k: '{a:1}' } })).toEqual({ a: 1 }); // JSON5
       expect(objectTransformFn({ key: 'k', obj: { k: '' } })).toEqual({});
@@ -669,7 +648,6 @@ describe('AppConfigure', () => {
     });
 
     it('arrayTransformFn should parse JSON5 strings or return arrays', () => {
-      const { arrayTransformFn } = require('./configure');
       expect(arrayTransformFn({ key: 'k', obj: { k: [1, 2] } })).toEqual([1, 2]);
       expect(arrayTransformFn({ key: 'k', obj: { k: '[1,2]' } })).toEqual([1, 2]);
       expect(arrayTransformFn({ key: 'k', obj: { k: '' } })).toEqual([]);
@@ -1475,23 +1453,6 @@ describe('AppConfigure', () => {
       }
 
       expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('plainToInstance compatibility bridge', () => {
-    it('should invoke class-transformer @Transform with PLAIN_TO_CLASS (0)', () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Transform } = require('class-transformer');
-        class TransformDto {
-          @Transform(({ value }: { value: unknown }) => parseInt(String(value), 10), { toClassOnly: true })
-          count: number = 0;
-        }
-        const inst = plainToInstance(TransformDto, { count: '42' });
-        expect(inst.count).toBe(42);
-      } catch {
-        // class-transformer not installed
-      }
     });
   });
 

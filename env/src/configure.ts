@@ -166,65 +166,6 @@ export function Type(
   };
 }
 
-interface CvValidationError {
-  property: string;
-  value?: unknown;
-  constraints?: Record<string, string>;
-}
-
-type CvValidateSyncFn = (target: object, options?: { skipMissingProperties?: boolean }) => CvValidationError[];
-
-interface CvMetadataStorage {
-  getTargetValidationMetadatas: (
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-    targetConstructor: Function,
-    targetSchema: string,
-    always: boolean,
-    strictGroups: boolean,
-  ) => unknown[];
-}
-
-let cvValidateSync: CvValidateSyncFn | undefined;
-let cvMetadataStorage: CvMetadataStorage | undefined;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const cv = require('class-validator') as {
-    validateSync?: CvValidateSyncFn;
-    getMetadataStorage?: () => CvMetadataStorage;
-  };
-  if (typeof cv.validateSync === 'function') {
-    cvValidateSync = cv.validateSync;
-    cvMetadataStorage = typeof cv.getMetadataStorage === 'function' ? cv.getMetadataStorage() : undefined;
-  }
-} catch {
-  // class-validator 未安装，纯原生模式
-}
-
-interface CtTransformMetadata {
-  transformFn: (params: { value: unknown; key: string; obj: unknown; type: number }) => unknown;
-}
-
-interface CtMetadataStorage {
-  findTransformMetadatas?: (target: unknown, propertyName: string, transformationType: number) => CtTransformMetadata[];
-  findTypeMetadata?: (
-    target: unknown,
-    propertyName: string,
-  ) =>
-    | {
-        typeFunction: () => unknown;
-      }
-    | undefined;
-}
-
-let ctStorage: CtMetadataStorage | undefined;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const storageModule = require('class-transformer/cjs/storage') as { defaultMetadataStorage?: CtMetadataStorage };
-  ctStorage = storageModule.defaultMetadataStorage;
-} catch {
-  // class-transformer 未安装
-}
-
 export function plainToInstance<T extends object>(
   Cls: new () => T,
   plain: Record<string, unknown>,
@@ -251,42 +192,9 @@ export function plainToInstance<T extends object>(
 
     const hasPlainKey = plain != null && Object.prototype.hasOwnProperty.call(plain, key);
     const rawValue = hasPlainKey ? plain[key] : undefined;
-    let transformFn = Reflect.getMetadata(TransformsSymbol, prototype as object, key) as
+    const transformFn = Reflect.getMetadata(TransformsSymbol, prototype as object, key) as
       ((params: TransformFnParams) => unknown) | undefined;
-
-    if (!transformFn && ctStorage?.findTransformMetadatas) {
-      try {
-        const metadatas = ctStorage.findTransformMetadatas(Cls, key, 0 /* PLAIN_TO_CLASS */);
-        if (metadatas && metadatas.length > 0) {
-          transformFn = (params: TransformFnParams) => {
-            let current = params.value;
-            for (const meta of metadatas) {
-              current = meta.transformFn({
-                value: current,
-                key: params.key,
-                obj: params.obj,
-                type: 0 /* PLAIN_TO_CLASS */,
-              });
-            }
-            return current;
-          };
-        }
-      } catch {
-        // 忽略兼容层异常
-      }
-    }
-
-    let typeFn = Reflect.getMetadata(TypesSymbol, prototype as object, key) as (() => unknown) | undefined;
-    if (!typeFn && ctStorage?.findTypeMetadata) {
-      try {
-        const typeMeta = ctStorage.findTypeMetadata(Cls, key);
-        if (typeMeta?.typeFunction) {
-          typeFn = typeMeta.typeFunction;
-        }
-      } catch {
-        // 忽略兼容层异常
-      }
-    }
+    const typeFn = Reflect.getMetadata(TypesSymbol, prototype as object, key) as (() => unknown) | undefined;
 
     let val = hasPlainKey ? rawValue : (instance as Record<string, unknown>)[key];
 
@@ -375,33 +283,6 @@ export function validateSync(instance: object, options?: { skipMissingProperties
         value: val,
         constraints,
       });
-    }
-  }
-
-  // 若下游子类仍然使用 class-validator 装饰器，且 class-validator 仍在环境中可用，一并桥接校验
-  if (cvValidateSync && cvMetadataStorage) {
-    try {
-      const cvMetas = cvMetadataStorage.getTargetValidationMetadatas(instance.constructor, '', false, false);
-      if (Array.isArray(cvMetas) && cvMetas.length > 0) {
-        const cvErrors = cvValidateSync(instance, options);
-        if (Array.isArray(cvErrors) && cvErrors.length > 0) {
-          for (const cvErr of cvErrors) {
-            if (!cvErr.property) continue;
-            const existing = errors.find((e) => e.property === cvErr.property);
-            if (existing) {
-              existing.constraints = { ...existing.constraints, ...cvErr.constraints };
-            } else {
-              errors.push({
-                property: cvErr.property,
-                value: cvErr.value,
-                constraints: cvErr.constraints ?? { invalid: `${cvErr.property} is invalid` },
-              });
-            }
-          }
-        }
-      }
-    } catch {
-      // 容错处理
     }
   }
 
