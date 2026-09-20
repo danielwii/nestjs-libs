@@ -101,6 +101,29 @@ describe('logging.utils', () => {
       expect(r([1, 2, 3])).toContain('3');
     });
 
+    it('should handle repeated non-cyclic sibling references without throwing circular error', () => {
+      const shared = { id: 1, name: 'shared-entity' };
+      const obj = {
+        primary: shared,
+        secondary: shared,
+        list: [shared, shared],
+      };
+
+      const plain = toPlain(obj) as typeof obj;
+      expect(plain.primary).toEqual({ id: 1, name: 'shared-entity' });
+      expect(plain.secondary).toEqual({ id: 1, name: 'shared-entity' });
+      expect(plain.list).toEqual([
+        { id: 1, name: 'shared-entity' },
+        { id: 1, name: 'shared-entity' },
+      ]);
+
+      process.env.NODE_ENV = 'production';
+      const formatted = r(obj);
+      const parsed = JSON5.parse(formatted);
+      expect(parsed.primary.name).toBe('shared-entity');
+      expect(parsed.secondary.name).toBe('shared-entity');
+    });
+
     it('should fallback to inspect if instanceToPlain fails', () => {
       const circular: Record<string, unknown> = {};
       circular.self = circular;
