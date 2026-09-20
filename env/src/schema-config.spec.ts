@@ -25,6 +25,17 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(parsed.LOG_LEVEL).toBe('debug');
       expect(parsed.AI_LLM_TIMEOUT_MS).toBe(120_000);
       expect(parsed.I18N_EXCEPTION_ENABLED).toBe(false);
+      expect(parsed.APP_PROXY_ENABLED).toBeUndefined();
+      expect(parsed.GRAPHQL_PLAYGROUND_ENABLED).toBeUndefined();
+    });
+
+    it('should keep optional booleans as undefined when undefined or empty string', () => {
+      const parsedExplicit = baseEnvSchema.parse({
+        APP_PROXY_ENABLED: undefined,
+        GRAPHQL_PLAYGROUND_ENABLED: '',
+      });
+      expect(parsedExplicit.APP_PROXY_ENABLED).toBeUndefined();
+      expect(parsedExplicit.GRAPHQL_PLAYGROUND_ENABLED).toBeUndefined();
     });
 
     it('should correctly coerce string numbers and booleans from environment', () => {

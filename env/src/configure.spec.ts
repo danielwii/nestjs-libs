@@ -10,6 +10,7 @@ import {
   Min,
   objectTransformFn,
   plainToInstance,
+  Transform,
   Type,
   validateSync,
 } from './configure';
@@ -652,6 +653,17 @@ describe('AppConfigure', () => {
       expect(arrayTransformFn({ key: 'k', obj: { k: '[1,2]' } })).toEqual([1, 2]);
       expect(arrayTransformFn({ key: 'k', obj: { k: '' } })).toEqual([]);
       expect(() => arrayTransformFn({ key: 'k', obj: { k: '[invalid]' } })).toThrow();
+    });
+
+    it('should compose multiple Transform decorators in declaration order', () => {
+      class MultipleTransformDto {
+        @Transform(({ value }) => String(value).trim())
+        @Transform(({ value }) => String(value).toUpperCase())
+        text: string = '';
+      }
+
+      const instance = plainToInstance(MultipleTransformDto, { text: '  hello  ' });
+      expect(instance.text).toBe('HELLO');
     });
   });
 
