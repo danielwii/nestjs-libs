@@ -1,3 +1,5 @@
+import 'reflect-metadata';
+
 import { getAppLogger } from '@app/utils/app-logger';
 import { errorStack } from '@app/utils/error';
 
@@ -8,12 +10,268 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { config } from '@dotenvx/dotenvx';
-import { plainToInstance, Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, validateSync } from 'class-validator';
 import JSON5 from 'json5';
 import * as _ from 'radash';
+import { z } from 'zod';
 
-import type { TransformFnParams } from 'class-transformer';
+// ==================== Native Lightweight Decorators & Validator ====================
+
+export interface TransformFnParams {
+  key: string;
+  value?: unknown;
+  obj: Record<string, unknown>;
+}
+
+export interface ValidationError {
+  property: string;
+  value?: unknown;
+  constraints?: Record<string, string>;
+}
+
+interface ValidationRule {
+  validate: (val: unknown) => boolean;
+  message: string | ((val: unknown, key: string) => string);
+  name: string;
+}
+
+const ValidationRulesSymbol = Symbol('ValidationRules');
+const TransformsSymbol = Symbol('Transforms');
+const TypesSymbol = Symbol('Types');
+const OptionalSymbol = Symbol('Optional');
+const DecoratedKeysSymbol = Symbol('DecoratedKeys');
+
+function recordDecoratedKey(target: object, propertyKey: string) {
+  const existing = (Reflect.getMetadata(DecoratedKeysSymbol, target) as Set<string> | undefined) ?? new Set<string>();
+  existing.add(propertyKey);
+  Reflect.defineMetadata(DecoratedKeysSymbol, existing, target);
+}
+
+function addRule(target: object, propertyKey: string, rule: ValidationRule) {
+  recordDecoratedKey(target, propertyKey);
+  const existing =
+    (Reflect.getMetadata(ValidationRulesSymbol, target, propertyKey) as ValidationRule[] | undefined) ?? [];
+  Reflect.defineMetadata(ValidationRulesSymbol, [...existing, rule], target, propertyKey);
+}
+
+function getDecoratedKeys(target: object): Set<string> {
+  const keys = new Set<string>();
+  let proto: object | null = target;
+  while (proto && proto !== Object.prototype) {
+    const protoKeys = Reflect.getMetadata(DecoratedKeysSymbol, proto) as Set<string> | undefined;
+    if (protoKeys) {
+      for (const k of protoKeys) {
+        keys.add(k);
+      }
+    }
+    proto = Object.getPrototypeOf(proto) as object | null;
+  }
+  return keys;
+}
+
+export function IsOptional(): PropertyDecorator {
+  return (target, propertyKey) => {
+    recordDecoratedKey(target, propertyKey as string);
+    Reflect.defineMetadata(OptionalSymbol, true, target, propertyKey);
+  };
+}
+
+export function IsString(options?: { message?: string }): PropertyDecorator {
+  return (target, propertyKey) => {
+    addRule(target, propertyKey as string, {
+      name: 'isString',
+      validate: (val) => typeof val === 'string',
+      message: options?.message ?? `${String(propertyKey)} must be a string`,
+    });
+  };
+}
+
+export function IsNumber(options?: { message?: string }): PropertyDecorator {
+  return (target, propertyKey) => {
+    addRule(target, propertyKey as string, {
+      name: 'isNumber',
+      validate: (val) => typeof val === 'number' && !Number.isNaN(val),
+      message: options?.message ?? `${String(propertyKey)} must be a number`,
+    });
+  };
+}
+
+export function IsBoolean(options?: { message?: string }): PropertyDecorator {
+  return (target, propertyKey) => {
+    addRule(target, propertyKey as string, {
+      name: 'isBoolean',
+      validate: (val) => typeof val === 'boolean',
+      message: options?.message ?? `${String(propertyKey)} must be a boolean`,
+    });
+  };
+}
+
+export function IsEnum(
+  entity: object | string[] | readonly string[],
+  options?: { message?: string },
+): PropertyDecorator {
+  return (target, propertyKey) => {
+    const allowed = (Array.isArray(entity) ? entity : Object.values(entity)) as readonly string[];
+    addRule(target, propertyKey as string, {
+      name: 'isEnum',
+      validate: (val) => typeof val === 'string' && allowed.includes(val),
+      message: (val, key) => {
+        if (options?.message) {
+          return options.message.replace('$value', String(val));
+        }
+        return `${key} must be one of: ${allowed.join(', ')} (got: ${String(val)})`;
+      },
+    });
+  };
+}
+
+export function Min(minVal: number, options?: { message?: string }): PropertyDecorator {
+  return (target, propertyKey) => {
+    addRule(target, propertyKey as string, {
+      name: 'min',
+      validate: (val) => typeof val === 'number' && val >= minVal,
+      message: options?.message ?? `${String(propertyKey)} must not be less than ${minVal}`,
+    });
+  };
+}
+
+export function Transform(fn: (params: TransformFnParams) => unknown): PropertyDecorator {
+  return (target, propertyKey) => {
+    recordDecoratedKey(target, propertyKey as string);
+    Reflect.defineMetadata(TransformsSymbol, fn, target, propertyKey);
+  };
+}
+
+export function Type(
+  typeFn: () => NumberConstructor | StringConstructor | BooleanConstructor | unknown,
+): PropertyDecorator {
+  return (target, propertyKey) => {
+    recordDecoratedKey(target, propertyKey as string);
+    Reflect.defineMetadata(TypesSymbol, typeFn, target, propertyKey);
+  };
+}
+
+export function plainToInstance<T extends object>(
+  Cls: new () => T,
+  plain: Record<string, unknown>,
+  options?: { enableImplicitConversion?: boolean },
+): T {
+  const instance = new Cls();
+  const prototype = Cls.prototype;
+  const decoratedKeys = getDecoratedKeys(prototype);
+
+  const allKeys = new Set([...Object.getOwnPropertyNames(instance), ...decoratedKeys, ...Object.keys(plain || {})]);
+
+  for (const key of allKeys) {
+    if (key === 'constructor') continue;
+
+    // 如果 prototype 上是方法或 getter，跳过赋值
+    const protoDesc = Object.getOwnPropertyDescriptor(prototype, key);
+    if (protoDesc && (protoDesc.get || typeof protoDesc.value === 'function')) {
+      continue;
+    }
+    const instanceDesc = Object.getOwnPropertyDescriptor(instance, key);
+    if (instanceDesc && !instanceDesc.writable && !instanceDesc.set) {
+      continue;
+    }
+
+    const hasPlainKey = plain != null && Object.prototype.hasOwnProperty.call(plain, key);
+    const rawValue = hasPlainKey ? plain[key] : undefined;
+    const transformFn = Reflect.getMetadata(TransformsSymbol, prototype as object, key) as
+      ((params: TransformFnParams) => unknown) | undefined;
+    const typeFn = Reflect.getMetadata(TypesSymbol, prototype as object, key) as (() => unknown) | undefined;
+
+    let val = hasPlainKey ? rawValue : (instance as Record<string, unknown>)[key];
+
+    if (hasPlainKey) {
+      if (transformFn) {
+        val = transformFn({ key, value: rawValue, obj: plain });
+      } else if (typeFn && options?.enableImplicitConversion && val !== undefined && val !== null && val !== '') {
+        const targetType = typeFn();
+        if (targetType === Number && typeof val !== 'number') {
+          const num = Number(val);
+          if (!Number.isNaN(num)) val = num;
+        } else if (targetType === Boolean && typeof val !== 'boolean') {
+          val = [true, 'true', '1'].includes(val as string | boolean);
+        } else if (targetType === String && typeof val !== 'string') {
+          // eslint-disable-next-line @typescript-eslint/no-base-to-string -- 窄化后对象转 JSON，基本类型转字符串
+          val = typeof val === 'object' && val !== null ? JSON5.stringify(val) : String(val);
+        }
+      } else if (options?.enableImplicitConversion && val !== undefined && val !== null && val !== '') {
+        const defaultVal = (instance as Record<string, unknown>)[key];
+        if (typeof defaultVal === 'number' && typeof val === 'string' && /^-?\d+(\.\d+)?$/.test(val.trim())) {
+          val = Number(val);
+        }
+      }
+    }
+
+    if (val !== undefined) {
+      try {
+        (instance as Record<string, unknown>)[key] = val;
+      } catch {
+        // 如果个别属性仍不可写，静默忽略
+      }
+    }
+  }
+
+  return instance;
+}
+
+export function validateSync(instance: object, options?: { skipMissingProperties?: boolean }): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const prototype = (Object.getPrototypeOf(instance) as object | null) ?? instance;
+  const decoratedKeys = getDecoratedKeys(prototype);
+
+  const checkedKeys = new Set<string>([
+    ...Object.getOwnPropertyNames(instance),
+    ...Object.getOwnPropertyNames(prototype),
+    ...decoratedKeys,
+  ]);
+
+  for (const key of checkedKeys) {
+    if (key === 'constructor' || key === 'logger') continue;
+
+    const protoDesc = Object.getOwnPropertyDescriptor(prototype, key);
+    const rules = (Reflect.getMetadata(ValidationRulesSymbol, prototype, key) as ValidationRule[] | undefined) ?? [];
+    if (protoDesc?.get && !protoDesc.set && rules.length === 0) {
+      continue;
+    }
+
+    const val = (instance as Record<string, unknown>)[key];
+    const isOptional = Reflect.getMetadata(OptionalSymbol, prototype, key) === true;
+
+    if ((val === undefined || val === null || val === '') && (isOptional || options?.skipMissingProperties)) {
+      continue;
+    }
+
+    if ((val === undefined || val === null) && !isOptional && !options?.skipMissingProperties) {
+      if (rules.length > 0) {
+        errors.push({
+          property: key,
+          value: val,
+          constraints: { isNotEmpty: `${key} should not be empty` },
+        });
+      }
+      continue;
+    }
+
+    const constraints: Record<string, string> = {};
+    for (const rule of rules) {
+      if (!rule.validate(val)) {
+        constraints[rule.name] = typeof rule.message === 'function' ? rule.message(val, key) : rule.message;
+      }
+    }
+
+    if (Object.keys(constraints).length > 0) {
+      errors.push({
+        property: key,
+        value: val,
+        constraints,
+      });
+    }
+  }
+
+  return errors;
+}
 
 const transformLogger = getAppLogger('Transform');
 const configureLogger = getAppLogger('Configure');
@@ -152,7 +410,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // 原因：
   // 1. 环境变量中的值都是字符串类型
   // 2. TypeScript 的类型信息在编译后会丢失
-  // 3. 需要显式告诉 class-transformer 如何转换类型
+  // 3. 原生类型转换引擎会依据此标记进行字符串到数值的自动转换
   // 4. 这样可以确保在所有环境下（如 bun mastra dev）都能正确转换
   @Type(() => Number) @IsNumber() @IsOptional() PORT: number = 3100;
   @Type(() => Number) @IsNumber() @IsOptional() GRPC_PORT: number = 50051;
@@ -1082,3 +1340,152 @@ export function createNoDBConfigure<T extends AbstractEnvironmentVariables>(Envs
 }
 
 export const SysEnv = new AppConfigure(AbstractEnvironmentVariables).vars;
+
+// ==================== Modern Schema-First Env Configuration ====================
+
+/**
+ * 现代通用环境变量 Schema，包含系统基础服务与默认 AI 配置
+ */
+export const baseEnvSchema = z.object({
+  ENV: z.enum(['prd', 'stg', 'dev']).default('dev'),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  PORT: z.coerce.number().default(3100),
+  GRPC_PORT: z.coerce.number().default(50051),
+  TZ: z.string().default('UTC'),
+  LOG_LEVEL: z.enum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal']).default('debug'),
+  API_KEY: z.string().optional(),
+  NEST_DEBUG: z.string().optional(),
+  DOPPLER_ENVIRONMENT: z.string().optional(),
+  SESSION_SECRET: z.string().optional(),
+  APP_WEB_DOMAINS: z.string().optional(),
+  SERVICE_NAME: z.string().optional(),
+  TRACING_EXPORTER_URL: z.string().optional(),
+  LOG_REDACTION_KEY: z.string().optional(),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().optional(),
+  OTEL_EXPORTER_OTLP_PROTOCOL: z.string().optional(),
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: z.string().optional(),
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS: z.string().optional(),
+  OTEL_LOG_LEVEL: z.string().optional(),
+  APP_PROXY_ENABLED: z.preprocess(
+    (v) =>
+      typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
+        ? [true, 'true', '1', 1].includes(v)
+        : false,
+    z.boolean().optional(),
+  ),
+  APP_PROXY_HOST: z.string().optional(),
+  APP_PROXY_PORT: z.coerce.number().optional(),
+  GRAPHQL_PLAYGROUND_ENABLED: z.preprocess(
+    (v) =>
+      typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
+        ? [true, 'true', '1', 1].includes(v)
+        : false,
+    z.boolean().optional(),
+  ),
+  AI_OPENROUTER_API_KEY: z.string().optional(),
+  AI_GOOGLE_API_KEY: z.string().optional(),
+  AI_GOOGLE_VERTEX_API_KEY: z.string().optional(),
+  GOOGLE_VERTEX_PROJECT: z.string().optional(),
+  GOOGLE_VERTEX_LOCATION: z.string().optional(),
+  AI_OPENAI_API_KEY: z.string().optional(),
+  AI_BEDROCK_API_KEY: z.string().optional(),
+  AI_BEDROCK_REGION: z.string().optional(),
+  AI_JINA_API_KEY: z.string().optional(),
+  AI_VOYAGE_API_KEY: z.string().optional(),
+  AI_TYPESAFE_API_KEY: z.string().optional(),
+  DEFAULT_LLM_MODEL: z.string().default('openrouter:gemini-2.5-flash').describe('llm-model'),
+  AI_LLM_TIMEOUT_MS: z.coerce.number().min(30_000).default(120_000).describe('db-sync:number'),
+  AI_LLM_MAX_RETRIES: z.coerce.number().min(0).default(2).describe('db-sync:number'),
+  AI_LLM_FETCH_VERBOSE: z
+    .preprocess(
+      (v) =>
+        typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
+          ? [true, 'true', '1', 1].includes(v)
+          : false,
+      z.boolean().default(false),
+    )
+    .describe('db-sync:boolean'),
+  PRISMA_TRANSACTION_TIMEOUT: z.coerce.number().default(30_000).describe('db-sync:number'),
+  I18N_TRANSLATION_ENABLED: z
+    .preprocess(
+      (v) =>
+        typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
+          ? [true, 'true', '1', 1].includes(v)
+          : false,
+      z.boolean().default(true),
+    )
+    .describe('db-sync:boolean'),
+});
+
+export type BaseEnv = z.infer<typeof baseEnvSchema>;
+
+export interface CreateEnvConfigOptions {
+  scope?: string;
+  loadDotEnv?: boolean;
+}
+
+/**
+ * 现代 Schema-First 环境变量配置加载器
+ *
+ * 1. 级联加载 .env 文件（遵从 host -> .env.[local] -> defaults 优先序）
+ * 2. 基于 Standard Schema / Zod 校验，自动完成类型转换与推导
+ * 3. 敏感字段自动脱敏日志输出
+ */
+export function createEnvConfig<T extends z.ZodRawShape>(
+  schema: z.ZodObject<T>,
+  options: CreateEnvConfigOptions = {},
+): {
+  vars: z.infer<z.ZodObject<T>>;
+  envSourceMap: Map<string, string>;
+  isSensitive: (key: string) => boolean;
+} {
+  const envSourceMap = new Map<string, string>();
+  for (const key of Object.keys(process.env)) {
+    envSourceMap.set(key, 'host');
+  }
+
+  if (options.loadDotEnv !== false) {
+    const envFilePath = (() => {
+      switch (process.env.NODE_ENV) {
+        case NODE_ENV.Test:
+          return ['.env.test.local', '.env.test'];
+        case NODE_ENV.Production:
+          return ['.env.local', '.env'];
+        default:
+          return ['.env.development.local', '.env.local', '.env.development', '.env'];
+      }
+    })();
+
+    envFilePath.forEach((env) => {
+      const fullPath = path.resolve(process.env.PWD ?? '', env);
+      if (!fs.existsSync(fullPath)) return;
+      const beforeKeys = new Set(Object.keys(process.env));
+      config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
+      for (const key of Object.keys(process.env)) {
+        if (!beforeKeys.has(key)) envSourceMap.set(key, env);
+      }
+    });
+  }
+
+  const parsed = schema.safeParse(process.env);
+  if (!parsed.success) {
+    const logger = getAppLogger('Configure');
+    logger.error`[Env] Configuration validation failed:`;
+    for (const issue of parsed.error.issues) {
+      const pathStr = issue.path.join('.');
+      logger.error`  ${pathStr}: ${issue.message}`;
+    }
+    if (process.env.NODE_ENV !== NODE_ENV.Test) {
+      throw new Error(`Environment validation failed: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
+    }
+  }
+
+  const vars = (parsed.success ? parsed.data : (process.env as unknown)) as z.infer<z.ZodObject<T>>;
+  return {
+    vars,
+    envSourceMap,
+    isSensitive: AppConfigure.isSensitive,
+  };
+}
