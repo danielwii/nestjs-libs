@@ -106,14 +106,14 @@ export function IsBoolean(options?: { message?: string }): PropertyDecorator {
 }
 
 export function IsEnum(
-  entity: object | string[] | readonly string[],
+  entity: object | string[] | readonly string[] | readonly number[],
   options?: { message?: string },
 ): PropertyDecorator {
   return (target, propertyKey) => {
-    const allowed = (Array.isArray(entity) ? entity : Object.values(entity)) as readonly string[];
+    const allowed = (Array.isArray(entity) ? entity : Object.values(entity)) as readonly (string | number)[];
     addRule(target, propertyKey as string, {
       name: 'isEnum',
-      validate: (val) => typeof val === 'string' && allowed.includes(val),
+      validate: (val) => (typeof val === 'string' || typeof val === 'number') && allowed.includes(val),
       message: (val, key) => {
         if (options?.message) {
           return options.message.replace('$value', String(val));
@@ -1465,7 +1465,7 @@ export const SysEnv = new AppConfigure(AbstractEnvironmentVariables).vars;
 /**
  * 安全数值转换：空字串或純空格預處理為 undefined（使 default/optional 生效），非法字串交由 Zod 報錯
  */
-function coerceNumber<T extends z.ZodTypeAny>(schema: T) {
+function coerceNumber<T extends z.ZodType>(schema: T) {
   return z.preprocess((v) => {
     if (v === undefined || v === null) return undefined;
     if (typeof v === 'string' && v.trim() === '') return undefined;
