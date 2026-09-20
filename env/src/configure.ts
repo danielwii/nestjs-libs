@@ -90,7 +90,7 @@ export function IsNumber(options?: { message?: string }): PropertyDecorator {
   return (target, propertyKey) => {
     addRule(target, propertyKey as string, {
       name: 'isNumber',
-      validate: (val) => typeof val === 'number' && !Number.isNaN(val),
+      validate: (val) => typeof val === 'number' && Number.isFinite(val),
       message: options?.message ?? `${String(propertyKey)} must be a number`,
     });
   };

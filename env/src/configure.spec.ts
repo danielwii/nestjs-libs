@@ -3,6 +3,7 @@ import {
   AppConfigure,
   DatabaseField,
   IsEnum,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
@@ -1449,6 +1450,33 @@ describe('AppConfigure', () => {
       const errors = validateSync(invalidDto);
       expect(errors.length).toBe(1);
       expect(errors[0]!.property).toBe('status');
+    });
+  });
+
+  describe('IsNumber decorator', () => {
+    class NumberDto {
+      @IsNumber()
+      port!: number;
+    }
+
+    it('passes for finite numbers', () => {
+      const dto = new NumberDto();
+      dto.port = 3000;
+      expect(validateSync(dto)).toEqual([]);
+    });
+
+    it('rejects NaN, Infinity, and -Infinity as malformed numbers', () => {
+      const nanDto = new NumberDto();
+      nanDto.port = Number.NaN;
+      expect(validateSync(nanDto).length).toBe(1);
+
+      const infDto = new NumberDto();
+      infDto.port = Number.POSITIVE_INFINITY;
+      expect(validateSync(infDto).length).toBe(1);
+
+      const negInfDto = new NumberDto();
+      negInfDto.port = Number.NEGATIVE_INFINITY;
+      expect(validateSync(negInfDto).length).toBe(1);
     });
   });
 });
