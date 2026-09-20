@@ -1,4 +1,4 @@
-import { baseEnvSchema, createEnvConfig } from './configure';
+import { baseEnvSchema, createEnvConfig, getEnvironment } from './configure';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
@@ -15,11 +15,11 @@ describe('createEnvConfig & baseEnvSchema', () => {
   });
 
   describe('baseEnvSchema defaults', () => {
-    it('should provide default values for system environments', () => {
+    it('should provide default values for system environments and leave ENV unset', () => {
       const parsed = baseEnvSchema.parse({});
       expect(parsed.PORT).toBe(3100);
       expect(parsed.GRPC_PORT).toBe(50051);
-      expect(parsed.ENV).toBe('dev');
+      expect(parsed.ENV).toBeUndefined();
       expect(parsed.NODE_ENV).toBe('development');
       expect(parsed.TZ).toBe('UTC');
       expect(parsed.LOG_LEVEL).toBe('debug');
@@ -52,13 +52,40 @@ describe('createEnvConfig & baseEnvSchema', () => {
         MY_API_KEY: z.string(),
       });
 
-      const { vars, envSourceMap, isSensitive } = createEnvConfig(appSchema, { loadDotEnv: false });
+      const { vars, envSourceMap, isSensitive, environment } = createEnvConfig(appSchema, { loadDotEnv: false });
 
       expect(vars.MY_SERVICE_PORT).toBe(9000);
       expect(vars.MY_API_KEY).toBe('secret-123');
       expect(envSourceMap.get('MY_SERVICE_PORT')).toBe('host');
       expect(isSensitive('MY_API_KEY')).toBe(true);
       expect(isSensitive('PORT')).toBe(false);
+      expect(environment.env).toBe('dev');
+      expect(environment.isProd).toBe(false);
+    });
+
+    it('should fallback to DOPPLER_ENVIRONMENT when ENV is unset', () => {
+      process.env.DOPPLER_ENVIRONMENT = 'prd';
+      delete process.env.ENV;
+
+      const { vars, environment } = createEnvConfig(baseEnvSchema, { loadDotEnv: false });
+      expect(vars.ENV).toBeUndefined();
+      expect(vars.DOPPLER_ENVIRONMENT).toBe('prd');
+      expect(environment.env).toBe('prd');
+      expect(environment.isProd).toBe(true);
+
+      const helperResult = getEnvironment(vars);
+      expect(helperResult.env).toBe('prd');
+      expect(helperResult.isProd).toBe(true);
+    });
+
+    it('should prioritize explicit ENV over DOPPLER_ENVIRONMENT', () => {
+      process.env.ENV = 'stg';
+      process.env.DOPPLER_ENVIRONMENT = 'prd';
+
+      const { vars, environment } = createEnvConfig(baseEnvSchema, { loadDotEnv: false });
+      expect(vars.ENV).toBe('stg');
+      expect(environment.env).toBe('stg');
+      expect(environment.isProd).toBe(false);
     });
 
     it('should throw validation error when required field is missing', () => {
