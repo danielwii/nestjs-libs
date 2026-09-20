@@ -1,4 +1,4 @@
-import { AbstractEnvironmentVariables, AppConfigure, DatabaseField } from './configure';
+import { AbstractEnvironmentVariables, AppConfigure, DatabaseField, IsString, Min } from './configure';
 
 import { describe, expect, it, mock } from 'bun:test';
 
@@ -6,7 +6,6 @@ import 'reflect-metadata';
 
 import * as os from 'node:os';
 
-import { IsString, Min } from 'class-validator';
 import * as _ from 'radash';
 
 describe('AppConfigure', () => {

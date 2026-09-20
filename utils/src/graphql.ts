@@ -3,9 +3,6 @@ import { Field, ID, InputType, Int, InterfaceType, ObjectType } from '@nestjs/gr
 import { Oops } from '@app/nest/exceptions/oops';
 import { isOopsError } from '@app/nest/exceptions/oops-error';
 
-import { plainToInstance } from 'class-transformer';
-import { Allow } from 'class-validator';
-
 // import type { RequestInfo } from '../app/auth/types';
 // import type * as DBTypes from '@/generated/prisma/client';
 //
@@ -35,11 +32,9 @@ export interface CursoredRequest {
 })
 export class CursoredRequestInput implements CursoredRequest {
   @Field(() => Int, { description: 'page size', nullable: true, defaultValue: 20 })
-  @Allow()
   first: number = 20;
 
   @Field(() => ID, { description: 'latest cursor', nullable: true })
-  @Allow()
   after?: string | number;
 
   static DEFAULT = { first: 20 };
@@ -81,7 +76,7 @@ export class CursorPaginationInfo extends PaginationInfo {
   startCursor: string | number | null = null;
 
   public static fromState(state: CursorPaginationState): CursorPaginationInfo {
-    return plainToInstance(CursorPaginationInfo, state);
+    return Object.assign(new CursorPaginationInfo(), state);
   }
 }
 
@@ -99,7 +94,7 @@ export class PagePaginationInfo extends PaginationInfo {
   currentPage!: number;
 
   public static fromState(state: PagePaginationState): PagePaginationInfo {
-    return plainToInstance(PagePaginationInfo, state);
+    return Object.assign(new PagePaginationInfo(), state);
   }
 }
 
