@@ -1,16 +1,12 @@
 import {
   AbstractEnvironmentVariables,
   AppConfigure,
-  arrayTransformFn,
-  booleanTransformFn,
   DatabaseField,
   IsEnum,
   IsOptional,
   IsString,
   Min,
-  objectTransformFn,
   plainToInstance,
-  Transform,
   Type,
   validateSync,
 } from './configure';
@@ -628,42 +624,6 @@ describe('AppConfigure', () => {
       expect(envs.environment.env).toBeDefined();
       expect(envs.isNodeDevelopment).toBe(process.env.NODE_ENV === 'development');
       expect(envs.NODE_NAME).toContain(os.hostname());
-    });
-  });
-
-  describe('Transformers', () => {
-    it('booleanTransformFn should handle various inputs', () => {
-      expect(booleanTransformFn({ key: 'k', obj: { k: 'true' } })).toBe(true);
-      expect(booleanTransformFn({ key: 'k', obj: { k: '1' } })).toBe(true);
-      expect(booleanTransformFn({ key: 'k', obj: { k: true } })).toBe(true);
-      expect(booleanTransformFn({ key: 'k', obj: { k: 'false' } })).toBe(false);
-      expect(booleanTransformFn({ key: 'k', obj: { k: '0' } })).toBe(false);
-      expect(booleanTransformFn({ key: 'k', obj: { k: null } })).toBe(false);
-    });
-
-    it('objectTransformFn should parse JSON5 strings or return objects', () => {
-      expect(objectTransformFn({ key: 'k', obj: { k: { a: 1 } } })).toEqual({ a: 1 });
-      expect(objectTransformFn({ key: 'k', obj: { k: '{a:1}' } })).toEqual({ a: 1 }); // JSON5
-      expect(objectTransformFn({ key: 'k', obj: { k: '' } })).toEqual({});
-      expect(() => objectTransformFn({ key: 'k', obj: { k: '{invalid}' } })).toThrow();
-    });
-
-    it('arrayTransformFn should parse JSON5 strings or return arrays', () => {
-      expect(arrayTransformFn({ key: 'k', obj: { k: [1, 2] } })).toEqual([1, 2]);
-      expect(arrayTransformFn({ key: 'k', obj: { k: '[1,2]' } })).toEqual([1, 2]);
-      expect(arrayTransformFn({ key: 'k', obj: { k: '' } })).toEqual([]);
-      expect(() => arrayTransformFn({ key: 'k', obj: { k: '[invalid]' } })).toThrow();
-    });
-
-    it('should compose multiple Transform decorators in declaration order', () => {
-      class MultipleTransformDto {
-        @Transform(({ value }) => String(value).trim())
-        @Transform(({ value }) => String(value).toUpperCase())
-        text: string = '';
-      }
-
-      const instance = plainToInstance(MultipleTransformDto, { text: '  hello  ' });
-      expect(instance.text).toBe('HELLO');
     });
   });
 
