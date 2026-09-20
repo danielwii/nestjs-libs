@@ -761,7 +761,38 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         throw new Error(parseResult.error.issues.map((i) => i.path.join('.')).join(', '));
       }
       // 关键：将由 Schema 严格校验与类型转换 (Coercion) 后的强类型数据回赋给实例
-      Object.assign(instance, parseResult.data);
+      // 优先级规范：External Ingress (process.env) > Subclass Constructor Defaults (instance[key]) > Base Schema Fallback
+      for (const [key, parsedVal] of Object.entries(parseResult.data)) {
+        const rawVal = config[key];
+        const isSupplied = rawVal !== undefined && (typeof rawVal !== 'string' || rawVal.trim() !== '');
+        if (isSupplied) {
+          // 外部显式提供了环境变量：采用经 Schema 校验与清洗后的强类型值
+          (instance as Record<string, unknown>)[key] = parsedVal;
+        } else {
+          // 外部未提供环境变量：子类/实例构造函数默认值优先
+          const currentVal = (instance as Record<string, unknown>)[key];
+          if (currentVal !== undefined) {
+            // 启动期双阶边界防卫 (Fail-Fast)：校验子类构造函数默认值是否符合 Schema 契约约束
+            const fieldSchema = (baseEnvSchema.shape as Record<string, z.ZodType | undefined>)[key];
+            if (fieldSchema) {
+              const checkResult = fieldSchema.safeParse(currentVal);
+              if (!checkResult.success) {
+                this.logger.error`[SYS] Subclass default value validation failed for ${key}:`;
+                for (const issue of checkResult.error.issues) {
+                  this.logger.error`  ${issue.path.join('.')}: ${issue.message}`;
+                }
+                throw new Error(
+                  `Invalid subclass default for ${key}: ${checkResult.error.issues.map((i) => i.message).join(', ')}`,
+                );
+              }
+              (instance as Record<string, unknown>)[key] = checkResult.data;
+            }
+          } else {
+            // 实例上为 undefined，回落到 Schema default
+            (instance as Record<string, unknown>)[key] = parsedVal;
+          }
+        }
+      }
     }
 
     // 2. 针对子类扩展的自定义属性（不在 baseEnvSchema 中的属性），做原生补充赋值与类型转换

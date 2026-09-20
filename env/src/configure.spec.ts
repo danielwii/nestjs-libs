@@ -656,6 +656,68 @@ describe('AppConfigure', () => {
       }
     });
 
+    it('should preserve subclass constructor defaults when environment variables are absent', () => {
+      class CustomAppEnvs extends AbstractEnvironmentVariables {
+        override PORT = 4000;
+        override PRISMA_TRANSACTION_TIMEOUT = 5000;
+      }
+
+      const origPort = process.env.PORT;
+      const origTxTimeout = process.env.PRISMA_TRANSACTION_TIMEOUT;
+      delete process.env.PORT;
+      delete process.env.PRISMA_TRANSACTION_TIMEOUT;
+
+      try {
+        const appConfig = new AppConfigure(CustomAppEnvs);
+        expect(appConfig.vars.PORT).toBe(4000);
+        expect(appConfig.vars.PRISMA_TRANSACTION_TIMEOUT).toBe(5000);
+      } finally {
+        if (origPort !== undefined) process.env.PORT = origPort;
+        else delete process.env.PORT;
+        if (origTxTimeout !== undefined) process.env.PRISMA_TRANSACTION_TIMEOUT = origTxTimeout;
+        else delete process.env.PRISMA_TRANSACTION_TIMEOUT;
+      }
+    });
+
+    it('should allow environment variables to override subclass constructor defaults', () => {
+      class CustomAppEnvs extends AbstractEnvironmentVariables {
+        override PORT = 4000;
+        override PRISMA_TRANSACTION_TIMEOUT = 5000;
+      }
+
+      const origPort = process.env.PORT;
+      const origTxTimeout = process.env.PRISMA_TRANSACTION_TIMEOUT;
+      process.env.PORT = '8080';
+      process.env.PRISMA_TRANSACTION_TIMEOUT = '12000';
+
+      try {
+        const appConfig = new AppConfigure(CustomAppEnvs);
+        expect(appConfig.vars.PORT).toBe(8080);
+        expect(appConfig.vars.PRISMA_TRANSACTION_TIMEOUT).toBe(12000);
+      } finally {
+        if (origPort !== undefined) process.env.PORT = origPort;
+        else delete process.env.PORT;
+        if (origTxTimeout !== undefined) process.env.PRISMA_TRANSACTION_TIMEOUT = origTxTimeout;
+        else delete process.env.PRISMA_TRANSACTION_TIMEOUT;
+      }
+    });
+
+    it('should throw validation error if subclass constructor default violates schema constraints (Fail-Fast)', () => {
+      class InvalidSubclassEnvs extends AbstractEnvironmentVariables {
+        override PORT = -1;
+      }
+
+      const origPort = process.env.PORT;
+      delete process.env.PORT;
+
+      try {
+        expect(() => new AppConfigure(InvalidSubclassEnvs)).toThrow(/Invalid subclass default for PORT/);
+      } finally {
+        if (origPort !== undefined) process.env.PORT = origPort;
+        else delete process.env.PORT;
+      }
+    });
+
     it('should cover debug logging paths', () => {
       const ORIGINAL_DEBUG = process.env.CONFIGURE_DEBUG;
       process.env.CONFIGURE_DEBUG = 'true';
