@@ -24,6 +24,7 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(parsed.TZ).toBe('UTC');
       expect(parsed.LOG_LEVEL).toBe('debug');
       expect(parsed.AI_LLM_TIMEOUT_MS).toBe(120_000);
+      expect(parsed.I18N_EXCEPTION_ENABLED).toBe(false);
     });
 
     it('should correctly coerce string numbers and booleans from environment', () => {
@@ -31,11 +32,13 @@ describe('createEnvConfig & baseEnvSchema', () => {
         PORT: '8080',
         APP_PROXY_ENABLED: 'true',
         AI_LLM_MAX_RETRIES: '5',
+        I18N_EXCEPTION_ENABLED: 'true',
       });
       expect(parsed.PORT).toBe(8080);
       expect(typeof parsed.PORT).toBe('number');
       expect(parsed.APP_PROXY_ENABLED).toBe(true);
       expect(parsed.AI_LLM_MAX_RETRIES).toBe(5);
+      expect(parsed.I18N_EXCEPTION_ENABLED).toBe(true);
     });
   });
 

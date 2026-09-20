@@ -239,7 +239,7 @@ export function validateSync(instance: object, options?: { skipMissingProperties
     const val = (instance as Record<string, unknown>)[key];
     const isOptional = Reflect.getMetadata(OptionalSymbol, prototype, key) === true;
 
-    if ((val === undefined || val === null || val === '') && (isOptional || options?.skipMissingProperties)) {
+    if ((val === undefined || val === null) && (isOptional || options?.skipMissingProperties)) {
       continue;
     }
 
@@ -1408,13 +1408,13 @@ export const baseEnvSchema = z.object({
     )
     .describe('db-sync:boolean'),
   PRISMA_TRANSACTION_TIMEOUT: z.coerce.number().default(30_000).describe('db-sync:number'),
-  I18N_TRANSLATION_ENABLED: z
+  I18N_EXCEPTION_ENABLED: z
     .preprocess(
       (v) =>
         typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number'
           ? [true, 'true', '1', 1].includes(v)
           : false,
-      z.boolean().default(true),
+      z.boolean().default(false),
     )
     .describe('db-sync:boolean'),
 });
