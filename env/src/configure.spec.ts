@@ -7,6 +7,7 @@ import {
   IsString,
   Min,
   plainToInstance,
+  validateSync,
 } from './configure';
 
 import { describe, expect, it, mock } from 'bun:test';
@@ -1462,6 +1463,30 @@ describe('AppConfigure', () => {
       } catch {
         // class-transformer not installed
       }
+    });
+  });
+
+  describe('IsEnum decorator', () => {
+    it('should validate numeric enum values correctly', () => {
+      enum Status {
+        Active = 1,
+        Inactive = 2,
+      }
+      class StatusDto {
+        @IsEnum(Status)
+        status: Status = Status.Active;
+      }
+
+      const validDto = new StatusDto();
+      validDto.status = 1;
+      expect(validateSync(validDto)).toEqual([]);
+
+      const invalidDto = new StatusDto();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (invalidDto as any).status = 99;
+      const errors = validateSync(invalidDto);
+      expect(errors.length).toBe(1);
+      expect(errors[0]!.property).toBe('status');
     });
   });
 });
