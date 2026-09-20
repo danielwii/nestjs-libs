@@ -62,6 +62,24 @@ export function r(o: unknown): string {
   }
 }
 
+interface CtStorage {
+  findExcludeMetadata?: (target: unknown, propertyName: string) => { options?: { toPlainOnly?: boolean } } | undefined;
+  findExposeMetadata?: (
+    target: unknown,
+    propertyName: string,
+  ) => { options?: { name?: string; toPlainOnly?: boolean } } | undefined;
+  getStrategy?: (target: unknown) => 'exposeAll' | 'excludeAll' | undefined;
+}
+
+let ctStorage: CtStorage | undefined;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const storageModule = require('class-transformer/cjs/storage') as { defaultMetadataStorage?: CtStorage };
+  ctStorage = storageModule.defaultMetadataStorage;
+} catch {
+  // class-transformer 未安装
+}
+
 /**
  * 将 Class 实例或复杂对象安全转换为 plain object，去除函数属性；若遇循环引用则交由 inspect 处理
  */
@@ -111,10 +129,28 @@ export function toPlain(
       return plainMap;
     }
 
+    const cls = obj.constructor;
+    const isClassInstance = cls !== Object && cls !== Array;
+    const strategy = isClassInstance && ctStorage?.getStrategy ? ctStorage.getStrategy(cls) : undefined;
+
     const plain: Record<string, unknown> = {};
     memo.set(obj, plain);
     for (const [key, value] of Object.entries(obj)) {
-      if (typeof value !== 'function') {
+      if (typeof value === 'function') continue;
+
+      if (isClassInstance && ctStorage) {
+        const exposeMeta = ctStorage.findExposeMetadata?.(cls, key);
+        const excludeMeta = ctStorage.findExcludeMetadata?.(cls, key);
+
+        if (strategy === 'excludeAll') {
+          if (!exposeMeta) continue;
+        } else if (excludeMeta) {
+          continue;
+        }
+
+        const outputKey = exposeMeta?.options?.name ?? key;
+        plain[outputKey] = toPlain(value, depth + 1, activeStack, memo);
+      } else {
         plain[key] = toPlain(value, depth + 1, activeStack, memo);
       }
     }

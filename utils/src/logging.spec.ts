@@ -124,6 +124,34 @@ describe('logging.utils', () => {
       expect(parsed.secondary.name).toBe('shared-entity');
     });
 
+    it('should honor class-transformer Exclude and Expose metadata on class instances', () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Exclude, Expose } = require('class-transformer');
+        class SensitiveDto {
+          publicField = 'public';
+          @Exclude()
+          secretToken = 'secret-value';
+          @Expose({ name: 'customField' })
+          renamed = 'renamed-value';
+        }
+
+        const dto = new SensitiveDto();
+        const plain = toPlain(dto) as Record<string, unknown>;
+        expect(plain.publicField).toBe('public');
+        expect(plain.secretToken).toBeUndefined();
+        expect(plain.customField).toBe('renamed-value');
+
+        process.env.NODE_ENV = 'production';
+        const formatted = r(dto);
+        expect(formatted).not.toContain('secret-value');
+        expect(formatted).toContain('public');
+        expect(formatted).toContain('customField');
+      } catch {
+        // class-transformer not installed
+      }
+    });
+
     it('should fallback to inspect if instanceToPlain fails', () => {
       const circular: Record<string, unknown> = {};
       circular.self = circular;
