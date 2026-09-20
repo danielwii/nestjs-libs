@@ -15,12 +15,14 @@ import * as _ from 'radash';
 import { z } from 'zod';
 
 // ==================== Native Lightweight Decorators & Validator ====================
-
-export interface TransformFnParams {
-  key: string;
-  value?: unknown;
-  obj: Record<string, unknown>;
-}
+/**
+ * 🏛️ Architectural Clean Cut: @Transform is Eradicated.
+ *
+ * 历史反射转换装饰器（@Transform）已彻底从核心库中移除。
+ * 现代环境配置请直接使用 Schema-First 方案：
+ * import { createEnvConfig, baseEnvSchema } from '@danielwii/libs-cli/env';
+ * 使用 Zod / @standard-schema/spec 进行声明式校验与转换（如 coerceBoolean, coerceNumber, .transform()）。
+ */
 
 export interface ValidationError {
   property: string;
@@ -35,7 +37,6 @@ interface ValidationRule {
 }
 
 const ValidationRulesSymbol = Symbol('ValidationRules');
-const TransformsSymbol = Symbol('Transforms');
 const TypesSymbol = Symbol('Types');
 const OptionalSymbol = Symbol('Optional');
 const DecoratedKeysSymbol = Symbol('DecoratedKeys');
@@ -150,17 +151,6 @@ export function Min(minVal: number, options?: { message?: string }): PropertyDec
   };
 }
 
-export function Transform(fn: (params: TransformFnParams) => unknown): PropertyDecorator {
-  return (target, propertyKey) => {
-    recordDecoratedKey(target, propertyKey as string);
-    const existing =
-      (Reflect.getMetadata(TransformsSymbol, target, propertyKey) as
-        Array<(params: TransformFnParams) => unknown> | undefined) ?? [];
-    // TypeScript 装饰器自下而上求值，保持声明在最上方的 decorator 先执行
-    Reflect.defineMetadata(TransformsSymbol, [fn, ...existing], target, propertyKey);
-  };
-}
-
 export function Type(
   typeFn: () => NumberConstructor | StringConstructor | BooleanConstructor | unknown,
 ): PropertyDecorator {
@@ -196,28 +186,18 @@ export function plainToInstance<T extends object>(
 
     const hasPlainKey = plain != null && Object.prototype.hasOwnProperty.call(plain, key);
     const rawValue = hasPlainKey ? plain[key] : undefined;
-    const rawTransformMeta = Reflect.getMetadata(TransformsSymbol, prototype as object, key) as unknown;
-    const transformFns: Array<(params: TransformFnParams) => unknown> = Array.isArray(rawTransformMeta)
-      ? (rawTransformMeta as Array<(params: TransformFnParams) => unknown>)
-      : typeof rawTransformMeta === 'function'
-        ? [rawTransformMeta as (params: TransformFnParams) => unknown]
-        : [];
     const typeFn = Reflect.getMetadata(TypesSymbol, prototype as object, key) as (() => unknown) | undefined;
 
     let val = hasPlainKey ? rawValue : (instance as Record<string, unknown>)[key];
 
     if (hasPlainKey) {
-      if (transformFns.length > 0) {
-        for (const fn of transformFns) {
-          val = fn({ key, value: val, obj: plain });
-        }
-      } else if (typeFn && options?.enableImplicitConversion && val !== undefined && val !== null && val !== '') {
+      if (typeFn && options?.enableImplicitConversion && val !== undefined && val !== null && val !== '') {
         const targetType = typeFn();
         if (targetType === Number && typeof val !== 'number') {
           const num = Number(val);
           if (!Number.isNaN(num)) val = num;
         } else if (targetType === Boolean && typeof val !== 'boolean') {
-          val = [true, 'true', '1'].includes(val as string | boolean);
+          val = [true, 'true', '1', 1].includes(val as string | number | boolean);
         } else if (targetType === String && typeof val !== 'string') {
           // eslint-disable-next-line @typescript-eslint/no-base-to-string -- 窄化后对象转 JSON，基本类型转字符串
           val = typeof val === 'object' && val !== null ? JSON5.stringify(val) : String(val);
@@ -226,6 +206,15 @@ export function plainToInstance<T extends object>(
         const defaultVal = (instance as Record<string, unknown>)[key];
         if (typeof defaultVal === 'number' && typeof val === 'string' && /^-?\d+(\.\d+)?$/.test(val.trim())) {
           val = Number(val);
+        } else if (typeof defaultVal === 'boolean') {
+          val = [true, 'true', '1', 1].includes(val as string | number | boolean);
+        } else {
+          const rules =
+            (Reflect.getMetadata(ValidationRulesSymbol, prototype as object, key) as ValidationRule[] | undefined) ??
+            [];
+          if (rules.some((r) => r.name === 'isBoolean')) {
+            val = [true, 'true', '1', 1].includes(val as string | number | boolean);
+          }
         }
       }
     }
@@ -299,31 +288,7 @@ export function validateSync(instance: object, options?: { skipMissingProperties
   return errors;
 }
 
-const transformLogger = getAppLogger('Transform');
 const configureLogger = getAppLogger('Configure');
-
-export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
-  // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
-  return [true, 'true', '1'].includes(obj[key] as string | boolean);
-};
-export const objectTransformFn = ({ key, value, obj }: TransformFnParams) => {
-  // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }}`);
-  try {
-    return _.isObject(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '{}');
-  } catch (e: unknown) {
-    transformLogger.error`#objectTransformFn error ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }} ${e instanceof Error ? e.message : String(e)} ${errorStack(e) ?? ''}`;
-    throw e;
-  }
-};
-export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
-  // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
-  try {
-    return _.isArray(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '[]');
-  } catch (e: unknown) {
-    transformLogger.error`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)} ${errorStack(e) ?? ''}`;
-    throw e;
-  }
-};
 
 type HostSetVariables = {};
 
@@ -391,7 +356,6 @@ export const DatabaseField =
       Reflect.defineMetadata(DatabaseFieldScopedSymbol, true, target, propertyKey);
     }
     if (format === 'boolean') {
-      Transform(booleanTransformFn)(target, propertyKey);
       IsBoolean()(target, propertyKey);
       IsOptional()(target, propertyKey);
     }
@@ -483,12 +447,12 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @IsString() @IsOptional() OTEL_EXPORTER_OTLP_TRACES_HEADERS?: string;
   @IsString() @IsOptional() OTEL_LOG_LEVEL?: string;
 
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_PROXY_ENABLED?: boolean;
+  @IsBoolean() @IsOptional() APP_PROXY_ENABLED?: boolean;
   @IsString() @IsOptional() APP_PROXY_HOST?: string;
   @Type(() => Number) @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
 
   // ==================== GraphQL ====================
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) GRAPHQL_PLAYGROUND_ENABLED?: boolean;
+  @IsBoolean() @IsOptional() GRAPHQL_PLAYGROUND_ENABLED?: boolean;
 
   // ==================== LLM ====================
   @IsString() @IsOptional() AI_OPENROUTER_API_KEY?: string;
@@ -532,7 +496,6 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @DatabaseField('boolean', 'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）')
   @IsBoolean()
   @IsOptional()
-  @Transform(booleanTransformFn)
   LLM_FETCH_VERBOSE: boolean = false;
 
   @IsString() @IsOptional() INFRA_REDIS_URL?: string;
@@ -541,18 +504,18 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   // 对齐 modx node-registry addon：
   // - CLUSTER_ENABLED 控制整个模块是否激活（多实例部署 = true）
   // - TTL / heartbeat 间隔使用 modx 默认值（300s / 60s），env 可覆盖
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) CLUSTER_ENABLED: boolean = true;
+  @IsBoolean() @IsOptional() CLUSTER_ENABLED: boolean = true;
   @IsString() @IsOptional() CLUSTER_NODE_TTL_SECONDS?: string;
   @IsString() @IsOptional() CLUSTER_HEARTBEAT_INTERVAL_MS?: string;
 
   @IsString() @IsOptional() DATABASE_URL?: string;
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
+  @IsBoolean() @IsOptional() PRISMA_QUERY_LOGGER?: boolean;
+  @IsBoolean() @IsOptional() PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
+  @IsBoolean() @IsOptional() PRISMA_MIGRATION?: boolean;
   // 历史遗留：此开关已被 scope 隔离 + createdBy 归属机制取代。
   // 有 projectScope 时服务自动获得写权限，无需手动开启。
   // 保留字段定义仅为避免环境变量校验报错。
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
+  @IsBoolean() @IsOptional() APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
   @DatabaseField('number', 'Prisma 事务超时时间（毫秒）') @IsNumber() PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
 
   /**
@@ -564,19 +527,14 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    */
   @IsBoolean()
   @IsOptional()
-  @Transform(({ value }) => {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') return value.toLowerCase() === 'true';
-    return false;
-  })
   @DatabaseField('boolean', '是否启用异常处理器的 I18n 翻译功能')
   I18N_EXCEPTION_ENABLED?: boolean = false;
 
   // ==================== Feature Flags ====================
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) FEATURE_SCHEDULER?: boolean;
+  @IsBoolean() @IsOptional() FEATURE_SCHEDULER?: boolean;
 
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
-  @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;
+  @IsBoolean() EXIT_ON_ERROR: boolean = true;
 
   /**
    * 优雅关闭时等待进行中请求完成的超时时间（毫秒）
