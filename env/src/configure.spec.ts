@@ -7,6 +7,7 @@ import {
   IsString,
   Min,
   plainToInstance,
+  Type,
   validateSync,
 } from './configure';
 
@@ -575,6 +576,34 @@ describe('AppConfigure', () => {
         expect(() => new AppConfigure(TestEnvs)).not.toThrow();
       } finally {
         delete process.env.SAMPLE_ENUM;
+        process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+      }
+    });
+
+    it('should exclude reverse labels from numeric TypeScript enum validation', () => {
+      enum NumericMode {
+        Active = 1,
+        Inactive = 2,
+      }
+      class NumericTestEnvs extends AbstractEnvironmentVariables {
+        @Type(() => Number)
+        @IsEnum(NumericMode)
+        @IsOptional()
+        NUMERIC_MODE?: NumericMode;
+      }
+
+      const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        // Reverse label string 'Active' must fail validation
+        process.env.NUMERIC_MODE = 'Active';
+        expect(() => new AppConfigure(NumericTestEnvs)).toThrow();
+
+        // Valid numeric value '1' (transformed to 1) must pass
+        process.env.NUMERIC_MODE = '1';
+        expect(() => new AppConfigure(NumericTestEnvs)).not.toThrow();
+      } finally {
+        delete process.env.NUMERIC_MODE;
         process.env.NODE_ENV = ORIGINAL_NODE_ENV;
       }
     });

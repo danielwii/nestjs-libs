@@ -138,6 +138,8 @@ describe('logging.utils', () => {
           passwordInputOnly = 'super-secret-password';
           @Exclude({ toClassOnly: true })
           visibleInPlain = 'plain-ok';
+          @Expose({ groups: ['admin'] })
+          adminOnlySecret = 'admin-confidential';
         }
 
         const dto = new SensitiveDto();
@@ -145,6 +147,7 @@ describe('logging.utils', () => {
         expect(plain.publicField).toBe('public');
         expect(plain.secretToken).toBeUndefined();
         expect(plain.passwordInputOnly).toBeUndefined();
+        expect(plain.adminOnlySecret).toBeUndefined();
         expect(plain.visibleInPlain).toBe('plain-ok');
         expect(plain.customField).toBe('renamed-value');
 
@@ -152,6 +155,7 @@ describe('logging.utils', () => {
         const formatted = r(dto);
         expect(formatted).not.toContain('secret-value');
         expect(formatted).not.toContain('super-secret-password');
+        expect(formatted).not.toContain('admin-confidential');
         expect(formatted).toContain('public');
         expect(formatted).toContain('customField');
         expect(formatted).toContain('plain-ok');
