@@ -1,16 +1,4 @@
-import {
-  AbstractEnvironmentVariables,
-  AppConfigure,
-  DatabaseField,
-  IsEnum,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Min,
-  plainToInstance,
-  Type,
-  validateSync,
-} from './configure';
+import { AbstractEnvironmentVariables, AppConfigure, DatabaseField } from './configure';
 
 import { describe, expect, it, mock } from 'bun:test';
 
@@ -258,7 +246,6 @@ describe('AppConfigure', () => {
     it('should skip overriding activeEnvs when DB value is invalid', async () => {
       class NumberEnvs {
         @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
-        @Min(30_000)
         AI_LLM_TIMEOUT_MS: number = 120_000;
         APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
@@ -273,7 +260,7 @@ describe('AppConfigure', () => {
               {
                 key: 'AI_LLM_TIMEOUT_MS',
                 scope: 'shared',
-                value: 500,
+                value: 'invalid-number',
                 defaultValue: '60000',
                 format: 'number',
               },
@@ -539,72 +526,16 @@ describe('AppConfigure', () => {
       expect(fields).toContain('TZ');
     });
 
-    it('should throw validation error for invalid configs', () => {
-      class InvalidEnvs extends AbstractEnvironmentVariables {
-        @IsString()
-        REQUIRED_STRING!: string;
-      }
-      // Bun or dotenv might have injected vars, so we clear them to trigger validation error
+    it('should throw validation error for invalid base configs in production', () => {
       const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+      const ORIGINAL_PORT = process.env.PORT;
       process.env.NODE_ENV = 'production';
+      process.env.PORT = 'not-a-number';
       try {
-        expect(() => new AppConfigure(InvalidEnvs)).toThrow();
+        expect(() => new AppConfigure(AbstractEnvironmentVariables)).toThrow();
       } finally {
-        process.env.NODE_ENV = ORIGINAL_NODE_ENV;
-      }
-    });
-
-    it('should validate empty strings on optional fields instead of treating them as missing', () => {
-      enum SampleEnum {
-        FOO = 'foo',
-        BAR = 'bar',
-      }
-      class TestEnvs extends AbstractEnvironmentVariables {
-        @IsEnum(SampleEnum)
-        @IsOptional()
-        SAMPLE_ENUM?: SampleEnum;
-      }
-
-      const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
-      try {
-        // empty string should fail @IsEnum
-        process.env.SAMPLE_ENUM = '';
-        expect(() => new AppConfigure(TestEnvs)).toThrow();
-
-        // undefined should pass @IsOptional
-        delete process.env.SAMPLE_ENUM;
-        expect(() => new AppConfigure(TestEnvs)).not.toThrow();
-      } finally {
-        delete process.env.SAMPLE_ENUM;
-        process.env.NODE_ENV = ORIGINAL_NODE_ENV;
-      }
-    });
-
-    it('should exclude reverse labels from numeric TypeScript enum validation', () => {
-      enum NumericMode {
-        Active = 1,
-        Inactive = 2,
-      }
-      class NumericTestEnvs extends AbstractEnvironmentVariables {
-        @Type(() => Number)
-        @IsEnum(NumericMode)
-        @IsOptional()
-        NUMERIC_MODE?: NumericMode;
-      }
-
-      const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
-      try {
-        // Reverse label string 'Active' must fail validation
-        process.env.NUMERIC_MODE = 'Active';
-        expect(() => new AppConfigure(NumericTestEnvs)).toThrow();
-
-        // Valid numeric value '1' (transformed to 1) must pass
-        process.env.NUMERIC_MODE = '1';
-        expect(() => new AppConfigure(NumericTestEnvs)).not.toThrow();
-      } finally {
-        delete process.env.NUMERIC_MODE;
+        if (ORIGINAL_PORT !== undefined) process.env.PORT = ORIGINAL_PORT;
+        else delete process.env.PORT;
         process.env.NODE_ENV = ORIGINAL_NODE_ENV;
       }
     });
@@ -1426,57 +1357,6 @@ describe('AppConfigure', () => {
       }
 
       expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('IsEnum decorator', () => {
-    it('should validate numeric enum values correctly', () => {
-      enum Status {
-        Active = 1,
-        Inactive = 2,
-      }
-      class StatusDto {
-        @IsEnum(Status)
-        status: Status = Status.Active;
-      }
-
-      const validDto = new StatusDto();
-      validDto.status = 1;
-      expect(validateSync(validDto)).toEqual([]);
-
-      const invalidDto = new StatusDto();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (invalidDto as any).status = 99;
-      const errors = validateSync(invalidDto);
-      expect(errors.length).toBe(1);
-      expect(errors[0]!.property).toBe('status');
-    });
-  });
-
-  describe('IsNumber decorator', () => {
-    class NumberDto {
-      @IsNumber()
-      port!: number;
-    }
-
-    it('passes for finite numbers', () => {
-      const dto = new NumberDto();
-      dto.port = 3000;
-      expect(validateSync(dto)).toEqual([]);
-    });
-
-    it('rejects NaN, Infinity, and -Infinity as malformed numbers', () => {
-      const nanDto = new NumberDto();
-      nanDto.port = Number.NaN;
-      expect(validateSync(nanDto).length).toBe(1);
-
-      const infDto = new NumberDto();
-      infDto.port = Number.POSITIVE_INFINITY;
-      expect(validateSync(infDto).length).toBe(1);
-
-      const negInfDto = new NumberDto();
-      negInfDto.port = Number.NEGATIVE_INFINITY;
-      expect(validateSync(negInfDto).length).toBe(1);
     });
   });
 });

@@ -8,8 +8,10 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
 ### What changed
 
 - **Environment configuration (`@app/env`)**:
+  - **Clean Cut & Zero Shims**: Completely eradicated legacy validation decorator shims (`@IsString`, `@IsNumber`, `@IsBoolean`, `@IsOptional`, `@IsEnum`, `@Min`, `@Type`, `plainToInstance`, `validateSync`). The library no longer maintains reflection-based shims.
   - `@Transform()` and legacy transform functions (`booleanTransformFn`, `objectTransformFn`, `arrayTransformFn`) are completely eradicated.
-  - Configuration parsing and coercion are now Schema-First via `createEnvConfig` and `zod` schemas.
+  - Configuration parsing and coercion are now strictly Schema-First / Contract-First via `baseEnvSchema` (Fail-Fast at bootstrap) and `createEnvConfig` with Zod / Standard Schema.
+  - Database sync validation in `@DatabaseField` now uses zero-reflection, pure native type checks (`format: 'number' | 'boolean' | 'string' | 'json'`).
 - **GraphQL Code-First (`@app/utils/graphql`)**:
   - `@Allow()` decorators are removed from `CursoredRequestInput`. In GraphQL Code-First, the GraphQL SDL engine (`@Field()`) natively enforces input types and strips unknown fields, making `class-validator` whitelisting decorators obsolete.
   - `export function Allow()` is marked `@deprecated` and remains as a no-op only for migration compatibility.
@@ -22,7 +24,8 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
 ### Required consumer changes
 
 - **Environment variables**:
-  - Do not use `@Transform()` decorators on environment classes. Pass Zod schemas directly to `createEnvConfig({ schema: ... })`.
+  - Do not use `@Transform()` or legacy `@Is*` / `@Type` decorators on environment classes. Subclasses of `AbstractEnvironmentVariables` no longer require reflection decorators.
+  - Core system environments are validated at bootstrap via `baseEnvSchema` (Fail-Fast). For modular or custom service configurations, pass Zod schemas directly to `createEnvConfig(schema)`.
 - **GraphQL Code-First DTOs**:
   - **Pure inputs (e.g. pagination, ID lookups)**: Remove all `class-validator` decorators (including `@Allow()`, `@IsOptional()`). Let `@Field()` define the schema.
   - **Inputs requiring business validation (e.g. email, min length)**:
