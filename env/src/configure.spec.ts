@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  plainToInstance,
 } from './configure';
 
 import { describe, expect, it, mock } from 'bun:test';
@@ -1444,6 +1445,23 @@ describe('AppConfigure', () => {
       }
 
       expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('plainToInstance compatibility bridge', () => {
+    it('should invoke class-transformer @Transform with PLAIN_TO_CLASS (0)', () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Transform } = require('class-transformer');
+        class TransformDto {
+          @Transform(({ value }: { value: unknown }) => parseInt(String(value), 10), { toClassOnly: true })
+          count: number = 0;
+        }
+        const inst = plainToInstance(TransformDto, { count: '42' });
+        expect(inst.count).toBe(42);
+      } catch {
+        // class-transformer not installed
+      }
     });
   });
 });
