@@ -188,6 +188,13 @@ export function connectGrpcMicroserviceWithBoundary(
 }
 
 /**
+ * 校验对象或函数是否符合 Standard Schema 规范（支持 Object 与 Callable Function 如 ArkType）
+ */
+function isStandardSchema(val: unknown): val is StandardSchemaV1 {
+  return ((typeof val === 'object' && val !== null) || typeof val === 'function') && '~standard' in val;
+}
+
+/**
  * 解析参数或类自身显式绑定的 Standard Schema。
  *
  * 核心设计（原型继承安全）：
@@ -196,13 +203,13 @@ export function connectGrpcMicroserviceWithBoundary(
  * 从而彻底消灭子类业务字段被父类 closed schema 默认剥离（strip）的安全盲区。
  */
 function resolveOwnedStandardSchema(metadata: ArgumentMetadata): StandardSchemaV1 | undefined {
-  if (metadata.schema && '~standard' in metadata.schema) {
+  if (isStandardSchema(metadata.schema)) {
     return metadata.schema;
   }
   const metatype = metadata.metatype;
   if (metatype && typeof metatype === 'function' && Object.prototype.hasOwnProperty.call(metatype, 'schema')) {
-    const owned = (metatype as { schema?: StandardSchemaV1 }).schema;
-    if (owned && typeof owned === 'object' && '~standard' in owned) {
+    const owned = (metatype as { schema?: unknown }).schema;
+    if (isStandardSchema(owned)) {
       return owned;
     }
   }

@@ -535,3 +535,35 @@ describe('assertRequiredEnvs', () => {
     }
   });
 });
+
+describe('AppStandardSchemaValidationPipe & DualBoundaryValidationPipe with callable schemas', () => {
+  it('supports callable Standard Schema (e.g. ArkType function schemas)', async () => {
+    // 模拟类似 ArkType 的 callable schema（自身是函数，同时挂载 '~standard' 属性）
+    const callableSchema = Object.assign((input: unknown) => input, {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'arktype',
+        validate: (value: unknown) => {
+          if (typeof value === 'object' && value !== null && 'count' in value) {
+            return { value: { count: Number((value as { count: unknown }).count) } };
+          }
+          return { issues: [{ message: 'expected count property' }] };
+        },
+      },
+    });
+
+    class CallableDto {
+      static schema = callableSchema;
+    }
+
+    const pipe = new AppStandardSchemaValidationPipe();
+    const result = await pipe.transform<unknown>(
+      { count: '42' },
+      {
+        type: 'body',
+        metatype: CallableDto,
+      },
+    );
+    expect(result).toEqual({ count: 42 });
+  });
+});
