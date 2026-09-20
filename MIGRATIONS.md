@@ -1,5 +1,60 @@
 # Migrations
 
+## `Zone` is a branded type; `assertZone`/`assertViewerZone` are its only constructors
+
+Breaking at compile time. `Zone` was `export type Zone = string` — any string satisfied it,
+so "did anyone actually validate this zone" was a convention enforced only by code review, not
+by `tsc`. It is now `string & { readonly [zoneBrand]: unique symbol }`: a bare string literal, a
+`string`-typed variable, or a value returned by anything other than `assertZone`/`assertViewerZone`
+no longer satisfies `Zone`. This closes the exact gap that let an unchecked, un-normalized zone
+string reach a stored-attribution write boundary or a rendered observer zone by accident — the
+brand makes "forgot to validate" a `tsc` error instead of a runtime data-correctness bug found
+later.
+
+### What changed
+
+- `Zone`'s only constructors are `assertZone(zone: string, shape)` (unchanged runtime behavior:
+  validates, canonicalizes, and rejects offsets/unknown names/inapplicable `FLOATING`) and the
+  newly-**exported** `assertViewerZone(viewer: string)` — previously module-private, now the
+  required way to turn a raw observer-zone string into the `Zone` that `.in()` takes.
+- `Anchored.instant`/`Anchored.date`/`Anchored.time`/`.in()` now accept **only** `Zone` and no
+  longer re-validate internally — the brand is the proof that validation already happened once,
+  at construction. Calling any of them with a bare string is a compile error, not a runtime
+  400.
+- `Anchored.fromStored`/`Anchored.fromJSON` are unchanged in spirit and stay the genuine
+  untrusted-boundary entry points: their `zone` parameter is still `string | null | undefined`
+  (persistence/JSON carries no brand), and they still call `assertZone` internally before
+  constructing.
+- `readLocalTime`/`readLocalSpan` (`@app/utils/prompt`) now take `Zone` for `observer`/`ownZone`
+  and no longer validate internally, for the same reason. `formatLocalDateTime`/`zonedAt` are
+  unchanged in signature (`timezone?: string | null`) — they remain the boundary functions that
+  call `assertZone` before ever constructing an `Anchored` or calling `readLocalTime`.
+
+### Required consumer changes
+
+A consumer that already resolves its own zone value through some validating step before handing
+it to `Anchored.*`/`readLocalTime`/`readLocalSpan` — i.e. it passes a variable, not a literal —
+needs no source change; `tsc` will simply confirm (or refute) that the value flowing in actually
+came from `assertZone`/`assertViewerZone` at some point upstream. A call site passing a bare
+string literal, or a `string`-typed value it never validated, fails to compile and must first
+resolve it through `assertZone` (construction-time zones) or `assertViewerZone` (`.in()`'s
+`viewer` / `readLocalTime`'s `observer`).
+
+### How migration is proven
+
+`bun run typecheck`, `bun run lint`, and `bun run test` are clean, including a
+`@ts-expect-error` compile-time assertion (in this repo's own spec files, which — unlike some
+consumers' `tsconfig` — are not excluded from typecheck) proving a bare string literal no
+longer satisfies `Zone` at `Anchored.instant`/`.in()`/`readLocalTime`/`readLocalSpan`.
+
+### Open naming question
+
+`assertZone` now does double duty as both "the validator" and "the only way to construct a
+`Zone`" — a caller reading `assertZone(x, shape)` for the first time may read it as a pure
+assertion (throws-or-void) rather than a parse-and-return. `parseZone` would read more accurately
+as "parse, don't validate," matching the pattern's usual name. Deferred to a follow-up rename
+(if wanted) rather than bundled into this PR, to keep this diff to the brand itself.
+
 ## `@app/utils/prompt` time rendering consolidates onto `Anchored`; offsets rejected; 3 zero-consumer exports removed
 
 `@app/utils/prompt` had its own, second implementation of "is this timezone valid" and

@@ -26,32 +26,51 @@
  * 目的地的人看可能已是次日凌晨。`in()` 返回结构而不是字符串——文案属于渲染层，本模块不替它决定
  * 「什么时候该标注时区」。
  *
+ * `Zone`（下面 `assertZone`/`assertViewerZone` 返回的品牌类型）是唯一被 `Anchored.*`/`.in()`
+ * 接受的归属形状——裸字符串必须先经过它们中的一个，校验只发生这一次。
+ *
  * @example 会议：东京 19:00，洛杉矶的同事看到的是同一时刻的当地墙上时间
  * ```ts
- * const meeting = Anchored.instant(new Date('2026-09-21T10:00:00Z'), 'Asia/Tokyo');
- * meeting.in('Asia/Tokyo').at.toPlainTime().toString();      // '19:00:00'
- * meeting.in('America/Los_Angeles').at.toPlainDate().toString(); // '2026-09-21'
- * meeting.in('America/Los_Angeles').at.toPlainTime().toString(); // '03:00:00'
+ * const tokyo = assertZone('Asia/Tokyo', 'instant');
+ * const la = assertViewerZone('America/Los_Angeles');
+ * const meeting = Anchored.instant(new Date('2026-09-21T10:00:00Z'), tokyo);
+ * meeting.in(tokyo).at.toPlainTime().toString();      // '19:00:00'
+ * meeting.in(la).at.toPlainDate().toString(); // '2026-09-21'
+ * meeting.in(la).at.toPlainTime().toString(); // '03:00:00'
  * ```
  *
  * @example 全日：日期不随观察者改变，但要让渲染层知道它按谁的日历
  * ```ts
- * const holiday = Anchored.date('2026-09-21', 'Asia/Tokyo');
- * holiday.in('America/Los_Angeles'); // { date: 2026-09-21, ownZone: 'Asia/Tokyo', sameZone: false }
+ * const holiday = Anchored.date('2026-09-21', tokyo);
+ * holiday.in(la); // { date: 2026-09-21, ownZone: 'Asia/Tokyo', sameZone: false }
  * ```
  *
  * @example 循环钟点：floating 跟着人走，锚定时区不跟
  * ```ts
- * Anchored.time('07:00', FLOATING).in('Asia/Singapore').ownZone;   // 'Asia/Singapore'
- * Anchored.time('07:00', 'Asia/Tokyo').in('Asia/Singapore').ownZone; // 'Asia/Tokyo'
+ * const floatingZone = assertZone(FLOATING, 'time');
+ * const singapore = assertViewerZone('Asia/Singapore');
+ * Anchored.time('07:00', floatingZone).in(singapore).ownZone;   // 'Asia/Singapore'
+ * Anchored.time('07:00', tokyo).in(singapore).ownZone; // 'Asia/Tokyo'
  * ```
  */
 
 /** 跟着观察者走。等价于 RFC 5545 §3.3.5 FORM #1 的 "floating"。 */
 export const FLOATING = 'floating' as const;
 
-/** IANA 时区名，或 `FLOATING`。空字符串与 undefined 都不是合法值。 */
-export type Zone = string;
+declare const zoneBrand: unique symbol;
+/**
+ * 校验过的 IANA 时区名，或 `FLOATING`。
+ *
+ * 品牌类型——唯一构造者是 {@link assertZone}（观察者场景用 `assertViewerZone`，同一份规则）。
+ * 一个裸 `string`（哪怕内容恰好是合法时区名）在类型层面不满足 `Zone`：这不是多此一举，是把
+ * 「这个值有没有校验过」从注释里的约定变成 `tsc` 能查的事实——`Anchored.*`、`.in()` 等下游
+ * 只收 `Zone`，不会在类型上放过一个从未校验的裸字符串。校验只在构造者那一处发生一次；下游不再
+ * 重复校验（那会是运行时债，型别已经保证过一次）。
+ *
+ * 见 MIGRATIONS.md：这是一次破坏性变更——任何把裸字符串传给 `Zone` 参数的调用方都要先经
+ * `assertZone`/`assertViewerZone`。
+ */
+export type Zone = string & { readonly [zoneBrand]: true };
 
 export type AnchoredShape = 'instant' | 'date' | 'time';
 
@@ -66,6 +85,19 @@ export interface AnchoredJson {
   readonly zone: Zone;
 }
 
+/**
+ * `fromJSON`'s actual input contract — distinct from {@link AnchoredJson} (which is `toJSON`'s
+ * OUTPUT contract, where `zone` is always a validated `Zone`). Wire/JSON data from outside this
+ * process carries no brand — `zone` is whatever the sender put there, checked at `fromJSON`
+ * itself, same untrusted-boundary posture as `fromStored`. An `AnchoredJson` (e.g. from a prior
+ * `toJSON()`) is always assignable here — `Zone` is a `string`, just a narrower one.
+ */
+export interface AnchoredJsonInput {
+  readonly shape: string;
+  readonly value: string;
+  readonly zone: string | null | undefined;
+}
+
 export class Anchored {
   private constructor(
     readonly shape: AnchoredShape,
@@ -75,19 +107,18 @@ export class Anchored {
 
   /** 某个绝对时刻。`zone` 是它「属于」的时区，与观察者无关。 */
   static instant(at: Date | Temporal.Instant, zone: Zone): Anchored {
-    const checked = assertZone(zone, 'instant');
     const instant = at instanceof Date ? Temporal.Instant.fromEpochMilliseconds(at.getTime()) : at;
-    return new Anchored('instant', instant.toZonedDateTimeISO(checked), checked);
+    return new Anchored('instant', instant.toZonedDateTimeISO(zone), zone);
   }
 
   /** 一整个日历日。`zone` 决定这是谁的日历上的那一天。 */
   static date(date: Temporal.PlainDate | string, zone: Zone): Anchored {
-    return new Anchored('date', Temporal.PlainDate.from(date), assertZone(zone, 'date'));
+    return new Anchored('date', Temporal.PlainDate.from(date), zone);
   }
 
   /** 一个钟点。`zone` 可以是 `FLOATING`，表示跟着人走。 */
   static time(time: Temporal.PlainTime | string, zone: Zone): Anchored {
-    return new Anchored('time', Temporal.PlainTime.from(time), assertZone(zone, 'time'));
+    return new Anchored('time', Temporal.PlainTime.from(time), zone);
   }
 
   /**
@@ -98,35 +129,41 @@ export class Anchored {
    */
   static fromStored(
     value: Date | Temporal.Instant | Temporal.PlainDate | Temporal.PlainTime | string,
-    zone: Zone | null | undefined,
+    zone: string | null | undefined,
     shape: AnchoredShape,
   ): Anchored {
     if (!zone) throw new Error(`Anchored: ${shape} 缺少归属；由应用层补齐后再构造`);
+    // 唯一的校验点：`zone` 在这里是持久层给的裸字符串，从未经过任何构造者——本函数本身
+    // 就是它的写入闸门 (`assertZone`)，不是转发给 `Anchored.instant/date/time` 去再查一次。
+    const checked = assertZone(zone, shape);
     if (shape === 'instant') {
       if (!(value instanceof Date) && !(value instanceof Temporal.Instant))
         throw new Error('Anchored: instant 需要 Date 或 Temporal.Instant');
-      return Anchored.instant(value, zone);
+      return Anchored.instant(value, checked);
     }
     if (shape === 'date') {
       if (!(typeof value === 'string' || value instanceof Temporal.PlainDate))
         throw new Error('Anchored: date 需要字符串或 Temporal.PlainDate');
-      return Anchored.date(value, zone);
+      return Anchored.date(value, checked);
     }
     if (!(typeof value === 'string' || value instanceof Temporal.PlainTime))
       throw new Error('Anchored: time 需要字符串或 Temporal.PlainTime');
-    return Anchored.time(value, zone);
+    return Anchored.time(value, checked);
   }
 
-  /** 投影给看的人。`viewer` 不可省，也没有默认值。 */
+  /**
+   * 投影给看的人。`viewer` 不可省，也没有默认值，且必须已是 `Zone`——观察者场景校验一次的
+   * 地方是 {@link assertViewerZone}（调用方的裸字符串输入进这里之前先过那道闸），本方法信任
+   * 类型，不重复校验。
+   */
   in(viewer: Zone): AnchoredProjection {
-    const checked = assertViewerZone(viewer);
     if (this.shape === 'instant') {
       const own = this.value as Temporal.ZonedDateTime;
       return {
         shape: 'instant',
-        at: own.withTimeZone(checked),
+        at: own.withTimeZone(viewer),
         ownZone: this.zone,
-        sameZone: sameZone(this.zone, checked),
+        sameZone: sameZone(this.zone, viewer),
       };
     }
     if (this.shape === 'date') {
@@ -136,7 +173,7 @@ export class Anchored {
         shape: 'date',
         date: this.value as Temporal.PlainDate,
         ownZone: this.zone,
-        sameZone: sameZone(this.zone, checked),
+        sameZone: sameZone(this.zone, viewer),
       };
     }
     const floating = this.zone === FLOATING;
@@ -144,8 +181,8 @@ export class Anchored {
       shape: 'time',
       time: this.value as Temporal.PlainTime,
       // floating 的归属在渲染那一刻才确定，就是看的人所在的时区。
-      ownZone: floating ? checked : this.zone,
-      sameZone: floating || sameZone(this.zone, checked),
+      ownZone: floating ? viewer : this.zone,
+      sameZone: floating || sameZone(this.zone, viewer),
     };
   }
 
@@ -166,7 +203,7 @@ export class Anchored {
   }
 
   /** 线上传来的坏数据与存储里的坏数据受同一道约束。 */
-  static fromJSON(json: AnchoredJson): Anchored {
+  static fromJSON(json: AnchoredJsonInput): Anchored {
     // 声明类型说 shape 只有三种，但 JSON 来自进程外，运行时未必守约，所以这里按 string 判。
     const shape: string = json.shape;
     if (shape === 'instant') {
@@ -217,20 +254,24 @@ export class Anchored {
  * - `FLOATING`：`shape === 'time'` 接受并原样返回，其它形态抛错。
  *
  */
-export function assertZone(zone: Zone, shape: AnchoredShape): Zone {
+export function assertZone(zone: string, shape: AnchoredShape): Zone {
   return checkZone(zone, shape, shape === 'time');
 }
 
-/** 观察者时区：只做 IANA 判定，永远不能是 floating；标签只进文案。 */
-function assertViewerZone(viewer: Zone): Zone {
+/**
+ * 观察者时区的构造者——`.in()` 的 `viewer` 参数只收 `Zone`，裸字符串（用户请求头、设备上报）
+ * 先经这里。只做 IANA 判定，永远不能是 floating（观察者是具体的人，不是一个跟着人走的钟点）；
+ * 标签只进文案。
+ */
+export function assertViewerZone(viewer: string): Zone {
   return checkZone(viewer, 'viewer', false);
 }
 
-function checkZone(zone: Zone, shape: string, allowFloating: boolean): Zone {
+function checkZone(zone: string, shape: string, allowFloating: boolean): Zone {
   if (!zone) throw new Error(`Anchored: ${shape} 缺少归属`);
   if (zone === FLOATING) {
     if (!allowFloating) throw new Error(`Anchored: 只有 time 可以是 ${FLOATING}，收到 shape=${shape}`);
-    return zone;
+    return zone as Zone;
   }
   // 长得像偏移量的先拦下来给对的解释。Temporal 只认 +08:00 / +0800 这两种写法，"+8" 会被它当成
   // 未知标识——但对调用方来说问题不是「不认识」，是「偏移量不是归属」。
@@ -249,7 +290,8 @@ function checkZone(zone: Zone, shape: string, allowFloating: boolean): Zone {
   // Temporal 本身接受 "+08:00" 这样的偏移时区，规范化后以符号开头。偏移量不是归属，理由见上。
   if (canonical.startsWith('+') || canonical.startsWith('-'))
     throw new Error(`Anchored: 归属必须是 IANA 时区名，不能是偏移量，收到 "${zone}"`);
-  return canonical;
+  // 唯一的品牌构造点：走到这里说明 Temporal 认可这是合法 IANA 标识（或上面已放行的 FLOATING）。
+  return canonical as Zone;
 }
 
 /** 任意一个固定时刻即可：时区相等比较的是标识身份，不是那一刻的偏移。 */
