@@ -11,8 +11,8 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
   - **Clean Cut & Zero Shims**: Completely eradicated legacy validation decorator shims (`@IsString`, `@IsNumber`, `@IsBoolean`, `@IsOptional`, `@IsEnum`, `@Min`, `@Type`, `plainToInstance`, `validateSync`). The library no longer maintains reflection-based shims.
   - `@Transform()` and legacy transform functions (`booleanTransformFn`, `objectTransformFn`, `arrayTransformFn`) are completely eradicated.
   - Configuration parsing and coercion are now strictly Schema-First / Contract-First via `baseEnvSchema` (Fail-Fast at bootstrap) and `createEnvConfig` with Zod / Standard Schema.
-  - **Dynamic Database Fields (`asDatabaseField` / `dbField`)**:
-    - Introduced `asDatabaseField` (with alias `dbField`) for colocated, self-documenting database-managed field declarations directly on Zod schemas.
+  - **Dynamic Database Fields (`asDatabaseField`)**:
+    - Introduced `asDatabaseField` for colocated, self-documenting database-managed field declarations directly on Zod schemas.
     - Database sync validation (`syncFromDB`) now enforces **Single Source of Truth via Schema**: overrides from `sys_app_settings` are strictly parsed and coerced via the field's schema node (e.g. `min(30_000)` constraints). Invalid values are safely rejected (Safe-Reject) without corrupting memory or crashing runtime.
     - Legacy `@DatabaseField` class decorator remains backward-compatible.
 - **GraphQL Code-First (`@app/utils/graphql`)**:
