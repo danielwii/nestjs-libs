@@ -1,11 +1,4 @@
-import {
-  asDatabaseField,
-  baseEnvSchema,
-  createEnvConfig,
-  dbField,
-  getDatabaseFieldSpec,
-  getEnvironment,
-} from './configure';
+import { asDatabaseField, baseEnvSchema, createEnvConfig, getDatabaseFieldSpec, getEnvironment } from './configure';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
@@ -152,7 +145,7 @@ describe('createEnvConfig & baseEnvSchema', () => {
     });
   });
 
-  describe('asDatabaseField & dbField (Colocation & Single Source of Truth)', () => {
+  describe('asDatabaseField (Colocation & Single Source of Truth)', () => {
     it('should transparently preserve schema validation and type parsing', () => {
       const field = asDatabaseField(z.number().int().min(10).max(100).default(50), '任务批次大小');
 
@@ -174,15 +167,6 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(spec?.isDatabaseField).toBe(true);
       expect(spec?.scoped).toBe(true);
       expect(spec?.description).toBe('Scoped 配置');
-    });
-
-    it('dbField alias should behave identically to asDatabaseField', () => {
-      const field = dbField(z.boolean().default(false), '布尔旗标');
-      const spec = getDatabaseFieldSpec(field);
-      expect(spec?.isDatabaseField).toBe(true);
-      expect(spec?.scoped).toBe(false);
-      expect(spec?.description).toBe('布尔旗标');
-      expect(field.parse(true)).toBe(true);
     });
 
     it('should correctly identify database-managed fields on baseEnvSchema', () => {
