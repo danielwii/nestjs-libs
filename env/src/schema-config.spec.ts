@@ -1,4 +1,11 @@
-import { baseEnvSchema, createEnvConfig, getEnvironment } from './configure';
+import {
+  asDatabaseField,
+  baseEnvSchema,
+  createEnvConfig,
+  dbField,
+  getDatabaseFieldSpec,
+  getEnvironment,
+} from './configure';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
@@ -87,7 +94,9 @@ describe('createEnvConfig & baseEnvSchema', () => {
         MY_API_KEY: z.string(),
       });
 
-      const { vars, envSourceMap, isSensitive, environment } = createEnvConfig(appSchema, { loadDotEnv: false });
+      const { vars, envSourceMap, isSensitive, environment, databaseFields } = createEnvConfig(appSchema, {
+        loadDotEnv: false,
+      });
 
       expect(vars.MY_SERVICE_PORT).toBe(9000);
       expect(vars.MY_API_KEY).toBe('secret-123');
@@ -96,6 +105,13 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(isSensitive('PORT')).toBe(false);
       expect(environment.env).toBe('dev');
       expect(environment.isProd).toBe(false);
+
+      const dbKeys = databaseFields.map((f) => f.key);
+      expect(dbKeys).toContain('AI_LLM_TIMEOUT_MS');
+      expect(dbKeys).toContain('AI_LLM_MAX_RETRIES');
+      expect(dbKeys).toContain('LLM_FETCH_VERBOSE');
+      expect(dbKeys).toContain('PRISMA_TRANSACTION_TIMEOUT');
+      expect(dbKeys).toContain('I18N_EXCEPTION_ENABLED');
     });
 
     it('should fallback to DOPPLER_ENVIRONMENT when ENV is unset', () => {
@@ -133,6 +149,53 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(() => {
         createEnvConfig(appSchema, { loadDotEnv: false });
       }).toThrow();
+    });
+  });
+
+  describe('asDatabaseField & dbField (Colocation & Single Source of Truth)', () => {
+    it('should transparently preserve schema validation and type parsing', () => {
+      const field = asDatabaseField(z.number().int().min(10).max(100).default(50), '任务批次大小');
+
+      expect(field.parse(undefined)).toBe(50);
+      expect(field.parse(80)).toBe(80);
+      expect(() => field.parse(5)).toThrow();
+      expect(() => field.parse(150)).toThrow();
+      expect(field.description).toBe('任务批次大小');
+    });
+
+    it('should attach metadata spec for extraction and colocation visibility', () => {
+      const fieldWithOpts = asDatabaseField(z.string().default('default-val'), {
+        description: 'Scoped 配置',
+        scoped: true,
+      });
+
+      const spec = getDatabaseFieldSpec(fieldWithOpts);
+      expect(spec).toBeDefined();
+      expect(spec?.isDatabaseField).toBe(true);
+      expect(spec?.scoped).toBe(true);
+      expect(spec?.description).toBe('Scoped 配置');
+    });
+
+    it('dbField alias should behave identically to asDatabaseField', () => {
+      const field = dbField(z.boolean().default(false), '布尔旗标');
+      const spec = getDatabaseFieldSpec(field);
+      expect(spec?.isDatabaseField).toBe(true);
+      expect(spec?.scoped).toBe(false);
+      expect(spec?.description).toBe('布尔旗标');
+      expect(field.parse(true)).toBe(true);
+    });
+
+    it('should correctly identify database-managed fields on baseEnvSchema', () => {
+      const timeoutSpec = getDatabaseFieldSpec(baseEnvSchema.shape.AI_LLM_TIMEOUT_MS);
+      expect(timeoutSpec).toBeDefined();
+      expect(timeoutSpec?.isDatabaseField).toBe(true);
+
+      const retriesSpec = getDatabaseFieldSpec(baseEnvSchema.shape.AI_LLM_MAX_RETRIES);
+      expect(retriesSpec).toBeDefined();
+      expect(retriesSpec?.isDatabaseField).toBe(true);
+
+      const portSpec = getDatabaseFieldSpec(baseEnvSchema.shape.PORT);
+      expect(portSpec).toBeUndefined();
     });
   });
 });

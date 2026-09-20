@@ -279,6 +279,88 @@ describe('AppConfigure', () => {
       expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(120_000);
     });
 
+    it('should reject DB overrides that violate schema constraints even if finite (Single Source of Truth Safe-Reject)', async () => {
+      class LlmEnvs {
+        @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
+        AI_LLM_TIMEOUT_MS: number = 120_000;
+        @DatabaseField('number', '默认 LLM 最大重试次数')
+        AI_LLM_MAX_RETRIES: number = 2;
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
+      }
+
+      const originalEnvs = new LlmEnvs();
+      const activeEnvs = new LlmEnvs();
+
+      // 场景 1: DB 中 AI_LLM_TIMEOUT_MS 为 500（违反 min(30_000) 约束），AI_LLM_MAX_RETRIES 为 -1（违反 min(0) 约束）
+      const mockPrismaInvalid = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'AI_LLM_TIMEOUT_MS',
+                scope: 'shared',
+                value: 500, // 有限数值但违背 baseEnvSchema min(30_000)
+                defaultValue: '120000',
+                format: 'number',
+              },
+              {
+                key: 'AI_LLM_MAX_RETRIES',
+                scope: 'shared',
+                value: -1, // 有限数值但违背 baseEnvSchema min(0)
+                defaultValue: '2',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve(null)),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrismaInvalid as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // 动态入境边界防守：违背 Schema 约束的值被安全拒绝，保留原有配置
+      expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(120_000);
+      expect(activeEnvs.AI_LLM_MAX_RETRIES).toBe(2);
+
+      // 场景 2: DB 中提供合法数值与可强制转换的字串数值
+      const mockPrismaValid = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'AI_LLM_TIMEOUT_MS',
+                scope: 'shared',
+                value: 60_000,
+                defaultValue: '120000',
+                format: 'number',
+              },
+              {
+                key: 'AI_LLM_MAX_RETRIES',
+                scope: 'shared',
+                value: '4', // 字符串可 coerce 为合法数字 4
+                defaultValue: '2',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve(null)),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrismaValid as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // 合法值应被成功应用并转换为 number
+      expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(60_000);
+      expect(activeEnvs.AI_LLM_MAX_RETRIES).toBe(4);
+      expect(typeof activeEnvs.AI_LLM_MAX_RETRIES).toBe('number');
+    });
+
     // 2026-09-02 staging 事故：admin 把 boolean 行的 value 写成空串，JSON.parse('') 在
     // findMany().map() 里裸抛 → 整场 sync 每分钟炸，server/agents 的 DB 配置全部失效
     // （boot 时初始同步也炸 → APP_MAIN_CHAT_MODEL 等回落到过期的进程 env 值）。

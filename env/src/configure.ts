@@ -69,6 +69,86 @@ export function LLMModelField(): PropertyDecorator {
 export function getLLMModelFields(): string[] {
   return Array.from(llmModelFields);
 }
+
+// ==================== Modern Database Field (Colocation & Single Source of Truth) ====================
+
+export const DATABASE_FIELD_METADATA = Symbol('DATABASE_FIELD_METADATA');
+
+export interface DatabaseFieldOptions {
+  description?: string;
+  scoped?: boolean;
+}
+
+export interface DatabaseFieldSpec {
+  isDatabaseField: true;
+  scoped: boolean;
+  description?: string;
+  schema: z.ZodType;
+}
+
+/**
+ * 声明一个由数据库 (sys_app_settings) 受管的动态配置字段
+ *
+ * 1. 就近宣告 (Colocation)：在 Schema 字段旁显式标记，直观可见当前配置为 DB 受管
+ * 2. 单一真理源 (Single Source of Truth)：继承 Schema 的强类型约束（如 min, max, enum 等）
+ * 3. 动态双阶边界防卫 (Safe-Reject)：外部 DB 覆盖值必须完全通过该 Schema 的校验方可写入内存
+ *
+ * @example
+ * ```typescript
+ * export const appEnvSchema = baseEnvSchema.extend({
+ *   TASK_BATCH_SIZE: asDatabaseField(
+ *     z.number().int().min(10).max(5000).default(100),
+ *     { description: '批次处理大小', scoped: true }
+ *   ),
+ *   FEATURE_FLAG: dbField(z.boolean().default(false), '功能旗标'),
+ * });
+ * ```
+ */
+export function asDatabaseField<T extends z.ZodType>(
+  schema: T,
+  descriptionOrOptions?: string | DatabaseFieldOptions,
+): T {
+  const options: DatabaseFieldOptions =
+    typeof descriptionOrOptions === 'string' ? { description: descriptionOrOptions } : (descriptionOrOptions ?? {});
+
+  const targetSchema = options.description ? schema.describe(options.description) : schema;
+
+  const spec: DatabaseFieldSpec = {
+    isDatabaseField: true,
+    scoped: options.scoped === true,
+    description: options.description,
+    schema: targetSchema,
+  };
+
+  Object.defineProperty(targetSchema, DATABASE_FIELD_METADATA, {
+    value: spec,
+    writable: false,
+    enumerable: false,
+    configurable: true,
+  });
+
+  return targetSchema;
+}
+
+/** asDatabaseField 的简洁直观别名 */
+export const dbField = asDatabaseField;
+
+/**
+ * 从 Schema 节点提取 DatabaseFieldSpec 元数据
+ */
+export function getDatabaseFieldSpec(schema: unknown): DatabaseFieldSpec | undefined {
+  if (!schema || typeof schema !== 'object') return undefined;
+  if (DATABASE_FIELD_METADATA in schema) {
+    return (schema as Record<symbol, DatabaseFieldSpec>)[DATABASE_FIELD_METADATA];
+  }
+  const def = (schema as { _def?: Record<string, unknown> })._def;
+  if (def) {
+    if ('innerType' in def) return getDatabaseFieldSpec(def.innerType);
+    if ('schema' in def) return getDatabaseFieldSpec(def.schema);
+  }
+  return undefined;
+}
+
 /**
  * 标记字段是否需要同步到数据库, 用于配置项的动态更新
  *
@@ -526,13 +606,20 @@ export const baseEnvSchema = z.object({
   AI_BEDROCK_REGION: z.string().optional(),
   AI_JINA_API_KEY: z.string().optional(),
   AI_VOYAGE_API_KEY: z.string().optional(),
-  AI_TYPESAFE_API_KEY: z.string().optional(),
-  AI_LLM_TIMEOUT_MS: coerceNumber(z.number().min(30_000).default(120_000)).describe('db-sync:number'),
-  AI_LLM_MAX_RETRIES: coerceNumber(z.number().min(0).default(2)).describe('db-sync:number'),
-  LLM_FETCH_VERBOSE: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
-  PRISMA_TRANSACTION_TIMEOUT: coerceNumber(z.number().default(30_000)).describe('db-sync:number'),
-  I18N_EXCEPTION_ENABLED: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
-  INFRA_REDIS_URL: z.string().optional(),
+  AI_LLM_TIMEOUT_MS: asDatabaseField(
+    coerceNumber(z.number().min(30_000).default(120_000)),
+    '默认 LLM 调用超时（毫秒）',
+  ),
+  AI_LLM_MAX_RETRIES: asDatabaseField(coerceNumber(z.number().min(0).default(2)), '默认 LLM 最大重试次数'),
+  LLM_FETCH_VERBOSE: asDatabaseField(
+    coerceBoolean(z.boolean().default(false)),
+    'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）',
+  ),
+  PRISMA_TRANSACTION_TIMEOUT: asDatabaseField(coerceNumber(z.number().default(30_000)), 'Prisma 事务超时时间（毫秒）'),
+  I18N_EXCEPTION_ENABLED: asDatabaseField(
+    coerceBoolean(z.boolean().default(false)),
+    '是否启用异常处理器的 I18n 翻译功能',
+  ),
   CLUSTER_ENABLED: coerceBoolean(z.boolean().default(true)),
   CLUSTER_NODE_TTL_SECONDS: z.string().optional(),
   CLUSTER_HEARTBEAT_INTERVAL_MS: z.string().optional(),
@@ -775,6 +862,20 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       rawValue: unknown,
     ): { ok: true; value: unknown } | { ok: false; reason: string } => {
       try {
+        // 1. 核心契约先行 (Single Source of Truth & Safe-Reject)
+        // 若字段在 baseEnvSchema 中有明确定义，必须完全通过对应 Schema 节点的校验与转制（包括数值范围约束）
+        const baseSchema = (baseEnvSchema.shape as Record<string, z.ZodType>)[field];
+        if (baseSchema) {
+          const result = baseSchema.safeParse(rawValue);
+          if (result.success) {
+            return { ok: true, value: result.data };
+          }
+          return {
+            ok: false,
+            reason: result.error.issues.map((i) => `${i.path.join('.') || field}: ${i.message}`).join('; '),
+          };
+        }
+
         const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, activeEnvs, field) as string | undefined;
         let converted = rawValue;
         if (format === 'number') {
@@ -1193,6 +1294,7 @@ export function createEnvConfig<T extends z.ZodRawShape>(
     env: string;
     isProd: boolean;
   };
+  databaseFields: Array<{ key: string; spec: DatabaseFieldSpec }>;
 } {
   const envSourceMap = new Map<string, string>();
   for (const key of Object.keys(process.env)) {
@@ -1243,10 +1345,19 @@ export function createEnvConfig<T extends z.ZodRawShape>(
     isProd: resolvedEnv === 'prd',
   };
 
+  const databaseFields: Array<{ key: string; spec: DatabaseFieldSpec }> = [];
+  for (const [key, fieldSchema] of Object.entries(schema.shape)) {
+    const spec = getDatabaseFieldSpec(fieldSchema);
+    if (spec) {
+      databaseFields.push({ key, spec });
+    }
+  }
+
   return {
     vars: parsed.data,
     envSourceMap,
     isSensitive: AppConfigure.isSensitive,
     environment,
+    databaseFields,
   };
 }
