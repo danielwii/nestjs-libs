@@ -66,11 +66,11 @@ interface CtStorage {
   findExcludeMetadata?: (
     target: unknown,
     propertyName: string,
-  ) => { options?: { toPlainOnly?: boolean; toClassOnly?: boolean } } | undefined;
+  ) => { options?: { toPlainOnly?: boolean; toClassOnly?: boolean; groups?: string[] } } | undefined;
   findExposeMetadata?: (
     target: unknown,
     propertyName: string,
-  ) => { options?: { name?: string; toPlainOnly?: boolean; toClassOnly?: boolean } } | undefined;
+  ) => { options?: { name?: string; toPlainOnly?: boolean; toClassOnly?: boolean; groups?: string[] } } | undefined;
   getStrategy?: (target: unknown) => 'exposeAll' | 'excludeAll' | undefined;
 }
 
@@ -153,6 +153,9 @@ export function toPlain(
 
         // 若标注 toClassOnly: true，则在 toPlain (classToPlain) 序列化中绝不暴露
         if (exposeMeta?.options?.toClassOnly === true) continue;
+
+        // 若标注了特定 groups（例如 ['admin']），而在日志格式化无上下文组时绝不暴露
+        if (exposeMeta?.options?.groups && exposeMeta.options.groups.length > 0) continue;
 
         if (strategy === 'excludeAll') {
           if (!exposeMeta) continue;

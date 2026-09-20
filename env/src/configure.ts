@@ -105,12 +105,28 @@ export function IsBoolean(options?: { message?: string }): PropertyDecorator {
   };
 }
 
+function extractEnumValues(entity: object | readonly (string | number)[]): readonly (string | number)[] {
+  if (Array.isArray(entity)) return entity;
+  const values = Object.values(entity);
+  const hasNumbers = values.some((v) => typeof v === 'number');
+  if (hasNumbers) {
+    return values.filter((v) => {
+      if (typeof v === 'number') return true;
+      if (typeof v === 'string') {
+        return typeof (entity as Record<string, unknown>)[v] !== 'number';
+      }
+      return false;
+    }) as (string | number)[];
+  }
+  return values as (string | number)[];
+}
+
 export function IsEnum(
   entity: object | string[] | readonly string[] | readonly number[],
   options?: { message?: string },
 ): PropertyDecorator {
   return (target, propertyKey) => {
-    const allowed = (Array.isArray(entity) ? entity : Object.values(entity)) as readonly (string | number)[];
+    const allowed = extractEnumValues(entity);
     addRule(target, propertyKey as string, {
       name: 'isEnum',
       validate: (val) => (typeof val === 'string' || typeof val === 'number') && allowed.includes(val),
