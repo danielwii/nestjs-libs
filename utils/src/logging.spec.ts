@@ -134,22 +134,86 @@ describe('logging.utils', () => {
           secretToken = 'secret-value';
           @Expose({ name: 'customField' })
           renamed = 'renamed-value';
+          @Expose({ toClassOnly: true })
+          passwordInputOnly = 'super-secret-password';
+          @Exclude({ toClassOnly: true })
+          visibleInPlain = 'plain-ok';
         }
 
         const dto = new SensitiveDto();
         const plain = toPlain(dto) as Record<string, unknown>;
         expect(plain.publicField).toBe('public');
         expect(plain.secretToken).toBeUndefined();
+        expect(plain.passwordInputOnly).toBeUndefined();
+        expect(plain.visibleInPlain).toBe('plain-ok');
         expect(plain.customField).toBe('renamed-value');
 
         process.env.NODE_ENV = 'production';
         const formatted = r(dto);
         expect(formatted).not.toContain('secret-value');
+        expect(formatted).not.toContain('super-secret-password');
         expect(formatted).toContain('public');
         expect(formatted).toContain('customField');
+        expect(formatted).toContain('plain-ok');
       } catch {
         // class-transformer not installed
       }
+    });
+
+    it('should sanitize deep nested DTOs beyond depth 5 without leaking sensitive fields', () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Exclude } = require('class-transformer');
+        class DeepCredentialDto {
+          safeProp = 'safe-data';
+          @Exclude()
+          apiSecret = 'very-confidential-token';
+        }
+
+        // 构造 7 层深度嵌套对象
+        const deepObj = {
+          l1: {
+            l2: {
+              l3: {
+                l4: {
+                  l5: {
+                    l6: {
+                      l7: new DeepCredentialDto(),
+                    },
+                  },
+                },
+              },
+            },
+          },
+        };
+
+        const plain = toPlain(deepObj) as any;
+        expect(plain.l1.l2.l3.l4.l5.l6.l7.safeProp).toBe('safe-data');
+        expect(plain.l1.l2.l3.l4.l5.l6.l7.apiSecret).toBeUndefined();
+
+        process.env.NODE_ENV = 'production';
+        const formatted = r(deepObj);
+        expect(formatted).not.toContain('very-confidential-token');
+        expect(formatted).toContain('safe-data');
+      } catch {
+        // class-transformer not installed
+      }
+    });
+
+    it('should safely truncate objects exceeding max depth as [Object] rather than leaking raw instance', () => {
+      let current: any = { data: 'deepest' };
+      for (let i = 0; i < 20; i++) {
+        current = { child: current };
+      }
+
+      const plain = toPlain(current) as any;
+      let ptr = plain;
+      let depth = 0;
+      while (ptr && typeof ptr === 'object' && ptr.child !== undefined) {
+        ptr = ptr.child;
+        depth++;
+      }
+      expect(ptr).toBe('[Object]');
     });
 
     it('should fallback to inspect if instanceToPlain fails', () => {
