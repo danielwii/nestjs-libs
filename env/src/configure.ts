@@ -240,12 +240,17 @@ export function plainToInstance<T extends object>(
 
     if (!transformFn && ctStorage?.findTransformMetadatas) {
       try {
-        const metadatas = ctStorage.findTransformMetadatas(Cls, key, 1 /* PLAIN_TO_CLASS */);
+        const metadatas = ctStorage.findTransformMetadatas(Cls, key, 0 /* PLAIN_TO_CLASS */);
         if (metadatas && metadatas.length > 0) {
           transformFn = (params: TransformFnParams) => {
             let current = params.value;
             for (const meta of metadatas) {
-              current = meta.transformFn({ value: current, key: params.key, obj: params.obj, type: 1 });
+              current = meta.transformFn({
+                value: current,
+                key: params.key,
+                obj: params.obj,
+                type: 0 /* PLAIN_TO_CLASS */,
+              });
             }
             return current;
           };
