@@ -47,11 +47,15 @@ const llmModelFields = new Set<string>();
  * - 对应 Provider 的 API Key 是否已配置
  *
  * @example
- * @LLMModelField()
- * DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
+ * ```typescript
+ * class AppEnvironmentVariables extends AbstractEnvironmentVariables {
+ *   @LLMModelField()
+ *   DEFAULT_LLM_MODEL?: string;
  *
- * @LLMModelField()
- * I18N_LLM_MODEL?: string;
+ *   @LLMModelField()
+ *   I18N_LLM_MODEL?: string;
+ * }
+ * ```
  */
 export function LLMModelField(): PropertyDecorator {
   return (_target, propertyKey) => {
@@ -189,8 +193,6 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    * Official SDK default env is TYPESAFE_API_KEY — pass this value into TypeSafeClient({ apiKey }).
    */
   AI_TYPESAFE_API_KEY?: string;
-  /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境）。值须为已注册的 LLMModelKey（如 'openrouter:gemini-2.5-flash'） */
-  @LLMModelField() DEFAULT_LLM_MODEL?: string;
 
   /** 默认 LLM 调用超时（毫秒），透传给 AI SDK 的 timeout 参数 */
   @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
@@ -525,7 +527,6 @@ export const baseEnvSchema = z.object({
   AI_JINA_API_KEY: z.string().optional(),
   AI_VOYAGE_API_KEY: z.string().optional(),
   AI_TYPESAFE_API_KEY: z.string().optional(),
-  DEFAULT_LLM_MODEL: z.string().default('openrouter:gemini-2.5-flash').describe('llm-model'),
   AI_LLM_TIMEOUT_MS: coerceNumber(z.number().min(30_000).default(120_000)).describe('db-sync:number'),
   AI_LLM_MAX_RETRIES: coerceNumber(z.number().min(0).default(2)).describe('db-sync:number'),
   LLM_FETCH_VERBOSE: coerceBoolean(z.boolean().default(false)).describe('db-sync:boolean'),
