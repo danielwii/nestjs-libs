@@ -1477,14 +1477,11 @@ export function createEnvConfig<T extends z.ZodRawShape>(
       const pathStr = issue.path.join('.');
       logger.error`  ${pathStr}: ${issue.message}`;
     }
-    if (process.env.NODE_ENV !== NODE_ENV.Test) {
-      throw new Error(`Environment validation failed: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
-    }
+    throw new Error(`Environment validation failed: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
   }
 
-  const vars = (parsed.success ? parsed.data : (process.env as unknown)) as z.infer<z.ZodObject<T>>;
   return {
-    vars,
+    vars: parsed.data,
     envSourceMap,
     isSensitive: AppConfigure.isSensitive,
   };
