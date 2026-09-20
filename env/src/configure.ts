@@ -100,7 +100,7 @@ export interface DatabaseFieldSpec {
  *     z.number().int().min(10).max(5000).default(100),
  *     { description: '批次处理大小', scoped: true }
  *   ),
- *   FEATURE_FLAG: dbField(z.boolean().default(false), '功能旗标'),
+ *   FEATURE_FLAG: asDatabaseField(z.boolean().default(false), '功能旗标'),
  * });
  * ```
  */
@@ -129,9 +129,6 @@ export function asDatabaseField<T extends z.ZodType>(
 
   return targetSchema;
 }
-
-/** asDatabaseField 的简洁直观别名 */
-export const dbField = asDatabaseField;
 
 /**
  * 从 Schema 节点提取 DatabaseFieldSpec 元数据
