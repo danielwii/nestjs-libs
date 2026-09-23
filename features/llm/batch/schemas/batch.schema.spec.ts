@@ -1,4 +1,5 @@
 import {
+  BatchMessageSchema,
   BatchRequestItemSchema,
   BatchResponseSchema,
   BatchResultItemSchema,
@@ -8,6 +9,54 @@ import {
 import { describe, expect, it } from 'bun:test';
 
 describe('Batch Schemas', () => {
+  describe('BatchMessageSchema', () => {
+    it('successfully parses standard messages', () => {
+      const msg = { role: 'user', content: 'hello' };
+      const parsed = BatchMessageSchema.safeParse(msg);
+      expect(parsed.success).toBe(true);
+    });
+
+    it('preserves tool-calling fields and extra protocol properties', () => {
+      const assistantWithToolCalls = {
+        role: 'assistant',
+        content: '',
+        name: 'agent_runner',
+        tool_calls: [
+          {
+            id: 'call_123',
+            type: 'function',
+            function: { name: 'get_weather', arguments: '{"location":"Taipei"}' },
+          },
+        ],
+        extra_custom_metadata: { trace_id: 't-99' },
+      };
+
+      const parsedAssistant = BatchMessageSchema.safeParse(assistantWithToolCalls);
+      expect(parsedAssistant.success).toBe(true);
+      if (parsedAssistant.success) {
+        expect(parsedAssistant.data.role).toBe('assistant');
+        expect(parsedAssistant.data.name).toBe('agent_runner');
+        expect(parsedAssistant.data.tool_calls).toHaveLength(1);
+        expect((parsedAssistant.data as any).extra_custom_metadata).toEqual({ trace_id: 't-99' });
+      }
+
+      const toolResponse = {
+        role: 'tool',
+        content: '{"temp": 24}',
+        tool_call_id: 'call_123',
+        name: 'get_weather',
+      };
+
+      const parsedTool = BatchMessageSchema.safeParse(toolResponse);
+      expect(parsedTool.success).toBe(true);
+      if (parsedTool.success) {
+        expect(parsedTool.data.role).toBe('tool');
+        expect(parsedTool.data.tool_call_id).toBe('call_123');
+        expect(parsedTool.data.name).toBe('get_weather');
+      }
+    });
+  });
+
   describe('BatchRequestItemSchema', () => {
     it('successfully parses a valid request item', () => {
       const valid = {
