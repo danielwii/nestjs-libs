@@ -1,0 +1,151 @@
+import {
+  BatchRequestItemSchema,
+  BatchResponseSchema,
+  BatchResultItemSchema,
+  CreateBatchParamsSchema,
+} from './batch.schema';
+
+import { describe, expect, it } from 'bun:test';
+
+describe('Batch Schemas', () => {
+  describe('BatchRequestItemSchema', () => {
+    it('successfully parses a valid request item', () => {
+      const valid = {
+        custom_id: 'req-001',
+        body: {
+          messages: [{ role: 'user', content: 'Hello OpenRouter' }],
+          temperature: 0.7,
+        },
+      };
+
+      const result = BatchRequestItemSchema.safeParse(valid);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.custom_id).toBe('req-001');
+        expect(result.data.body.messages[0]?.content).toBe('Hello OpenRouter');
+      }
+    });
+
+    it('rejects an empty custom_id', () => {
+      const invalid = {
+        custom_id: '',
+        body: {
+          messages: [{ role: 'user', content: 'Hello' }],
+        },
+      };
+
+      const result = BatchRequestItemSchema.safeParse(invalid);
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects an empty messages array', () => {
+      const invalid = {
+        custom_id: 'req-001',
+        body: {
+          messages: [],
+        },
+      };
+
+      const result = BatchRequestItemSchema.safeParse(invalid);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('CreateBatchParamsSchema', () => {
+    it('applies default endpoint if not specified', () => {
+      const params = {
+        model: 'openai/gpt-6-sol',
+        requests: [
+          {
+            custom_id: 'req-1',
+            body: {
+              messages: [{ role: 'user', content: 'test' }],
+            },
+          },
+        ],
+      };
+
+      const result = CreateBatchParamsSchema.safeParse(params);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.endpoint).toBe('/v1/chat/completions');
+        expect(result.data.model).toBe('openai/gpt-6-sol');
+      }
+    });
+
+    it('rejects empty model or empty requests list', () => {
+      expect(
+        CreateBatchParamsSchema.safeParse({
+          model: '',
+          requests: [{ custom_id: '1', body: { messages: [{ role: 'user', content: 'a' }] } }],
+        }).success,
+      ).toBe(false);
+      expect(CreateBatchParamsSchema.safeParse({ model: 'gpt-4o', requests: [] }).success).toBe(false);
+    });
+  });
+
+  describe('BatchResponseSchema', () => {
+    it('validates a standard in_progress response', () => {
+      const payload = {
+        id: 'batch_xyz123',
+        object: 'batch',
+        endpoint: '/v1/chat/completions',
+        model: 'openai/gpt-6-sol',
+        status: 'in_progress',
+        created_at: 1790100000,
+        request_counts: {
+          total: 10,
+          completed: 4,
+          failed: 0,
+        },
+      };
+
+      const result = BatchResponseSchema.safeParse(payload);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.id).toBe('batch_xyz123');
+        expect(result.data.status).toBe('in_progress');
+        expect(result.data.request_counts?.completed).toBe(4);
+      }
+    });
+
+    it('validates a completed response with inlined results', () => {
+      const payload = {
+        id: 'batch_xyz123',
+        status: 'completed',
+        request_counts: {
+          total: 2,
+          completed: 2,
+          failed: 0,
+        },
+        results: [
+          {
+            custom_id: 'req-1',
+            response: { choices: [{ message: { content: 'Answer 1' } }] },
+          },
+          {
+            custom_id: 'req-2',
+            response: { choices: [{ message: { content: 'Answer 2' } }] },
+          },
+        ],
+      };
+
+      const result = BatchResponseSchema.safeParse(payload);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.results?.length).toBe(2);
+        expect(result.data.results?.[0]?.custom_id).toBe('req-1');
+      }
+    });
+
+    it('rejects an invalid batch status', () => {
+      const payload = {
+        id: 'batch_xyz123',
+        status: 'unknown_status',
+      };
+
+      const result = BatchResponseSchema.safeParse(payload);
+      expect(result.success).toBe(false);
+    });
+  });
+});
