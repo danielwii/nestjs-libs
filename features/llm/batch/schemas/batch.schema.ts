@@ -3,10 +3,15 @@ import { z } from 'zod';
 /**
  * OpenRouter Batch API 單條 Message 結構
  */
-export const BatchMessageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant', 'tool']),
-  content: z.union([z.string(), z.array(z.any())]),
-});
+export const BatchMessageSchema = z
+  .object({
+    role: z.enum(['system', 'user', 'assistant', 'tool']),
+    content: z.union([z.string(), z.array(z.any())]),
+    name: z.string().optional(),
+    tool_call_id: z.string().optional(),
+    tool_calls: z.array(z.any()).optional(),
+  })
+  .loose();
 
 /**
  * OpenRouter Batch API 單條 Request Body 結構
