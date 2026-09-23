@@ -643,6 +643,41 @@ const openRouterCatalogAdditions = [
     modelId: 'moonshotai/kimi-k3',
     reasoningRequired: false,
   },
+  {
+    keys: ['openrouter:claude-opus-5.5', 'openrouter:anthropic/claude-opus-5.5'],
+    modelId: 'anthropic/claude-opus-5.5',
+    reasoningRequired: true,
+  },
+  {
+    keys: ['openrouter:grok-4.7', 'openrouter:x-ai/grok-4.7'],
+    modelId: 'x-ai/grok-4.7',
+    reasoningRequired: true,
+  },
+  {
+    keys: ['openrouter:command-a-plus', 'openrouter:cohere/command-a-plus'],
+    modelId: 'cohere/command-a-plus',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-6-sol', 'openrouter:openai/gpt-6-sol'],
+    modelId: 'openai/gpt-6-sol',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-6-sol-pro', 'openrouter:openai/gpt-6-sol-pro'],
+    modelId: 'openai/gpt-6-sol-pro',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-6-luna', 'openrouter:openai/gpt-6-luna'],
+    modelId: 'openai/gpt-6-luna',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-6-luna-pro', 'openrouter:openai/gpt-6-luna-pro'],
+    modelId: 'openai/gpt-6-luna-pro',
+    reasoningRequired: false,
+  },
 ] as const;
 
 describe('OpenRouter 2026-07 model catalog additions', () => {

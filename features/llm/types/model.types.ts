@@ -598,6 +598,16 @@ export interface LLMModelRegistry {
    */
   // 'openrouter:claude-opus-5': ModelConfig<'openrouter'>;
   // 'openrouter:anthropic/claude-opus-5': ModelConfig<'openrouter'>;
+  /**
+   * Claude Opus 5.5 - 1M context / frontier reasoning & agentic
+   *
+   * OpenRouter standard: Input $4/M, Output $20/M, Context 1M.
+   * Reasoning 强制开启（mandatory: true，不支持 none，缺省 fallback 至 low）。
+   *
+   * @see https://openrouter.ai/anthropic/claude-opus-5.5
+   */
+  'openrouter:claude-opus-5.5': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-opus-5.5': ModelConfig<'openrouter'>;
 
   // ---- OpenAI GPT-5 ----
   /**
@@ -672,6 +682,50 @@ export interface LLMModelRegistry {
   'openrouter:gpt-5.6-sol': ModelConfig<'openrouter'>;
   'openrouter:openai/gpt-5.6-sol': ModelConfig<'openrouter'>;
 
+  // ---- OpenAI GPT-6 ----
+  /**
+   * GPT-6 Sol
+   *
+   * OpenRouter standard (≤272K input tokens): Input $2/M, Output $10/M;
+   * long context (>272K input): Input $4/M, Output $15/M. Context 1.05M.
+   *
+   * @see https://openrouter.ai/openai/gpt-6-sol
+   */
+  'openrouter:gpt-6-sol': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-6-sol': ModelConfig<'openrouter'>;
+  /**
+   * GPT-6 Sol Pro
+   *
+   * OpenRouter standard (≤272K input tokens): Input $2/M, Output $10/M;
+   * long context (>272K input): Input $4/M, Output $15/M. Context 1.05M.
+   * Served with reasoning.mode set to 'pro'.
+   *
+   * @see https://openrouter.ai/openai/gpt-6-sol-pro
+   */
+  'openrouter:gpt-6-sol-pro': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-6-sol-pro': ModelConfig<'openrouter'>;
+  /**
+   * GPT-6 Luna
+   *
+   * OpenRouter standard (≤272K input tokens): Input $0.10/M, Output $0.50/M;
+   * long context (>272K input): Input $0.20/M, Output $0.75/M. Context 1.05M.
+   *
+   * @see https://openrouter.ai/openai/gpt-6-luna
+   */
+  'openrouter:gpt-6-luna': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-6-luna': ModelConfig<'openrouter'>;
+  /**
+   * GPT-6 Luna Pro
+   *
+   * OpenRouter standard (≤272K input tokens): Input $0.10/M, Output $0.50/M;
+   * long context (>272K input): Input $0.20/M, Output $0.75/M. Context 1.05M.
+   * Served with reasoning.mode set to 'pro'.
+   *
+   * @see https://openrouter.ai/openai/gpt-6-luna-pro
+   */
+  'openrouter:gpt-6-luna-pro': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-6-luna-pro': ModelConfig<'openrouter'>;
+
   // ---- xAI Grok (4.20+) ----
   /**
    * Grok 4.20 - 2M context
@@ -712,6 +766,17 @@ export interface LLMModelRegistry {
    */
   'openrouter:grok-4.6': ModelConfig<'openrouter'>;
   'openrouter:x-ai/grok-4.6': ModelConfig<'openrouter'>;
+  /**
+   * Grok 4.7 - 最新旗舰，500K context
+   *
+   * OpenRouter standard (≤200K input tokens): Input $1.60/M, Output $4.80/M;
+   * long context (>200K input): Input $3.20/M, Output $9.60/M. Context 500K.
+   * Reasoning 强制开启（mandatory: true，不支持 none，缺省 fallback 至 low）。
+   *
+   * @see https://openrouter.ai/x-ai/grok-4.7
+   */
+  'openrouter:grok-4.7': ModelConfig<'openrouter'>;
+  'openrouter:x-ai/grok-4.7': ModelConfig<'openrouter'>;
 
   // ---- DeepSeek / MoonshotAI Kimi / Qwen ----
   /**
@@ -807,6 +872,18 @@ export interface LLMModelRegistry {
    */
   'openrouter:qwen3.8-max': ModelConfig<'openrouter'>;
   'openrouter:qwen/qwen3.8-max': ModelConfig<'openrouter'>;
+
+  // ---- Cohere ----
+  /**
+   * Command A+ - 企業級 Agentic Workflow 旗艦
+   *
+   * OpenRouter standard: Input $0.30/M, Output $1.50/M, Context 192K.
+   * 支持 Strict Schema、Native Tool Calling 與結構化輸出。Reasoning 可關閉。
+   *
+   * @see https://openrouter.ai/cohere/command-a-plus
+   */
+  'openrouter:command-a-plus': ModelConfig<'openrouter'>;
+  'openrouter:cohere/command-a-plus': ModelConfig<'openrouter'>;
 
   // ==================== Google Direct (AI Studio) ====================
   // LIVE 2026-08-15 generateText（disable=thinkingBudget:0 / thinkingLevel），非 resolveThinking。
@@ -1345,6 +1422,25 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Claude Opus 5 — 停用于 2026-09-05（output $25/M）
   // ['openrouter:claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
   // ['openrouter:anthropic/claude-opus-5', { provider: 'openrouter', modelId: 'anthropic/claude-opus-5' }],
+  // Claude Opus 5.5 — OpenRouter metadata: reasoning mandatory
+  [
+    'openrouter:claude-opus-5.5',
+    {
+      provider: 'openrouter',
+      modelId: 'anthropic/claude-opus-5.5',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
+  [
+    'openrouter:anthropic/claude-opus-5.5',
+    {
+      provider: 'openrouter',
+      modelId: 'anthropic/claude-opus-5.5',
+      reasoningRequired: true,
+      reasoningDefaultEffort: 'low',
+    },
+  ],
 
   // GPT-5.1
   ['openrouter:gpt-5.1', { provider: 'openrouter', modelId: 'openai/gpt-5.1' }],
@@ -1372,6 +1468,15 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:openai/gpt-5.6-terra', { provider: 'openrouter', modelId: 'openai/gpt-5.6-terra' }],
   ['openrouter:gpt-5.6-sol', { provider: 'openrouter', modelId: 'openai/gpt-5.6-sol' }],
   ['openrouter:openai/gpt-5.6-sol', { provider: 'openrouter', modelId: 'openai/gpt-5.6-sol' }],
+  // GPT-6 family — OpenRouter metadata: reasoning supports none
+  ['openrouter:gpt-6-sol', { provider: 'openrouter', modelId: 'openai/gpt-6-sol' }],
+  ['openrouter:openai/gpt-6-sol', { provider: 'openrouter', modelId: 'openai/gpt-6-sol' }],
+  ['openrouter:gpt-6-sol-pro', { provider: 'openrouter', modelId: 'openai/gpt-6-sol-pro' }],
+  ['openrouter:openai/gpt-6-sol-pro', { provider: 'openrouter', modelId: 'openai/gpt-6-sol-pro' }],
+  ['openrouter:gpt-6-luna', { provider: 'openrouter', modelId: 'openai/gpt-6-luna' }],
+  ['openrouter:openai/gpt-6-luna', { provider: 'openrouter', modelId: 'openai/gpt-6-luna' }],
+  ['openrouter:gpt-6-luna-pro', { provider: 'openrouter', modelId: 'openai/gpt-6-luna-pro' }],
+  ['openrouter:openai/gpt-6-luna-pro', { provider: 'openrouter', modelId: 'openai/gpt-6-luna-pro' }],
 
   // Grok 4.20
   ['openrouter:grok-4.20', { provider: 'openrouter', modelId: 'x-ai/grok-4.20' }],
@@ -1396,6 +1501,15 @@ const modelRegistry = new Map<string, ModelConfig>([
   [
     'openrouter:x-ai/grok-4.6',
     { provider: 'openrouter', modelId: 'x-ai/grok-4.6', reasoningRequired: true, reasoningDefaultEffort: 'low' },
+  ],
+  // Grok 4.7 — OpenRouter metadata: reasoning mandatory
+  [
+    'openrouter:grok-4.7',
+    { provider: 'openrouter', modelId: 'x-ai/grok-4.7', reasoningRequired: true, reasoningDefaultEffort: 'low' },
+  ],
+  [
+    'openrouter:x-ai/grok-4.7',
+    { provider: 'openrouter', modelId: 'x-ai/grok-4.7', reasoningRequired: true, reasoningDefaultEffort: 'low' },
   ],
 
   // DeepSeek V4 Flash
@@ -1456,6 +1570,10 @@ const modelRegistry = new Map<string, ModelConfig>([
       reasoningDefaultEffort: 'low',
     },
   ],
+
+  // Cohere Command A+
+  ['openrouter:command-a-plus', { provider: 'openrouter', modelId: 'cohere/command-a-plus' }],
+  ['openrouter:cohere/command-a-plus', { provider: 'openrouter', modelId: 'cohere/command-a-plus' }],
 
   // Google Direct — LIVE 2026-08-15：2.5 可关 thinking，但不支持 thinkingLevel（缺省 budget）
   ['google:gemini-2.5-flash', { provider: 'google', modelId: 'gemini-2.5-flash' }],
