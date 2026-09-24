@@ -44,7 +44,7 @@ export const BatchRequestItemSchema = z.object({
  * 建立 Batch 作業的入參契約
  */
 export const CreateBatchParamsSchema = z.object({
-  model: z.string().min(1, 'model cannot be empty'),
+  model: z.string().trim().min(1, 'model cannot be empty'),
   endpoint: z.string().default('/v1/chat/completions'),
   requests: z.array(BatchRequestItemSchema).min(1, 'requests cannot be empty'),
 });

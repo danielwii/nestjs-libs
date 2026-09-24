@@ -163,10 +163,16 @@ describe('Batch Schemas', () => {
       }
     });
 
-    it('rejects empty model or empty requests list', () => {
+    it('rejects empty or whitespace-only model or empty requests list', () => {
       expect(
         CreateBatchParamsSchema.safeParse({
           model: '',
+          requests: [{ custom_id: '1', body: { messages: [{ role: 'user', content: 'a' }] } }],
+        }).success,
+      ).toBe(false);
+      expect(
+        CreateBatchParamsSchema.safeParse({
+          model: '   ',
           requests: [{ custom_id: '1', body: { messages: [{ role: 'user', content: 'a' }] } }],
         }).success,
       ).toBe(false);
