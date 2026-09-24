@@ -103,6 +103,40 @@ describe('LLMBatch (Generic OpenRouter Batch SDK)', () => {
       }
     });
 
+    it('rejects model names that normalize to an empty ID with Oops.Validation', async () => {
+      let httpCalled = false;
+      (ApiFetcher as unknown as { fetch: typeof fetch }).fetch = (async () => {
+        httpCalled = true;
+        return new Response('{}');
+      }) as unknown as typeof fetch;
+
+      // 1. Whitespace only model
+      try {
+        await LLMBatch.create({
+          model: '   ',
+          requests: [{ custom_id: 'c1', body: { messages: [{ role: 'user', content: 'hi' }] } }],
+        });
+        expect.unreachable('Should have rejected whitespace-only model');
+      } catch (err) {
+        expect(err).toBeInstanceOf(Oops.Block);
+        expect(httpCalled).toBe(false);
+      }
+
+      // 2. Exact 'openrouter:' prefix without model ID
+      try {
+        await LLMBatch.create({
+          model: 'openrouter:',
+          requests: [{ custom_id: 'c1', body: { messages: [{ role: 'user', content: 'hi' }] } }],
+        });
+        expect.unreachable('Should have rejected prefix-only model');
+      } catch (err) {
+        expect(err).toBeInstanceOf(Oops.Block);
+        const oops = err as Oops.Block;
+        expect(oops.userMessage).toContain('Model name cannot be empty');
+        expect(httpCalled).toBe(false);
+      }
+    });
+
     it('M4: throws Oops.Panic.Config if AI_OPENROUTER_API_KEY is not configured', async () => {
       (SysEnv as { AI_OPENROUTER_API_KEY: string }).AI_OPENROUTER_API_KEY = '';
 

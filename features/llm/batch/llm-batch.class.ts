@@ -11,11 +11,16 @@ import type { BatchResponse, BatchResultItem, CreateBatchParams } from './schema
 
 function normalizeModel(model: string): string {
   const trimmed = model.trim();
+  let resolved: string;
   try {
-    return getModelId(trimmed as LLMModelKey);
+    resolved = getModelId(trimmed as LLMModelKey);
   } catch {
-    return trimmed.startsWith('openrouter:') ? trimmed.slice('openrouter:'.length) : trimmed;
+    resolved = trimmed.startsWith('openrouter:') ? trimmed.slice('openrouter:'.length).trim() : trimmed;
   }
+  if (!resolved) {
+    throw Oops.Validation('Model name cannot be empty or resolve to an empty ID', 'model');
+  }
+  return resolved;
 }
 
 /**
