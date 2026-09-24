@@ -718,6 +718,73 @@ describe('AppConfigure', () => {
       }
     });
 
+    it('should throw error if custom subclass numeric env variable is non-finite (Fail-Fast)', () => {
+      class CustomWorkerEnvs extends AbstractEnvironmentVariables {
+        WORKER_COUNT: number = 4;
+      }
+
+      const orig = process.env.WORKER_COUNT;
+      process.env.WORKER_COUNT = 'oops';
+
+      try {
+        expect(() => new AppConfigure(CustomWorkerEnvs)).toThrow(
+          /Invalid numeric environment variable for WORKER_COUNT/,
+        );
+      } finally {
+        if (orig !== undefined) process.env.WORKER_COUNT = orig;
+        else delete process.env.WORKER_COUNT;
+      }
+    });
+
+    it('should throw error if custom subclass boolean env variable is invalid (Fail-Fast)', () => {
+      class CustomBoolEnvs extends AbstractEnvironmentVariables {
+        ENABLE_FEATURE: boolean = true;
+      }
+
+      const orig = process.env.ENABLE_FEATURE;
+      process.env.ENABLE_FEATURE = 'not_a_boolean';
+
+      try {
+        expect(() => new AppConfigure(CustomBoolEnvs)).toThrow(
+          /Invalid boolean environment variable for ENABLE_FEATURE/,
+        );
+      } finally {
+        if (orig !== undefined) process.env.ENABLE_FEATURE = orig;
+        else delete process.env.ENABLE_FEATURE;
+      }
+    });
+
+    it('should correctly parse valid custom subclass numeric and boolean env overrides', () => {
+      class CustomEnvs extends AbstractEnvironmentVariables {
+        WORKER_COUNT: number = 4;
+        ENABLE_FEATURE: boolean = true;
+      }
+
+      const origNum = process.env.WORKER_COUNT;
+      const origBool = process.env.ENABLE_FEATURE;
+
+      try {
+        process.env.WORKER_COUNT = '16';
+        process.env.ENABLE_FEATURE = 'false';
+        const cfg1 = new AppConfigure(CustomEnvs);
+        expect(cfg1.vars.WORKER_COUNT).toBe(16);
+        expect(cfg1.vars.ENABLE_FEATURE).toBe(false);
+
+        process.env.ENABLE_FEATURE = '0';
+        const cfg2 = new AppConfigure(CustomEnvs);
+        expect(cfg2.vars.ENABLE_FEATURE).toBe(false);
+
+        process.env.ENABLE_FEATURE = '1';
+        const cfg3 = new AppConfigure(CustomEnvs);
+        expect(cfg3.vars.ENABLE_FEATURE).toBe(true);
+      } finally {
+        if (origNum !== undefined) process.env.WORKER_COUNT = origNum;
+        else delete process.env.WORKER_COUNT;
+        if (origBool !== undefined) process.env.ENABLE_FEATURE = origBool;
+        else delete process.env.ENABLE_FEATURE;
+      }
+    });
+
     it('should cover debug logging paths', () => {
       const ORIGINAL_DEBUG = process.env.CONFIGURE_DEBUG;
       process.env.CONFIGURE_DEBUG = 'true';
