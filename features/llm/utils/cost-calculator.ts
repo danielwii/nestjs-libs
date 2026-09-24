@@ -132,6 +132,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   }, // claude-on-aws
   'anthropic/claude-sonnet-4.6': { input: 3.0, output: 15.0 },
   'anthropic/claude-sonnet-5': { input: 2.0, output: 10.0 },
+  'anthropic/claude-opus-5.5': { input: 4.0, output: 20.0 },
   // 'anthropic/claude-opus-4.6': { input: 5.0, output: 25.0 }, // 停用于 2026-09-05
   // 'anthropic/claude-opus-4.7': { input: 5.0, output: 25.0 }, // 停用于 2026-09-05
   // 'anthropic/claude-opus-4.8': { input: 5.0, output: 25.0 }, // 停用于 2026-09-05
@@ -155,6 +156,11 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
     input: 2.0,
     output: 6.0,
     longContext: { inputTokenThreshold: 200_000, input: 4.0, output: 12.0 },
+  },
+  'x-ai/grok-4.7': {
+    input: 1.6,
+    output: 4.8,
+    longContext: { inputTokenThreshold: 200_000, input: 3.2, output: 9.6 },
   },
 
   // StepFun
@@ -214,6 +220,30 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
     output: 10.0,
     longContext: { inputTokenThreshold: 272_000, input: 4.0, output: 15.0 },
   }, // openai
+  // GPT-6 standard ≤272K input; long-context overrides:
+  'openai/gpt-6-luna': {
+    input: 0.1,
+    output: 0.5,
+    longContext: { inputTokenThreshold: 272_000, input: 0.2, output: 0.75 },
+  },
+  'openai/gpt-6-luna-pro': {
+    input: 0.1,
+    output: 0.5,
+    longContext: { inputTokenThreshold: 272_000, input: 0.2, output: 0.75 },
+  },
+  'openai/gpt-6-sol': {
+    input: 2.0,
+    output: 10.0,
+    longContext: { inputTokenThreshold: 272_000, input: 4.0, output: 15.0 },
+  },
+  'openai/gpt-6-sol-pro': {
+    input: 2.0,
+    output: 10.0,
+    longContext: { inputTokenThreshold: 272_000, input: 4.0, output: 15.0 },
+  },
+
+  // Cohere
+  'cohere/command-a-plus': { input: 0.3, output: 1.5 },
 
   // ==================== AWS Bedrock（key 为 registry 中的 Bedrock modelId）====================
   // 定价来源：AWS Bedrock pricing（经 models.dev 镜像核对，2026-07-17）

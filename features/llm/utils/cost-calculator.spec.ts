@@ -133,10 +133,17 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
     { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 1.2 },
     { keys: ['openrouter:grok-4.5', 'openrouter:x-ai/grok-4.5'], expected: 0.8 },
     { keys: ['openrouter:kimi-k3', 'openrouter:moonshotai/kimi-k3'], expected: 1.53 },
+    { keys: ['openrouter:claude-opus-5.5', 'openrouter:anthropic/claude-opus-5.5'], expected: 2.4 },
+    { keys: ['openrouter:grok-4.7', 'openrouter:x-ai/grok-4.7'], expected: 0.64 },
+    { keys: ['openrouter:command-a-plus', 'openrouter:cohere/command-a-plus'], expected: 0.18 },
+    { keys: ['openrouter:gpt-6-sol', 'openrouter:openai/gpt-6-sol'], expected: 1.2 },
+    { keys: ['openrouter:gpt-6-sol-pro', 'openrouter:openai/gpt-6-sol-pro'], expected: 1.2 },
+    { keys: ['openrouter:gpt-6-luna', 'openrouter:openai/gpt-6-luna'], expected: 0.06 },
+    { keys: ['openrouter:gpt-6-luna-pro', 'openrouter:openai/gpt-6-luna-pro'], expected: 0.06 },
   ] as const;
 
   it('uses standard per-token fallback pricing for shorthand and canonical aliases', () => {
-    // 100K input stays below the GPT-5.6/Grok long-context thresholds.
+    // 100K input stays below the GPT-5.6/GPT-6/Grok long-context thresholds.
     const usage = { inputTokens: 100_000, outputTokens: 100_000 };
     for (const { keys, expected } of pricingCases) {
       for (const key of keys) {
@@ -151,6 +158,10 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
       { keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'], expected: 0.3 },
       { keys: ['openrouter:gpt-5.6-terra', 'openrouter:openai/gpt-5.6-terra'], expected: 3.0 },
       { keys: ['openrouter:gpt-5.6-sol', 'openrouter:openai/gpt-5.6-sol'], expected: 2.7 },
+      { keys: ['openrouter:gpt-6-sol', 'openrouter:openai/gpt-6-sol'], expected: 2.7 },
+      { keys: ['openrouter:gpt-6-sol-pro', 'openrouter:openai/gpt-6-sol-pro'], expected: 2.7 },
+      { keys: ['openrouter:gpt-6-luna', 'openrouter:openai/gpt-6-luna'], expected: 0.135 },
+      { keys: ['openrouter:gpt-6-luna-pro', 'openrouter:openai/gpt-6-luna-pro'], expected: 0.135 },
     ] as const;
 
     for (const { keys, expected } of cases) {

@@ -1,6 +1,6 @@
 import { Oops } from '@app/nest/exceptions/oops';
 
-import { CursorUtils } from './graphql';
+import { CursoredRequestInput, cursoredRequestSchema, CursorUtils } from './graphql';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -24,5 +24,31 @@ describe('CursorUtils.decodeCursor', () => {
     expect(error.httpStatus).toBe(400);
     expect(error.userMessage).toBe('Invalid cursor format');
     expect(error.internalDetails).toBe(`cursor="${cursor}"`);
+  });
+});
+
+describe('CursoredRequestInput', () => {
+  it('instantiates with default values', () => {
+    const input = new CursoredRequestInput();
+    expect(input.first).toBe(20);
+    expect(input.after).toBeUndefined();
+  });
+
+  it('validates pagination defaults and custom values via cursoredRequestSchema', () => {
+    const parsedDefault = cursoredRequestSchema.parse({});
+    expect(parsedDefault.first).toBe(20);
+    expect(parsedDefault.after).toBeUndefined();
+
+    const parsedCustom = cursoredRequestSchema.parse({ first: 50, after: 'cursor-token' });
+    expect(parsedCustom.first).toBe(50);
+    expect(parsedCustom.after).toBe('cursor-token');
+  });
+
+  it('keeps base input free of prototype-inherited static schema pollution', () => {
+    class CustomSearchInput extends CursoredRequestInput {
+      keyword: string = 'test';
+    }
+    // CustomSearchInput should not inherit an owned static schema from CursoredRequestInput
+    expect(Object.prototype.hasOwnProperty.call(CustomSearchInput, 'schema')).toBe(false);
   });
 });

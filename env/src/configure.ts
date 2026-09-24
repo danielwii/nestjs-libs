@@ -1,3 +1,5 @@
+import 'reflect-metadata';
+
 import { getAppLogger } from '@app/utils/app-logger';
 import { errorStack } from '@app/utils/error';
 
@@ -8,38 +10,23 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { config } from '@dotenvx/dotenvx';
-import { plainToInstance, Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, validateSync } from 'class-validator';
 import JSON5 from 'json5';
 import * as _ from 'radash';
+import { z } from 'zod';
 
-import type { TransformFnParams } from 'class-transformer';
+// ==================== Architectural Clean Cut: Zero Legacy Shims ====================
+/**
+ * 🏛️ Architectural Clean Cut: Zero Shims & Zero Reflection Magic.
+ *
+ * 历史反射验证装饰器（@Type, @IsString, @IsNumber, @IsBoolean, @IsOptional, @IsEnum, @Min）
+ * 以及辅助函数（plainToInstance, validateSync）已彻底从核心库中物理移除。
+ *
+ * 现代环境配置请使用标准 Schema-First 方案：
+ * import { createEnvConfig, baseEnvSchema } from '@danielwii/libs-cli/env';
+ * 使用 Zod / @standard-schema/spec 进行声明式校验与转换（如 coerceBoolean, coerceNumber, .transform()）。
+ */
 
-const transformLogger = getAppLogger('Transform');
 const configureLogger = getAppLogger('Configure');
-
-export const booleanTransformFn = ({ key, obj }: TransformFnParams) => {
-  // Logger.log(f`key: ${{ origin: obj[key] }}`, 'Transform');
-  return [true, 'true', '1'].includes(obj[key] as string | boolean);
-};
-export const objectTransformFn = ({ key, value, obj }: TransformFnParams) => {
-  // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }}`);
-  try {
-    return _.isObject(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '{}');
-  } catch (e: unknown) {
-    transformLogger.error`#objectTransformFn error ${{ key, value, origin: obj[key], isObject: _.isObject(obj[key]) }} ${e instanceof Error ? e.message : String(e)} ${errorStack(e) ?? ''}`;
-    throw e;
-  }
-};
-export const arrayTransformFn = ({ key, value, obj }: TransformFnParams) => {
-  // Logger.log(f`-[Transform]- ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }}`);
-  try {
-    return _.isArray(obj[key]) ? obj[key] : JSON5.parse((obj[key] as string) || '[]');
-  } catch (e: unknown) {
-    transformLogger.error`#arrayTransformFn error ${{ key, value, origin: obj[key], isArray: _.isArray(obj[key]) }} ${e instanceof Error ? e.message : String(e)} ${errorStack(e) ?? ''}`;
-    throw e;
-  }
-};
 
 type HostSetVariables = {};
 
@@ -60,13 +47,15 @@ const llmModelFields = new Set<string>();
  * - 对应 Provider 的 API Key 是否已配置
  *
  * @example
- * @LLMModelField()
- * @IsString() @IsOptional()
- * DEFAULT_LLM_MODEL?: string = 'openrouter:gemini-2.5-flash';
+ * ```typescript
+ * class AppEnvironmentVariables extends AbstractEnvironmentVariables {
+ *   @LLMModelField()
+ *   DEFAULT_LLM_MODEL?: string;
  *
- * @LLMModelField()
- * @IsString() @IsOptional()
- * I18N_LLM_MODEL?: string;
+ *   @LLMModelField()
+ *   I18N_LLM_MODEL?: string;
+ * }
+ * ```
  */
 export function LLMModelField(): PropertyDecorator {
   return (_target, propertyKey) => {
@@ -80,6 +69,83 @@ export function LLMModelField(): PropertyDecorator {
 export function getLLMModelFields(): string[] {
   return Array.from(llmModelFields);
 }
+
+// ==================== Modern Database Field (Colocation & Single Source of Truth) ====================
+
+export const DATABASE_FIELD_METADATA = Symbol('DATABASE_FIELD_METADATA');
+
+export interface DatabaseFieldOptions {
+  description?: string;
+  scoped?: boolean;
+}
+
+export interface DatabaseFieldSpec {
+  isDatabaseField: true;
+  scoped: boolean;
+  description?: string;
+  schema: z.ZodType;
+}
+
+/**
+ * 声明一个由数据库 (sys_app_settings) 受管的动态配置字段
+ *
+ * 1. 就近宣告 (Colocation)：在 Schema 字段旁显式标记，直观可见当前配置为 DB 受管
+ * 2. 单一真理源 (Single Source of Truth)：继承 Schema 的强类型约束（如 min, max, enum 等）
+ * 3. 动态双阶边界防卫 (Safe-Reject)：外部 DB 覆盖值必须完全通过该 Schema 的校验方可写入内存
+ *
+ * @example
+ * ```typescript
+ * export const appEnvSchema = baseEnvSchema.extend({
+ *   TASK_BATCH_SIZE: asDatabaseField(
+ *     z.number().int().min(10).max(5000).default(100),
+ *     { description: '批次处理大小', scoped: true }
+ *   ),
+ *   FEATURE_FLAG: asDatabaseField(z.boolean().default(false), '功能旗标'),
+ * });
+ * ```
+ */
+export function asDatabaseField<T extends z.ZodType>(
+  schema: T,
+  descriptionOrOptions?: string | DatabaseFieldOptions,
+): T {
+  const options: DatabaseFieldOptions =
+    typeof descriptionOrOptions === 'string' ? { description: descriptionOrOptions } : (descriptionOrOptions ?? {});
+
+  const targetSchema = options.description ? schema.describe(options.description) : schema;
+
+  const spec: DatabaseFieldSpec = {
+    isDatabaseField: true,
+    scoped: options.scoped === true,
+    description: options.description,
+    schema: targetSchema,
+  };
+
+  Object.defineProperty(targetSchema, DATABASE_FIELD_METADATA, {
+    value: spec,
+    writable: false,
+    enumerable: false,
+    configurable: true,
+  });
+
+  return targetSchema;
+}
+
+/**
+ * 从 Schema 节点提取 DatabaseFieldSpec 元数据
+ */
+export function getDatabaseFieldSpec(schema: unknown): DatabaseFieldSpec | undefined {
+  if (!schema || typeof schema !== 'object') return undefined;
+  if (DATABASE_FIELD_METADATA in schema) {
+    return (schema as Record<symbol, DatabaseFieldSpec>)[DATABASE_FIELD_METADATA];
+  }
+  const def = (schema as { _def?: Record<string, unknown> })._def;
+  if (def) {
+    if ('innerType' in def) return getDatabaseFieldSpec(def.innerType);
+    if ('schema' in def) return getDatabaseFieldSpec(def.schema);
+  }
+  return undefined;
+}
+
 /**
  * 标记字段是否需要同步到数据库, 用于配置项的动态更新
  *
@@ -106,11 +172,6 @@ export const DatabaseField =
     if (scoped) {
       Reflect.defineMetadata(DatabaseFieldScopedSymbol, true, target, propertyKey);
     }
-    if (format === 'boolean') {
-      Transform(booleanTransformFn)(target, propertyKey);
-      IsBoolean()(target, propertyKey);
-      IsOptional()(target, propertyKey);
-    }
   };
 
 export class AbstractEnvironmentVariables implements HostSetVariables {
@@ -120,17 +181,8 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   }
   private readonly hostname = os.hostname();
 
-  // use doppler env instead
-  // @IsEnum 用数组时默认错误消息不含枚举值列表，需自定义 message 明确显示允许值
-  @IsEnum(['prd', 'stg', 'dev'], {
-    message: 'ENV must be one of: prd, stg, dev (got: $value)',
-  })
-  @IsOptional()
   ENV?: 'prd' | 'stg' | 'dev';
 
-  @IsEnum(NODE_ENV, {
-    message: 'NODE_ENV must be one of: development, production, test (got: $value)',
-  })
   NODE_ENV: NODE_ENV = NODE_ENV.Development;
 
   get isNodeDevelopment() {
@@ -148,128 +200,109 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
     return process.argv.some((arg) => arg.includes('cli.ts') || arg.includes('cli:'));
   }
 
-  // 使用 @Type(() => Number) 显式指定类型转换
-  // 原因：
-  // 1. 环境变量中的值都是字符串类型
-  // 2. TypeScript 的类型信息在编译后会丢失
-  // 3. 需要显式告诉 class-transformer 如何转换类型
-  // 4. 这样可以确保在所有环境下（如 bun mastra dev）都能正确转换
-  @Type(() => Number) @IsNumber() @IsOptional() PORT: number = 3100;
-  @Type(() => Number) @IsNumber() @IsOptional() GRPC_PORT: number = 50051;
-  @IsString() TZ = 'UTC';
+  PORT: number = 3100;
+  GRPC_PORT: number = 50051;
+  /** gRPC 服务间通信共享密钥，用于微服务鉴权 */
+  GRPC_SERVICE_TOKEN?: string;
+  TZ = 'UTC';
 
   // 因为 有些服务器的 hostname 是 localhost，所以需要添加一个随机数来区分
   get NODE_NAME() {
     return os.hostname() === 'localhost' ? `localhost-${Date.now()}:${this.PORT}` : `${os.hostname()}:${this.PORT}`;
   }
 
-  @IsEnum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal'], {
-    message: 'LOG_LEVEL must be one of: verbose, debug, log, warn, error, fatal (got: $value)',
-  })
   LOG_LEVEL: 'verbose' | 'debug' | 'log' | 'warn' | 'error' | 'fatal' = 'debug';
 
   @DatabaseField(
     'string',
     '系统API密钥，仅用于验证系统级内部API请求，不自行设置的话每次启动都会变更，注意: 不要外部使用',
   )
-  @IsString()
-  @IsOptional()
   API_KEY?: string = undefined;
 
   // used to debug dependency issues
-  @IsString() @IsOptional() NEST_DEBUG?: string;
+  NEST_DEBUG?: string;
 
-  @IsString() @IsOptional() DOPPLER_ENVIRONMENT?: string;
+  DOPPLER_ENVIRONMENT?: string;
 
-  @IsString() @IsOptional() SESSION_SECRET?: string;
+  SESSION_SECRET?: string;
 
   /** CORS 允许的前端域名（逗号分隔），未设置时禁止所有跨域请求 */
-  @IsString() @IsOptional() APP_WEB_DOMAINS?: string;
+  APP_WEB_DOMAINS?: string;
 
-  @IsString() @IsOptional() SERVICE_NAME?: string;
-  @IsString() @IsOptional() TRACING_EXPORTER_URL?: string;
-  @IsString() @IsOptional() LOG_REDACTION_KEY?: string;
+  SERVICE_NAME?: string;
+  TRACING_EXPORTER_URL?: string;
+  LOG_REDACTION_KEY?: string;
 
   // ==================== OpenTelemetry 配置 ====================
-  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_ENDPOINT?: string;
-  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?: string;
-  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_PROTOCOL?: string;
-  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_TRACES_PROTOCOL?: string;
-  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_HEADERS?: string;
-  @IsString() @IsOptional() OTEL_EXPORTER_OTLP_TRACES_HEADERS?: string;
-  @IsString() @IsOptional() OTEL_LOG_LEVEL?: string;
+  OTEL_EXPORTER_OTLP_ENDPOINT?: string;
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?: string;
+  OTEL_EXPORTER_OTLP_PROTOCOL?: string;
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL?: string;
+  OTEL_EXPORTER_OTLP_HEADERS?: string;
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS?: string;
+  OTEL_LOG_LEVEL?: string;
 
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_PROXY_ENABLED?: boolean;
-  @IsString() @IsOptional() APP_PROXY_HOST?: string;
-  @Type(() => Number) @IsNumber() @IsOptional() APP_PROXY_PORT?: number;
+  APP_PROXY_ENABLED?: boolean;
+  APP_PROXY_HOST?: string;
+  APP_PROXY_PORT?: number;
 
   // ==================== GraphQL ====================
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) GRAPHQL_PLAYGROUND_ENABLED?: boolean;
+  GRAPHQL_PLAYGROUND_ENABLED?: boolean;
 
   // ==================== LLM ====================
-  @IsString() @IsOptional() AI_OPENROUTER_API_KEY?: string;
-  @IsString() @IsOptional() AI_GOOGLE_API_KEY?: string;
+  AI_OPENROUTER_API_KEY?: string;
+  AI_GOOGLE_API_KEY?: string;
   /** Vertex AI API key（优先用于 Express Mode；vertex-global 也可用它发 x-goog-api-key） */
-  @IsString() @IsOptional() AI_GOOGLE_VERTEX_API_KEY?: string;
+  AI_GOOGLE_VERTEX_API_KEY?: string;
   /** Vertex AI project/global mode project id；`vertex-global:*` 的官方 PayGo 路径必需 */
-  @IsString() @IsOptional() GOOGLE_VERTEX_PROJECT?: string;
+  GOOGLE_VERTEX_PROJECT?: string;
   /** Vertex AI location；Priority/Flex PayGo 文档要求使用 global */
-  @IsString() @IsOptional() GOOGLE_VERTEX_LOCATION?: string;
-  @IsString() @IsOptional() AI_OPENAI_API_KEY?: string;
+  GOOGLE_VERTEX_LOCATION?: string;
+  AI_OPENAI_API_KEY?: string;
   /** AWS Bedrock API key（Bearer 认证；未设置时由 provider 回落 AWS_BEARER_TOKEN_BEDROCK 或 SigV4 静态凭证 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY） */
-  @IsString() @IsOptional() AI_BEDROCK_API_KEY?: string;
+  AI_BEDROCK_API_KEY?: string;
   /** AWS Bedrock region（优先级：AI_BEDROCK_REGION > AWS_REGION > 默认 us-east-1；本项目验证区域为 us-east-2，`us.*` inference profile 需美国区域端点） */
-  @IsString() @IsOptional() AI_BEDROCK_REGION?: string;
-  @IsString() @IsOptional() AI_JINA_API_KEY?: string;
-  @IsString() @IsOptional() AI_VOYAGE_API_KEY?: string;
+  AI_BEDROCK_REGION?: string;
+  AI_JINA_API_KEY?: string;
+  AI_VOYAGE_API_KEY?: string;
   /**
    * TypeSafe System One API key.
    * Official SDK default env is TYPESAFE_API_KEY — pass this value into TypeSafeClient({ apiKey }).
    */
-  @IsString() @IsOptional() AI_TYPESAFE_API_KEY?: string;
-  /** 默认 LLM 模型，当指定模型不存在时作为 fallback（仅生产环境）。值须为已注册的 LLMModelKey（如 'openrouter:gemini-2.5-flash'） */
-  @LLMModelField() @IsString() @IsOptional() DEFAULT_LLM_MODEL?: string;
+  AI_TYPESAFE_API_KEY?: string;
 
   /** 默认 LLM 调用超时（毫秒），透传给 AI SDK 的 timeout 参数 */
   @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
-  @Type(() => Number)
-  @IsNumber()
-  @Min(30_000)
   AI_LLM_TIMEOUT_MS: number = 120_000;
 
   /** 默认 LLM 调用最大重试次数（429/5xx 自动重试，exponential backoff） */
   @DatabaseField('number', '默认 LLM 最大重试次数')
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
   AI_LLM_MAX_RETRIES: number = 2;
 
   /** LLM fetch 详细日志（Bun verbose=true，打印 HTTP headers + TLS 到 stderr），用于诊断 provider 断连 */
   @DatabaseField('boolean', 'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）')
-  @IsBoolean()
-  @IsOptional()
-  @Transform(booleanTransformFn)
   LLM_FETCH_VERBOSE: boolean = false;
 
-  @IsString() @IsOptional() INFRA_REDIS_URL?: string;
+  INFRA_REDIS_URL?: string;
 
   // ==================== Cluster (node-registry) ====================
   // 对齐 modx node-registry addon：
   // - CLUSTER_ENABLED 控制整个模块是否激活（多实例部署 = true）
   // - TTL / heartbeat 间隔使用 modx 默认值（300s / 60s），env 可覆盖
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) CLUSTER_ENABLED: boolean = true;
-  @IsString() @IsOptional() CLUSTER_NODE_TTL_SECONDS?: string;
-  @IsString() @IsOptional() CLUSTER_HEARTBEAT_INTERVAL_MS?: string;
+  CLUSTER_ENABLED: boolean = true;
+  CLUSTER_NODE_TTL_SECONDS?: string;
+  CLUSTER_HEARTBEAT_INTERVAL_MS?: string;
 
-  @IsString() @IsOptional() DATABASE_URL?: string;
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER?: boolean;
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) PRISMA_MIGRATION?: boolean;
+  DATABASE_URL?: string;
+  PRISMA_QUERY_LOGGER?: boolean;
+  PRISMA_QUERY_LOGGER_WITH_PARAMS?: boolean;
+  PRISMA_MIGRATION?: boolean;
   // 历史遗留：此开关已被 scope 隔离 + createdBy 归属机制取代。
   // 有 projectScope 时服务自动获得写权限，无需手动开启。
   // 保留字段定义仅为避免环境变量校验报错。
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
-  @DatabaseField('number', 'Prisma 事务超时时间（毫秒）') @IsNumber() PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
+  APP_CONFIG_SYNC_WRITE_ENABLED: boolean = false;
+  @DatabaseField('number', 'Prisma 事务超时时间（毫秒）')
+  PRISMA_TRANSACTION_TIMEOUT: number = 30_000;
 
   /**
    * 是否启用异常处理器的 I18n 翻译功能
@@ -278,21 +311,14 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    * - 该功能非核心，失败时应降级到原始消息而非崩溃
    * - 默认禁用，等 I18nService 在所有上下文中可用后再启用
    */
-  @IsBoolean()
-  @IsOptional()
-  @Transform(({ value }) => {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') return value.toLowerCase() === 'true';
-    return false;
-  })
   @DatabaseField('boolean', '是否启用异常处理器的 I18n 翻译功能')
   I18N_EXCEPTION_ENABLED?: boolean = false;
 
   // ==================== Feature Flags ====================
-  @IsBoolean() @IsOptional() @Transform(booleanTransformFn) FEATURE_SCHEDULER?: boolean;
+  FEATURE_SCHEDULER?: boolean;
 
   // 是否在遇到 uncaughtException 或 unhandledRejection 时自动退出进程
-  @IsBoolean() @Transform(booleanTransformFn) EXIT_ON_ERROR: boolean = true;
+  EXIT_ON_ERROR: boolean = true;
 
   /**
    * 优雅关闭时等待进行中请求完成的超时时间（毫秒）
@@ -305,7 +331,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    * 计算公式：IN_FLIGHT_TIMEOUT_MS < terminationGracePeriodSeconds - preStop - DRAIN_DELAY_MS
    * 默认：60s（支持最长 1 分钟的请求如 chat API）
    */
-  @Type(() => Number) @IsNumber() @IsOptional() IN_FLIGHT_TIMEOUT_MS: number = 60_000;
+  IN_FLIGHT_TIMEOUT_MS: number = 60_000;
 
   /**
    * 优雅关闭时的排空延迟（毫秒）
@@ -320,7 +346,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    *
    * 默认 10s，覆盖 K8s readiness probe 周期(3s) + endpoint 传播延迟
    */
-  @Type(() => Number) @IsNumber() @IsOptional() DRAIN_DELAY_MS: number = 15_000;
+  DRAIN_DELAY_MS: number = 15_000;
 
   /**
    * gRPC drain grace period（毫秒）
@@ -329,7 +355,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    * 已有连接在 graceTimeMs 内完成请求后被关闭，新连接立即被拒绝。
    * fire-and-forget：drain 的 grace 计时器和 Phase 3 的 in-flight timeout 并行跑。
    */
-  @Type(() => Number) @IsNumber() @IsOptional() GRPC_DRAIN_MS: number = 60_000;
+  GRPC_DRAIN_MS: number = 60_000;
 
   get environment() {
     const env = this.ENV ?? this.DOPPLER_ENVIRONMENT ?? 'dev';
@@ -509,6 +535,124 @@ export interface AppConfigureOptions {
   scope?: string;
 }
 
+// ==================== Modern Schema-First Env Configuration (Single Source of Truth) ====================
+
+/**
+ * 安全数值转换：空字串或純空格預處理為 undefined（使 default/optional 生效），非法字串交由 Zod 報錯
+ */
+function coerceNumber<T extends z.ZodType>(schema: T) {
+  return z.preprocess((v) => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v === 'string' && v.trim() === '') return undefined;
+    const n = Number(v);
+    return Number.isNaN(n) ? v : n;
+  }, schema);
+}
+
+/**
+ * 安全布尔值转换：未提供、空字串或纯空格预处理为 undefined（使 default / optional 生效）
+ */
+function coerceBoolean<T extends z.ZodType>(schema: T) {
+  return z.preprocess((v) => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v === 'string' && v.trim() === '') return undefined;
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'string' || typeof v === 'number') {
+      return [true, 'true', '1', 1].includes(v);
+    }
+    return false;
+  }, schema);
+}
+
+/**
+ * 现代通用环境变量 Schema，包含系统基础服务与默认 AI 配置
+ */
+export const baseEnvSchema = z.object({
+  ENV: z.enum(['prd', 'stg', 'dev']).optional(),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  PORT: coerceNumber(z.number().int().min(1).max(65535).default(3100)),
+  GRPC_PORT: coerceNumber(z.number().int().min(1).max(65535).default(50051)),
+  TZ: z.string().default('UTC'),
+  LOG_LEVEL: z.enum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal']).default('debug'),
+  API_KEY: z.string().optional(),
+  NEST_DEBUG: z.string().optional(),
+  DOPPLER_ENVIRONMENT: z.string().optional(),
+  SESSION_SECRET: z.string().optional(),
+  APP_WEB_DOMAINS: z.string().optional(),
+  SERVICE_NAME: z.string().optional(),
+  TRACING_EXPORTER_URL: z.string().optional(),
+  LOG_REDACTION_KEY: z.string().optional(),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().optional(),
+  OTEL_EXPORTER_OTLP_PROTOCOL: z.string().optional(),
+  OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: z.string().optional(),
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS: z.string().optional(),
+  OTEL_LOG_LEVEL: z.string().optional(),
+  APP_PROXY_ENABLED: coerceBoolean(z.boolean().optional()),
+  APP_PROXY_HOST: z.string().optional(),
+  APP_PROXY_PORT: coerceNumber(z.number().int().min(1).max(65535).optional()),
+  GRAPHQL_PLAYGROUND_ENABLED: coerceBoolean(z.boolean().optional()),
+  AI_OPENROUTER_API_KEY: z.string().optional(),
+  AI_GOOGLE_API_KEY: z.string().optional(),
+  AI_GOOGLE_VERTEX_API_KEY: z.string().optional(),
+  GOOGLE_VERTEX_PROJECT: z.string().optional(),
+  GOOGLE_VERTEX_LOCATION: z.string().optional(),
+  AI_OPENAI_API_KEY: z.string().optional(),
+  AI_BEDROCK_API_KEY: z.string().optional(),
+  AI_BEDROCK_REGION: z.string().optional(),
+  AI_JINA_API_KEY: z.string().optional(),
+  AI_VOYAGE_API_KEY: z.string().optional(),
+  AI_LLM_TIMEOUT_MS: asDatabaseField(
+    coerceNumber(z.number().min(30_000).default(120_000)),
+    '默认 LLM 调用超时（毫秒）',
+  ),
+  AI_LLM_MAX_RETRIES: asDatabaseField(coerceNumber(z.number().min(0).default(2)), '默认 LLM 最大重试次数'),
+  LLM_FETCH_VERBOSE: asDatabaseField(
+    coerceBoolean(z.boolean().default(false)),
+    'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）',
+  ),
+  PRISMA_TRANSACTION_TIMEOUT: asDatabaseField(coerceNumber(z.number().default(30_000)), 'Prisma 事务超时时间（毫秒）'),
+  I18N_EXCEPTION_ENABLED: asDatabaseField(
+    coerceBoolean(z.boolean().default(false)),
+    '是否启用异常处理器的 I18n 翻译功能',
+  ),
+  CLUSTER_ENABLED: coerceBoolean(z.boolean().default(true)),
+  CLUSTER_NODE_TTL_SECONDS: z.string().optional(),
+  CLUSTER_HEARTBEAT_INTERVAL_MS: z.string().optional(),
+  DATABASE_URL: z.string().optional(),
+  PRISMA_QUERY_LOGGER: coerceBoolean(z.boolean().optional()),
+  PRISMA_QUERY_LOGGER_WITH_PARAMS: coerceBoolean(z.boolean().optional()),
+  PRISMA_MIGRATION: coerceBoolean(z.boolean().optional()),
+  APP_CONFIG_SYNC_WRITE_ENABLED: coerceBoolean(z.boolean().default(false)),
+  FEATURE_SCHEDULER: coerceBoolean(z.boolean().optional()),
+  EXIT_ON_ERROR: coerceBoolean(z.boolean().default(true)),
+  IN_FLIGHT_TIMEOUT_MS: coerceNumber(z.number().default(60_000)),
+  DRAIN_DELAY_MS: coerceNumber(z.number().default(15_000)),
+  GRPC_DRAIN_MS: coerceNumber(z.number().default(60_000)),
+  GRPC_SERVICE_TOKEN: z.string().optional(),
+});
+
+export type BaseEnv = z.infer<typeof baseEnvSchema>;
+
+// 🛡️ 静态编译期类型防卫：确保 baseEnvSchema 的每一个键名都与 AbstractEnvironmentVariables 中的属性对齐，杜绝命名漂移
+export type _AssertBaseEnvKeys<T extends keyof AbstractEnvironmentVariables = keyof BaseEnv> = T;
+export type _AssertBaseEnvCoverage<T extends SysEnvConfigKey = keyof BaseEnv> = T;
+
+/**
+ * 获取标准环境信息（对齐 AbstractEnvironmentVariables.environment 行为，支持 DOPPLER_ENVIRONMENT 回退）
+ */
+export function getEnvironment(vars: { ENV?: string; DOPPLER_ENVIRONMENT?: string }): {
+  env: 'prd' | 'stg' | 'dev' | string;
+  isProd: boolean;
+} {
+  const env = vars.ENV ?? vars.DOPPLER_ENVIRONMENT ?? 'dev';
+  return {
+    env,
+    isProd: env === 'prd',
+  };
+}
+
 export class AppConfigure<T extends AbstractEnvironmentVariables> {
   private readonly logger = getAppLogger(this.constructor.name);
 
@@ -599,49 +743,115 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     this.originalVars = structuredClone(this.vars); // 创建副本
   }
 
-  private validate() {
+  private validate(): T {
+    const instance = new this.EnvsClass();
     const config = process.env;
-    const validatedConfig = plainToInstance(this.EnvsClass, config, {
-      enableImplicitConversion: true,
-    });
 
-    if (process.env.NODE_ENV !== NODE_ENV.Test) {
-      const errors = validateSync(validatedConfig, {
-        skipMissingProperties: false,
-      });
+    const isEnvClass = instance instanceof AbstractEnvironmentVariables;
 
-      if (errors.length > 0) {
-        this.logger.warning`${`[${this.sys ? 'SYS' : 'App'}] Configure these configs are not valid`}`;
-        const errorDetails = errors.map((e) => {
-          const value = e.value === undefined ? '<undefined>' : e.value === '' ? '<empty>' : JSON.stringify(e.value);
-          const constraints = e.constraints ? Object.values(e.constraints).join('; ') : 'unknown error';
-          return `${e.property}=${value} — ${constraints}`;
-        });
-        for (const detail of errorDetails) {
-          this.logger.error`${detail}`;
+    // 1. 核心契约先行 (Single Source of Truth & Ingress Coercion)
+    // 只要是 AbstractEnvironmentVariables 及其子类，基础系统环境变量一律由 baseEnvSchema 完成强类型转换与清洗
+    if (isEnvClass) {
+      const parseResult = baseEnvSchema.safeParse(config);
+      if (!parseResult.success) {
+        this.logger.error`[SYS] Base environment validation failed:`;
+        for (const issue of parseResult.error.issues) {
+          this.logger.error`  ${issue.path.join('.')}: ${issue.message}`;
         }
-        throw new Error(errors.map((e) => e.property).join(', '));
+        throw new Error(parseResult.error.issues.map((i) => i.path.join('.')).join(', '));
       }
+      // 关键：将由 Schema 严格校验与类型转换 (Coercion) 后的强类型数据回赋给实例
+      // 优先级规范：External Ingress (process.env) > Subclass Constructor Defaults (instance[key]) > Base Schema Fallback
+      for (const [key, parsedVal] of Object.entries(parseResult.data)) {
+        const rawVal = config[key];
+        const isSupplied = rawVal !== undefined && (typeof rawVal !== 'string' || rawVal.trim() !== '');
+        if (isSupplied) {
+          // 外部显式提供了环境变量：采用经 Schema 校验与清洗后的强类型值
+          (instance as Record<string, unknown>)[key] = parsedVal;
+        } else {
+          // 外部未提供环境变量：子类/实例构造函数默认值优先
+          const currentVal = (instance as Record<string, unknown>)[key];
+          if (currentVal !== undefined) {
+            // 启动期双阶边界防卫 (Fail-Fast)：校验子类构造函数默认值是否符合 Schema 契约约束
+            const fieldSchema = (baseEnvSchema.shape as Record<string, z.ZodType | undefined>)[key];
+            if (fieldSchema) {
+              const checkResult = fieldSchema.safeParse(currentVal);
+              if (!checkResult.success) {
+                this.logger.error`[SYS] Subclass default value validation failed for ${key}:`;
+                for (const issue of checkResult.error.issues) {
+                  this.logger.error`  ${issue.path.join('.')}: ${issue.message}`;
+                }
+                throw new Error(
+                  `Invalid subclass default for ${key}: ${checkResult.error.issues.map((i) => i.message).join(', ')}`,
+                );
+              }
+              (instance as Record<string, unknown>)[key] = checkResult.data;
+            }
+          } else {
+            // 实例上为 undefined，回落到 Schema default
+            (instance as Record<string, unknown>)[key] = parsedVal;
+          }
+        }
+      }
+    }
 
-      // 配置项输出：启动时固定打印，source 标注来源（host/文件路径/default）
+    // 2. 针对子类扩展的自定义属性（不在 baseEnvSchema 中的属性），做原生补充赋值与类型转换
+    const baseKeys = isEnvClass ? new Set(Object.keys(baseEnvSchema.shape)) : new Set<string>();
+    for (const key of Object.getOwnPropertyNames(instance)) {
+      if (key === 'constructor' || key === 'logger' || baseKeys.has(key)) continue;
+      const rawVal = config[key];
+      if (rawVal !== undefined && rawVal !== '') {
+        const defaultVal = (instance as Record<string, unknown>)[key];
+        if (typeof defaultVal === 'number') {
+          const num = Number(rawVal);
+          if (!Number.isFinite(num)) {
+            this.logger.error`[SYS] Invalid numeric environment variable for ${key}: ${rawVal}`;
+            throw new Error(`Invalid numeric environment variable for ${key}: ${rawVal}`);
+          }
+          (instance as Record<string, unknown>)[key] = num;
+        } else if (typeof defaultVal === 'boolean') {
+          const lower = rawVal.trim().toLowerCase();
+          if (['true', '1', 'yes', 'on'].includes(lower)) {
+            (instance as Record<string, unknown>)[key] = true;
+          } else if (['false', '0', 'no', 'off'].includes(lower)) {
+            (instance as Record<string, unknown>)[key] = false;
+          } else {
+            this.logger.error`[SYS] Invalid boolean environment variable for ${key}: ${rawVal}`;
+            throw new Error(`Invalid boolean environment variable for ${key}: ${rawVal}`);
+          }
+        } else {
+          (instance as Record<string, unknown>)[key] = rawVal;
+        }
+      }
+    }
+    // 处理环境变量中存在但实例未声明默认值的键
+    for (const [key, rawVal] of Object.entries(config)) {
+      if (rawVal !== undefined && !(key in instance)) {
+        (instance as Record<string, unknown>)[key] = rawVal;
+      }
+    }
+
+    // 启动时打印配置项来源
+    if (process.env.NODE_ENV !== NODE_ENV.Test) {
       const src = (key: string) => this.envSourceMap.get(key) ?? 'default';
 
-      if (this.sys) {
-        Object.entries(validatedConfig as object).forEach(([key, value]) => {
+      if (isEnvClass) {
+        Object.entries(instance as object).forEach(([key, value]) => {
           if (
             key.includes('_ENABLE') ||
             key.startsWith('APP_') ||
-            !AbstractEnvironmentVariables.allFields.includes(key) ||
-            ['logger'].includes(key)
-          )
-            return;
-          const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
-          const display = AppConfigure.isSensitive(key) ? '***' : value;
-          this.logger.info`[SYS] ${isDatabaseField ? '<- DB -> ' : ''}[${src(key)}] ${{ key, value: display }}`;
+            key.startsWith('AI_') ||
+            key.startsWith('LOG_') ||
+            key.startsWith('OTEL_') ||
+            key.startsWith('FEATURE_')
+          ) {
+            const display = AppConfigure.isSensitive(key) ? '***' : value;
+            this.logger.debug`[ENV] ${key}=${display} (from ${src(key)})`;
+          }
         });
       }
 
-      Object.entries(validatedConfig as object).forEach(([key, value]) => {
+      Object.entries(instance as object).forEach(([key, value]) => {
         if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return;
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
         if (key.includes('_ENABLE')) {
@@ -650,7 +860,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
             .info`[${this.sys ? 'SYS' : 'App'}] ${isDatabaseField ? '<- DB -> ' : ''}[${src(key)}] ${{ key, value: display }}`;
         }
       });
-      Object.entries(validatedConfig as object).forEach(([key, value]) => {
+      Object.entries(instance as object).forEach(([key, value]) => {
         if (!this.sys && !Object.getOwnPropertyNames(AbstractEnvironmentVariables.prototype).includes(key)) return;
         const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, AbstractEnvironmentVariables.prototype, key);
         if (key.startsWith('APP_')) {
@@ -661,7 +871,7 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       });
     }
     configureLogger.debug`[${this.sys ? 'SYS' : 'App'}] Configure validated`;
-    return validatedConfig;
+    return instance;
   }
 
   /**
@@ -683,42 +893,60 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     activeEnvs: T,
     options?: { scope?: string },
   ) {
-    // 注意：使用 activeEnvs 来查找装饰器元数据
-    // 原因：originalEnvs 是通过 structuredClone 创建的普通对象，丢失了类原型链
-    // 而 activeEnvs 是通过 plainToInstance 创建的类实例，保留了原型链和装饰器元数据
     const SHARED = 'shared';
-    // 'shared' 是保留哨兵值（共享配置行的 scope），不能同时充当某个服务的 project scope：
-    // 那样 scoped 字段与非 scoped 字段的 writeScope 会塌成同一个值，project 行与 shared
-    // 行不再可分，归属隔离整体失效 —— 每个这样配置的服务都会去改别人的 shared 元数据。
-    // 视为配置错误，降级为只读（照常读 DB 配置，但不写任何元数据），并明确报出来。
     const rawScope = options?.scope;
     const projectScope = rawScope === SHARED ? undefined : rawScope;
 
-    const envClass = (activeEnvs as { constructor: new () => T }).constructor;
     const validateDbValue = (
       field: string,
       rawValue: unknown,
     ): { ok: true; value: unknown } | { ok: false; reason: string } => {
       try {
-        const candidate = plainToInstance(
-          envClass,
-          { [field]: rawValue },
-          {
-            enableImplicitConversion: true,
-          },
-        ) as Record<string, unknown>;
-        const fieldErrors = validateSync(candidate as object, {
-          skipMissingProperties: true,
-        }).filter((error) => error.property === field);
-
-        if (fieldErrors.length > 0) {
-          const reason = fieldErrors
-            .map((error) => (error.constraints ? Object.values(error.constraints).join('; ') : 'unknown error'))
-            .join('; ');
-          return { ok: false, reason };
+        // 1. 核心契约先行 (Single Source of Truth & Safe-Reject)
+        // 若字段在 baseEnvSchema 中有明确定义，必须完全通过对应 Schema 节点的校验与转制（包括数值范围约束）
+        const baseSchema = (baseEnvSchema.shape as Record<string, z.ZodType>)[field];
+        if (baseSchema) {
+          const result = baseSchema.safeParse(rawValue);
+          if (result.success) {
+            return { ok: true, value: result.data };
+          }
+          return {
+            ok: false,
+            reason: result.error.issues.map((i) => `${i.path.join('.') || field}: ${i.message}`).join('; '),
+          };
         }
 
-        return { ok: true, value: candidate[field] };
+        const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, activeEnvs, field) as string | undefined;
+        let converted = rawValue;
+        if (format === 'number') {
+          const num = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+          if (!Number.isFinite(num)) {
+            return { ok: false, reason: `${field} must be a valid finite number` };
+          }
+          converted = num;
+        } else if (format === 'boolean') {
+          if (typeof rawValue === 'boolean') {
+            converted = rawValue;
+          } else {
+            const str = String(rawValue).trim().toLowerCase();
+            if (['true', '1'].includes(str)) converted = true;
+            else if (['false', '0'].includes(str)) converted = false;
+            else return { ok: false, reason: `${field} must be a boolean` };
+          }
+        } else if (format === 'json') {
+          if (typeof rawValue === 'string') {
+            try {
+              converted = JSON5.parse(rawValue);
+            } catch {
+              return { ok: false, reason: `${field} must be valid JSON` };
+            }
+          }
+        } else if (format === 'string') {
+          if (typeof rawValue !== 'string') {
+            converted = String(rawValue);
+          }
+        }
+        return { ok: true, value: converted };
       } catch (error: unknown) {
         return {
           ok: false,
@@ -1070,8 +1298,8 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
  * import { AbstractEnvironmentVariables, createNoDBConfigure } from '@app/env';
  *
  * class EnvironmentVariables extends AbstractEnvironmentVariables {
- *   @IsString() @IsOptional() override DATABASE_URL?: string; // 覆盖为可选
- *   @IsString() @IsOptional() WEATHER_API_KEY?: string;
+ *   override DATABASE_URL?: string; // 覆盖为可选
+ *   WEATHER_API_KEY?: string;
  * }
  *
  * export const AppEnvs = createNoDBConfigure(EnvironmentVariables).vars;
@@ -1082,3 +1310,94 @@ export function createNoDBConfigure<T extends AbstractEnvironmentVariables>(Envs
 }
 
 export const SysEnv = new AppConfigure(AbstractEnvironmentVariables).vars;
+
+export interface CreateEnvConfigOptions {
+  scope?: string;
+  loadDotEnv?: boolean;
+}
+
+/**
+ * 现代 Schema-First 环境变量配置加载器
+ *
+ * 1. 级联加载 .env 文件（遵从 host -> .env.[local] -> defaults 优先序）
+ * 2. 基于 Standard Schema / Zod 校验，自动完成类型转换与推导
+ * 3. 敏感字段自动脱敏日志输出
+ */
+export function createEnvConfig<T extends z.ZodRawShape>(
+  schema: z.ZodObject<T>,
+  options: CreateEnvConfigOptions = {},
+): {
+  vars: z.infer<z.ZodObject<T>>;
+  envSourceMap: Map<string, string>;
+  isSensitive: (key: string) => boolean;
+  environment: {
+    env: string;
+    isProd: boolean;
+  };
+  databaseFields: Array<{ key: string; spec: DatabaseFieldSpec }>;
+} {
+  const envSourceMap = new Map<string, string>();
+  for (const key of Object.keys(process.env)) {
+    envSourceMap.set(key, 'host');
+  }
+
+  if (options.loadDotEnv !== false) {
+    const envFilePath = (() => {
+      switch (process.env.NODE_ENV) {
+        case NODE_ENV.Test:
+          return ['.env.test.local', '.env.test'];
+        case NODE_ENV.Production:
+          return ['.env.local', '.env'];
+        default:
+          return ['.env.development.local', '.env.local', '.env.development', '.env'];
+      }
+    })();
+
+    envFilePath.forEach((env) => {
+      const fullPath = path.resolve(process.env.PWD ?? '', env);
+      if (!fs.existsSync(fullPath)) return;
+      const beforeKeys = new Set(Object.keys(process.env));
+      config({ path: fullPath, override: false, ignore: ['MISSING_ENV_FILE'] });
+      for (const key of Object.keys(process.env)) {
+        if (!beforeKeys.has(key)) envSourceMap.set(key, env);
+      }
+    });
+  }
+
+  const parsed = schema.safeParse(process.env);
+  if (!parsed.success) {
+    const logger = getAppLogger('Configure');
+    logger.error`[Env] Configuration validation failed:`;
+    for (const issue of parsed.error.issues) {
+      const pathStr = issue.path.join('.');
+      logger.error`  ${pathStr}: ${issue.message}`;
+    }
+    throw new Error(`Environment validation failed: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
+  }
+
+  const rawVars = parsed.data as Record<string, unknown>;
+  const resolvedEnv =
+    (typeof rawVars.ENV === 'string' ? rawVars.ENV : undefined) ??
+    (typeof rawVars.DOPPLER_ENVIRONMENT === 'string' ? rawVars.DOPPLER_ENVIRONMENT : undefined) ??
+    'dev';
+  const environment = {
+    env: resolvedEnv,
+    isProd: resolvedEnv === 'prd',
+  };
+
+  const databaseFields: Array<{ key: string; spec: DatabaseFieldSpec }> = [];
+  for (const [key, fieldSchema] of Object.entries(schema.shape)) {
+    const spec = getDatabaseFieldSpec(fieldSchema);
+    if (spec) {
+      databaseFields.push({ key, spec });
+    }
+  }
+
+  return {
+    vars: parsed.data,
+    envSourceMap,
+    isSensitive: AppConfigure.isSensitive,
+    environment,
+    databaseFields,
+  };
+}

@@ -3,7 +3,6 @@ import { onelineStack } from './error';
 import * as process from 'node:process';
 import util from 'node:util';
 
-import { instanceToPlain } from 'class-transformer';
 import JSON5 from 'json5';
 import * as _ from 'radash';
 
@@ -56,10 +55,77 @@ export function r(o: unknown): string {
 
   // 对象和数组都需要格式化
   try {
-    const value = instanceToPlain(o);
+    const value = toPlain(o);
     return process.env.NODE_ENV === 'production' ? JSON5.stringify(value) : inspect(value);
   } catch {
     return inspect(o);
+  }
+}
+
+const MAX_TO_PLAIN_DEPTH = 15;
+
+/**
+ * 将 Class 实例或复杂对象安全转换为 plain object，去除函数属性；若遇循环引用则交由 inspect 处理
+ */
+export function toPlain(
+  obj: unknown,
+  depth = 0,
+  activeStack = new Set<unknown>(),
+  memo = new Map<unknown, unknown>(),
+): unknown {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (obj instanceof Date || obj instanceof RegExp) return obj;
+
+  if (depth >= MAX_TO_PLAIN_DEPTH) {
+    return Array.isArray(obj) || obj instanceof Set ? '[Array]' : '[Object]';
+  }
+
+  if (activeStack.has(obj)) {
+    throw new Error('Circular structure detected');
+  }
+
+  if (memo.has(obj)) {
+    return memo.get(obj);
+  }
+
+  activeStack.add(obj);
+  try {
+    if (Array.isArray(obj)) {
+      const arr: unknown[] = [];
+      memo.set(obj, arr);
+      for (const item of obj) {
+        arr.push(toPlain(item, depth + 1, activeStack, memo));
+      }
+      return arr;
+    }
+
+    if (obj instanceof Set) {
+      const arr: unknown[] = [];
+      memo.set(obj, arr);
+      for (const item of obj) {
+        arr.push(toPlain(item, depth + 1, activeStack, memo));
+      }
+      return arr;
+    }
+
+    if (obj instanceof Map) {
+      const plainMap: Record<string, unknown> = {};
+      memo.set(obj, plainMap);
+      for (const [key, value] of obj.entries()) {
+        plainMap[String(key)] = toPlain(value, depth + 1, activeStack, memo);
+      }
+      return plainMap;
+    }
+
+    const plain: Record<string, unknown> = {};
+    memo.set(obj, plain);
+    for (const [key, value] of Object.entries(obj)) {
+      if (typeof value === 'function') continue;
+      plain[key] = toPlain(value, depth + 1, activeStack, memo);
+    }
+    return plain;
+  } finally {
+    activeStack.delete(obj);
   }
 }
 

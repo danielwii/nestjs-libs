@@ -1,4 +1,4 @@
-import { f, inspect, r } from './logging';
+import { f, inspect, r, toPlain } from './logging';
 
 import * as process from 'node:process';
 
@@ -67,6 +67,29 @@ describe('logging.utils', () => {
       expect(parsed).toEqual({ a: 1, b: '2' });
     });
 
+    it('should preserve Date objects during formatting', () => {
+      const date = new Date('2026-01-01T00:00:00.000Z');
+      expect(toPlain(date)).toBe(date);
+
+      process.env.NODE_ENV = 'production';
+      const result = r({ time: date });
+      expect(result).toContain('2026-01-01T00:00:00.000Z');
+    });
+
+    it('should preserve Map and Set objects during formatting', () => {
+      const set = new Set(['foo', 'bar']);
+      const map = new Map<string, unknown>([['key', 'val']]);
+      expect(toPlain(set)).toEqual(['foo', 'bar']);
+      expect(toPlain(map)).toEqual({ key: 'val' });
+
+      process.env.NODE_ENV = 'production';
+      const result = r({ tags: set, dict: map });
+      expect(result).toContain('foo');
+      expect(result).toContain('bar');
+      expect(result).toContain('key');
+      expect(result).toContain('val');
+    });
+
     it('should handle non-object/null/array values by stringifying them', () => {
       process.env.NO_COLOR = 'true';
       expect(r(null)).toBe('null');
@@ -76,6 +99,45 @@ describe('logging.utils', () => {
       expect(r([1, 2, 3])).toContain('1');
       expect(r([1, 2, 3])).toContain('2');
       expect(r([1, 2, 3])).toContain('3');
+    });
+
+    it('should handle repeated non-cyclic sibling references without throwing circular error', () => {
+      const shared = { id: 1, name: 'shared-entity' };
+      const obj = {
+        primary: shared,
+        secondary: shared,
+        list: [shared, shared],
+      };
+
+      const plain = toPlain(obj) as typeof obj;
+      expect(plain.primary).toEqual({ id: 1, name: 'shared-entity' });
+      expect(plain.secondary).toEqual({ id: 1, name: 'shared-entity' });
+      expect(plain.list).toEqual([
+        { id: 1, name: 'shared-entity' },
+        { id: 1, name: 'shared-entity' },
+      ]);
+
+      process.env.NODE_ENV = 'production';
+      const formatted = r(obj);
+      const parsed = JSON5.parse(formatted);
+      expect(parsed.primary.name).toBe('shared-entity');
+      expect(parsed.secondary.name).toBe('shared-entity');
+    });
+
+    it('should safely truncate objects exceeding max depth as [Object] rather than leaking raw instance', () => {
+      let current: any = { data: 'deepest' };
+      for (let i = 0; i < 20; i++) {
+        current = { child: current };
+      }
+
+      const plain = toPlain(current) as any;
+      let ptr = plain;
+      let depth = 0;
+      while (ptr && typeof ptr === 'object' && ptr.child !== undefined) {
+        ptr = ptr.child;
+        depth++;
+      }
+      expect(ptr).toBe('[Object]');
     });
 
     it('should fallback to inspect if instanceToPlain fails', () => {

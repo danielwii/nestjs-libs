@@ -32,3 +32,5 @@ export * from './types';
 // Utils
 export * from './utils/cost-calculator';
 export * from './utils/vector';
+// Batch
+export * from './batch';
