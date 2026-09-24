@@ -96,6 +96,24 @@ describe('Batch Schemas', () => {
         expect(parsedOmitted.data.tool_calls).toHaveLength(1);
       }
     });
+
+    it('rejects messages without content unless assistant provides tool_calls', () => {
+      // 1. User without content
+      expect(BatchMessageSchema.safeParse({ role: 'user' }).success).toBe(false);
+      expect(BatchMessageSchema.safeParse({ role: 'user', content: null }).success).toBe(false);
+
+      // 2. Tool without content
+      expect(BatchMessageSchema.safeParse({ role: 'tool', tool_call_id: 'call_1' }).success).toBe(false);
+      expect(BatchMessageSchema.safeParse({ role: 'tool', content: null, tool_call_id: 'call_1' }).success).toBe(false);
+
+      // 3. System without content
+      expect(BatchMessageSchema.safeParse({ role: 'system' }).success).toBe(false);
+
+      // 4. Assistant without content and without tool_calls
+      expect(BatchMessageSchema.safeParse({ role: 'assistant' }).success).toBe(false);
+      expect(BatchMessageSchema.safeParse({ role: 'assistant', content: null }).success).toBe(false);
+      expect(BatchMessageSchema.safeParse({ role: 'assistant', tool_calls: [] }).success).toBe(false);
+    });
   });
 
   describe('BatchRequestItemSchema', () => {

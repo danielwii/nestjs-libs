@@ -14,7 +14,21 @@ export const BatchMessageSchema = z
     tool_call_id: z.string().optional(),
     tool_calls: z.array(z.any()).optional(),
   })
-  .loose();
+  .loose()
+  .refine(
+    (msg) => {
+      // 1. 只有 assistant 且提供非空 tool_calls 陣列時，content 才允許為 null 或省略
+      if (msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        return true;
+      }
+      // 2. 其餘所有情況（user, system, tool 以及無 tool_calls 的 assistant），content 必須存在且不能為 null
+      return msg.content !== undefined && msg.content !== null;
+    },
+    {
+      message: 'content is required unless assistant message provides tool_calls',
+      path: ['content'],
+    },
+  );
 
 /**
  * OpenRouter Batch API 單條 Request Body 結構
