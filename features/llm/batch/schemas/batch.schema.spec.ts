@@ -55,6 +55,47 @@ describe('Batch Schemas', () => {
         expect(parsedTool.data.name).toBe('get_weather');
       }
     });
+
+    it('accepts assistant tool-call messages with null or omitted content', () => {
+      const assistantWithNullContent = {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call_abc',
+            type: 'function',
+            function: { name: 'calculator', arguments: '{"expr":"1+1"}' },
+          },
+        ],
+      };
+
+      const parsedNull = BatchMessageSchema.safeParse(assistantWithNullContent);
+      expect(parsedNull.success).toBe(true);
+      if (parsedNull.success) {
+        expect(parsedNull.data.role).toBe('assistant');
+        expect(parsedNull.data.content).toBeNull();
+        expect(parsedNull.data.tool_calls).toHaveLength(1);
+      }
+
+      const assistantWithOmittedContent = {
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call_def',
+            type: 'function',
+            function: { name: 'search', arguments: '{"q":"nestjs"}' },
+          },
+        ],
+      };
+
+      const parsedOmitted = BatchMessageSchema.safeParse(assistantWithOmittedContent);
+      expect(parsedOmitted.success).toBe(true);
+      if (parsedOmitted.success) {
+        expect(parsedOmitted.data.role).toBe('assistant');
+        expect(parsedOmitted.data.content).toBeUndefined();
+        expect(parsedOmitted.data.tool_calls).toHaveLength(1);
+      }
+    });
   });
 
   describe('BatchRequestItemSchema', () => {
@@ -184,6 +225,20 @@ describe('Batch Schemas', () => {
       if (result.success) {
         expect(result.data.results?.length).toBe(2);
         expect(result.data.results?.[0]?.custom_id).toBe('req-1');
+      }
+    });
+
+    it('validates a finalizing response', () => {
+      const payload = {
+        id: 'batch_xyz123',
+        status: 'finalizing',
+        created_at: 1790100000,
+      };
+
+      const result = BatchResponseSchema.safeParse(payload);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.status).toBe('finalizing');
       }
     });
 

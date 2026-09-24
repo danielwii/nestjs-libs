@@ -6,7 +6,10 @@ import { z } from 'zod';
 export const BatchMessageSchema = z
   .object({
     role: z.enum(['system', 'user', 'assistant', 'tool']),
-    content: z.union([z.string(), z.array(z.any())]),
+    content: z
+      .union([z.string(), z.array(z.any())])
+      .nullable()
+      .optional(),
     name: z.string().optional(),
     tool_call_id: z.string().optional(),
     tool_calls: z.array(z.any()).optional(),
@@ -72,6 +75,7 @@ export const BatchResultItemSchema = z
 export const BatchStatusSchema = z.enum([
   'validating',
   'in_progress',
+  'finalizing',
   'completed',
   'failed',
   'expired',
