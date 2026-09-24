@@ -804,9 +804,21 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         const defaultVal = (instance as Record<string, unknown>)[key];
         if (typeof defaultVal === 'number') {
           const num = Number(rawVal);
-          if (Number.isFinite(num)) (instance as Record<string, unknown>)[key] = num;
+          if (!Number.isFinite(num)) {
+            this.logger.error`[SYS] Invalid numeric environment variable for ${key}: ${rawVal}`;
+            throw new Error(`Invalid numeric environment variable for ${key}: ${rawVal}`);
+          }
+          (instance as Record<string, unknown>)[key] = num;
         } else if (typeof defaultVal === 'boolean') {
-          (instance as Record<string, unknown>)[key] = [true, 'true', '1', 1].includes(rawVal);
+          const lower = rawVal.trim().toLowerCase();
+          if (['true', '1', 'yes', 'on'].includes(lower)) {
+            (instance as Record<string, unknown>)[key] = true;
+          } else if (['false', '0', 'no', 'off'].includes(lower)) {
+            (instance as Record<string, unknown>)[key] = false;
+          } else {
+            this.logger.error`[SYS] Invalid boolean environment variable for ${key}: ${rawVal}`;
+            throw new Error(`Invalid boolean environment variable for ${key}: ${rawVal}`);
+          }
         } else {
           (instance as Record<string, unknown>)[key] = rawVal;
         }
