@@ -1,7 +1,9 @@
 /**
- * Phase 2.7 (GOAWAY linger) — T1/T2 from the shutdown-ordering design: the process must not exit
- * until GRPC_GOAWAY_LINGER_MS has elapsed after the GOAWAY drain call, and nothing in that window
- * may interfere with an in-flight gRPC call still being served by the (real) gRPC server.
+ * Phase 2.7 (GOAWAY linger) — T1/T2/T3 from the shutdown-ordering design: the process must not
+ * exit until GRPC_GOAWAY_LINGER_MS has elapsed after a GOAWAY was actually sent, nothing in that
+ * window may interfere with an in-flight gRPC call still being served by the (real) gRPC server,
+ * and a consumer that never sends a GOAWAY (no gRPC server, or a failed/skipped drain) must not
+ * pay for a linger nobody is waiting on.
  *
  * `setTimeout` is spied rather than driven by a real clock so these tests run instantly; capturing
  * every (callback, delay) pair also lets T1 assert the actual requested linger duration, not just
@@ -139,6 +141,24 @@ describe('gracefulShutdown Phase 2.7 (GOAWAY linger)', () => {
     // The linger itself never touches the in-flight call or its completion callback — it only
     // delays how soon tryShutdown is invoked, so the call is free to finish on its own schedule.
     expect(inFlight.result).toBe('completed');
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('T3: an app with no gRPC server has no linger delay (no GOAWAY was sent to wait for)', async () => {
+    // No ref set at all — Phase 2.6 takes its "no grpc server or port" branch, so no GOAWAY is
+    // ever sent and Phase 2.7 must not gate shutdown on a linger nobody needs.
+    setGrpcMicroserviceRef(undefined, 0);
+
+    const { runApp } = await import('./lifecycle');
+    runApp(fakeApp(fakeHttpServer()));
+
+    process.emit('SIGINT');
+    for (let i = 0; i < 20 && exitSpy.mock.calls.length === 0; i++) {
+      flushAllTimers();
+      await Promise.resolve();
+    }
+
+    expect(timers.some((t) => t.ms === 3000)).toBe(false);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

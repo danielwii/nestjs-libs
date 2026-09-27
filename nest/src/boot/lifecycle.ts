@@ -171,6 +171,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
     }
 
     // --- Phase 2.6: gRPC GOAWAY drain (fire-and-forget) ---
+    let goawaySent = false;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- NestJS internals not typed
       const msForDrain = grpcMicroserviceRef as any;
@@ -181,6 +182,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
         const GRPC_DRAIN_MS = SysEnv.GRPC_DRAIN_MS;
         logger.info`(${os.hostname}) [${signal}] Phase 2.6: gRPC drain ${grpcUrl} graceTimeMs=${GRPC_DRAIN_MS} (fire-and-forget) at +${elapsed()}`;
         grpcServerForDrain.drain(grpcUrl, GRPC_DRAIN_MS);
+        goawaySent = true;
       } else {
         logger.info`(${os.hostname}) [${signal}] Phase 2.6: skip (no grpc server or port)`;
       }
@@ -190,14 +192,20 @@ export const runApp = <App extends INestApplication>(app: App) => {
 
     // --- Phase 2.7: GOAWAY 停留 ---
     // 目标：发出 GOAWAY 之后先不退出，给持有连接池的代理/客户端时间去处理 GOAWAY、把连接
-    // 迁走，避免它们在一条进程已经关闭 socket 的连接上发出下一个请求。
+    // 迁走，避免它们在一条进程已经关闭 socket 的连接上发出下一个请求。只在这一轮真的发出了
+    // GOAWAY 时才停留——HTTP-only 的消费者、或本轮 drain 失败/跳过的情形，没有 GOAWAY 要等谁
+    // 处理，不该替它们把 GRPC_GOAWAY_LINGER_MS 计进 terminationGracePeriodSeconds 预算。
     // 依据：研究值，见 GRPC_GOAWAY_LINGER_MS 的定义注释。
     // 预算：见同一处注释——这段停留计入 terminationGracePeriodSeconds 总预算。
     // 重开条件：停留后仍观察到同类失败，或 grace 预算改变。
-    const GRPC_GOAWAY_LINGER_MS = SysEnv.GRPC_GOAWAY_LINGER_MS;
-    logger.info`(${os.hostname}) [${signal}] Phase 2.7: GOAWAY linger ${GRPC_GOAWAY_LINGER_MS}ms at +${elapsed()}`;
-    await new Promise((r) => setTimeout(r, GRPC_GOAWAY_LINGER_MS));
-    logger.info`(${os.hostname}) [${signal}] Phase 2.7: GOAWAY linger complete at +${elapsed()}`;
+    if (goawaySent) {
+      const GRPC_GOAWAY_LINGER_MS = SysEnv.GRPC_GOAWAY_LINGER_MS;
+      logger.info`(${os.hostname}) [${signal}] Phase 2.7: GOAWAY linger ${GRPC_GOAWAY_LINGER_MS}ms at +${elapsed()}`;
+      await new Promise((r) => setTimeout(r, GRPC_GOAWAY_LINGER_MS));
+      logger.info`(${os.hostname}) [${signal}] Phase 2.7: GOAWAY linger complete at +${elapsed()}`;
+    } else {
+      logger.info`(${os.hostname}) [${signal}] Phase 2.7: skipped (no GOAWAY sent)`;
+    }
 
     // --- Phase 3: 停止接收 + 等待 in-flight ---
     const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
