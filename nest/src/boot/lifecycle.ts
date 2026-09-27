@@ -175,8 +175,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- NestJS internals not typed
       const msForDrain = grpcMicroserviceRef as any;
       const grpcServerForDrain = msForDrain?.serverInstance?.grpcClient as
-        | { drain?: (port: string, graceTimeMs: number) => void }
-        | undefined;
+        { drain?: (port: string, graceTimeMs: number) => void } | undefined;
       if (grpcServerForDrain?.drain && grpcPort !== undefined) {
         const grpcUrl = `0.0.0.0:${grpcPort}`;
         const GRPC_DRAIN_MS = SysEnv.GRPC_DRAIN_MS;
@@ -188,6 +187,17 @@ export const runApp = <App extends INestApplication>(app: App) => {
     } catch (e) {
       logger.warning`(${os.hostname}) [${signal}] Phase 2.6: failed: ${getErrorMessage(e)}`;
     }
+
+    // --- Phase 2.7: GOAWAY 停留 ---
+    // 目标：发出 GOAWAY 之后先不退出，给持有连接池的代理/客户端时间去处理 GOAWAY、把连接
+    // 迁走，避免它们在一条进程已经关闭 socket 的连接上发出下一个请求。
+    // 依据：研究值，见 GRPC_GOAWAY_LINGER_MS 的定义注释。
+    // 预算：见同一处注释——这段停留计入 terminationGracePeriodSeconds 总预算。
+    // 重开条件：停留后仍观察到同类失败，或 grace 预算改变。
+    const GRPC_GOAWAY_LINGER_MS = SysEnv.GRPC_GOAWAY_LINGER_MS;
+    logger.info`(${os.hostname}) [${signal}] Phase 2.7: GOAWAY linger ${GRPC_GOAWAY_LINGER_MS}ms at +${elapsed()}`;
+    await new Promise((r) => setTimeout(r, GRPC_GOAWAY_LINGER_MS));
+    logger.info`(${os.hostname}) [${signal}] Phase 2.7: GOAWAY linger complete at +${elapsed()}`;
 
     // --- Phase 3: 停止接收 + 等待 in-flight ---
     const IN_FLIGHT_TIMEOUT_MS = SysEnv.IN_FLIGHT_TIMEOUT_MS;
@@ -210,8 +220,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 访问 NestJS 内部属性
     const ms = grpcMicroserviceRef as any;
     const grpcServer = ms?.serverInstance?.grpcClient as
-      | { tryShutdown?: (cb: () => void) => void; forceShutdown?: () => void }
-      | undefined;
+      { tryShutdown?: (cb: () => void) => void; forceShutdown?: () => void } | undefined;
 
     const grpcDrainPromise = new Promise<void>((resolve) => {
       if (grpcServer?.tryShutdown) {
