@@ -56,14 +56,43 @@ function fakeApp(httpServer: ReturnType<typeof fakeHttpServer>): INestApplicatio
   } as unknown as INestApplication;
 }
 
+// Every process-global event `runApp` (lifecycle.ts) registers a listener on — read straight off
+// its own `process.on(...)` calls, not guessed. Each test below calls the real `runApp`, which
+// installs these listeners fresh; without cleanup they'd accumulate across tests (and, since
+// `process` is a real global shared with the test runner itself, a later test emitting one of
+// these signals — or an unrelated unhandled rejection — could trigger a STALE test's handler and
+// call the real (unmocked, by then) `process.exit`, killing the runner).
+const RUNAPP_EVENTS = [
+  'uncaughtException',
+  'unhandledRejection',
+  'beforeExit',
+  'SIGINT',
+  'SIGUSR1',
+  'SIGTERM',
+  'SIGHUP',
+  'disconnect',
+  'exit',
+] as const;
+
+// `process.listeners`/`removeListener` are typed with per-event overloads (Node's `Signals` union
+// vs the lifecycle events), which don't unify across our mixed RUNAPP_EVENTS list — this generic
+// view is exactly the plain EventEmitter shape both calls below actually need.
+const processEvents = process as unknown as {
+  listeners: (event: string) => (() => void)[];
+  removeListener: (event: string, listener: () => void) => void;
+};
+
 describe('gracefulShutdown Phase 2.7 (GOAWAY linger)', () => {
   let timers: TimerCall[];
   let exitSpy: ReturnType<typeof spyOn>;
   let setTimeoutSpy: ReturnType<typeof spyOn>;
+  // Snapshot per event so afterEach can remove only what THIS test's runApp call added, leaving
+  // pre-existing listeners (e.g. the bun test runner's own) untouched.
+  let preExistingListeners: Map<(typeof RUNAPP_EVENTS)[number], readonly (() => void)[]>;
 
   beforeEach(() => {
     timers = [];
-    process.removeAllListeners('SIGINT');
+    preExistingListeners = new Map(RUNAPP_EVENTS.map((ev) => [ev, [...processEvents.listeners(ev)]]));
     exitSpy = spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms: number) => {
       timers.push({ fn, ms });
@@ -74,7 +103,12 @@ describe('gracefulShutdown Phase 2.7 (GOAWAY linger)', () => {
   });
 
   afterEach(() => {
-    process.removeAllListeners('SIGINT');
+    for (const ev of RUNAPP_EVENTS) {
+      const before = new Set(preExistingListeners.get(ev));
+      for (const listener of processEvents.listeners(ev)) {
+        if (!before.has(listener)) processEvents.removeListener(ev, listener);
+      }
+    }
     exitSpy.mockRestore();
     setTimeoutSpy.mockRestore();
     setGrpcMicroserviceRef(undefined, 0);
