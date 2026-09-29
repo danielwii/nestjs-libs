@@ -1,4 +1,4 @@
-import { context, SpanKind, trace } from '@opentelemetry/api';
+import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 import type { Span } from '@opentelemetry/api';
 
@@ -26,7 +26,7 @@ export const Trace =
         );
       } catch (e: unknown) {
         span.setStatus({
-          code: 2,
+          code: SpanStatusCode.ERROR,
           message: e instanceof Error ? e.message : String(e),
         });
         throw e;
