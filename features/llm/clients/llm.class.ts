@@ -64,6 +64,7 @@ import {
   NoObjectGeneratedError,
   NoOutputGeneratedError,
   Output,
+  RetryError,
   streamText,
   tool,
   jsonSchema as wrapJsonSchema,
@@ -884,6 +885,9 @@ function isReasoningPolicyError(error: unknown): boolean {
 
 /** 判断错误是否值得 fallback（429/5xx/timeout/生成失败/reasoning 策略 400），非 retryable 的直接抛 */
 export function isRetryableError(error: unknown): boolean {
+  if (RetryError.isInstance(error)) {
+    return error.reason !== 'abort' && isRetryableError(error.lastError);
+  }
   if (error instanceof Oops || error instanceof Oops.Block || error instanceof Oops.Panic) {
     const cause = error.cause;
     if (cause !== undefined) return isRetryableError(cause);
