@@ -15,7 +15,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { parseModelSpec } from '../types/model.types';
 import { isRetryableError, LLM } from './llm.class';
 
-import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError } from 'ai';
+import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from 'ai';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
@@ -250,4 +250,38 @@ describe('LLM safe API architecture', () => {
     expect(error.provider).toBe('openrouter:gemini-2.5-flash-lite');
     expect(error.cause).toBe(raw);
   });
+});
+
+describe('isRetryableError: SDK retry exhaustion through production classification', () => {
+  for (const statusCode of [429, 500, 503, 400, 401]) {
+    it(`preserves HTTP ${statusCode} fallback policy after retries`, () => {
+      const apiError = new APICallError({
+        message: `HTTP ${statusCode}`,
+        url: 'https://example.com',
+        requestBodyValues: {},
+        statusCode,
+      });
+      const exhausted = new RetryError({
+        message: 'Failed after 3 attempts',
+        reason: 'maxRetriesExceeded',
+        errors: [apiError, apiError, apiError],
+      });
+      const classified = LLM.classifyError(exhausted, 'openrouter:gemini-3.7-flash');
+      expect(classified.cause).toBe(exhausted);
+      expect(isRetryableError(classified)).toBe(statusCode === 429 || statusCode >= 500);
+    });
+  }
+});
+
+it('does not fall back after SDK retry cancellation or an empty retry history', () => {
+  const apiError = new APICallError({
+    message: 'Rate limited',
+    url: 'https://example.com',
+    requestBodyValues: {},
+    statusCode: 429,
+  });
+  const aborted = new RetryError({ message: 'Cancelled', reason: 'abort', errors: [apiError] });
+  const empty = new RetryError({ message: 'No attempts', reason: 'maxRetriesExceeded', errors: [] });
+  expect(isRetryableError(LLM.classifyError(aborted, 'openrouter:gemini-3.7-flash'))).toBe(false);
+  expect(isRetryableError(empty)).toBe(false);
 });
