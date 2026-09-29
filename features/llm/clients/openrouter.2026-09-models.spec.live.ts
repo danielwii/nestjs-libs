@@ -26,6 +26,8 @@ interface CatalogModel {
 
 const catalogModels: readonly CatalogModel[] = [
   { key: 'openrouter:gemini-3.8-flash', modelId: 'google/gemini-3.8-flash', reasoningRequired: true },
+  { key: 'openrouter:claude-sonnet-5.5', modelId: 'anthropic/claude-sonnet-5.5', reasoningRequired: true },
+  { key: 'openrouter:gpt-6-luna', modelId: 'openai/gpt-6-luna', reasoningRequired: false },
 ];
 
 function getReasoningTokens(usage: unknown): number {

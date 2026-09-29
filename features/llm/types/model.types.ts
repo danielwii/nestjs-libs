@@ -565,6 +565,18 @@ export interface LLMModelRegistry {
   'openrouter:claude-sonnet-5': ModelConfig<'openrouter'>;
   'openrouter:anthropic/claude-sonnet-5': ModelConfig<'openrouter'>;
   /**
+   * Claude Sonnet 5.5 - 1M context / mandatory reasoning
+   *
+   * OpenRouter standard: Input $2/M, Output $10/M（与 Sonnet 5 同价）。
+   * Reasoning 强制：live 探测 raw `reasoning:{enabled:false}` → 400 "Reasoning is mandatory"
+   * （见 openrouter.2026-07-models.spec.live.ts），故 reasoningRequired: true（Sonnet 5 可关闭，5.5 不可）。
+   * OpenRouter 元数据列出 temperature 参数（Sonnet 5 没有）。
+   *
+   * @see https://openrouter.ai/anthropic/claude-sonnet-5.5
+   */
+  'openrouter:claude-sonnet-5.5': ModelConfig<'openrouter'>;
+  'openrouter:anthropic/claude-sonnet-5.5': ModelConfig<'openrouter'>;
+  /**
    * Claude Opus 4.6 — 停用于 2026-09-05（input ≥ $5/M）
    *
    * 定价参考（2026.05）：Input $5/M, Output $25/M, Context 1M
@@ -671,6 +683,17 @@ export interface LLMModelRegistry {
   'openrouter:openai/gpt-5.6-terra': ModelConfig<'openrouter'>;
   'openrouter:gpt-5.6-sol': ModelConfig<'openrouter'>;
   'openrouter:openai/gpt-5.6-sol': ModelConfig<'openrouter'>;
+  /**
+   * GPT-6 Luna - 1.05M context / 128K max output
+   *
+   * OpenRouter standard: Input $0.10/M, Output $0.50/M。OpenRouter 元数据未列 long-context override，
+   * 静态估算按单档计价；API-returned cost 优先。
+   * Reasoning 参数（reasoning / reasoning_effort）同 GPT-5.6 Luna；不支持 temperature 参数。
+   *
+   * @see https://openrouter.ai/openai/gpt-6-luna
+   */
+  'openrouter:gpt-6-luna': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-6-luna': ModelConfig<'openrouter'>;
 
   // ---- xAI Grok (4.20+) ----
   /**
@@ -1331,6 +1354,15 @@ const modelRegistry = new Map<string, ModelConfig>([
   // Claude Sonnet 5 — OpenRouter metadata: optional adaptive reasoning
   ['openrouter:claude-sonnet-5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5' }],
   ['openrouter:anthropic/claude-sonnet-5', { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5' }],
+  // Claude Sonnet 5.5 — live: reasoning cannot be disabled; OpenRouter metadata: temperature supported
+  [
+    'openrouter:claude-sonnet-5.5',
+    { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5.5', reasoningRequired: true },
+  ],
+  [
+    'openrouter:anthropic/claude-sonnet-5.5',
+    { provider: 'openrouter', modelId: 'anthropic/claude-sonnet-5.5', reasoningRequired: true },
+  ],
   // Claude Opus 4.6
   // 停用于 2026-09-05（input ≥ $5/M）
   // ['openrouter:claude-opus-4.6', { provider: 'openrouter', modelId: 'anthropic/claude-opus-4.6' }],
@@ -1372,6 +1404,9 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:openai/gpt-5.6-terra', { provider: 'openrouter', modelId: 'openai/gpt-5.6-terra' }],
   ['openrouter:gpt-5.6-sol', { provider: 'openrouter', modelId: 'openai/gpt-5.6-sol' }],
   ['openrouter:openai/gpt-5.6-sol', { provider: 'openrouter', modelId: 'openai/gpt-5.6-sol' }],
+  // GPT-6 Luna — OpenRouter metadata: same reasoning parameters as GPT-5.6 Luna, no temperature
+  ['openrouter:gpt-6-luna', { provider: 'openrouter', modelId: 'openai/gpt-6-luna' }],
+  ['openrouter:openai/gpt-6-luna', { provider: 'openrouter', modelId: 'openai/gpt-6-luna' }],
 
   // Grok 4.20
   ['openrouter:grok-4.20', { provider: 'openrouter', modelId: 'x-ai/grok-4.20' }],

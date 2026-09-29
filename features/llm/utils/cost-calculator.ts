@@ -132,6 +132,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   }, // claude-on-aws
   'anthropic/claude-sonnet-4.6': { input: 3.0, output: 15.0 },
   'anthropic/claude-sonnet-5': { input: 2.0, output: 10.0 },
+  'anthropic/claude-sonnet-5.5': { input: 2.0, output: 10.0 },
   // 'anthropic/claude-opus-4.6': { input: 5.0, output: 25.0 }, // 停用于 2026-09-05
   // 'anthropic/claude-opus-4.7': { input: 5.0, output: 25.0 }, // 停用于 2026-09-05
   // 'anthropic/claude-opus-4.8': { input: 5.0, output: 25.0 }, // 停用于 2026-09-05
@@ -214,6 +215,8 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
     output: 10.0,
     longContext: { inputTokenThreshold: 272_000, input: 4.0, output: 15.0 },
   }, // openai
+  // GPT-6 Luna: OpenRouter lists no long-context override, so a single tier.
+  'openai/gpt-6-luna': { input: 0.1, output: 0.5 },
 
   // ==================== AWS Bedrock（key 为 registry 中的 Bedrock modelId）====================
   // 定价来源：AWS Bedrock pricing（经 models.dev 镜像核对，2026-07-17）

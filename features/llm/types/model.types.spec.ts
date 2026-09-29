@@ -614,8 +614,18 @@ const openRouterCatalogAdditions = [
     reasoningRequired: false,
   },
   {
+    keys: ['openrouter:claude-sonnet-5.5', 'openrouter:anthropic/claude-sonnet-5.5'],
+    modelId: 'anthropic/claude-sonnet-5.5',
+    reasoningRequired: true,
+  },
+  {
     keys: ['openrouter:gpt-5.6-luna', 'openrouter:openai/gpt-5.6-luna'],
     modelId: 'openai/gpt-5.6-luna',
+    reasoningRequired: false,
+  },
+  {
+    keys: ['openrouter:gpt-6-luna', 'openrouter:openai/gpt-6-luna'],
+    modelId: 'openai/gpt-6-luna',
     reasoningRequired: false,
   },
   {
