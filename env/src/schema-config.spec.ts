@@ -1,0 +1,185 @@
+import { asDatabaseField, baseEnvSchema, createEnvConfig, getDatabaseFieldSpec, getEnvironment } from './configure';
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { z } from 'zod';
+
+describe('createEnvConfig & baseEnvSchema', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  describe('baseEnvSchema defaults', () => {
+    it('should provide default values for system environments and leave ENV unset', () => {
+      const parsed = baseEnvSchema.parse({});
+      expect(parsed.PORT).toBe(3100);
+      expect(parsed.GRPC_PORT).toBe(50051);
+      expect(parsed.ENV).toBeUndefined();
+      expect(parsed.NODE_ENV).toBe('development');
+      expect(parsed.TZ).toBe('UTC');
+      expect(parsed.LOG_LEVEL).toBe('debug');
+      expect(parsed.AI_LLM_TIMEOUT_MS).toBe(120_000);
+      expect(parsed.I18N_EXCEPTION_ENABLED).toBe(false);
+      expect(parsed.APP_PROXY_ENABLED).toBeUndefined();
+      expect(parsed.GRAPHQL_PLAYGROUND_ENABLED).toBeUndefined();
+    });
+
+    it('should keep optional booleans as undefined when undefined or empty string', () => {
+      const parsedExplicit = baseEnvSchema.parse({
+        APP_PROXY_ENABLED: undefined,
+        GRAPHQL_PLAYGROUND_ENABLED: '',
+      });
+      expect(parsedExplicit.APP_PROXY_ENABLED).toBeUndefined();
+      expect(parsedExplicit.GRAPHQL_PLAYGROUND_ENABLED).toBeUndefined();
+    });
+
+    it('should correctly coerce string numbers and booleans from environment', () => {
+      const parsed = baseEnvSchema.parse({
+        PORT: '8080',
+        APP_PROXY_ENABLED: 'true',
+        AI_LLM_MAX_RETRIES: '5',
+        I18N_EXCEPTION_ENABLED: 'true',
+      });
+      expect(parsed.PORT).toBe(8080);
+      expect(typeof parsed.PORT).toBe('number');
+      expect(parsed.APP_PROXY_ENABLED).toBe(true);
+      expect(parsed.AI_LLM_MAX_RETRIES).toBe(5);
+      expect(parsed.I18N_EXCEPTION_ENABLED).toBe(true);
+    });
+
+    it('should treat blank or whitespace-only strings in numeric fields as missing and apply defaults/optional', () => {
+      const parsed = baseEnvSchema.parse({
+        PORT: '',
+        GRPC_PORT: '   ',
+        APP_PROXY_PORT: '',
+        AI_LLM_TIMEOUT_MS: '',
+        AI_LLM_MAX_RETRIES: '  ',
+        PRISMA_TRANSACTION_TIMEOUT: '',
+      });
+      expect(parsed.PORT).toBe(3100);
+      expect(parsed.GRPC_PORT).toBe(50051);
+      expect(parsed.APP_PROXY_PORT).toBeUndefined();
+      expect(parsed.AI_LLM_TIMEOUT_MS).toBe(120_000);
+      expect(parsed.AI_LLM_MAX_RETRIES).toBe(2);
+      expect(parsed.PRISMA_TRANSACTION_TIMEOUT).toBe(30_000);
+    });
+
+    it('should reject invalid ports such as 0, negative values, or non-numeric strings', () => {
+      expect(() => baseEnvSchema.parse({ PORT: '0' })).toThrow();
+      expect(() => baseEnvSchema.parse({ PORT: '-1' })).toThrow();
+      expect(() => baseEnvSchema.parse({ PORT: 'invalid' })).toThrow();
+      expect(() => baseEnvSchema.parse({ GRPC_PORT: '70000' })).toThrow();
+    });
+  });
+
+  describe('createEnvConfig', () => {
+    it('should load environment variables and return typed vars and sourceMap', () => {
+      process.env.MY_SERVICE_PORT = '9000';
+      process.env.MY_API_KEY = 'secret-123';
+
+      const appSchema = baseEnvSchema.extend({
+        MY_SERVICE_PORT: z.coerce.number().default(9000),
+        MY_API_KEY: z.string(),
+      });
+
+      const { vars, envSourceMap, isSensitive, environment, databaseFields } = createEnvConfig(appSchema, {
+        loadDotEnv: false,
+      });
+
+      expect(vars.MY_SERVICE_PORT).toBe(9000);
+      expect(vars.MY_API_KEY).toBe('secret-123');
+      expect(envSourceMap.get('MY_SERVICE_PORT')).toBe('host');
+      expect(isSensitive('MY_API_KEY')).toBe(true);
+      expect(isSensitive('PORT')).toBe(false);
+      expect(environment.env).toBe('dev');
+      expect(environment.isProd).toBe(false);
+
+      const dbKeys = databaseFields.map((f) => f.key);
+      expect(dbKeys).toContain('AI_LLM_TIMEOUT_MS');
+      expect(dbKeys).toContain('AI_LLM_MAX_RETRIES');
+      expect(dbKeys).toContain('LLM_FETCH_VERBOSE');
+      expect(dbKeys).toContain('PRISMA_TRANSACTION_TIMEOUT');
+      expect(dbKeys).toContain('I18N_EXCEPTION_ENABLED');
+    });
+
+    it('should fallback to DOPPLER_ENVIRONMENT when ENV is unset', () => {
+      process.env.DOPPLER_ENVIRONMENT = 'prd';
+      delete process.env.ENV;
+
+      const { vars, environment } = createEnvConfig(baseEnvSchema, { loadDotEnv: false });
+      expect(vars.ENV).toBeUndefined();
+      expect(vars.DOPPLER_ENVIRONMENT).toBe('prd');
+      expect(environment.env).toBe('prd');
+      expect(environment.isProd).toBe(true);
+
+      const helperResult = getEnvironment(vars);
+      expect(helperResult.env).toBe('prd');
+      expect(helperResult.isProd).toBe(true);
+    });
+
+    it('should prioritize explicit ENV over DOPPLER_ENVIRONMENT', () => {
+      process.env.ENV = 'stg';
+      process.env.DOPPLER_ENVIRONMENT = 'prd';
+
+      const { vars, environment } = createEnvConfig(baseEnvSchema, { loadDotEnv: false });
+      expect(vars.ENV).toBe('stg');
+      expect(environment.env).toBe('stg');
+      expect(environment.isProd).toBe(false);
+    });
+
+    it('should throw validation error when required field is missing', () => {
+      delete process.env.REQUIRED_TOKEN;
+
+      const appSchema = z.object({
+        REQUIRED_TOKEN: z.string(),
+      });
+
+      expect(() => {
+        createEnvConfig(appSchema, { loadDotEnv: false });
+      }).toThrow();
+    });
+  });
+
+  describe('asDatabaseField (Colocation & Single Source of Truth)', () => {
+    it('should transparently preserve schema validation and type parsing', () => {
+      const field = asDatabaseField(z.number().int().min(10).max(100).default(50), '任务批次大小');
+
+      expect(field.parse(undefined)).toBe(50);
+      expect(field.parse(80)).toBe(80);
+      expect(() => field.parse(5)).toThrow();
+      expect(() => field.parse(150)).toThrow();
+      expect(field.description).toBe('任务批次大小');
+    });
+
+    it('should attach metadata spec for extraction and colocation visibility', () => {
+      const fieldWithOpts = asDatabaseField(z.string().default('default-val'), {
+        description: 'Scoped 配置',
+        scoped: true,
+      });
+
+      const spec = getDatabaseFieldSpec(fieldWithOpts);
+      expect(spec).toBeDefined();
+      expect(spec?.isDatabaseField).toBe(true);
+      expect(spec?.scoped).toBe(true);
+      expect(spec?.description).toBe('Scoped 配置');
+    });
+
+    it('should correctly identify database-managed fields on baseEnvSchema', () => {
+      const timeoutSpec = getDatabaseFieldSpec(baseEnvSchema.shape.AI_LLM_TIMEOUT_MS);
+      expect(timeoutSpec).toBeDefined();
+      expect(timeoutSpec?.isDatabaseField).toBe(true);
+
+      const retriesSpec = getDatabaseFieldSpec(baseEnvSchema.shape.AI_LLM_MAX_RETRIES);
+      expect(retriesSpec).toBeDefined();
+      expect(retriesSpec?.isDatabaseField).toBe(true);
+
+      const portSpec = getDatabaseFieldSpec(baseEnvSchema.shape.PORT);
+      expect(portSpec).toBeUndefined();
+    });
+  });
+});

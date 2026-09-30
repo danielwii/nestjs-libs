@@ -21,12 +21,14 @@
   },
   "dependencies": {
     "@dotenvx/dotenvx": "^2.32.2",
+    "@standard-schema/spec": "^1.1.0",
     "dedent": "^1.7.2",
     "json5": "^2.2.3",
     "neverthrow": "^8.2.0",
     "nice-grpc-server-reflection": "^3.0.6",
     "number-to-words": "^1.2.4",
-    "radash": "^12.1.1"
+    "radash": "^12.1.1",
+    "zod": "^4.0.0"
   },
   "peerDependencies": {
     "@ai-sdk/amazon-bedrock": "^5.0.0",
@@ -56,8 +58,6 @@
     "@sentry/nestjs": "^10.45.0",
     "@typesafe-ai/sdk": "^0.6.0",
     "ai": "^7.0.91",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.15.1",
     "compression": "^1.8.1",
     "connect-redis": "^10.0.0",
     "redis": "^6.3.0",
@@ -71,8 +71,7 @@
     "morgan": "^1.10.1",
     "reflect-metadata": "^0.2.2",
     "response-time": "^2.3.4",
-    "rxjs": "^7.8.2",
-    "zod": "^4.3.6"
+    "rxjs": "^7.8.2"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/amazon-bedrock": {
@@ -181,9 +180,6 @@
       "optional": true
     },
     "response-time": {
-      "optional": true
-    },
-    "zod": {
       "optional": true
     }
   },

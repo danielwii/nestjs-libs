@@ -11,6 +11,7 @@ import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/g
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 
 import {
+  AppStandardSchemaValidationPipe,
   assertGrpcServiceTokenConfiguredForMode,
   assertRequiredEnvs,
   configureGrpcMicroserviceBoundary,
@@ -397,8 +398,9 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
       'TestProvider',
     );
 
-    expect(target.pipes).toHaveLength(1);
-    expect(target.pipes[0]).toBeInstanceOf(ValidationPipe);
+    expect(target.pipes).toHaveLength(2);
+    expect(target.pipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+    expect(target.pipes[1]).toBeInstanceOf(ValidationPipe);
     expect(target.filters).toHaveLength(1);
     expect(target.filters[0]).toBeInstanceOf(GrpcExceptionFilter);
     expect(target.guards).toHaveLength(1);
@@ -531,5 +533,37 @@ describe('assertRequiredEnvs', () => {
       expect(message).toContain('AI_OPENROUTER_API_KEY');
       expect(message).not.toContain('super-secret-vertex-key');
     }
+  });
+});
+
+describe('AppStandardSchemaValidationPipe & DualBoundaryValidationPipe with callable schemas', () => {
+  it('supports callable Standard Schema (e.g. ArkType function schemas)', async () => {
+    // 模拟类似 ArkType 的 callable schema（自身是函数，同时挂载 '~standard' 属性）
+    const callableSchema = Object.assign((input: unknown) => input, {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'arktype',
+        validate: (value: unknown) => {
+          if (typeof value === 'object' && value !== null && 'count' in value) {
+            return { value: { count: Number((value as { count: unknown }).count) } };
+          }
+          return { issues: [{ message: 'expected count property' }] };
+        },
+      },
+    });
+
+    class CallableDto {
+      static schema = callableSchema;
+    }
+
+    const pipe = new AppStandardSchemaValidationPipe();
+    const result = await pipe.transform<unknown>(
+      { count: '42' },
+      {
+        type: 'body',
+        metatype: CallableDto,
+      },
+    );
+    expect(result).toEqual({ count: 42 });
   });
 });

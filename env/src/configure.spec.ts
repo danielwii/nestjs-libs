@@ -6,7 +6,6 @@ import 'reflect-metadata';
 
 import * as os from 'node:os';
 
-import { IsString, Min } from 'class-validator';
 import * as _ from 'radash';
 
 describe('AppConfigure', () => {
@@ -247,7 +246,6 @@ describe('AppConfigure', () => {
     it('should skip overriding activeEnvs when DB value is invalid', async () => {
       class NumberEnvs {
         @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
-        @Min(30_000)
         AI_LLM_TIMEOUT_MS: number = 120_000;
         APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
       }
@@ -262,7 +260,7 @@ describe('AppConfigure', () => {
               {
                 key: 'AI_LLM_TIMEOUT_MS',
                 scope: 'shared',
-                value: 500,
+                value: 'invalid-number',
                 defaultValue: '60000',
                 format: 'number',
               },
@@ -279,6 +277,88 @@ describe('AppConfigure', () => {
 
       // 不应被非法 DB 值覆盖
       expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(120_000);
+    });
+
+    it('should reject DB overrides that violate schema constraints even if finite (Single Source of Truth Safe-Reject)', async () => {
+      class LlmEnvs {
+        @DatabaseField('number', '默认 LLM 调用超时（毫秒）')
+        AI_LLM_TIMEOUT_MS: number = 120_000;
+        @DatabaseField('number', '默认 LLM 最大重试次数')
+        AI_LLM_MAX_RETRIES: number = 2;
+        APP_CONFIG_SYNC_WRITE_ENABLED: boolean = true;
+      }
+
+      const originalEnvs = new LlmEnvs();
+      const activeEnvs = new LlmEnvs();
+
+      // 场景 1: DB 中 AI_LLM_TIMEOUT_MS 为 500（违反 min(30_000) 约束），AI_LLM_MAX_RETRIES 为 -1（违反 min(0) 约束）
+      const mockPrismaInvalid = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'AI_LLM_TIMEOUT_MS',
+                scope: 'shared',
+                value: 500, // 有限数值但违背 baseEnvSchema min(30_000)
+                defaultValue: '120000',
+                format: 'number',
+              },
+              {
+                key: 'AI_LLM_MAX_RETRIES',
+                scope: 'shared',
+                value: -1, // 有限数值但违背 baseEnvSchema min(0)
+                defaultValue: '2',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve(null)),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrismaInvalid as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // 动态入境边界防守：违背 Schema 约束的值被安全拒绝，保留原有配置
+      expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(120_000);
+      expect(activeEnvs.AI_LLM_MAX_RETRIES).toBe(2);
+
+      // 场景 2: DB 中提供合法数值与可强制转换的字串数值
+      const mockPrismaValid = {
+        sysAppSetting: {
+          findMany: mock(() =>
+            Promise.resolve([
+              {
+                key: 'AI_LLM_TIMEOUT_MS',
+                scope: 'shared',
+                value: 60_000,
+                defaultValue: '120000',
+                format: 'number',
+              },
+              {
+                key: 'AI_LLM_MAX_RETRIES',
+                scope: 'shared',
+                value: '4', // 字符串可 coerce 为合法数字 4
+                defaultValue: '2',
+                format: 'number',
+              },
+            ]),
+          ),
+          updateMany: mock(() => Promise.resolve({ count: 0 })),
+          createMany: mock(() => Promise.resolve({ count: 0 })),
+          findUnique: mock(() => Promise.resolve(null)),
+          update: mock(() => Promise.resolve({})),
+        },
+      };
+
+      await AppConfigure.syncFromDB(mockPrismaValid as unknown as any, originalEnvs as any, activeEnvs as any);
+
+      // 合法值应被成功应用并转换为 number
+      expect(activeEnvs.AI_LLM_TIMEOUT_MS).toBe(60_000);
+      expect(activeEnvs.AI_LLM_MAX_RETRIES).toBe(4);
+      expect(typeof activeEnvs.AI_LLM_MAX_RETRIES).toBe('number');
     });
 
     // 2026-09-02 staging 事故：admin 把 boolean 行的 value 写成空串，JSON.parse('') 在
@@ -528,18 +608,180 @@ describe('AppConfigure', () => {
       expect(fields).toContain('TZ');
     });
 
-    it('should throw validation error for invalid configs', () => {
-      class InvalidEnvs extends AbstractEnvironmentVariables {
-        @IsString()
-        REQUIRED_STRING!: string;
-      }
-      // Bun or dotenv might have injected vars, so we clear them to trigger validation error
+    it('should throw validation error for invalid base configs in production', () => {
       const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+      const ORIGINAL_PORT = process.env.PORT;
       process.env.NODE_ENV = 'production';
+      process.env.PORT = 'not-a-number';
       try {
-        expect(() => new AppConfigure(InvalidEnvs)).toThrow();
+        expect(() => new AppConfigure(AbstractEnvironmentVariables)).toThrow();
       } finally {
+        if (ORIGINAL_PORT !== undefined) process.env.PORT = ORIGINAL_PORT;
+        else delete process.env.PORT;
         process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+      }
+    });
+
+    it('should correctly coerce optional boolean and number environment variables', () => {
+      const origPrismaMigration = process.env.PRISMA_MIGRATION;
+      const origAppProxy = process.env.APP_PROXY_ENABLED;
+      const origFeatureScheduler = process.env.FEATURE_SCHEDULER;
+      const origInFlight = process.env.IN_FLIGHT_TIMEOUT_MS;
+      const origProxyPort = process.env.APP_PROXY_PORT;
+
+      process.env.PRISMA_MIGRATION = 'false';
+      process.env.APP_PROXY_ENABLED = 'false';
+      process.env.FEATURE_SCHEDULER = 'true';
+      process.env.IN_FLIGHT_TIMEOUT_MS = '5000';
+      process.env.APP_PROXY_PORT = '8080';
+
+      try {
+        const appConfig = new AppConfigure(AbstractEnvironmentVariables);
+        expect(appConfig.vars.PRISMA_MIGRATION).toBe(false);
+        expect(appConfig.vars.APP_PROXY_ENABLED).toBe(false);
+        expect(appConfig.vars.FEATURE_SCHEDULER).toBe(true);
+        expect(appConfig.vars.IN_FLIGHT_TIMEOUT_MS).toBe(5000);
+        expect(appConfig.vars.APP_PROXY_PORT).toBe(8080);
+      } finally {
+        if (origPrismaMigration !== undefined) process.env.PRISMA_MIGRATION = origPrismaMigration;
+        else delete process.env.PRISMA_MIGRATION;
+        if (origAppProxy !== undefined) process.env.APP_PROXY_ENABLED = origAppProxy;
+        else delete process.env.APP_PROXY_ENABLED;
+        if (origFeatureScheduler !== undefined) process.env.FEATURE_SCHEDULER = origFeatureScheduler;
+        else delete process.env.FEATURE_SCHEDULER;
+        if (origInFlight !== undefined) process.env.IN_FLIGHT_TIMEOUT_MS = origInFlight;
+        else delete process.env.IN_FLIGHT_TIMEOUT_MS;
+        if (origProxyPort !== undefined) process.env.APP_PROXY_PORT = origProxyPort;
+        else delete process.env.APP_PROXY_PORT;
+      }
+    });
+
+    it('should preserve subclass constructor defaults when environment variables are absent', () => {
+      class CustomAppEnvs extends AbstractEnvironmentVariables {
+        override PORT = 4000;
+        override PRISMA_TRANSACTION_TIMEOUT = 5000;
+      }
+
+      const origPort = process.env.PORT;
+      const origTxTimeout = process.env.PRISMA_TRANSACTION_TIMEOUT;
+      delete process.env.PORT;
+      delete process.env.PRISMA_TRANSACTION_TIMEOUT;
+
+      try {
+        const appConfig = new AppConfigure(CustomAppEnvs);
+        expect(appConfig.vars.PORT).toBe(4000);
+        expect(appConfig.vars.PRISMA_TRANSACTION_TIMEOUT).toBe(5000);
+      } finally {
+        if (origPort !== undefined) process.env.PORT = origPort;
+        else delete process.env.PORT;
+        if (origTxTimeout !== undefined) process.env.PRISMA_TRANSACTION_TIMEOUT = origTxTimeout;
+        else delete process.env.PRISMA_TRANSACTION_TIMEOUT;
+      }
+    });
+
+    it('should allow environment variables to override subclass constructor defaults', () => {
+      class CustomAppEnvs extends AbstractEnvironmentVariables {
+        override PORT = 4000;
+        override PRISMA_TRANSACTION_TIMEOUT = 5000;
+      }
+
+      const origPort = process.env.PORT;
+      const origTxTimeout = process.env.PRISMA_TRANSACTION_TIMEOUT;
+      process.env.PORT = '8080';
+      process.env.PRISMA_TRANSACTION_TIMEOUT = '12000';
+
+      try {
+        const appConfig = new AppConfigure(CustomAppEnvs);
+        expect(appConfig.vars.PORT).toBe(8080);
+        expect(appConfig.vars.PRISMA_TRANSACTION_TIMEOUT).toBe(12000);
+      } finally {
+        if (origPort !== undefined) process.env.PORT = origPort;
+        else delete process.env.PORT;
+        if (origTxTimeout !== undefined) process.env.PRISMA_TRANSACTION_TIMEOUT = origTxTimeout;
+        else delete process.env.PRISMA_TRANSACTION_TIMEOUT;
+      }
+    });
+
+    it('should throw validation error if subclass constructor default violates schema constraints (Fail-Fast)', () => {
+      class InvalidSubclassEnvs extends AbstractEnvironmentVariables {
+        override PORT = -1;
+      }
+
+      const origPort = process.env.PORT;
+      delete process.env.PORT;
+
+      try {
+        expect(() => new AppConfigure(InvalidSubclassEnvs)).toThrow(/Invalid subclass default for PORT/);
+      } finally {
+        if (origPort !== undefined) process.env.PORT = origPort;
+        else delete process.env.PORT;
+      }
+    });
+
+    it('should throw error if custom subclass numeric env variable is non-finite (Fail-Fast)', () => {
+      class CustomWorkerEnvs extends AbstractEnvironmentVariables {
+        WORKER_COUNT: number = 4;
+      }
+
+      const orig = process.env.WORKER_COUNT;
+      process.env.WORKER_COUNT = 'oops';
+
+      try {
+        expect(() => new AppConfigure(CustomWorkerEnvs)).toThrow(
+          /Invalid numeric environment variable for WORKER_COUNT/,
+        );
+      } finally {
+        if (orig !== undefined) process.env.WORKER_COUNT = orig;
+        else delete process.env.WORKER_COUNT;
+      }
+    });
+
+    it('should throw error if custom subclass boolean env variable is invalid (Fail-Fast)', () => {
+      class CustomBoolEnvs extends AbstractEnvironmentVariables {
+        ENABLE_FEATURE: boolean = true;
+      }
+
+      const orig = process.env.ENABLE_FEATURE;
+      process.env.ENABLE_FEATURE = 'not_a_boolean';
+
+      try {
+        expect(() => new AppConfigure(CustomBoolEnvs)).toThrow(
+          /Invalid boolean environment variable for ENABLE_FEATURE/,
+        );
+      } finally {
+        if (orig !== undefined) process.env.ENABLE_FEATURE = orig;
+        else delete process.env.ENABLE_FEATURE;
+      }
+    });
+
+    it('should correctly parse valid custom subclass numeric and boolean env overrides', () => {
+      class CustomEnvs extends AbstractEnvironmentVariables {
+        WORKER_COUNT: number = 4;
+        ENABLE_FEATURE: boolean = true;
+      }
+
+      const origNum = process.env.WORKER_COUNT;
+      const origBool = process.env.ENABLE_FEATURE;
+
+      try {
+        process.env.WORKER_COUNT = '16';
+        process.env.ENABLE_FEATURE = 'false';
+        const cfg1 = new AppConfigure(CustomEnvs);
+        expect(cfg1.vars.WORKER_COUNT).toBe(16);
+        expect(cfg1.vars.ENABLE_FEATURE).toBe(false);
+
+        process.env.ENABLE_FEATURE = '0';
+        const cfg2 = new AppConfigure(CustomEnvs);
+        expect(cfg2.vars.ENABLE_FEATURE).toBe(false);
+
+        process.env.ENABLE_FEATURE = '1';
+        const cfg3 = new AppConfigure(CustomEnvs);
+        expect(cfg3.vars.ENABLE_FEATURE).toBe(true);
+      } finally {
+        if (origNum !== undefined) process.env.WORKER_COUNT = origNum;
+        else delete process.env.WORKER_COUNT;
+        if (origBool !== undefined) process.env.ENABLE_FEATURE = origBool;
+        else delete process.env.ENABLE_FEATURE;
       }
     });
 
@@ -559,34 +801,6 @@ describe('AppConfigure', () => {
       expect(envs.environment.env).toBeDefined();
       expect(envs.isNodeDevelopment).toBe(process.env.NODE_ENV === 'development');
       expect(envs.NODE_NAME).toContain(os.hostname());
-    });
-  });
-
-  describe('Transformers', () => {
-    it('booleanTransformFn should handle various inputs', () => {
-      const { booleanTransformFn } = require('./configure');
-      expect(booleanTransformFn({ key: 'k', obj: { k: 'true' } })).toBe(true);
-      expect(booleanTransformFn({ key: 'k', obj: { k: '1' } })).toBe(true);
-      expect(booleanTransformFn({ key: 'k', obj: { k: true } })).toBe(true);
-      expect(booleanTransformFn({ key: 'k', obj: { k: 'false' } })).toBe(false);
-      expect(booleanTransformFn({ key: 'k', obj: { k: '0' } })).toBe(false);
-      expect(booleanTransformFn({ key: 'k', obj: { k: null } })).toBe(false);
-    });
-
-    it('objectTransformFn should parse JSON5 strings or return objects', () => {
-      const { objectTransformFn } = require('./configure');
-      expect(objectTransformFn({ key: 'k', obj: { k: { a: 1 } } })).toEqual({ a: 1 });
-      expect(objectTransformFn({ key: 'k', obj: { k: '{a:1}' } })).toEqual({ a: 1 }); // JSON5
-      expect(objectTransformFn({ key: 'k', obj: { k: '' } })).toEqual({});
-      expect(() => objectTransformFn({ key: 'k', obj: { k: '{invalid}' } })).toThrow();
-    });
-
-    it('arrayTransformFn should parse JSON5 strings or return arrays', () => {
-      const { arrayTransformFn } = require('./configure');
-      expect(arrayTransformFn({ key: 'k', obj: { k: [1, 2] } })).toEqual([1, 2]);
-      expect(arrayTransformFn({ key: 'k', obj: { k: '[1,2]' } })).toEqual([1, 2]);
-      expect(arrayTransformFn({ key: 'k', obj: { k: '' } })).toEqual([]);
-      expect(() => arrayTransformFn({ key: 'k', obj: { k: '[invalid]' } })).toThrow();
     });
   });
 

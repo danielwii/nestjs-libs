@@ -1,4 +1,4 @@
-import { Module, ValidationPipe } from '@nestjs/common';
+import { Module, StandardSchemaValidationPipe, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { Transport } from '@nestjs/microservices';
 
@@ -40,15 +40,19 @@ import type { SysEnvConfigKey } from '@app/env';
 import type { Server } from '@grpc/grpc-js';
 import type { PackageDefinition } from '@grpc/proto-loader';
 import type {
+  ArgumentMetadata,
   DynamicModule,
   ForwardReference,
   INestApplication,
   INestMicroservice,
   LogLevel,
+  PipeTransform,
   Type,
+  ValidationPipeOptions,
 } from '@nestjs/common';
 import type { MicroserviceOptions, NestMicroservice } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { NextFunction, Request, Response } from 'express';
 
 const bootstrapLogger = getAppLogger('boot', 'Bootstrap');
@@ -108,6 +112,16 @@ export interface BootstrapOptions {
   grpcProvider?: string;
   /** HTTP 端口（grpc 模式下用于健康检查），默认从 SysEnv.PORT 读取 */
   httpPort?: number;
+  /**
+   * 全域校验管道配置。
+   *
+   * 架构演进说明（NestJS 12 + Standard Schema）：
+   * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema），
+   *   并挂载具备 schema 穿透保护的兼容 ValidationPipe。
+   * - 设为 false：完全停用历史遗留 class-validator ValidationPipe，实现纯 Standard Schema 现代架构。
+   * - 传入 ValidationPipeOptions：自定义遗留 ValidationPipe 的配置。
+   */
+  validationPipe?: boolean | ValidationPipeOptions;
 }
 
 export function hasGrpcMicroserviceConfigured(mode: BootstrapMode, options?: Pick<BootstrapOptions, 'grpc'>): boolean {
@@ -152,6 +166,7 @@ export function connectGrpcMicroserviceWithBoundary(
   microserviceOptions: MicroserviceOptions,
   mode: BootstrapMode,
   provider: string,
+  validationPipeOption?: boolean | ValidationPipeOptions,
 ): INestMicroservice {
   const { inheritAppConfig } = resolveGrpcHybridAppOptions(mode);
 
@@ -167,13 +182,80 @@ export function connectGrpcMicroserviceWithBoundary(
 
   if (!inheritAppConfig) {
     grpcMs.setIsInitHookCalled(true);
-    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider);
+    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider, validationPipeOption);
   }
   return grpcMs;
 }
 
-function createGlobalValidationPipe(): ValidationPipe {
-  return new ValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS);
+/**
+ * 校验对象或函数是否符合 Standard Schema 规范（支持 Object 与 Callable Function 如 ArkType）
+ */
+function isStandardSchema(val: unknown): val is StandardSchemaV1 {
+  return ((typeof val === 'object' && val !== null) || typeof val === 'function') && '~standard' in val;
+}
+
+/**
+ * 解析参数或类自身显式绑定的 Standard Schema。
+ *
+ * 核心设计（原型继承安全）：
+ * 使用 Object.prototype.hasOwnProperty 确保只解析类自身直接声明的静态 schema，
+ * 杜绝子类沿 JavaScript 原型链隐式继承父类 schema（如 CursoredRequestInput），
+ * 从而彻底消灭子类业务字段被父类 closed schema 默认剥离（strip）的安全盲区。
+ */
+function resolveOwnedStandardSchema(metadata: ArgumentMetadata): StandardSchemaV1 | undefined {
+  if (isStandardSchema(metadata.schema)) {
+    return metadata.schema;
+  }
+  const metatype = metadata.metatype;
+  if (metatype && typeof metatype === 'function' && Object.prototype.hasOwnProperty.call(metatype, 'schema')) {
+    const owned = (metatype as { schema?: unknown }).schema;
+    if (isStandardSchema(owned)) {
+      return owned;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取
+ */
+export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
+  override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
+    const rawSchema = resolveOwnedStandardSchema(metadata);
+    if (!rawSchema) return value;
+    return super.transform(value, { ...metadata, schema: rawSchema });
+  }
+}
+
+/**
+ * 双阶边界兼容校验管道：在 NestJS 12 迁移期提供平滑过渡。
+ *
+ * 架构意图：
+ * 当参数携带 Standard Schema（显式声明或挂载在 metatype.schema）时，
+ * 跳过底层 class-validator 的白名单过滤，防止 whitelist: true 将合法字段误杀。
+ */
+export class DualBoundaryValidationPipe extends ValidationPipe {
+  override toValidate(metadata: ArgumentMetadata): boolean {
+    const rawSchema = resolveOwnedStandardSchema(metadata);
+    if (rawSchema) {
+      return false;
+    }
+    return super.toValidate(metadata);
+  }
+}
+
+export function createGlobalValidationPipes(validationPipeOption?: boolean | ValidationPipeOptions): PipeTransform[] {
+  const pipes: PipeTransform[] = [new AppStandardSchemaValidationPipe()];
+  if (validationPipeOption !== false) {
+    const options = typeof validationPipeOption === 'object' ? validationPipeOption : GLOBAL_VALIDATION_PIPE_OPTIONS;
+    pipes.push(new DualBoundaryValidationPipe(options));
+  }
+  return pipes;
+}
+
+export function createGlobalValidationPipe(validationPipeOption?: boolean | ValidationPipeOptions): ValidationPipe {
+  const options = typeof validationPipeOption === 'object' ? validationPipeOption : GLOBAL_VALIDATION_PIPE_OPTIONS;
+  return new DualBoundaryValidationPipe(options);
 }
 
 type GrpcMicroserviceBoundaryTarget = Pick<
@@ -185,8 +267,9 @@ export function configureGrpcMicroserviceBoundary(
   target: GrpcMicroserviceBoundaryTarget,
   reflector: Reflector,
   provider: string,
+  validationPipeOption?: boolean | ValidationPipeOptions,
 ): void {
-  target.useGlobalPipes(createGlobalValidationPipe());
+  target.useGlobalPipes(...createGlobalValidationPipes(validationPipeOption));
   target.useGlobalFilters(new GrpcExceptionFilter(provider));
   target.useGlobalGuards(new GrpcServiceTokenGuard());
   target.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(reflector), new LoggerInterceptor());
@@ -273,7 +356,7 @@ export async function bootstrap(
   }
 
   // --- ValidationPipe（所有模式） ---
-  app.useGlobalPipes(createGlobalValidationPipe());
+  app.useGlobalPipes(...createGlobalValidationPipes(options?.validationPipe));
 
   // --- ExceptionFilter ---
   if (isGrpc) {
@@ -512,6 +595,7 @@ export async function bootstrap(
       },
       mode,
       grpcProvider,
+      options.validationPipe,
     );
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 
