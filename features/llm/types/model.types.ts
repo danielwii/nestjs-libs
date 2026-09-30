@@ -1980,6 +1980,27 @@ export function isReasoningMandatory(key: LLMModelKey): boolean {
 }
 
 /**
+ * Whether a request to this model may force a tool call: `toolChoice: 'required'` or `{ type: 'tool' }`.
+ *
+ * Rule (one rule, no per-model list): false when the route is Anthropic-family (a model id under `anthropic/` on
+ * OpenRouter, `*.anthropic.*` on Bedrock, or a bare `claude-*` id) AND the model is `reasoningRequired`; true otherwise.
+ * Why: Anthropic rejects a forced tool choice while extended reasoning is on, and a `reasoningRequired` model cannot
+ * have reasoning switched off, so the request can only fail ("tool_choice: type tool and any are not supported").
+ * Evidence: a live probe of a mandatory-reasoning Anthropic model through OpenRouter answers 400 to `required` and to
+ * `{ type: 'tool' }`, and answers a tool call to `auto` with one tool; the same family's reasoning-optional model
+ * accepts `required` (openrouter.2026-09-models.spec.live.ts). A non-Anthropic mandatory-reasoning model (e.g. MiniMax
+ * M2.5) is not affected, which is why the route is part of the rule.
+ * Callers that would force a tool must branch on this (`'auto'` and check the tool was called); the libs helpers that
+ * force one themselves do so (generateObjectViaTool) or refuse before the network (generateText, streamObjectViaTool).
+ * `spec` may carry `?params`; an unknown key resolves as `getModel` does.
+ */
+export function supportsForcedToolChoice(spec: LLMModelSpec | LLMModelKey): boolean {
+  const config = getModel(spec);
+  if (config.reasoningRequired !== true) return true;
+  return !/(^|[./])anthropic[./]|^claude-/i.test(config.modelId);
+}
+
+/**
  * Whether this model end-to-end accepts system entries inside messages (default true).
  * libs 调用 AI SDK 时据此透传 `allowSystemInMessages`；仅实测/线上 400 证明
  * 后端不接受的模型在 registry 单独标 `systemInMessages: false`。
