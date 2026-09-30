@@ -45,7 +45,7 @@ describeOpenRouterLive('OpenRouter Gemini 3.6 Flash reasoning capability (live)'
       body: JSON.stringify({
         model: OPENROUTER_MODEL_ID,
         messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-        max_tokens: 48,
+        max_completion_tokens: 48,
         reasoning: { enabled: false, effort: 'none' },
       }),
       signal: AbortSignal.timeout(30_000),

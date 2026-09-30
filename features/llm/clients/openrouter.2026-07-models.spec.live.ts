@@ -69,7 +69,7 @@ describeOpenRouterLive('OpenRouter 2026-07 model catalog (live)', () => {
         body: JSON.stringify({
           model: modelId,
           messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-          max_tokens: 64,
+          max_completion_tokens: 64,
           reasoning: { enabled: false, effort: 'none' },
         }),
         signal: AbortSignal.timeout(45_000),
