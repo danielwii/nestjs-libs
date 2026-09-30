@@ -91,4 +91,65 @@ describeOpenRouterLive('OpenRouter 2026-09 model catalog (live)', () => {
       expect(body).toMatch(/reasoning is mandatory|cannot be disabled/i);
     }, 60_000);
   }
+
+  // Forced tool choice on a mandatory-reasoning Anthropic-family model (supportsForcedToolChoice, model.types.ts).
+  // The raw request is sent so what is asserted is the route's own answer, not a libs decision.
+  const echoTool = {
+    type: 'function',
+    function: {
+      name: 'record_city',
+      description: 'Record the city named by the user',
+      parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+    },
+  };
+
+  async function toolChoiceProbe(modelId: string, toolChoice: unknown) {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'X-Title': 'nestjs-libs live capability probe',
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: 'user', content: 'Record this city: Taipei' }],
+        max_tokens: 1024,
+        tools: [echoTool],
+        tool_choice: toolChoice,
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const body = await response.text();
+    return { status: response.status, body };
+  }
+
+  const toolNames = (body: string): string[] => {
+    const parsed = JSON.parse(body) as {
+      choices?: { message?: { tool_calls?: { function?: { name?: string } }[] } }[];
+    };
+    return (parsed.choices?.[0]?.message?.tool_calls ?? []).map((call) => call.function?.name ?? '');
+  };
+
+  it('anthropic/claude-sonnet-5.5 (mandatory reasoning) rejects tool_choice required', async () => {
+    const { status, body } = await toolChoiceProbe('anthropic/claude-sonnet-5.5', 'required');
+    console.log(`[openrouter-catalog-live] model=anthropic/claude-sonnet-5.5 tool_choice=required status=${status}`);
+    console.log(`[openrouter-catalog-live] body=${body.slice(0, 300)}`);
+    expect(status).toBe(400);
+    expect(body).toMatch(/tool_choice/i);
+  }, 60_000);
+
+  it('anthropic/claude-sonnet-5.5 answers a tool call to tool_choice auto with one tool', async () => {
+    const { status, body } = await toolChoiceProbe('anthropic/claude-sonnet-5.5', 'auto');
+    console.log(`[openrouter-catalog-live] model=anthropic/claude-sonnet-5.5 tool_choice=auto status=${status}`);
+    expect(status).toBe(200);
+    expect(toolNames(body)).toEqual(['record_city']);
+  }, 60_000);
+
+  it('anthropic/claude-sonnet-5 (reasoning optional) accepts tool_choice required', async () => {
+    const { status, body } = await toolChoiceProbe('anthropic/claude-sonnet-5', 'required');
+    console.log(`[openrouter-catalog-live] model=anthropic/claude-sonnet-5 tool_choice=required status=${status}`);
+    expect(status).toBe(200);
+    expect(toolNames(body)).toEqual(['record_city']);
+  }, 60_000);
 });

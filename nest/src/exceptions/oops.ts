@@ -259,6 +259,22 @@ namespace Oops {
       });
     }
 
+    /**
+     * 调用方对不支持强制 tool 选择的模型要求了强制 tool（`required` / `{type:'tool'}`）。请求发出前拒绝：
+     * 规则见 `supportsForcedToolChoice`（Anthropic 系路由 + 强制 reasoning 的模型必然 400）。是调用方契约问题，不是外部故障。
+     */
+    export function AIToolChoiceUnsupported(model: string, toolChoice: string): Oops.Panic {
+      return new Oops.Panic({
+        errorCode: ErrorCodes.SYSTEM_LOGIC_ERROR,
+        oopsCode: 'AI05',
+        userMessage: '服务暂时不可用，请稍后重试',
+        internalDetails:
+          `AI forced tool choice unsupported (${model}): toolChoice=${toolChoice} is rejected by an Anthropic-family ` +
+          `route with mandatory reasoning (see supportsForcedToolChoice); use 'auto' and check the tool was called`,
+        provider: model,
+      });
+    }
+
     /** 数据库致命错误 — “系统繁忙” */
     export function Database(operation: string, options?: { cause?: unknown }): Oops.Panic {
       return new Oops.Panic({

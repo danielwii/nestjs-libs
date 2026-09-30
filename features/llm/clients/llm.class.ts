@@ -46,6 +46,7 @@ import {
   getRegisteredModels,
   parseModelSpec,
   resolveThinkingForModel,
+  supportsForcedToolChoice,
 } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
 import { bedrockServiceTierOptions } from './bedrock.client';
@@ -65,6 +66,7 @@ import {
   NoObjectGeneratedError,
   NoOutputGeneratedError,
   Output,
+  RetryError,
   streamText,
   tool,
   jsonSchema as wrapJsonSchema,
@@ -913,6 +915,9 @@ function isReasoningPolicyError(error: unknown): boolean {
 
 /** 判断错误是否值得 fallback（429/5xx/timeout/生成失败/reasoning 策略 400），非 retryable 的直接抛 */
 export function isRetryableError(error: unknown): boolean {
+  if (RetryError.isInstance(error)) {
+    return error.reason !== 'abort' && isRetryableError(error.lastError);
+  }
   if (error instanceof Oops || error instanceof Oops.Block || error instanceof Oops.Panic) {
     const cause = error.cause;
     if (cause !== undefined) return isRetryableError(cause);
@@ -1598,6 +1603,22 @@ export class LLM {
       const tierHeaders = buildTierHeaders(modelKey, spec.vertex?.tier, spec.vertex?.requestType);
       const headers = mergeHeaders(aiOptions?.headers, tierHeaders);
 
+      // A forced tool choice on a model that rejects it can only fail at the provider. Refuse before the request, naming
+      // the model and the rule; the caller's toolChoice is never rewritten (supportsForcedToolChoice, model.types.ts).
+      const requestedToolChoice = aiOptions?.toolChoice;
+      if (
+        requestedToolChoice !== undefined &&
+        (requestedToolChoice === 'required' || typeof requestedToolChoice === 'object') &&
+        !supportsForcedToolChoice(modelKey)
+      ) {
+        const refused = Oops.Panic.AIToolChoiceUnsupported(
+          modelKey,
+          typeof requestedToolChoice === 'string' ? requestedToolChoice : `tool:${requestedToolChoice.toolName}`,
+        );
+        LLM.logError(id, 'generateText', modelKey, refused);
+        throw refused;
+      }
+
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal ?? aiOptions?.abortSignal);
       const runtimeContext = mergeProvenanceRuntimeContext<RUNTIME_CONTEXT>(aiOptions?.runtimeContext);
 
@@ -2081,8 +2102,10 @@ export class LLM {
         }),
       };
 
-      // 强制使用指定的 Tool
-      const toolChoice = { type: 'tool' as const, toolName };
+      // 强制使用指定的 Tool。模型不接受强制 tool 时（supportsForcedToolChoice，如 Anthropic 系 + 强制 reasoning）
+      // 改发 'auto'（仍只有这一个 tool），并在下面要求确实调用了它；没调用 → no-tool-call，不把文本当对象，不静默重试。
+      const forced = supportsForcedToolChoice(modelKey);
+      const toolChoice = forced ? { type: 'tool' as const, toolName } : ('auto' as const);
 
       const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);
 
@@ -2119,9 +2142,11 @@ export class LLM {
 
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
         const toolCall = result.toolCalls.at(0);
-        if (!toolCall || !('input' in toolCall)) {
+        if (!toolCall || !('input' in toolCall) || (!forced && toolCall.toolName !== toolName)) {
           throw Oops.Panic.AIObjectGenerationFailed(modelKey, 'no-tool-call', undefined, {
-            cause: new Error('No tool call returned from LLM'),
+            cause: new Error(
+              forced ? 'No tool call returned from LLM' : `Tool "${toolName}" was not called (toolChoice auto)`,
+            ),
           });
         }
 
@@ -2261,7 +2286,9 @@ export class LLM {
       }),
     };
 
-    // 强制使用指定的 Tool
+    // 强制使用指定的 Tool。流式没有「事后确认 tool 被调用」的整体点，所以不支持强制 tool 的模型在发请求前直接拒绝
+    // （否则只会得到 provider 400）；不改成 'auto'，避免文本回复被静默当成「没有对象」。
+    if (!supportsForcedToolChoice(modelKey)) throw Oops.Panic.AIToolChoiceUnsupported(modelKey, 'tool');
     const toolChoice = { type: 'tool' as const, toolName };
 
     const { signal, cleanup } = createManagedSignal(spec.timeout, abortSignal);

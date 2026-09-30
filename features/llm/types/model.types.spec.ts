@@ -6,11 +6,13 @@ import {
   getModel,
   getModelId,
   getProvider,
+  getRegisteredModels,
   isModelRegistered,
   isModelSpecValid,
   isReasoningMandatory,
   parseModelSpec,
   resolveThinkingForModel,
+  supportsForcedToolChoice,
   validateModelKey,
   validateModelSpec,
 } from './model.types';
@@ -907,6 +909,45 @@ describe('bedrock model keys', () => {
       else process.env.AWS_ACCESS_KEY_ID = savedAkid;
       if (savedSecret === undefined) delete process.env.AWS_SECRET_ACCESS_KEY;
       else process.env.AWS_SECRET_ACCESS_KEY = savedSecret;
+    }
+  });
+});
+
+describe('supportsForcedToolChoice', () => {
+  // One rule: an Anthropic-family route AND reasoningRequired cannot be forced to call a tool.
+  it('is false for a mandatory-reasoning Anthropic model on OpenRouter', () => {
+    expect(supportsForcedToolChoice('openrouter:claude-sonnet-5.5')).toBe(false);
+    expect(supportsForcedToolChoice('openrouter:anthropic/claude-sonnet-5.5')).toBe(false);
+  });
+
+  it('keeps the answer through a spec with params', () => {
+    expect(supportsForcedToolChoice('openrouter:claude-sonnet-5.5?reason=medium')).toBe(false);
+    expect(supportsForcedToolChoice('openrouter:claude-sonnet-5?reason=medium')).toBe(true);
+  });
+
+  it('is true for Anthropic models whose reasoning is optional', () => {
+    expect(supportsForcedToolChoice('openrouter:claude-sonnet-5')).toBe(true);
+    expect(supportsForcedToolChoice('openrouter:claude-sonnet-4.6')).toBe(true);
+    expect(supportsForcedToolChoice('bedrock:claude-sonnet-4.6')).toBe(true);
+    expect(supportsForcedToolChoice('bedrock:claude-haiku-4.5')).toBe(true);
+  });
+
+  it('is true for a mandatory-reasoning model that is not Anthropic-family', () => {
+    expect(getModel('openrouter:minimax-m2.5').reasoningRequired).toBe(true);
+    expect(supportsForcedToolChoice('openrouter:minimax-m2.5')).toBe(true);
+    expect(supportsForcedToolChoice('openrouter:grok-4.5')).toBe(true);
+  });
+
+  it('is true for a non-reasoning-required model of any family', () => {
+    expect(supportsForcedToolChoice('openrouter:grok-4.3')).toBe(true);
+  });
+
+  it('applies the same rule to every registered Anthropic-family mandatory-reasoning key', () => {
+    const anthropicFamily = /(^|[./])anthropic[./]|^claude-/i;
+    for (const key of getRegisteredModels()) {
+      const config = getModel(key as LLMModelKey);
+      const expected = !(config.reasoningRequired === true && anthropicFamily.test(config.modelId));
+      expect(supportsForcedToolChoice(key as LLMModelKey)).toBe(expected);
     }
   });
 });

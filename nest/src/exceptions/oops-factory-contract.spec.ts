@@ -235,6 +235,21 @@ const factoryCases: FactoryCase[] = [
       cause: aiObjectCause,
     },
   },
+  {
+    path: 'Oops.Panic.AIToolChoiceUnsupported',
+    create: () => Oops.Panic.AIToolChoiceUnsupported('openrouter:model', 'required'),
+    expected: {
+      variant: 'Panic',
+      httpStatus: 500,
+      errorCode: ErrorCodes.SYSTEM_LOGIC_ERROR,
+      oopsCode: 'AI05',
+      userMessage: '服务暂时不可用，请稍后重试',
+      internalDetails:
+        "AI forced tool choice unsupported (openrouter:model): toolChoice=required is rejected by an Anthropic-family route with mandatory reasoning (see supportsForcedToolChoice); use 'auto' and check the tool was called",
+      provider: 'openrouter:model',
+      cause: undefined,
+    },
+  },
 ];
 
 function getVariant(error: OopsError): OopsVariant {
@@ -305,7 +320,15 @@ describe('public generic Oops factory contract', () => {
     expect(inventory).toEqual({
       Oops: ['ExternalServiceExpected', 'Validation'],
       Block: ['AIModelRateLimited', 'Conflict', 'Forbidden', 'NotFound', 'RateLimited', 'Unauthorized'],
-      Panic: ['AIModelError', 'AIObjectGenerationFailed', 'Config', 'Database', 'ExternalService', 'Invariant'],
+      Panic: [
+        'AIModelError',
+        'AIObjectGenerationFailed',
+        'AIToolChoiceUnsupported',
+        'Config',
+        'Database',
+        'ExternalService',
+        'Invariant',
+      ],
     });
 
     const inventoriedPaths = [
@@ -317,7 +340,7 @@ describe('public generic Oops factory contract', () => {
 
     expect(new Set(coveredPaths).size).toBe(factoryCases.length);
     expect(coveredPaths).toEqual(inventoriedPaths);
-    expect(factoryCases).toHaveLength(14);
+    expect(factoryCases).toHaveLength(15);
   });
 
   for (const factoryCase of factoryCases) {
