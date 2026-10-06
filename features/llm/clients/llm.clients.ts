@@ -54,6 +54,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
 
+import { openRouterStrictToolsMiddleware } from './openrouter-strict-tools.middleware';
 import { createVertexFetch } from './vertex.fetch';
 
 import { createRequire } from 'node:module';
@@ -62,6 +63,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createVertex } from '@ai-sdk/google-vertex';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { wrapLanguageModel } from 'ai';
 
 // type-only：编译期即被擦除，不会触发运行时模块解析（optional peer 惰性加载见下方 loadBedrockFactory）
 import type { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
@@ -162,7 +164,9 @@ export function getOpenRouter() {
  * openrouter('x-ai/grok-4.3')
  * ```
  */
-export const openrouter = (modelId: string): LanguageModel => getOpenRouter()(modelId);
+export const openrouter = (modelId: string): LanguageModel =>
+  // The one place every OpenRouter language model comes from: strict tool use is realised here (see the middleware).
+  wrapLanguageModel({ model: getOpenRouter()(modelId), middleware: openRouterStrictToolsMiddleware(modelId) });
 
 // ============================================================================
 // Google AI 客户端
