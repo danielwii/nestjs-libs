@@ -18,7 +18,8 @@
  *   nothing else) the call is returned unchanged and logged, which keeps today's behaviour on that route.
  * Schema: `strictSubset` deletes the JSON Schema keywords Anthropic's strict mode rejects, from strict tools only. It
  *   adds and rewrites nothing (`additionalProperties`, `oneOf` and the like are the caller's schema builder's job);
- *   the caller's own validator still enforces what was removed.
+ *   the caller's own validator still enforces what was removed. Callers relying on a removed constraint must validate
+ *   locally (a zod `inputSchema`, or `jsonSchema(schema, { validate })`); this layer cannot detect a missing validator.
  * Exit: when #548 is released the `tools` override goes; this file then shrinks to the header rule, the Bedrock rule and
  *   the keyword stripping, which have no upstream home. SDK bump checklist: re-check the SDK's own tool mapping
  *   (name, description, parameters, eager_input_streaming), which the override duplicates, and the keyword list against
@@ -55,6 +56,9 @@ const UNSUPPORTED_KEYWORDS: ReadonlySet<string> = new Set([
   'maxLength',
   'maxItems',
   'uniqueItems',
+  'contains',
+  'minContains',
+  'maxContains',
 ]);
 
 const SUPPORTED_FORMATS: ReadonlySet<string> = new Set([
@@ -94,7 +98,6 @@ const SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
   'if',
   'then',
   'else',
-  'contains',
   'propertyNames',
 ]);
 

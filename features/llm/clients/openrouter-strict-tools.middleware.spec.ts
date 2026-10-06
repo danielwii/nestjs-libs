@@ -180,6 +180,9 @@ describe('strictSubset: delete-only (M10 / T14)', () => {
     ['maxLength', 9],
     ['maxItems', 3],
     ['uniqueItems', true],
+    ['contains', { type: 'string' }],
+    ['minContains', 1],
+    ['maxContains', 2],
     ['minItems', 2],
     ['format', 'regex'],
   ] as const)

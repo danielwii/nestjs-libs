@@ -20,7 +20,7 @@
 import 'reflect-metadata';
 
 import { openrouter } from './llm.clients';
-import { STRUCTURED_OUTPUTS_BETA } from './openrouter-strict-tools.middleware';
+import { strictSubset, STRUCTURED_OUTPUTS_BETA } from './openrouter-strict-tools.middleware';
 
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateText, jsonSchema, streamText, tool } from 'ai';
@@ -244,6 +244,11 @@ describeLive('strict tool use on an Anthropic model behind OpenRouter (live)', (
       ['maxLength', { type: 'string', maxLength: 9 }],
       ['maxItems', { type: 'array', items: { type: 'string' }, maxItems: 3 }],
       ['uniqueItems', { type: 'array', items: { type: 'string' }, uniqueItems: true }],
+      ['contains', { type: 'array', items: { type: 'string' }, contains: { type: 'string' } }],
+      [
+        'contains (stripped by the middleware)',
+        strictSubset({ type: 'array', items: { type: 'string' }, contains: { type: 'string' } }).schema as JSONObject,
+      ],
       ['minItems:2', { type: 'array', items: { type: 'string' }, minItems: 2 }],
       ['format:regex', { type: 'string', format: 'regex' }],
       // kept by the middleware: the probe says whether the provider accepts them
@@ -282,9 +287,12 @@ describeLive('strict tool use on an Anthropic model behind OpenRouter (live)', (
       }
     };
     const results: string[] = [];
-    for (let i = 0; i < keywords.length; i += 4)
-      results.push(...(await Promise.all(keywords.slice(i, i + 4).map(([label, property]) => probe(label, property)))));
+    // STRICT_LIVE_KEYWORD narrows the probe to labels containing that text (a cheap re-check of one keyword).
+    const only = process.env.STRICT_LIVE_KEYWORD;
+    const selected = only ? keywords.filter(([label]) => label.includes(only)) : keywords;
+    for (let i = 0; i < selected.length; i += 4)
+      results.push(...(await Promise.all(selected.slice(i, i + 4).map(([label, property]) => probe(label, property)))));
     for (const r of results) note.push('keyword ' + r);
-    expect(results.length).toBe(keywords.length);
+    expect(results.length).toBe(selected.length);
   }, 300_000);
 });
