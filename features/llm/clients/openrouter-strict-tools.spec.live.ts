@@ -255,6 +255,8 @@ describeLive('strict tool use on an Anthropic model behind OpenRouter (live)', (
       ['minItems:1 (kept)', { type: 'array', items: { type: 'string' }, minItems: 1 }],
       ['format:date-time (kept)', { type: 'string', format: 'date-time' }],
       ['pattern (kept)', { type: 'string', pattern: '^[a-z]+$' }],
+      // the shape a zod v4 email schema emits: records whether the provider accepts regex lookahead
+      ['pattern lookahead (kept)', { type: 'string', pattern: '^(?!\\.)[a-z.]+$' }],
     ];
     const probe = async (label: string, property: JSONObject): Promise<string> => {
       const parameters: JSONObject = {
