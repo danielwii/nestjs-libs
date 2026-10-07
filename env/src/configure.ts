@@ -540,7 +540,7 @@ export interface AppConfigureOptions {
 /**
  * 安全数值转换：空字串或純空格預處理為 undefined（使 default/optional 生效），非法字串交由 Zod 報錯
  */
-function coerceNumber<T extends z.ZodType>(schema: T) {
+export function coerceNumber<T extends z.ZodType>(schema: T) {
   return z.preprocess((v) => {
     if (v === undefined || v === null) return undefined;
     if (typeof v === 'string' && v.trim() === '') return undefined;
@@ -552,7 +552,7 @@ function coerceNumber<T extends z.ZodType>(schema: T) {
 /**
  * 安全布尔值转换：未提供、空字串或纯空格预处理为 undefined（使 default / optional 生效）
  */
-function coerceBoolean<T extends z.ZodType>(schema: T) {
+export function coerceBoolean<T extends z.ZodType>(schema: T) {
   return z.preprocess((v) => {
     if (v === undefined || v === null) return undefined;
     if (typeof v === 'string' && v.trim() === '') return undefined;

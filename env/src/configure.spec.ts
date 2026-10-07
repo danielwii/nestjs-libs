@@ -1,6 +1,7 @@
-import { AbstractEnvironmentVariables, AppConfigure, DatabaseField } from './configure';
+import { AbstractEnvironmentVariables, AppConfigure, coerceBoolean, coerceNumber, DatabaseField } from './configure';
 
 import { describe, expect, it, mock } from 'bun:test';
+import { z } from 'zod';
 
 import 'reflect-metadata';
 
@@ -1602,6 +1603,38 @@ describe('AppConfigure', () => {
       }
 
       expect(mockPrisma.sysAppSetting.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('coerceBoolean & coerceNumber', () => {
+    it('coerceBoolean safely coerces boolean values without string false trap', () => {
+      const schema = coerceBoolean(z.boolean().default(true));
+
+      expect(schema.parse(true)).toBe(true);
+      expect(schema.parse('true')).toBe(true);
+      expect(schema.parse(1)).toBe(true);
+      expect(schema.parse('1')).toBe(true);
+
+      // 关键生产踩坑防范：'false' 必须转为 false，绝不能因为 Boolean('false') === true 而误判为 true
+      expect(schema.parse('false')).toBe(false);
+      expect(schema.parse(false)).toBe(false);
+      expect(schema.parse(0)).toBe(false);
+      expect(schema.parse('0')).toBe(false);
+
+      // 空字串或 undefined 必须回退到 default(true)
+      expect(schema.parse('')).toBe(true);
+      expect(schema.parse('   ')).toBe(true);
+      expect(schema.parse(undefined)).toBe(true);
+    });
+
+    it('coerceNumber safely coerces numbers and treats empty string as undefined', () => {
+      const schema = coerceNumber(z.number().default(42));
+
+      expect(schema.parse(100)).toBe(100);
+      expect(schema.parse('100')).toBe(100);
+      expect(schema.parse('')).toBe(42);
+      expect(schema.parse('  ')).toBe(42);
+      expect(schema.parse(undefined)).toBe(42);
     });
   });
 });

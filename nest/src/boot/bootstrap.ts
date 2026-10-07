@@ -47,6 +47,7 @@ import type {
   INestMicroservice,
   LogLevel,
   PipeTransform,
+  StandardSchemaValidationPipeOptions,
   Type,
   ValidationPipeOptions,
 } from '@nestjs/common';
@@ -113,7 +114,14 @@ export interface BootstrapOptions {
   /** HTTP 端口（grpc 模式下用于健康检查），默认从 SysEnv.PORT 读取 */
   httpPort?: number;
   /**
-   * 全域校验管道配置。
+   * 全域 Standard Schema 校验管道配置。
+   * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema）
+   * - 设为 false：完全停用 StandardSchemaValidationPipe
+   * - 传入 StandardSchemaValidationPipeOptions：自定义 Standard Schema 管道的配置（如自建 exceptionFactory、transform 等）
+   */
+  standardSchemaValidationPipe?: boolean | StandardSchemaValidationPipeOptions;
+  /**
+   * 全域校验管道配置（主要针对旧 class-validator 双阶管道）。
    *
    * 架构演进说明（NestJS 12 + Standard Schema）：
    * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema），
@@ -244,8 +252,16 @@ export class DualBoundaryValidationPipe extends ValidationPipe {
   }
 }
 
-export function createGlobalValidationPipes(validationPipeOption?: boolean | ValidationPipeOptions): PipeTransform[] {
-  const pipes: PipeTransform[] = [new AppStandardSchemaValidationPipe()];
+export function createGlobalValidationPipes(
+  validationPipeOption?: boolean | ValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+): PipeTransform[] {
+  const pipes: PipeTransform[] = [];
+  if (standardSchemaValidationPipeOption !== false) {
+    const options =
+      typeof standardSchemaValidationPipeOption === 'object' ? standardSchemaValidationPipeOption : undefined;
+    pipes.push(new AppStandardSchemaValidationPipe(options));
+  }
   if (validationPipeOption !== false) {
     const options = typeof validationPipeOption === 'object' ? validationPipeOption : GLOBAL_VALIDATION_PIPE_OPTIONS;
     pipes.push(new DualBoundaryValidationPipe(options));
@@ -268,8 +284,9 @@ export function configureGrpcMicroserviceBoundary(
   reflector: Reflector,
   provider: string,
   validationPipeOption?: boolean | ValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
 ): void {
-  target.useGlobalPipes(...createGlobalValidationPipes(validationPipeOption));
+  target.useGlobalPipes(...createGlobalValidationPipes(validationPipeOption, standardSchemaValidationPipeOption));
   target.useGlobalFilters(new GrpcExceptionFilter(provider));
   target.useGlobalGuards(new GrpcServiceTokenGuard());
   target.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(reflector), new LoggerInterceptor());
@@ -356,7 +373,7 @@ export async function bootstrap(
   }
 
   // --- ValidationPipe（所有模式） ---
-  app.useGlobalPipes(...createGlobalValidationPipes(options?.validationPipe));
+  app.useGlobalPipes(...createGlobalValidationPipes(options?.validationPipe, options?.standardSchemaValidationPipe));
 
   // --- ExceptionFilter ---
   if (isGrpc) {

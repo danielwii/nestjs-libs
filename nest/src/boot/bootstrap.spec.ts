@@ -16,6 +16,8 @@ import {
   assertRequiredEnvs,
   configureGrpcMicroserviceBoundary,
   connectGrpcMicroserviceWithBoundary,
+  createGlobalValidationPipes,
+  DualBoundaryValidationPipe,
   hasGrpcMicroserviceConfigured,
   resolveGrpcHybridAppOptions,
   resolveGrpcProvider,
@@ -565,5 +567,39 @@ describe('AppStandardSchemaValidationPipe & DualBoundaryValidationPipe with call
       },
     );
     expect(result).toEqual({ count: 42 });
+  });
+
+  it('createGlobalValidationPipes configures standardSchemaValidationPipe options and toggles', () => {
+    // 默认：同时挂载 AppStandardSchemaValidationPipe 和 DualBoundaryValidationPipe
+    const defaultPipes = createGlobalValidationPipes();
+    expect(defaultPipes).toHaveLength(2);
+    expect(defaultPipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+    expect(defaultPipes[1]).toBeInstanceOf(DualBoundaryValidationPipe);
+
+    // standardSchemaValidationPipe: false -> 仅挂载 DualBoundaryValidationPipe
+    const withoutStandardPipes = createGlobalValidationPipes(true, false);
+    expect(withoutStandardPipes).toHaveLength(1);
+    expect(withoutStandardPipes[0]).toBeInstanceOf(DualBoundaryValidationPipe);
+
+    // validationPipe: false -> 仅挂载 AppStandardSchemaValidationPipe
+    const modernOnlyPipes = createGlobalValidationPipes(false);
+    expect(modernOnlyPipes).toHaveLength(1);
+    expect(modernOnlyPipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+
+    // 两者皆为 false -> 空管道
+    const nonePipes = createGlobalValidationPipes(false, false);
+    expect(nonePipes).toHaveLength(0);
+
+    // 传入自定义 exceptionFactory 选项给 AppStandardSchemaValidationPipe
+    let customFactoryCalled = false;
+    const customOptions = {
+      exceptionFactory: (issues: unknown) => {
+        customFactoryCalled = true;
+        return new Error('custom-standard-schema-error');
+      },
+    };
+    const customPipes = createGlobalValidationPipes(false, customOptions);
+    expect(customPipes).toHaveLength(1);
+    expect(customPipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
   });
 });
