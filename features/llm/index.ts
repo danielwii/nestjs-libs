@@ -34,3 +34,7 @@ export * from './utils/cost-calculator';
 export * from './utils/vector';
 // Batch
 export * from './batch';
+// Decisions (OpenAI gpt-6-luna)
+export * from './decisions/decisions.types';
+export * from './decisions/decisions.client';
+export * from './decisions/decisions.errors';

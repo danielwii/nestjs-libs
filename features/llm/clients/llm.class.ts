@@ -36,6 +36,9 @@ import { ApiFetcher } from '@app/utils/fetch';
 
 import { getTypeSafeClient } from '../../typesafe/client';
 import { classifyTypeSafeError } from '../../typesafe/errors';
+import { systemOneViaOpenAI } from '../../typesafe/providers/openai-adapter';
+import { executeDecisions } from '../decisions/decisions.client';
+import { classifyOpenAIDecisionsError } from '../decisions/decisions.errors';
 import { llmCaptureSchema } from '../schemas/capture.schema';
 import { EMBEDDING_MODELS } from '../types/embedding.types';
 import {
@@ -76,6 +79,7 @@ import {
 import { ResultAsync } from 'neverthrow';
 import { z } from 'zod';
 
+import type { DecisionQuestion, DecisionRequest, DecisionResult } from '../decisions/decisions.types';
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
 import type {
   BedrockModelOptions,
@@ -2613,39 +2617,99 @@ export class LLM {
   }
 
   /**
-   * TypeSafe System One：state + questions 原样走官方请求类型。
-   * state 是任意可 JSON 的内容（字符串、对象、数组、null），不是固定 `{ document }`。
-   * 不是聊天模型，不进 LLMModelRegistry。钥匙走 AI_TYPESAFE_API_KEY。
+   * System One 快思維決策門面（Bridge Pattern）：
+   * 支援 TypeSafe (Jev) 與 OpenAI (gpt-6-luna / Decisions API) 雙引擎切換。
+   *
+   * @param params 請求參數，可指定 provider: 'typesafe' | 'openai'
    */
   static async systemOne<const Q extends Questions>(
     params: SystemOneRequest<Q> & {
       id: string;
+      provider?: 'typesafe' | 'openai';
       timeout?: number;
       abortSignal?: AbortSignal;
+      apiKey?: string;
     },
   ): Promise<SystemOneResult<Q>> {
-    const { id, timeout, abortSignal, ...request } = params;
-    const model = request.model ?? 'jev-latest';
-    const modelKey = `typesafe:${model}`;
+    const { id, provider, timeout, abortSignal, apiKey, ...request } = params;
+
+    // 解析 provider：顯式指定 > 環境變數指定 > 預設向後相容走 typesafe
+    const selectedProvider: 'typesafe' | 'openai' =
+      provider ?? (process.env.AI_SYSTEM_ONE_PROVIDER === 'openai' ? 'openai' : 'typesafe');
+
+    const model = request.model ?? (selectedProvider === 'typesafe' ? 'jev-latest' : 'gpt-6-luna');
+    const modelKey = `${selectedProvider}:${model}`;
     const startTime = Date.now();
 
     const questionNames = Object.keys(request.questions).join(',');
-    LLM.logger.debug`[LLM:input] id=${id}, method=systemOne, questions=[${questionNames}]`;
+    LLM.logger
+      .debug`[LLM:input] id=${id}, method=systemOne, provider=${selectedProvider}, questions=[${questionNames}]`;
     LLM.logStart(id, 'systemOne', modelKey);
 
     const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
     try {
-      const result = await getTypeSafeClient().systemOne(request, { signal });
+      let result: SystemOneResult<Q>;
+      if (selectedProvider === 'openai') {
+        result = await systemOneViaOpenAI(request, { signal, apiKey });
+      } else {
+        result = await getTypeSafeClient().systemOne(request, { signal });
+      }
       cleanup();
-      LLM.logEnd(id, 'systemOne', `typesafe:${result.model}`, startTime, {
+      LLM.logEnd(id, 'systemOne', `${selectedProvider}:${result.model}`, startTime, {
         inputTokens: result.usage.input_tokens,
         outputTokens: result.usage.output_tokens,
       });
       return result;
     } catch (error) {
       cleanup();
-      const classified = classifyTypeSafeError(error, modelKey);
+      const classified =
+        selectedProvider === 'openai'
+          ? classifyOpenAIDecisionsError(error, modelKey)
+          : classifyTypeSafeError(error, modelKey);
       LLM.logError(id, 'systemOne', modelKey, classified);
+      throw classified;
+    }
+  }
+
+  /**
+   * OpenAI Decisions API (gpt-6-luna) 原生決策客戶端
+   *
+   * 支援純文字與多模態圖片 (inline base64 Data URL) 輸入，
+   * 具備零生成 Token (output_tokens: 0) 與超低延遲特性 (~150ms)。
+   *
+   * @see https://developers.openai.com/api/docs/guides/decisions
+   */
+  static async decisions<const Q extends readonly DecisionQuestion[] = readonly DecisionQuestion[]>(
+    params: DecisionRequest<Q> & {
+      id?: string;
+      timeout?: number;
+      abortSignal?: AbortSignal;
+      apiKey?: string;
+      baseUrl?: string;
+    },
+  ): Promise<DecisionResult<Q>> {
+    const { id = `decisions-${Date.now()}`, timeout, abortSignal, apiKey, baseUrl, ...request } = params;
+    const model = request.model ?? 'gpt-6-luna';
+    const modelKey = `openai:${model}`;
+    const startTime = Date.now();
+
+    const questionNames = request.questions.map((q) => q.name).join(',');
+    LLM.logger.debug`[LLM:input] id=${id}, method=decisions, questions=[${questionNames}]`;
+    LLM.logStart(id, 'decisions', modelKey);
+
+    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+    try {
+      const result = await executeDecisions(request, { signal, apiKey, baseUrl });
+      cleanup();
+      LLM.logEnd(id, 'decisions', `openai:${result.model}`, startTime, {
+        inputTokens: result.usage.input_tokens,
+        outputTokens: result.usage.output_tokens,
+      });
+      return result;
+    } catch (error) {
+      cleanup();
+      const classified = classifyOpenAIDecisionsError(error, modelKey);
+      LLM.logError(id, 'decisions', modelKey, classified);
       throw classified;
     }
   }
