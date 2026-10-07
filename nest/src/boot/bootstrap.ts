@@ -694,13 +694,14 @@ function printApiBanner(
       : `${address.address}:${address.port}`
     : 'unknown';
 
-  // 环境配置安全检查：生产模式下必须明确指定业务环境
+  // 环境配置安全检查：生产模式下必须明确指定业务环境 (Fail-Fast)
   // 设计意图：防止在生产模式(NODE_ENV=production)下误用默认的 dev 环境，导致数据混乱或安全问题
   if (process.env.NODE_ENV === 'production') {
     if (!SysEnv.ENV && !SysEnv.DOPPLER_ENVIRONMENT) {
-      bootstrapLogger.warning`[Security] NODE_ENV=production 但未设置 ENV 或 DOPPLER_ENVIRONMENT，将使用默认值 "dev"`;
-      bootstrapLogger.warning`建议：在 .env.production 中明确设置 ENV=prd (生产) 或 ENV=stg (预发布)`;
-      bootstrapLogger.warning`风险：当前配置可能导致生产模式代码连接到测试环境数据，或测试代码连接到生产数据`;
+      throw Oops.Panic.Config(
+        'NODE_ENV=production requires explicit ENV (e.g. prd/stg) or DOPPLER_ENVIRONMENT; ' +
+          'refusing to boot with unsafe fallback "dev" to prevent data contamination across environments.',
+      );
     }
   }
 
