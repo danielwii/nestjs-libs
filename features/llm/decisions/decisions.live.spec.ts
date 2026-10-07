@@ -14,7 +14,8 @@ import { LLM } from '../clients/llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
-const HAS_OPENAI_KEY = !!(process.env.AI_OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim());
+const rawKey = process.env.AI_OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+const HAS_OPENAI_KEY = !!rawKey && rawKey !== 'undefined';
 const describeLive = HAS_OPENAI_KEY ? describe : describe.skip;
 
 describeLive('OpenAI Decisions Live Probe', () => {

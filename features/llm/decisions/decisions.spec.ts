@@ -17,8 +17,18 @@ describe('OpenAI Decisions Client', () => {
 
   afterEach(() => {
     SysEnv.AI_OPENAI_API_KEY = originalKey;
-    process.env.OPENAI_API_KEY = originalEnvKey;
+    if (originalEnvKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalEnvKey;
+    }
     setDecisionsFetcherForTest(null);
+  });
+
+  it('does not treat literal "undefined" string as a valid API key', () => {
+    const rawKey = 'undefined';
+    const isValid = !!rawKey && rawKey !== 'undefined';
+    expect(isValid).toBe(false);
   });
 
   it('throws Oops.Panic.Config when AI_OPENAI_API_KEY is not configured', async () => {

@@ -4,14 +4,30 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
 describe('createEnvConfig & baseEnvSchema', () => {
+  const initialEnvRef = process.env;
   const originalEnv = { ...process.env };
 
+  const restoreEnv = () => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+    for (const [key, value] of Object.entries(originalEnv)) {
+      process.env[key] = value;
+    }
+  };
+
   beforeEach(() => {
-    process.env = { ...originalEnv };
+    restoreEnv();
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    restoreEnv();
+  });
+
+  it('preserves native process.env reference after environment restoration', () => {
+    expect(process.env).toBe(initialEnvRef);
   });
 
   describe('baseEnvSchema defaults', () => {
