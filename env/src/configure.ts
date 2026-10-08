@@ -357,6 +357,20 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
    */
   GRPC_DRAIN_MS: number = 60_000;
 
+  /**
+   * GOAWAY 停留时长（毫秒）——Phase 2.6 发出 GOAWAY 之后、Phase 3 调用 tryShutdown 之前，
+   * 进程与 socket 保持存活的时长。
+   *
+   * 目标：给持有连接池的代理/客户端一段时间去处理 GOAWAY、把连接迁走，避免它们在一条
+   * 进程已经关闭 socket 的连接上发出下一个请求。
+   * 依据（研究值）：一次实测里，进程在发出 GOAWAY 后 15ms 就退出，随后仍有请求打在
+   * 已死的连接上；默认值先给出一个远大于该窗口的停留量，具体时长按环境观察调整。
+   * 预算：preStop + DRAIN_DELAY_MS + 这个停留 + IN_FLIGHT_TIMEOUT_MS 必须小于
+   * K8s terminationGracePeriodSeconds。
+   * 重开条件：停留后仍观察到同类失败（需要转向排查网格/代理侧），或 grace 预算改变。
+   */
+  @Type(() => Number) @IsNumber() @IsOptional() GRPC_GOAWAY_LINGER_MS: number = 3_000;
+
   get environment() {
     const env = this.ENV ?? this.DOPPLER_ENVIRONMENT ?? 'dev';
     const isProd = env === 'prd';
