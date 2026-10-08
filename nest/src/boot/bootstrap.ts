@@ -1,4 +1,4 @@
-import { Module, ValidationPipe } from '@nestjs/common';
+import { Module, StandardSchemaValidationPipe, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { Transport } from '@nestjs/microservices';
 
@@ -40,15 +40,20 @@ import type { SysEnvConfigKey } from '@app/env';
 import type { Server } from '@grpc/grpc-js';
 import type { PackageDefinition } from '@grpc/proto-loader';
 import type {
+  ArgumentMetadata,
   DynamicModule,
   ForwardReference,
   INestApplication,
   INestMicroservice,
   LogLevel,
+  NestInterceptor,
+  PipeTransform,
+  StandardSchemaValidationPipeOptions,
   Type,
 } from '@nestjs/common';
 import type { MicroserviceOptions, NestMicroservice } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { NextFunction, Request, Response } from 'express';
 
 const bootstrapLogger = getAppLogger('boot', 'Bootstrap');
@@ -70,6 +75,8 @@ const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'f
 const GLOBAL_VALIDATION_PIPE_OPTIONS = { enableDebugMessages: true, transform: true, whitelist: true } as const;
 
 export type BootstrapMode = 'api' | 'grpc' | 'scheduler';
+
+export type ValidationMode = 'standard-schema' | 'legacy';
 
 export interface BootstrapOptions {
   /** 启动模式：api（默认）、grpc、scheduler */
@@ -108,6 +115,29 @@ export interface BootstrapOptions {
   grpcProvider?: string;
   /** HTTP 端口（grpc 模式下用于健康检查），默认从 SysEnv.PORT 读取 */
   httpPort?: number;
+  /**
+   * 全域 Standard Schema 校验管道配置。
+   * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema）
+   * - 设为 false：完全停用 StandardSchemaValidationPipe
+   * - 传入 StandardSchemaValidationPipeOptions：自定义 Standard Schema 管道的配置（如自建 exceptionFactory、transform 等）
+   */
+  standardSchemaValidationPipe?: boolean | StandardSchemaValidationPipeOptions;
+  /**
+   * 校验模式（必填，无默认值：忘填是编译错误，避免静默落回 legacy）。
+   *
+   * - `'standard-schema'`：全局管道只有 {@link AppStandardSchemaValidationPipe}（自动拾取 `@Body({ schema })`、
+   *   `@Args({ schema })` 与类自身的 `static schema`）；不构造 class-validator 管道，也不构造 class-transformer
+   *   序列化拦截器，启动不需要安装这两个包。
+   * - `'legacy'`：在 Standard Schema 管道之外再挂 class-validator 双阶管道
+   *   （{@link DualBoundaryValidationPipe}，`whitelist: true`）与 class-transformer 序列化拦截器
+   *   （{@link GraphqlAwareClassSerializerInterceptor}），启动需要安装 `class-validator` 与 `class-transformer`。
+   *
+   * `'legacy'` 值已弃用（`@deprecated` 标在它挂载的两个 legacy 组件上，而不是整个字段，
+   * 否则 `'standard-schema'` 的使用方也会被标弃用）。
+   * 退出条件：最后一个仍有 class-validator DTO 或 `@Exclude` / `@Expose` 的消费方迁到
+   * `'standard-schema'` 后，删除 `'legacy'` 值与这两个组件。
+   */
+  validation: ValidationMode;
 }
 
 export function hasGrpcMicroserviceConfigured(mode: BootstrapMode, options?: Pick<BootstrapOptions, 'grpc'>): boolean {
@@ -150,10 +180,12 @@ export function resolveGrpcHybridAppOptions(mode: BootstrapMode): { inheritAppCo
 export function connectGrpcMicroserviceWithBoundary(
   app: INestApplication,
   microserviceOptions: MicroserviceOptions,
-  mode: BootstrapMode,
+  bootMode: BootstrapMode,
   provider: string,
+  validation: ValidationMode,
+  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
 ): INestMicroservice {
-  const { inheritAppConfig } = resolveGrpcHybridAppOptions(mode);
+  const { inheritAppConfig } = resolveGrpcHybridAppOptions(bootMode);
 
   // deferInitialization 只在这里出现，且与下面的 setIsInitHookCalled 是**原子对**：
   // 不 defer → connectMicroservice 当场 registerListeners，enhancer 从 config 快照，
@@ -167,13 +199,116 @@ export function connectGrpcMicroserviceWithBoundary(
 
   if (!inheritAppConfig) {
     grpcMs.setIsInitHookCalled(true);
-    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider);
+    configureGrpcMicroserviceBoundary(
+      grpcMs,
+      app.get(Reflector),
+      provider,
+      validation,
+      standardSchemaValidationPipeOption,
+    );
   }
   return grpcMs;
 }
 
-function createGlobalValidationPipe(): ValidationPipe {
-  return new ValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS);
+/**
+ * 校验对象或函数是否符合 Standard Schema 规范（支持 Object 与 Callable Function 如 ArkType）
+ */
+function isStandardSchema(val: unknown): val is StandardSchemaV1 {
+  return ((typeof val === 'object' && val !== null) || typeof val === 'function') && '~standard' in val;
+}
+
+/**
+ * 解析参数或类自身显式绑定的 Standard Schema。
+ *
+ * 核心设计（原型继承安全）：
+ * 使用 Object.prototype.hasOwnProperty 确保只解析类自身直接声明的静态 schema，
+ * 杜绝子类沿 JavaScript 原型链隐式继承父类 schema（如 CursoredRequestInput），
+ * 从而彻底消灭子类业务字段被父类 closed schema 默认剥离（strip）的安全盲区。
+ */
+function resolveOwnedStandardSchema(metadata: ArgumentMetadata): StandardSchemaV1 | undefined {
+  if (isStandardSchema(metadata.schema)) {
+    return metadata.schema;
+  }
+  const metatype = metadata.metatype;
+  if (metatype && typeof metatype === 'function' && Object.prototype.hasOwnProperty.call(metatype, 'schema')) {
+    const owned = (metatype as { schema?: unknown }).schema;
+    if (isStandardSchema(owned)) {
+      return owned;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取
+ */
+export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
+  override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
+    const rawSchema = resolveOwnedStandardSchema(metadata);
+    if (!rawSchema) return value;
+    return super.transform(value, { ...metadata, schema: rawSchema });
+  }
+}
+
+/**
+ * 双阶边界兼容校验管道：在 NestJS 12 迁移期提供平滑过渡。
+ *
+ * 架构意图：
+ * 当参数携带 Standard Schema（显式声明或挂载在 metatype.schema）时，
+ * 跳过底层 class-validator 的白名单过滤，防止 whitelist: true 将合法字段误杀。
+ *
+ * @deprecated 仅 `validation: 'legacy'` 挂载。退出条件：最后一个仍有 class-validator DTO 的消费方
+ * 迁到 `'standard-schema'` 后，删除本类与 `'legacy'` 取值。
+ */
+export class DualBoundaryValidationPipe extends ValidationPipe {
+  override toValidate(metadata: ArgumentMetadata): boolean {
+    const rawSchema = resolveOwnedStandardSchema(metadata);
+    if (rawSchema) {
+      return false;
+    }
+    return super.toValidate(metadata);
+  }
+}
+
+/**
+ * 按校验模式组装全局管道。
+ * - `'standard-schema'`：只有 {@link AppStandardSchemaValidationPipe}，不构造任何 class-validator 管道。
+ * - `'legacy'`：Standard Schema 管道之后再挂 {@link DualBoundaryValidationPipe}（`GLOBAL_VALIDATION_PIPE_OPTIONS`）。
+ * `standardSchemaValidationPipeOption === false` 仍可停用 Standard Schema 管道。
+ */
+export function createGlobalValidationPipes(
+  mode: ValidationMode,
+  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+): PipeTransform[] {
+  const pipes: PipeTransform[] = [];
+  if (standardSchemaValidationPipeOption !== false) {
+    const options =
+      typeof standardSchemaValidationPipeOption === 'object' ? standardSchemaValidationPipeOption : undefined;
+    pipes.push(new AppStandardSchemaValidationPipe(options));
+  }
+  if (mode === 'legacy') {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 唯一的 legacy 挂载点，随 'legacy' 取值一并删除
+    pipes.push(new DualBoundaryValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS));
+  }
+  return pipes;
+}
+
+/**
+ * 全局拦截器中与校验模式相关的部分：仅 `'legacy'` 构造 class-transformer 序列化拦截器
+ * （Nest 在其构造函数里才加载 class-transformer，standard-schema 模式不触发）。
+ */
+function createGlobalSerializerInterceptors(mode: ValidationMode, reflector: Reflector): NestInterceptor[] {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- 唯一的 legacy 挂载点，随 'legacy' 取值一并删除
+  return mode === 'legacy' ? [new GraphqlAwareClassSerializerInterceptor(reflector)] : [];
+}
+
+/**
+ * @deprecated 只返回 legacy 管道，等价于 `createGlobalValidationPipes('legacy')` 的第二项。
+ * 退出条件同 {@link DualBoundaryValidationPipe}。
+ */
+export function createGlobalValidationPipe(): ValidationPipe {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- 本函数自身已弃用，与 legacy 取值同退出
+  return new DualBoundaryValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS);
 }
 
 type GrpcMicroserviceBoundaryTarget = Pick<
@@ -185,11 +320,13 @@ export function configureGrpcMicroserviceBoundary(
   target: GrpcMicroserviceBoundaryTarget,
   reflector: Reflector,
   provider: string,
+  mode: ValidationMode,
+  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
 ): void {
-  target.useGlobalPipes(createGlobalValidationPipe());
+  target.useGlobalPipes(...createGlobalValidationPipes(mode, standardSchemaValidationPipeOption));
   target.useGlobalFilters(new GrpcExceptionFilter(provider));
   target.useGlobalGuards(new GrpcServiceTokenGuard());
-  target.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(reflector), new LoggerInterceptor());
+  target.useGlobalInterceptors(...createGlobalSerializerInterceptors(mode, reflector), new LoggerInterceptor());
 }
 
 export function assertGrpcServiceTokenConfiguredForMode(
@@ -224,10 +361,10 @@ export function assertRequiredEnvs(keys?: readonly SysEnvConfigKey[]): void {
 
 export async function bootstrap(
   AppModule: IEntryNestModule,
-  onInit?: (app: INestApplication) => Promise<void>,
-  options?: BootstrapOptions,
+  onInit: ((app: INestApplication) => Promise<void>) | undefined,
+  options: BootstrapOptions,
 ) {
-  const mode: BootstrapMode = options?.mode ?? 'api';
+  const mode: BootstrapMode = options.mode ?? 'api';
   const isApi = mode === 'api';
   const isGrpc = mode === 'grpc';
   const grpcProvider = resolveGrpcProvider(options);
@@ -236,7 +373,7 @@ export async function bootstrap(
   if ((isApi || isGrpc) && !process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
   assertGrpcServiceTokenConfiguredForMode(mode, options);
   // 全 mode：app 声明的硬依赖（如 LLM key）；缺则 crashloop，避免请求期软失败
-  assertRequiredEnvs(options?.requiredEnvs);
+  assertRequiredEnvs(options.requiredEnvs);
 
   const now = Date.now();
 
@@ -273,7 +410,7 @@ export async function bootstrap(
   }
 
   // --- ValidationPipe（所有模式） ---
-  app.useGlobalPipes(createGlobalValidationPipe());
+  app.useGlobalPipes(...createGlobalValidationPipes(options.validation, options.standardSchemaValidationPipe));
 
   // --- ExceptionFilter ---
   if (isGrpc) {
@@ -291,7 +428,7 @@ export async function bootstrap(
   }
 
   // --- Interceptors ---
-  app.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(app.get(Reflector)));
+  app.useGlobalInterceptors(...createGlobalSerializerInterceptors(options.validation, app.get(Reflector)));
   if (!isGrpc) {
     // api / scheduler：VisitorInterceptor
     app.useGlobalInterceptors(new VisitorInterceptor());
@@ -487,7 +624,7 @@ export async function bootstrap(
 
   // --- gRPC 微服务配置 ---
   let grpcPort: number | undefined;
-  if (options?.grpc) {
+  if (options.grpc) {
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
     const grpcMs = connectGrpcMicroserviceWithBoundary(
@@ -512,6 +649,8 @@ export async function bootstrap(
       },
       mode,
       grpcProvider,
+      options.validation,
+      options.standardSchemaValidationPipe,
     );
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 
@@ -520,7 +659,7 @@ export async function bootstrap(
   }
 
   // --- listen ---
-  const port = isGrpc ? (options?.httpPort ?? SysEnv.PORT) : SysEnv.PORT;
+  const port = isGrpc ? (options.httpPort ?? SysEnv.PORT) : SysEnv.PORT;
 
   await runApp(app)
     .listen(port)
@@ -593,13 +732,14 @@ function printApiBanner(
       : `${address.address}:${address.port}`
     : 'unknown';
 
-  // 环境配置安全检查：生产模式下必须明确指定业务环境
+  // 环境配置安全检查：生产模式下必须明确指定业务环境 (Fail-Fast)
   // 设计意图：防止在生产模式(NODE_ENV=production)下误用默认的 dev 环境，导致数据混乱或安全问题
   if (process.env.NODE_ENV === 'production') {
     if (!SysEnv.ENV && !SysEnv.DOPPLER_ENVIRONMENT) {
-      bootstrapLogger.warning`[Security] NODE_ENV=production 但未设置 ENV 或 DOPPLER_ENVIRONMENT，将使用默认值 "dev"`;
-      bootstrapLogger.warning`建议：在 .env.production 中明确设置 ENV=prd (生产) 或 ENV=stg (预发布)`;
-      bootstrapLogger.warning`风险：当前配置可能导致生产模式代码连接到测试环境数据，或测试代码连接到生产数据`;
+      throw Oops.Panic.Config(
+        'NODE_ENV=production requires explicit ENV (e.g. prd/stg) or DOPPLER_ENVIRONMENT; ' +
+          'refusing to boot with unsafe fallback "dev" to prevent data contamination across environments.',
+      );
     }
   }
 

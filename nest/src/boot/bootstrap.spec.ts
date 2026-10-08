@@ -9,12 +9,17 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
+import { CursoredRequestInput } from '@app/utils/graphql';
 
 import {
+  AppStandardSchemaValidationPipe,
   assertGrpcServiceTokenConfiguredForMode,
   assertRequiredEnvs,
+  bootstrap,
   configureGrpcMicroserviceBoundary,
   connectGrpcMicroserviceWithBoundary,
+  createGlobalValidationPipes,
+  DualBoundaryValidationPipe,
   hasGrpcMicroserviceConfigured,
   resolveGrpcHybridAppOptions,
   resolveGrpcProvider,
@@ -24,9 +29,10 @@ import { createServer } from 'node:net';
 
 import * as grpc from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { throwError } from 'rxjs';
 
+import type { BootstrapOptions } from './bootstrap';
 import type { INestApplication, OnModuleInit } from '@nestjs/common';
 import type { CustomTransportStrategy } from '@nestjs/microservices';
 
@@ -200,6 +206,7 @@ describe('connectGrpcMicroserviceWithBoundary (real transport, api mode)', () =>
       },
       'api',
       'HybridProbe',
+      'standard-schema',
     );
     // 与 bootstrap 同序：先起 microservice，再 init 根应用
     await app.startAllMicroservices();
@@ -388,17 +395,40 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
     expect(resolveGrpcProvider()).toBe('unknown');
   });
 
-  it('configures hybrid grpc microservices with grpc boundary enhancers', () => {
+  it('standard-schema: the grpc boundary mounts only the Standard Schema pipe and no class-transformer interceptor', () => {
     const target = new GrpcBoundaryRecorder();
 
     configureGrpcMicroserviceBoundary(
       target as unknown as Parameters<typeof configureGrpcMicroserviceBoundary>[0],
       new Reflector(),
       'TestProvider',
+      'standard-schema',
     );
 
     expect(target.pipes).toHaveLength(1);
-    expect(target.pipes[0]).toBeInstanceOf(ValidationPipe);
+    expect(target.pipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+    expect(target.pipes.some((p) => p instanceof ValidationPipe)).toBe(false);
+    expect(target.filters).toHaveLength(1);
+    expect(target.filters[0]).toBeInstanceOf(GrpcExceptionFilter);
+    expect(target.guards).toHaveLength(1);
+    expect(target.guards[0]).toBeInstanceOf(GrpcServiceTokenGuard);
+    expect(target.interceptors).toHaveLength(1);
+    expect(target.interceptors[0]).toBeInstanceOf(LoggerInterceptor);
+  });
+
+  it('legacy: the grpc boundary keeps the previous default (Standard Schema + class-validator pipes, serializer + logger)', () => {
+    const target = new GrpcBoundaryRecorder();
+
+    configureGrpcMicroserviceBoundary(
+      target as unknown as Parameters<typeof configureGrpcMicroserviceBoundary>[0],
+      new Reflector(),
+      'TestProvider',
+      'legacy',
+    );
+
+    expect(target.pipes).toHaveLength(2);
+    expect(target.pipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+    expect(target.pipes[1]).toBeInstanceOf(ValidationPipe);
     expect(target.filters).toHaveLength(1);
     expect(target.filters[0]).toBeInstanceOf(GrpcExceptionFilter);
     expect(target.guards).toHaveLength(1);
@@ -406,6 +436,63 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
     expect(target.interceptors).toHaveLength(2);
     expect(target.interceptors[0]).toBeInstanceOf(GraphqlAwareClassSerializerInterceptor);
     expect(target.interceptors[1]).toBeInstanceOf(LoggerInterceptor);
+  });
+
+  it.each(['standard-schema', 'legacy'] as const)(
+    'connectGrpcMicroserviceWithBoundary forwards the %s mode into the microservice pipes',
+    async (validation) => {
+      const app = await NestFactory.create(HybridLifecycleTestModule, { logger: false });
+      const grpcMs = connectGrpcMicroserviceWithBoundary(
+        app,
+        { strategy: new NoopTransportStrategy() },
+        'api',
+        'TestProvider',
+        validation,
+      );
+
+      try {
+        const pipes = (
+          grpcMs as unknown as { applicationConfig: { getGlobalPipes(): unknown[] } }
+        ).applicationConfig.getGlobalPipes();
+        expect(pipes.some((p) => p instanceof AppStandardSchemaValidationPipe)).toBe(true);
+        expect(pipes.some((p) => p instanceof ValidationPipe)).toBe(validation === 'legacy');
+      } finally {
+        await app.close();
+      }
+    },
+  );
+
+  it('connectGrpcMicroserviceWithBoundary applies a custom Standard Schema exceptionFactory to the microservice pipes', async () => {
+    const rejectAll = {
+      '~standard': { version: 1 as const, vendor: 'test', validate: () => ({ issues: [{ message: 'rejected' }] }) },
+    };
+    const metadata = { type: 'body' as const, schema: rejectAll };
+    const app = await NestFactory.create(HybridLifecycleTestModule, { logger: false });
+    const pipesOf = (ms: unknown) =>
+      (ms as { applicationConfig: { getGlobalPipes(): AppStandardSchemaValidationPipe[] } }).applicationConfig
+        .getGlobalPipes()
+        .filter((p) => p instanceof AppStandardSchemaValidationPipe);
+    const connect = (option?: Parameters<typeof connectGrpcMicroserviceWithBoundary>[5]) =>
+      connectGrpcMicroserviceWithBoundary(
+        app,
+        { strategy: new NoopTransportStrategy() },
+        'api',
+        'TestProvider',
+        'standard-schema',
+        option,
+      );
+
+    try {
+      const custom = pipesOf(connect({ exceptionFactory: () => new Error('custom-grpc-boundary-error') }));
+      expect(custom).toHaveLength(1);
+      await expect(custom[0]!.transform({}, metadata)).rejects.toThrow('custom-grpc-boundary-error');
+
+      // 不传选项时仍是 Nest 默认的异常（对照：证明上面的自定义确实来自参数）
+      const plain = pipesOf(connect());
+      await expect(plain[0]!.transform({}, metadata)).rejects.not.toThrow('custom-grpc-boundary-error');
+    } finally {
+      await app.close();
+    }
   });
 
   // 公开 API 不得单独出售 deferInitialization：它必须与 setIsInitHookCalled 成对，而调用方拿到
@@ -440,7 +527,13 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
     const app = await NestFactory.create(HybridLifecycleTestModule, { logger: false });
     // 必须经 helper：deferInitialization 让 microservice.listen() 自己跑 lifecycle hook，
     // helper 用 setIsInitHookCalled(true) 交还给 app.init()。直接 connectMicroservice 会跑两遍。
-    connectGrpcMicroserviceWithBoundary(app, { strategy: new NoopTransportStrategy() }, 'api', 'TestProvider');
+    connectGrpcMicroserviceWithBoundary(
+      app,
+      { strategy: new NoopTransportStrategy() },
+      'api',
+      'TestProvider',
+      'standard-schema',
+    );
 
     try {
       await app.startAllMicroservices();
@@ -531,5 +624,136 @@ describe('assertRequiredEnvs', () => {
       expect(message).toContain('AI_OPENROUTER_API_KEY');
       expect(message).not.toContain('super-secret-vertex-key');
     }
+  });
+});
+
+describe('AppStandardSchemaValidationPipe & DualBoundaryValidationPipe with callable schemas', () => {
+  it('supports callable Standard Schema (e.g. ArkType function schemas)', async () => {
+    // 模拟类似 ArkType 的 callable schema（自身是函数，同时挂载 '~standard' 属性）
+    const callableSchema = Object.assign((input: unknown) => input, {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'arktype',
+        validate: (value: unknown) => {
+          if (typeof value === 'object' && value !== null && 'count' in value) {
+            return { value: { count: Number((value as { count: unknown }).count) } };
+          }
+          return { issues: [{ message: 'expected count property' }] };
+        },
+      },
+    });
+
+    class CallableDto {
+      static schema = callableSchema;
+    }
+
+    const pipe = new AppStandardSchemaValidationPipe();
+    const result = await pipe.transform<unknown>(
+      { count: '42' },
+      {
+        type: 'body',
+        metatype: CallableDto,
+      },
+    );
+    expect(result).toEqual({ count: 42 });
+  });
+
+  it('createGlobalValidationPipes: legacy mounts the class-validator pipe after the Standard Schema pipe', () => {
+    const legacyPipes = createGlobalValidationPipes('legacy');
+    expect(legacyPipes).toHaveLength(2);
+    expect(legacyPipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+    expect(legacyPipes[1]).toBeInstanceOf(DualBoundaryValidationPipe);
+
+    // standardSchemaValidationPipe: false -> 仅 legacy 管道
+    const withoutStandardPipes = createGlobalValidationPipes('legacy', false);
+    expect(withoutStandardPipes).toHaveLength(1);
+    expect(withoutStandardPipes[0]).toBeInstanceOf(DualBoundaryValidationPipe);
+  });
+
+  it('createGlobalValidationPipes: standard-schema mounts only the Standard Schema pipe', () => {
+    const pipes = createGlobalValidationPipes('standard-schema');
+    expect(pipes).toHaveLength(1);
+    expect(pipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+    expect(pipes.some((p) => p instanceof ValidationPipe)).toBe(false);
+
+    // 两者皆停用 -> 空管道
+    expect(createGlobalValidationPipes('standard-schema', false)).toHaveLength(0);
+
+    // 自定义 exceptionFactory 选项给 AppStandardSchemaValidationPipe
+    const customPipes = createGlobalValidationPipes('standard-schema', {
+      exceptionFactory: () => new Error('custom-standard-schema-error'),
+    });
+    expect(customPipes).toHaveLength(1);
+    expect(customPipes[0]).toBeInstanceOf(AppStandardSchemaValidationPipe);
+  });
+
+  // Nest 在 ValidationPipe 构造函数里才加载 class-validator / class-transformer
+  // （loadValidator / loadTransformer）。standard-schema 模式不得走到这里 —— 这才是"启动不需要这两个包"。
+  it('createGlobalValidationPipes: only legacy reaches the class-validator / class-transformer loaders', () => {
+    const proto = ValidationPipe.prototype as unknown as {
+      loadValidator: () => unknown;
+      loadTransformer: () => unknown;
+    };
+    const loadValidator = spyOn(proto, 'loadValidator');
+    const loadTransformer = spyOn(proto, 'loadTransformer');
+    try {
+      createGlobalValidationPipes('standard-schema');
+      configureGrpcMicroserviceBoundary(
+        new GrpcBoundaryRecorder() as unknown as Parameters<typeof configureGrpcMicroserviceBoundary>[0],
+        new Reflector(),
+        'TestProvider',
+        'standard-schema',
+      );
+      expect(loadValidator).not.toHaveBeenCalled();
+      expect(loadTransformer).not.toHaveBeenCalled();
+
+      createGlobalValidationPipes('legacy');
+      expect(loadValidator).toHaveBeenCalledTimes(1);
+      expect(loadTransformer).toHaveBeenCalledTimes(1);
+    } finally {
+      loadValidator.mockRestore();
+      loadTransformer.mockRestore();
+    }
+  });
+});
+
+// 分页输入（CursoredRequestInput 及子类）不携带 static schema：
+// 只有 legacy 的 whitelist 管道会把它静默剥成空对象，standard-schema 模式下原样放行。
+describe('validation mode and pagination inputs', () => {
+  const runPipes = async (pipes: ReturnType<typeof createGlobalValidationPipes>, value: unknown) => {
+    let current = value;
+    for (const pipe of pipes) {
+      current = await pipe.transform(current, { type: 'body', metatype: CursoredRequestInput });
+    }
+    return current;
+  };
+
+  it('legacy: the whitelist pipe strips pagination fields that have no class-validator decorator', async () => {
+    const out = await runPipes(createGlobalValidationPipes('legacy'), { first: 5, after: 'c1' });
+    expect(out).not.toHaveProperty('after');
+    expect(Object.keys(out as object)).not.toContain('first');
+  });
+
+  it('standard-schema: pagination fields reach the resolver untouched', async () => {
+    const input = { first: 5, after: 'c1' };
+    const out = await runPipes(createGlobalValidationPipes('standard-schema'), input);
+    expect(out).toEqual({ first: 5, after: 'c1' });
+  });
+});
+
+// 校验模式必填：漏填是编译错误，不是静默落回 legacy。tsc 把下面的 @ts-expect-error 当断言。
+describe('validation mode is mandatory (type level)', () => {
+  it('rejects BootstrapOptions and bootstrap() calls that omit validation', () => {
+    // @ts-expect-error validation is required
+    const omitted: BootstrapOptions = {};
+    const ok: BootstrapOptions = { validation: 'standard-schema' };
+    // @ts-expect-error unknown validation mode
+    const bad: BootstrapOptions = { validation: 'class-validator' };
+    // @ts-expect-error the options argument is required, so a bare bootstrap(AppModule) no longer compiles
+    const bare = () => bootstrap(HybridLifecycleTestModule);
+    // @ts-expect-error object-form class-validator options were removed together with `validationPipe`
+    const removed: BootstrapOptions = { validation: 'legacy', validationPipe: false };
+    void [omitted, ok, bad, bare, removed];
+    expect(ok.validation).toBe('standard-schema');
   });
 });

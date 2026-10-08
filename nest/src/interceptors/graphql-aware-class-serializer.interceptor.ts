@@ -17,6 +17,9 @@ import type { Observable, Subscription } from 'rxjs';
  * 重要：GraphQL subscription 场景下 NestJS 默认返回 RxJS Observable，会在 Apollo 层判定为非 AsyncIterable。
  * 我们只对 subscription 做 pass-through，并在需要时把 Observable 适配成 AsyncIterator，
  * 这样既保留 ClassSerializer 的默认行为，又不会破坏 graphql-transport-ws 的协议预期。
+ *
+ * @deprecated 仅 `bootstrap({ validation: 'legacy' })` 挂载（构造时由 Nest 加载 class-transformer）。
+ * 退出条件：最后一个仍使用 `@Exclude` / `@Expose` 的消费方迁到 `'standard-schema'` 后，删除本类与 `'legacy'` 取值。
  */
 export class GraphqlAwareClassSerializerInterceptor extends ClassSerializerInterceptor {
   override async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
