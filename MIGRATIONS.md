@@ -78,7 +78,7 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
 
 ### How migration is proven
 
-- `bun run typecheck`, `bun run lint`, and `bun test` (973 pass / 0 fail across 75 test files) pass cleanly.
+- `bun run typecheck`, `bun run lint`, and `bun test` (974 pass / 0 fail across 75 test files) pass cleanly.
 - `CursoredRequestInput` static schema integration verified via unit tests in `graphql.spec.ts`.
 - gRPC microservice boundary enhancer tests in `bootstrap.spec.ts` pass without regression.
 - Validation mode: `bootstrap.spec.ts` asserts the pipe and interceptor lists per mode (`standard-schema` mounts only the Standard Schema pipe; `legacy` keeps the previous default), that `standard-schema` never reaches Nest's `loadValidator` / `loadTransformer`, the pagination whitelist behaviour per mode, and, with `@ts-expect-error`, that omitting `validation` does not compile.
