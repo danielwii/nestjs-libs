@@ -16,9 +16,9 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
     - Database sync validation (`syncFromDB`) now enforces **Single Source of Truth via Schema**: overrides from `sys_app_settings` are strictly parsed and coerced via the field's schema node (e.g. `min(30_000)` constraints). Invalid values are safely rejected (Safe-Reject) without corrupting memory or crashing runtime.
     - Legacy `@DatabaseField` class decorator remains backward-compatible.
 - **GraphQL Code-First (`@app/utils/graphql`)**:
-  - `@Allow()` decorators are removed from `CursoredRequestInput`. In GraphQL Code-First, the GraphQL SDL engine (`@Field()`) natively enforces input types and strips unknown fields, making `class-validator` whitelisting decorators obsolete.
+  - `@Allow()` decorators are removed from `CursoredRequestInput`. In GraphQL Code-First, the GraphQL SDL engine (`@Field()`) natively enforces input types and rejects unknown input fields with a validation error (graphql-js `coerceInputValue` for variables, `ValuesOfCorrectTypeRule` for literals); it does not strip them. The default `class-validator` pipe is a separate boundary and still applies — see "Pagination inputs" under Required consumer changes.
   - `export function Allow()` is marked `@deprecated` and remains as a no-op only for migration compatibility.
-  - Added exportable `cursoredRequestSchema` (Zod) and bound it as `CursoredRequestInput.schema` for consumers validating pagination with NestJS 12 Standard Schema.
+  - Added exportable `cursoredRequestSchema` (Zod) for consumers validating pagination with NestJS 12 Standard Schema. It is only exported: `CursoredRequestInput` does not carry a static `schema`, and a pipe only picks up a `schema` that the input class itself owns (`Object.prototype.hasOwnProperty`, `resolveOwnedStandardSchema` in `nest/src/boot/bootstrap.ts`), so a subclass never inherits a parent's schema. Reference it explicitly (`@Args('input', { schema: cursoredRequestSchema })`) or declare it as the subclass's own `static readonly schema`.
 - **Bootstrap Validation Pipes (`@app/nest/boot`)**:
   - `bootstrap()` now registers `AppStandardSchemaValidationPipe` (extending NestJS 12 `StandardSchemaValidationPipe`) to natively validate Standard Schemas from parameter metadata (`@Body({ schema })`, `@Args({ schema })`) and static class schemas (`metatype.schema`).
   - Added `DualBoundaryValidationPipe` which automatically bypasses `class-validator` `whitelist: true` filtering when a Standard Schema is present, eliminating the legacy conflict where non-class-validator inputs were stripped to empty objects.
@@ -46,8 +46,30 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
        }
        ```
     4. In Resolvers, pass schema via `@Args('input', { schema: CreateUserInput.schema })`, or rely on `AppStandardSchemaValidationPipe` auto-detection.
+- **Pagination inputs (silent data loss with the default pipe)**:
+  - Symptom: with the default `bootstrap()` pipes (no `validationPipe: false`), a request that reaches `CursoredRequestInput`, or any subclass of it, arrives as `{}`: `first` and `after` are removed, so even the default `first = 20` is gone, and no error is raised. Business fields added by a subclass without `class-validator` decorators are removed as well.
+  - Cause: the default pipe is `DualBoundaryValidationPipe` with `whitelist: true` (`nest/src/boot/bootstrap.ts`, `GLOBAL_VALIDATION_PIPE_OPTIONS` and `createGlobalValidationPipes`). It strips every property that has no `class-validator` decorator, and `CursoredRequestInput` has none. It skips whitelisting only when a Standard Schema is found through `resolveOwnedStandardSchema`, which accepts the argument-level `schema` or a `static schema` the class owns itself.
+  - Fix, any one of:
+    1. Give the input class its own `static readonly schema` (for example `cursoredRequestSchema.extend({ ... })`). It must be declared on every class that is used as an argument type; a child class of a class that owns a schema does not inherit it.
+    2. Re-declare the fields on the subclass with `class-validator` decorators (`@IsOptional() @IsInt() first`, `@IsOptional() @IsString() after`, plus the subclass's own fields).
+    3. Disable the legacy pipe with `bootstrap({ validationPipe: false })`.
+  - For an argument typed directly as `CursoredRequestInput`, pass the schema on the argument: `@Args('input', { schema: cursoredRequestSchema })`.
+- **Environment subclasses of `AbstractEnvironmentVariables`** (`env/src/configure.ts`, `AppConfigure.validate`):
+  - Coercion follows the type of the class default value: a `number` default parses the variable as a number, a `boolean` default as a boolean, anything else stays a string. A non-string field declared without a default (`PORT_LIMIT?: number`) therefore receives the raw string — always give non-string fields a default.
+  - An invalid number or boolean in the environment throws at startup (`Invalid numeric environment variable`, `Invalid boolean environment variable`). Booleans accept `true/1/yes/on` and `false/0/no/off`, case-insensitively.
+  - An empty-string variable is ignored and the class default is kept (a default-`true` flag stays `true`).
+  - A field whose default is an array or object keeps the raw string when it is supplied through the environment; it is not parsed. A database override with `@DatabaseField('json')` is parsed (`syncFromDB`, JSON5).
+  - A required field declared as `declare X: string` has no startup check any more: when the variable is missing the process starts with `undefined`, so consumers must assert required values themselves at startup.
+  - `@Is*` and `@Transform` decorators on environment classes are not read and have no effect.
+- **Startup dependencies**:
+  - `bootstrap()` always mounts `GraphqlAwareClassSerializerInterceptor` (`nest/src/boot/bootstrap.ts`, in the gRPC boundary setup and in the main app setup), and Nest's `ClassSerializerInterceptor` loads `class-transformer` when it is constructed. `class-transformer` must stay installed even with `validationPipe: false`; without it the process exits at startup.
+  - `class-validator` is loaded by Nest's `ValidationPipe` constructor, which the default `DualBoundaryValidationPipe` extends. It may be left out of the application dependencies only together with `bootstrap({ validationPipe: false })`.
+- **Environment checks at startup**:
+  - With `NODE_ENV=production`, `bootstrap()` throws unless `ENV` or `DOPPLER_ENVIRONMENT` is set (`nest/src/boot/bootstrap.ts`, the production check before the startup banner); the former fallback to `dev` is gone. The check lives in `bootstrap()`, not in `AppConfigure`.
+  - `baseEnvSchema` validates enumerated values for every service, including with `NODE_ENV=test`: `ENV` in `prd|stg|dev`, `NODE_ENV` in `development|production|test`, `LOG_LEVEL` in `verbose|debug|log|warn|error|fatal`. Any other value throws at startup (`env/src/configure.ts`, `baseEnvSchema`).
+  - Database overrides of base-class numeric fields must satisfy the schema node, for example `AI_LLM_TIMEOUT_MS` must be at least 30000; a value below the range is rejected and the previous value is kept (`syncFromDB`, `skip invalid DB value`).
 - **Full modernization**:
-  - Consumers ready to retire `class-validator` entirely can configure `bootstrap({ validationPipe: false })` and remove `class-validator` / `class-transformer` from their application dependencies.
+  - Consumers ready to retire `class-validator` entirely can configure `bootstrap({ validationPipe: false })` and remove `class-validator` from their application dependencies. Keep `class-transformer` (see Startup dependencies).
 
 ### How migration is proven
 
