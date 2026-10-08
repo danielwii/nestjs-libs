@@ -46,10 +46,10 @@ import type {
   INestApplication,
   INestMicroservice,
   LogLevel,
+  NestInterceptor,
   PipeTransform,
   StandardSchemaValidationPipeOptions,
   Type,
-  ValidationPipeOptions,
 } from '@nestjs/common';
 import type { MicroserviceOptions, NestMicroservice } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -75,6 +75,8 @@ const allLogLevels: LogLevel[] = ['verbose', 'debug', 'log', 'warn', 'error', 'f
 const GLOBAL_VALIDATION_PIPE_OPTIONS = { enableDebugMessages: true, transform: true, whitelist: true } as const;
 
 export type BootstrapMode = 'api' | 'grpc' | 'scheduler';
+
+export type ValidationMode = 'standard-schema' | 'legacy';
 
 export interface BootstrapOptions {
   /** 启动模式：api（默认）、grpc、scheduler */
@@ -121,15 +123,21 @@ export interface BootstrapOptions {
    */
   standardSchemaValidationPipe?: boolean | StandardSchemaValidationPipeOptions;
   /**
-   * 全域校验管道配置（主要针对旧 class-validator 双阶管道）。
+   * 校验模式（必填，无默认值：忘填是编译错误，避免静默落回 legacy）。
    *
-   * 架构演进说明（NestJS 12 + Standard Schema）：
-   * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema），
-   *   并挂载具备 schema 穿透保护的兼容 ValidationPipe。
-   * - 设为 false：完全停用历史遗留 class-validator ValidationPipe，实现纯 Standard Schema 现代架构。
-   * - 传入 ValidationPipeOptions：自定义遗留 ValidationPipe 的配置。
+   * - `'standard-schema'`：全局管道只有 {@link AppStandardSchemaValidationPipe}（自动拾取 `@Body({ schema })`、
+   *   `@Args({ schema })` 与类自身的 `static schema`）；不构造 class-validator 管道，也不构造 class-transformer
+   *   序列化拦截器，启动不需要安装这两个包。
+   * - `'legacy'`：在 Standard Schema 管道之外再挂 class-validator 双阶管道
+   *   （{@link DualBoundaryValidationPipe}，`whitelist: true`）与 class-transformer 序列化拦截器
+   *   （{@link GraphqlAwareClassSerializerInterceptor}），启动需要安装 `class-validator` 与 `class-transformer`。
+   *
+   * `'legacy'` 值已弃用（`@deprecated` 标在它挂载的两个 legacy 组件上，而不是整个字段，
+   * 否则 `'standard-schema'` 的使用方也会被标弃用）。
+   * 退出条件：最后一个仍有 class-validator DTO 或 `@Exclude` / `@Expose` 的消费方迁到
+   * `'standard-schema'` 后，删除 `'legacy'` 值与这两个组件。
    */
-  validationPipe?: boolean | ValidationPipeOptions;
+  validation: ValidationMode;
 }
 
 export function hasGrpcMicroserviceConfigured(mode: BootstrapMode, options?: Pick<BootstrapOptions, 'grpc'>): boolean {
@@ -172,11 +180,11 @@ export function resolveGrpcHybridAppOptions(mode: BootstrapMode): { inheritAppCo
 export function connectGrpcMicroserviceWithBoundary(
   app: INestApplication,
   microserviceOptions: MicroserviceOptions,
-  mode: BootstrapMode,
+  bootMode: BootstrapMode,
   provider: string,
-  validationPipeOption?: boolean | ValidationPipeOptions,
+  validation: ValidationMode,
 ): INestMicroservice {
-  const { inheritAppConfig } = resolveGrpcHybridAppOptions(mode);
+  const { inheritAppConfig } = resolveGrpcHybridAppOptions(bootMode);
 
   // deferInitialization 只在这里出现，且与下面的 setIsInitHookCalled 是**原子对**：
   // 不 defer → connectMicroservice 当场 registerListeners，enhancer 从 config 快照，
@@ -190,7 +198,7 @@ export function connectGrpcMicroserviceWithBoundary(
 
   if (!inheritAppConfig) {
     grpcMs.setIsInitHookCalled(true);
-    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider, validationPipeOption);
+    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider, validation);
   }
   return grpcMs;
 }
@@ -241,6 +249,9 @@ export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPip
  * 架构意图：
  * 当参数携带 Standard Schema（显式声明或挂载在 metatype.schema）时，
  * 跳过底层 class-validator 的白名单过滤，防止 whitelist: true 将合法字段误杀。
+ *
+ * @deprecated 仅 `validation: 'legacy'` 挂载。退出条件：最后一个仍有 class-validator DTO 的消费方
+ * 迁到 `'standard-schema'` 后，删除本类与 `'legacy'` 取值。
  */
 export class DualBoundaryValidationPipe extends ValidationPipe {
   override toValidate(metadata: ArgumentMetadata): boolean {
@@ -252,8 +263,14 @@ export class DualBoundaryValidationPipe extends ValidationPipe {
   }
 }
 
+/**
+ * 按校验模式组装全局管道。
+ * - `'standard-schema'`：只有 {@link AppStandardSchemaValidationPipe}，不构造任何 class-validator 管道。
+ * - `'legacy'`：Standard Schema 管道之后再挂 {@link DualBoundaryValidationPipe}（`GLOBAL_VALIDATION_PIPE_OPTIONS`）。
+ * `standardSchemaValidationPipeOption === false` 仍可停用 Standard Schema 管道。
+ */
 export function createGlobalValidationPipes(
-  validationPipeOption?: boolean | ValidationPipeOptions,
+  mode: ValidationMode,
   standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
 ): PipeTransform[] {
   const pipes: PipeTransform[] = [];
@@ -262,16 +279,29 @@ export function createGlobalValidationPipes(
       typeof standardSchemaValidationPipeOption === 'object' ? standardSchemaValidationPipeOption : undefined;
     pipes.push(new AppStandardSchemaValidationPipe(options));
   }
-  if (validationPipeOption !== false) {
-    const options = typeof validationPipeOption === 'object' ? validationPipeOption : GLOBAL_VALIDATION_PIPE_OPTIONS;
-    pipes.push(new DualBoundaryValidationPipe(options));
+  if (mode === 'legacy') {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- 唯一的 legacy 挂载点，随 'legacy' 取值一并删除
+    pipes.push(new DualBoundaryValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS));
   }
   return pipes;
 }
 
-export function createGlobalValidationPipe(validationPipeOption?: boolean | ValidationPipeOptions): ValidationPipe {
-  const options = typeof validationPipeOption === 'object' ? validationPipeOption : GLOBAL_VALIDATION_PIPE_OPTIONS;
-  return new DualBoundaryValidationPipe(options);
+/**
+ * 全局拦截器中与校验模式相关的部分：仅 `'legacy'` 构造 class-transformer 序列化拦截器
+ * （Nest 在其构造函数里才加载 class-transformer，standard-schema 模式不触发）。
+ */
+function createGlobalSerializerInterceptors(mode: ValidationMode, reflector: Reflector): NestInterceptor[] {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- 唯一的 legacy 挂载点，随 'legacy' 取值一并删除
+  return mode === 'legacy' ? [new GraphqlAwareClassSerializerInterceptor(reflector)] : [];
+}
+
+/**
+ * @deprecated 只返回 legacy 管道，等价于 `createGlobalValidationPipes('legacy')` 的第二项。
+ * 退出条件同 {@link DualBoundaryValidationPipe}。
+ */
+export function createGlobalValidationPipe(): ValidationPipe {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- 本函数自身已弃用，与 legacy 取值同退出
+  return new DualBoundaryValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS);
 }
 
 type GrpcMicroserviceBoundaryTarget = Pick<
@@ -283,13 +313,13 @@ export function configureGrpcMicroserviceBoundary(
   target: GrpcMicroserviceBoundaryTarget,
   reflector: Reflector,
   provider: string,
-  validationPipeOption?: boolean | ValidationPipeOptions,
+  mode: ValidationMode,
   standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
 ): void {
-  target.useGlobalPipes(...createGlobalValidationPipes(validationPipeOption, standardSchemaValidationPipeOption));
+  target.useGlobalPipes(...createGlobalValidationPipes(mode, standardSchemaValidationPipeOption));
   target.useGlobalFilters(new GrpcExceptionFilter(provider));
   target.useGlobalGuards(new GrpcServiceTokenGuard());
-  target.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(reflector), new LoggerInterceptor());
+  target.useGlobalInterceptors(...createGlobalSerializerInterceptors(mode, reflector), new LoggerInterceptor());
 }
 
 export function assertGrpcServiceTokenConfiguredForMode(
@@ -324,10 +354,10 @@ export function assertRequiredEnvs(keys?: readonly SysEnvConfigKey[]): void {
 
 export async function bootstrap(
   AppModule: IEntryNestModule,
-  onInit?: (app: INestApplication) => Promise<void>,
-  options?: BootstrapOptions,
+  onInit: ((app: INestApplication) => Promise<void>) | undefined,
+  options: BootstrapOptions,
 ) {
-  const mode: BootstrapMode = options?.mode ?? 'api';
+  const mode: BootstrapMode = options.mode ?? 'api';
   const isApi = mode === 'api';
   const isGrpc = mode === 'grpc';
   const grpcProvider = resolveGrpcProvider(options);
@@ -336,7 +366,7 @@ export async function bootstrap(
   if ((isApi || isGrpc) && !process.env.NODE_ENV) throw new Error('NODE_ENV is not set');
   assertGrpcServiceTokenConfiguredForMode(mode, options);
   // 全 mode：app 声明的硬依赖（如 LLM key）；缺则 crashloop，避免请求期软失败
-  assertRequiredEnvs(options?.requiredEnvs);
+  assertRequiredEnvs(options.requiredEnvs);
 
   const now = Date.now();
 
@@ -373,7 +403,7 @@ export async function bootstrap(
   }
 
   // --- ValidationPipe（所有模式） ---
-  app.useGlobalPipes(...createGlobalValidationPipes(options?.validationPipe, options?.standardSchemaValidationPipe));
+  app.useGlobalPipes(...createGlobalValidationPipes(options.validation, options.standardSchemaValidationPipe));
 
   // --- ExceptionFilter ---
   if (isGrpc) {
@@ -391,7 +421,7 @@ export async function bootstrap(
   }
 
   // --- Interceptors ---
-  app.useGlobalInterceptors(new GraphqlAwareClassSerializerInterceptor(app.get(Reflector)));
+  app.useGlobalInterceptors(...createGlobalSerializerInterceptors(options.validation, app.get(Reflector)));
   if (!isGrpc) {
     // api / scheduler：VisitorInterceptor
     app.useGlobalInterceptors(new VisitorInterceptor());
@@ -587,7 +617,7 @@ export async function bootstrap(
 
   // --- gRPC 微服务配置 ---
   let grpcPort: number | undefined;
-  if (options?.grpc) {
+  if (options.grpc) {
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
     const grpcMs = connectGrpcMicroserviceWithBoundary(
@@ -612,7 +642,7 @@ export async function bootstrap(
       },
       mode,
       grpcProvider,
-      options.validationPipe,
+      options.validation,
     );
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 
@@ -621,7 +651,7 @@ export async function bootstrap(
   }
 
   // --- listen ---
-  const port = isGrpc ? (options?.httpPort ?? SysEnv.PORT) : SysEnv.PORT;
+  const port = isGrpc ? (options.httpPort ?? SysEnv.PORT) : SysEnv.PORT;
 
   await runApp(app)
     .listen(port)
