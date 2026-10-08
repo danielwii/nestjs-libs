@@ -183,6 +183,7 @@ export function connectGrpcMicroserviceWithBoundary(
   bootMode: BootstrapMode,
   provider: string,
   validation: ValidationMode,
+  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
 ): INestMicroservice {
   const { inheritAppConfig } = resolveGrpcHybridAppOptions(bootMode);
 
@@ -198,7 +199,13 @@ export function connectGrpcMicroserviceWithBoundary(
 
   if (!inheritAppConfig) {
     grpcMs.setIsInitHookCalled(true);
-    configureGrpcMicroserviceBoundary(grpcMs, app.get(Reflector), provider, validation);
+    configureGrpcMicroserviceBoundary(
+      grpcMs,
+      app.get(Reflector),
+      provider,
+      validation,
+      standardSchemaValidationPipeOption,
+    );
   }
   return grpcMs;
 }
@@ -643,6 +650,7 @@ export async function bootstrap(
       mode,
       grpcProvider,
       options.validation,
+      options.standardSchemaValidationPipe,
     );
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 

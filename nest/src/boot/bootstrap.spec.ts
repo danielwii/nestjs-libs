@@ -462,6 +462,39 @@ describe('assertGrpcServiceTokenConfiguredForMode', () => {
     },
   );
 
+  it('connectGrpcMicroserviceWithBoundary applies a custom Standard Schema exceptionFactory to the microservice pipes', async () => {
+    const rejectAll = {
+      '~standard': { version: 1 as const, vendor: 'test', validate: () => ({ issues: [{ message: 'rejected' }] }) },
+    };
+    const metadata = { type: 'body' as const, schema: rejectAll };
+    const app = await NestFactory.create(HybridLifecycleTestModule, { logger: false });
+    const pipesOf = (ms: unknown) =>
+      (ms as { applicationConfig: { getGlobalPipes(): AppStandardSchemaValidationPipe[] } }).applicationConfig
+        .getGlobalPipes()
+        .filter((p) => p instanceof AppStandardSchemaValidationPipe);
+    const connect = (option?: Parameters<typeof connectGrpcMicroserviceWithBoundary>[5]) =>
+      connectGrpcMicroserviceWithBoundary(
+        app,
+        { strategy: new NoopTransportStrategy() },
+        'api',
+        'TestProvider',
+        'standard-schema',
+        option,
+      );
+
+    try {
+      const custom = pipesOf(connect({ exceptionFactory: () => new Error('custom-grpc-boundary-error') }));
+      expect(custom).toHaveLength(1);
+      await expect(custom[0]!.transform({}, metadata)).rejects.toThrow('custom-grpc-boundary-error');
+
+      // 不传选项时仍是 Nest 默认的异常（对照：证明上面的自定义确实来自参数）
+      const plain = pipesOf(connect());
+      await expect(plain[0]!.transform({}, metadata)).rejects.not.toThrow('custom-grpc-boundary-error');
+    } finally {
+      await app.close();
+    }
+  });
+
   // 公开 API 不得单独出售 deferInitialization：它必须与 setIsInitHookCalled 成对，而调用方拿到
   // 半截就会在 startAllMicroservices() 提前跑 onModuleInit（Bull handler 双注册、Prisma/Redis 双连）。
   // 2026-09-03：libs 这边全绿合并，是 unee-server 的 reach-out-push-runtime.spec 逮到的 ——
