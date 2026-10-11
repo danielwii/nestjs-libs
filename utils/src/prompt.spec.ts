@@ -426,36 +426,36 @@ describe('cache-aware prompt decorators', () => {
   });
 
   it('readLocalSpan renders a same-day range and a locally cross-day range', () => {
-    const sameDay = readLocalSpan('2026-09-23T07:00:00Z', '2026-09-23T08:00:00Z', TAIPEI);
+    const sameDay = readLocalSpan('2026-09-23T07:00:00Z', '2026-09-23T08:00:00Z', TAIPEI, TAIPEI);
     expect(sameDay.text).toBe('2026-09-23 15:00–16:00 (Asia/Taipei)');
     expect(sameDay).toMatchObject({ shape: 'instant', zone: 'Asia/Taipei', ownZone: 'Asia/Taipei', sameZone: true });
 
     // 2026-09-23T15:30Z = Taipei 09-23 23:30；2026-09-23T16:30Z = Taipei 09-24 00:30 — 本地跨日。
-    const crossDay = readLocalSpan('2026-09-23T15:30:00Z', '2026-09-23T16:30:00Z', TAIPEI);
+    const crossDay = readLocalSpan('2026-09-23T15:30:00Z', '2026-09-23T16:30:00Z', TAIPEI, TAIPEI);
     expect(crossDay.text).toBe('2026-09-23 23:30 → 2026-09-24 00:30 (Asia/Taipei)');
   });
 
   it('readLocalSpan rejects blank endpoints instead of reading the clock', () => {
-    expect(() => readLocalSpan('', '2026-09-23T08:00:00Z', TAIPEI)).toThrow(/fixed instant/);
-    expect(() => readLocalSpan('2026-09-23T07:00:00Z', '   ', TAIPEI)).toThrow(/fixed instant/);
+    expect(() => readLocalSpan('', '2026-09-23T08:00:00Z', TAIPEI, TAIPEI)).toThrow(/fixed instant/);
+    expect(() => readLocalSpan('2026-09-23T07:00:00Z', '   ', TAIPEI, TAIPEI)).toThrow(/fixed instant/);
   });
 
   it('readLocalSpan prints endpoint offsets when a span crosses a DST transition', () => {
     // 2026-11-01 08:30Z–09:30Z in America/Los_Angeles is one hour whose endpoints are BOTH 01:30 local
     // (PDT then PST); the offsets are what tells them apart.
-    const span = readLocalSpan('2026-11-01T08:30:00Z', '2026-11-01T09:30:00Z', LA);
+    const span = readLocalSpan('2026-11-01T08:30:00Z', '2026-11-01T09:30:00Z', LA, LA);
     expect(span.text).toBe('2026-11-01 01:30-07:00–01:30-08:00 (America/Los_Angeles)');
   });
 
   it('readLocalSpan disambiguates a span lying wholly inside the repeated hour', () => {
     // 08:10Z–08:20Z (PDT) and 09:10Z–09:20Z (PST) are both "01:10–01:20" on the wall; offsets tell them apart.
-    expect(readLocalSpan('2026-11-01T08:10:00Z', '2026-11-01T08:20:00Z', LA).text).toBe(
+    expect(readLocalSpan('2026-11-01T08:10:00Z', '2026-11-01T08:20:00Z', LA, LA).text).toBe(
       '2026-11-01 01:10-07:00–01:20-07:00 (America/Los_Angeles)',
     );
-    expect(readLocalSpan('2026-11-01T09:10:00Z', '2026-11-01T09:20:00Z', LA).text).toBe(
+    expect(readLocalSpan('2026-11-01T09:10:00Z', '2026-11-01T09:20:00Z', LA, LA).text).toBe(
       '2026-11-01 01:10-08:00–01:20-08:00 (America/Los_Angeles)',
     );
-    const plain = readLocalSpan('2026-09-23T07:00:00Z', '2026-09-23T08:00:00Z', TAIPEI);
+    const plain = readLocalSpan('2026-09-23T07:00:00Z', '2026-09-23T08:00:00Z', TAIPEI, TAIPEI);
     expect(plain).toMatchObject({ start: '2026-09-23T07:00:00Z', end: '2026-09-23T08:00:00Z' });
   });
 
@@ -491,7 +491,7 @@ describe('cache-aware prompt decorators', () => {
   });
 
   it('readLocalTime without an attribution zone defaults ownZone to the observer', () => {
-    const same = readLocalTime('2026-09-23T07:00:00Z', TAIPEI);
+    const same = readLocalTime('2026-09-23T07:00:00Z', TAIPEI, TAIPEI);
     expect(same.sameZone).toBe(true);
   });
 
@@ -500,17 +500,33 @@ describe('cache-aware prompt decorators', () => {
   // at all — the caller must run it through `assertZone` first. What used to be a RUNTIME
   // rejection test (blank/invalid zone throws) is now a COMPILE-TIME guarantee.
   it("a bare string cannot satisfy Zone at any of readLocalTime/readLocalSpan's zone parameters", () => {
-    // A syntactically valid IANA name on purpose: this proves the BRAND is missing, not that the
-    // zone name itself would fail runtime validation (which would throw and mask the point of a
-    // compile-time-only test — `@ts-expect-error` lines still execute under `bun test`, unlike `tsc`).
-    // @ts-expect-error observer must be a validated Zone, not a bare string.
-    readLocalTime('2026-09-23T07:00:00Z', 'Asia/Tokyo');
-    // @ts-expect-error same rule for ownZone.
-    readLocalTime('2026-09-23T07:00:00Z', TAIPEI, 'Asia/Tokyo');
-    // @ts-expect-error same rule for readLocalSpan's observer.
-    readLocalSpan('2026-09-23T08:00:00Z', '2026-09-23T09:00:00Z', 'Asia/Taipei');
-    // @ts-expect-error same rule for readLocalSpan's ownZone.
-    readLocalSpan('2026-09-23T08:00:00Z', '2026-09-23T09:00:00Z', TAIPEI, 'Asia/Tokyo');
+    // Type-level only: ownZone is now required, so these calls would throw at runtime — the closure is never run;
+    // `tsc` is what checks the `@ts-expect-error` lines.
+    const compileTimeOnly = () => {
+      // A syntactically valid IANA name on purpose: this proves the BRAND is missing, not that the
+      // zone name itself would fail runtime validation (which would throw and mask the point of a
+      // compile-time-only test — `@ts-expect-error` lines still execute under `bun test`, unlike `tsc`).
+      // @ts-expect-error observer must be a validated Zone, not a bare string.
+      readLocalTime('2026-09-23T07:00:00Z', 'Asia/Tokyo');
+      // @ts-expect-error same rule for ownZone.
+      readLocalTime('2026-09-23T07:00:00Z', TAIPEI, 'Asia/Tokyo');
+      // @ts-expect-error same rule for readLocalSpan's observer.
+      readLocalSpan('2026-09-23T08:00:00Z', '2026-09-23T09:00:00Z', 'Asia/Taipei');
+      // @ts-expect-error same rule for readLocalSpan's ownZone.
+      readLocalSpan('2026-09-23T08:00:00Z', '2026-09-23T09:00:00Z', TAIPEI, 'Asia/Tokyo');
+    };
+    expect(compileTimeOnly).toBeTypeOf('function');
+  });
+
+  it('ownZone is required: omitting the attribution is a compile error, not an implicit "the reader\'s own"', () => {
+    // Type-level only (the omitted zone would throw at runtime): the closure is never run, `tsc` checks it.
+    const compileTimeOnly = () => {
+      // @ts-expect-error readLocalTime needs the attribution stated.
+      readLocalTime('2026-09-23T07:00:00Z', TAIPEI);
+      // @ts-expect-error readLocalSpan needs the attribution stated.
+      readLocalSpan('2026-09-23T08:00:00Z', '2026-09-23T09:00:00Z', TAIPEI);
+    };
+    expect(compileTimeOnly).toBeTypeOf('function');
   });
 
   it('decorateUserInput wraps the verbatim words and escapes delimiter characters', () => {
@@ -547,7 +563,7 @@ describe('cache-aware prompt decorators', () => {
 
 describe('readLocalTime (tz-d6: the one validate+project+render core)', () => {
   it('instant: local wall clock + weekday + day period + observer zone', () => {
-    const result = readLocalTime('2026-09-23T07:00:00Z', TAIPEI);
+    const result = readLocalTime('2026-09-23T07:00:00Z', TAIPEI, TAIPEI);
     expect(result).toMatchObject({
       text: '2026-09-23 Wednesday 15:00 in the afternoon (Asia/Taipei)',
       shape: 'instant',
@@ -589,15 +605,15 @@ describe('readLocalTime (tz-d6: the one validate+project+render core)', () => {
   it('DST 2026-11-01 fall-back: the ambiguous 01:30 local hour resolves the same way on both sides of the transition', () => {
     // 2026-11-01T08:30Z = 01:30 PDT（转换前）；09:30Z = 01:30 PST（转换后）——本地墙钟相同，
     // 但底层偏移不同；两次都必须落在 "01:30 in the morning"，不能混淆成别的钟点。
-    const preTransition = readLocalTime('2026-11-01T08:30:00Z', LA);
-    const postTransition = readLocalTime('2026-11-01T09:30:00Z', LA);
+    const preTransition = readLocalTime('2026-11-01T08:30:00Z', LA, LA);
+    const postTransition = readLocalTime('2026-11-01T09:30:00Z', LA, LA);
     // Inside the repeated hour the clock alone names two instants, so the offset rides along.
     expect(preTransition.text).toBe('2026-11-01 Sunday 01:30-07:00 in the morning (America/Los_Angeles)');
     expect(postTransition.text).toBe('2026-11-01 Sunday 01:30-08:00 in the morning (America/Los_Angeles)');
     expect(preTransition.instant).toBe('2026-11-01T08:30:00Z');
     expect(postTransition.instant).toBe('2026-11-01T09:30:00Z');
     // Outside the overlap nothing changes.
-    expect(readLocalTime('2026-11-01T12:00:00Z', LA).text).toBe(
+    expect(readLocalTime('2026-11-01T12:00:00Z', LA, LA).text).toBe(
       '2026-11-01 Sunday 04:00 in the morning (America/Los_Angeles)',
     );
   });
@@ -613,17 +629,21 @@ describe('readLocalTime (tz-d6: the one validate+project+render core)', () => {
     // A syntactically valid IANA name on purpose — see the comment on the equivalent test in the
     // decorators describe above: this proves the BRAND is missing, not that the zone name itself
     // would fail runtime validation (`@ts-expect-error` lines still execute under `bun test`).
-    // @ts-expect-error observer must be a validated Zone, not a bare string.
-    readLocalTime('2026-09-23T07:00:00Z', 'Asia/Tokyo');
-    // @ts-expect-error same rule for the all-day (PlainDate) shape.
-    readLocalTime(Temporal.PlainDate.from('2026-09-20'), 'Asia/Tokyo');
+    // Type-level only: the closure is never run, `tsc` checks the `@ts-expect-error` lines.
+    const compileTimeOnly = () => {
+      // @ts-expect-error observer must be a validated Zone, not a bare string.
+      readLocalTime('2026-09-23T07:00:00Z', 'Asia/Tokyo', TAIPEI);
+      // @ts-expect-error same rule for the all-day (PlainDate) shape.
+      readLocalTime(Temporal.PlainDate.from('2026-09-20'), 'Asia/Tokyo', TAIPEI);
+    };
+    expect(compileTimeOnly).toBeTypeOf('function');
   });
 
   // Codex P2: an explicit '' was falsy, same as omitting the value, so it silently became "now"
   // instead of signaling a caller bug (a missed interpolation, a wrong variable).
   it('rejects an explicit empty string instead of silently reading it as "now"', () => {
-    expect(() => readLocalTime('', TAIPEI)).toThrow(/not "now"/);
-    expect(() => readLocalTime('   ', TAIPEI)).toThrow(/not "now"/);
+    expect(() => readLocalTime('', TAIPEI, TAIPEI)).toThrow(/not "now"/);
+    expect(() => readLocalTime('   ', TAIPEI, TAIPEI)).toThrow(/not "now"/);
     expect(() => formatLocalDateTime('', TimeSensitivity.Minute, 'Asia/Taipei')).toThrow(/not "now"/);
   });
 
@@ -632,10 +652,10 @@ describe('readLocalTime (tz-d6: the one validate+project+render core)', () => {
   // granularity only when the clock is actually ambiguous keeps every unambiguous Hour-sensitivity
   // render exactly as before.
   it('TimeSensitivity.Hour falls back to Minute granularity inside a DST-ambiguous hour, unaffected otherwise', () => {
-    const ambiguous = readLocalTime('2026-11-01T08:30:00Z', LA, undefined, TimeSensitivity.Hour);
+    const ambiguous = readLocalTime('2026-11-01T08:30:00Z', LA, LA, TimeSensitivity.Hour);
     expect(ambiguous.text).toBe('2026-11-01 Sunday 01:30-07:00 in the morning (America/Los_Angeles)');
 
-    const unambiguous = readLocalTime('2026-11-01T12:00:00Z', LA, undefined, TimeSensitivity.Hour);
+    const unambiguous = readLocalTime('2026-11-01T12:00:00Z', LA, LA, TimeSensitivity.Hour);
     expect(unambiguous.text).toBe('2026-11-01 Sunday 04 AM in the morning (America/Los_Angeles)');
   });
 });
