@@ -1,5 +1,34 @@
 # Migrations
 
+## `readLocalTime` / `readLocalSpan` require `ownZone`; `@app/utils/utc-offset` added
+
+`ownZone` used to be optional and, when omitted, silently meant "the reader's own zone". A call site
+that forgot to pass a value's real attribution therefore rendered someone else's time as `sameZone: true`
+with no error. The attribution is now stated at every call site, and two small helpers for text that
+carries a UTC offset replace the per-consumer regular expressions.
+
+### What changed
+
+- **Breaking**: `readLocalTime(value, observer, ownZone, sensitivity?)` and
+  `readLocalSpan(start, end, observer, ownZone)` — `ownZone` is a required `Zone`. A value that belongs to
+  the reader (the Now line, the reader's own span) passes `observer` as `ownZone`; someone else's value
+  passes its own attribution zone. Rendered text is unchanged for every call that already passed `ownZone`.
+- `formatLocalDateTime` is unchanged for callers: it passes its validated zone as both observer and
+  attribution.
+- **New**: `@app/utils/utc-offset`.
+  - `parseUtcOffsetMinutes(text)` — minutes east of UTC for a spelled offset (`UTC+8`, `GMT-05:30`, `+08:00`,
+    `UTC+0530`); `null` for anything else. Hours 0–14, minutes 0–59.
+  - `isFixedOffsetZone(zone)` — true for the zone names whose offset never changes: `UTC`, `GMT`, `Etc/UTC`,
+    `Etc/GMT`, `Etc/GMT±N`.
+  - These answer different questions and do not overlap (`Etc/GMT+8` is a zone name, `UTC+8` a spelled
+    offset). Neither makes an offset acceptable as an attribution zone: `assertZone` still rejects offsets.
+
+### Migrating
+
+- Calls that omitted `ownZone`: add the argument — `readLocalTime(v, observer, observer)` for the reader's
+  own value, the value's attribution zone otherwise. `tsc` lists every call site.
+- Consumers that keep their own `UTC±N` / `Etc/GMT±N` regular expression may switch to the helpers above.
+
 ## Decouple class-validator / class-transformer in favor of NestJS 12 Standard Schema & GraphQL SDL
 
 `@danielwii/libs-cli` has completely decoupled from `class-validator` and `class-transformer` as core dependencies,

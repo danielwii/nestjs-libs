@@ -258,21 +258,22 @@ function isAmbiguousLocalClock(zdt: Temporal.ZonedDateTime): boolean {
  *   一次，在调用方把裸字符串变成 `Zone` 的那一步（`assertZone`，例如 `formatLocalDateTime`/
  *   `zonedAt` 这类真正的写入闸门），不在这里重来一遍。默认值本身曾是事故来源：缺省时静默落回
  *   `process.env.TZ`，让台北的家庭读到洛杉矶的 Now 行——这条规则没变，只是校验点挪到了闸门。
- * - `ownZone`：这个值实际归属的时区，同样必须已是 `Zone`。`undefined` 表示"就是读者自己的"
- *   （Now 行），不会悄悄改写成读者时区去把别人的事件标成 `sameZone: true`。
+ * - `ownZone`：这个值实际归属的时区，同样必须已是 `Zone`，**必填、无默认**。以前省略即「就是读者自己的」，
+ *   漏传归属的调用点会悄悄把别人的事件标成 `sameZone: true`；现在每个调用点都要写出归属：Now 行 / 读者自己的值
+ *   显式传 `observer`，别人的值传它的归属时区。
  * - `sensitivity`：Now 行的精度（分钟/小时/日），沿用既有 `formatLocalDateTime` 的参数。
  */
 export function readLocalTime(
   value: LocalTimeValue | null | undefined,
   observer: Zone,
-  ownZone?: Zone,
+  ownZone: Zone,
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
 ): TimeReading {
   // `observer`/`ownZone` are `Zone`, not `string` — the caller (a resolver function, or one of
   // this module's own boundary entry points below) already ran `assertZone`; re-validating here
   // would be exactly the redundant runtime check the brand exists to make unnecessary.
   const observerZone = observer;
-  const attribution = ownZone ?? observerZone;
+  const attribution = ownZone;
 
   if (value instanceof Temporal.PlainDate) {
     const projection = Anchored.date(value, attribution).in(observerZone) as Extract<
@@ -322,17 +323,19 @@ export function formatLocalDateTime(
 ): string {
   // This function (like `zonedAt`) is the untrusted boundary — `timezone` is a raw caller string
   // (possibly missing/empty), validated here once via `assertZone` before it ever becomes a `Zone`.
-  return readLocalTime(dateOrIso, assertZone(timezone ?? ''), undefined, sensitivity).text;
+  const observer = assertZone(timezone ?? '');
+  // The Now line belongs to the reader: attribution is the observer itself, stated rather than defaulted.
+  return readLocalTime(dateOrIso, observer, observer, sensitivity).text;
 }
 
 /**
  * 把一段起止时间读给读者：语义与理由见 {@link SpanReading}。两端都必须是确定的瞬时——空值
  * 不会被当成"现在"（`requireFixedInstant`）。`ownZone` 与 {@link readLocalTime} 同义：这段区间
- * 本来属于谁的时区（别人的事件、别人的空档）；不传即读者自己的。
+ * 本来属于谁的时区（别人的事件、别人的空档）；必填，读者自己的区间显式传 `observer`。
  */
-export function readLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone, ownZone?: Zone): SpanReading {
+export function readLocalSpan(start: PromptDateTime, end: PromptDateTime, observer: Zone, ownZone: Zone): SpanReading {
   const observerZone = observer;
-  const attribution = ownZone ?? observerZone;
+  const attribution = ownZone;
   const startProjection = projectInstant(requireFixedInstant(start, 'readLocalSpan'), observerZone, attribution);
   const endProjection = projectInstant(requireFixedInstant(end, 'readLocalSpan'), observerZone, attribution);
   const startZdt = startProjection.at;
