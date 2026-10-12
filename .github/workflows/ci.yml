@@ -55,7 +55,7 @@ jobs:
       - name: 🧹 Lint (ESLint)
         run: bun run lint
 
-      - name: 👮 Type Check (TSC)
+      - name: 👮 Type Check (Bun Check)
         run: bun run typecheck
 
       - name: 🧪 Run Tests & Coverage
