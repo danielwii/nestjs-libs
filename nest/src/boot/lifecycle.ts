@@ -6,7 +6,7 @@ import { getErrorMessage } from '@app/utils/error';
 
 import os from 'node:os';
 
-import * as Sentry from '@sentry/nestjs';
+import * as Sentry from '@sentry/bun';
 import * as _ from 'radash';
 
 import type { INestApplication } from '@nestjs/common';
@@ -175,8 +175,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- NestJS internals not typed
       const msForDrain = grpcMicroserviceRef as any;
       const grpcServerForDrain = msForDrain?.serverInstance?.grpcClient as
-        | { drain?: (port: string, graceTimeMs: number) => void }
-        | undefined;
+        { drain?: (port: string, graceTimeMs: number) => void } | undefined;
       if (grpcServerForDrain?.drain && grpcPort !== undefined) {
         const grpcUrl = `0.0.0.0:${grpcPort}`;
         const GRPC_DRAIN_MS = SysEnv.GRPC_DRAIN_MS;
@@ -210,8 +209,7 @@ export const runApp = <App extends INestApplication>(app: App) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 访问 NestJS 内部属性
     const ms = grpcMicroserviceRef as any;
     const grpcServer = ms?.serverInstance?.grpcClient as
-      | { tryShutdown?: (cb: () => void) => void; forceShutdown?: () => void }
-      | undefined;
+      { tryShutdown?: (cb: () => void) => void; forceShutdown?: () => void } | undefined;
 
     const grpcDrainPromise = new Promise<void>((resolve) => {
       if (grpcServer?.tryShutdown) {

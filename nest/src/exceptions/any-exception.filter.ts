@@ -10,7 +10,7 @@ import { getErrorMessage, getErrorName } from '@app/utils/error';
 import { isServerError, toErrorDescriptor } from './error-descriptor';
 import { OopsError } from './oops-error';
 
-import { SentryExceptionCaptured } from '@sentry/nestjs';
+import * as Sentry from '@sentry/bun';
 import { GraphQLError } from 'graphql';
 import * as _ from 'radash';
 import { throwError } from 'rxjs';
@@ -350,10 +350,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
    * 选择性捕获异常到 Sentry
    * 业务异常（4xx Oops / Block）不应该被 Sentry 捕获，因为这些是预期的业务逻辑
    */
-  @SentryExceptionCaptured()
-  private captureExceptionBySentry(_exception: unknown, _host: ArgumentsHost): void {
-    // 该方法仅用于触发 @SentryExceptionCaptured 装饰器
-    // 实际的异常处理逻辑在 catch 方法中继续执行
+  private captureExceptionBySentry(exception: unknown, _host: ArgumentsHost): void {
+    Sentry.captureException(exception);
   }
 
   /**

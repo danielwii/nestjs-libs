@@ -228,7 +228,7 @@ const noisyPatterns = [
 function bootstrapSentry() {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency, import() exposes strict type mismatch
-    const Sentry = require('@sentry/nestjs');
+    const Sentry = require('@sentry/bun');
     const dsn = process.env.SENTRY_DSN;
     const release = process.env.SENTRY_RELEASE ?? process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA;
     const environment = process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV;
@@ -236,13 +236,10 @@ function bootstrapSentry() {
 
     Sentry.init({
       dsn,
-      sendDefaultPii: true,
       release,
       environment,
       serverName,
-      // Sentry 不接管 OTel：TracerProvider/ContextManager/Propagator 由独立 NodeSDK 管理
-      skipOpenTelemetrySetup: true,
-      // 不做 performance monitoring，只做错误追踪
+      // 不做 performance monitoring，只做错误追踪（v11 默认已不接管 OTel）
       tracesSampleRate: 0,
       beforeSend(event: {
         message?: string;
@@ -259,12 +256,10 @@ function bootstrapSentry() {
         }
         return event;
       },
-      // Bun 未实现 util.getSystemErrorMap()，导致 @sentry/node-core 的 SystemError integration 崩溃
-      // see: https://github.com/oven-sh/bun/issues/22872
-      integrations: (defaults: Array<{ name: string }>) => defaults.filter((i) => i.name !== 'NodeSystemError'),
+      integrations: [Sentry.bunRuntimeMetricsIntegration()],
     });
 
-    sentryLogger.info`${`enabled (errors only) server=${serverName ?? 'unknown'} env=${environment}`}`;
+    sentryLogger.info`${`enabled (errors only, native bun) server=${serverName ?? 'unknown'} env=${environment}`}`;
   } catch (error) {
     sentryLogger.error`${`init failed: ${error instanceof Error ? error.message : String(error)}`}`;
   }
