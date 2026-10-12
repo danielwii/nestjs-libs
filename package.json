@@ -217,7 +217,6 @@
     "@types/bun": "^1.4.3",
     "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.10",
-    "@types/dedent": "^0.7.2",
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.19.0",
     "@types/jest": "^30.0.0",
