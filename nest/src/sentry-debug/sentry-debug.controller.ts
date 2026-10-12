@@ -31,7 +31,7 @@ import { LocalOnly } from '@app/nest/guards';
  * 返回值：
  * - { success: true,  message: "Test error sent to Sentry" }  — 已发送
  * - { success: false, message: "SENTRY_DSN not set" }         — 未配置
- * - { success: false, message: "@sentry/nestjs not installed" } — 缺依赖
+ * - { success: false, message: "@sentry/bun not installed" } — 缺依赖
  */
 @LocalOnly()
 @Controller('sentry-debug')
@@ -41,9 +41,9 @@ export class SentryDebugController {
     let Sentry: { captureException: (error: unknown) => void };
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional dependency
-      Sentry = require('@sentry/nestjs');
+      Sentry = require('@sentry/bun');
     } catch {
-      return { success: false, message: '@sentry/nestjs not installed' };
+      return { success: false, message: '@sentry/bun not installed' };
     }
 
     if (!process.env.SENTRY_DSN) {

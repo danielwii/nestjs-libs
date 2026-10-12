@@ -9,7 +9,7 @@ import { Oops } from './oops';
 import { OopsError } from './oops-error';
 
 import { Metadata as GrpcMetadata, status } from '@grpc/grpc-js';
-import * as Sentry from '@sentry/nestjs';
+import * as Sentry from '@sentry/bun';
 import { Observable, of, throwError } from 'rxjs';
 import { ZodError } from 'zod';
 
