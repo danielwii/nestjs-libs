@@ -9,7 +9,8 @@
     "format": "prettier --write \"{nest,utils,env,features}/**/*.ts\"",
     "test": "bun test",
     "test:cov": "bun test --coverage",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun check",
+    "typecheck:tsc": "tsc --noEmit",
     "prepare": "husky",
     "check:bedrock-tiers": "bun scripts/check-bedrock-service-tiers.ts"
   },
