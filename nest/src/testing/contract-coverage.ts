@@ -208,7 +208,7 @@ function collectAllComponents(
  * 5. 多根求並集 (Multi-Root Union)：支援單一根模組或根模組陣列，依 location 去重求並集。
  * 6. 零入參防護門禁 (Fail-Fast Zero Inputs Invariant)：若未列舉到任何入境參數（total === 0），直接拋錯中斷，杜絕虛假 100% 安全感。
  *
- * @param rootModuleOrModules NestJS 根模組或根模組陣列（如 AppModule，或 [AppModule, SchedulerAppModule]）
+ * @param rootModuleOrModules NestJS 根模組或根模組陣列（如 AppModule，或 [AppModule, WorkerModule]）
  */
 export function collectInboundContractCoverage(rootModuleOrModules: unknown | readonly unknown[]): CoverageReport {
   const rootModules = Array.isArray(rootModuleOrModules) ? rootModuleOrModules : [rootModuleOrModules];

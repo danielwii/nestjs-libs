@@ -88,7 +88,7 @@ export function createSchemaInputType<S extends StandardSchemaV1>(
 
 /**
  * 創建 GraphQL @ArgsType() 類型的 Schema DTO 基類工廠。
- * 用於將標量 `@Args('x', { type })` 收整為整體 DTO 時，SDL 中展開成相同的參數列表，契約不變 (I6)。
+ * 用於將標量 `@Args('x', { type })` 收整為整體 DTO 時，SDL 中展開成相同的參數列表，確保 GraphQL SDL 契約不變。
  *
  * @param schema 符合 Standard Schema 規範的校驗器
  * @param fields 類型化字段表（編譯期驗證 C1-C3 約束）
