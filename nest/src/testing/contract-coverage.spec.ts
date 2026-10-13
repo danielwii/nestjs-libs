@@ -167,22 +167,54 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
 
     const httpUncovered = report.uncoveredInputs.find((u) => u.transport === 'http' && u.method === 'verifyCode');
     expect(httpUncovered).toBeDefined();
+    expect(httpUncovered?.location).toBe('UsersController.verifyCode#0');
     expect(httpUncovered?.kind).toBe('body');
     expect(httpUncovered?.dataName).toBe('code');
 
     const gqlUncovered = report.uncoveredInputs.find((u) => u.transport === 'graphql' && u.method === 'rawArgsQuery');
     expect(gqlUncovered).toBeDefined();
+    expect(gqlUncovered?.location).toBe('UsersResolver.rawArgsQuery#0');
     expect(gqlUncovered?.kind).toBe('args');
     expect(gqlUncovered?.dataName).toBe('filter');
 
     const grpcUncovered = report.uncoveredInputs.find((u) => u.transport === 'grpc' && u.method === 'unprotectedRpc');
     expect(grpcUncovered).toBeDefined();
+    expect(grpcUncovered?.location).toBe('UsersGrpcController.unprotectedRpc#0');
     expect(grpcUncovered?.kind).toBe('payload');
 
-    // 驗證豁免清單包含退場條件
+    // 驗證豁免清單包含退場條件與 location
     expect(report.exemptInputs).toHaveLength(3);
     const rawWebhookExempt = report.exemptInputs.find((e) => e.method === 'rawWebhook');
+    expect(rawWebhookExempt?.location).toBe('UsersController.rawWebhook#0');
     expect(rawWebhookExempt?.exitCondition).toBe('待提供官方 Schema 後退場');
+  });
+
+  it('支援傳入多根模組陣列，依 location 去重求並集', () => {
+    @Controller('extra')
+    class ExtraController {
+      @Post('submit')
+      submit(@Body() dto: CreateUserDto) {
+        return dto;
+      }
+    }
+
+    @Module({
+      controllers: [ExtraController],
+    })
+    class ExtraModule {}
+
+    // 1. 傳入 [TestRootModule, ExtraModule]：新增 1 個 covered 入參
+    const unionReport = collectInboundContractCoverage([TestRootModule, ExtraModule]);
+    expect(unionReport.total).toBe(12);
+    expect(unionReport.covered).toBe(5);
+
+    // 2. 傳入重複的模組陣列 [TestRootModule, TestRootModule]：完全去重，結果與單根一致
+    const dedupReport = collectInboundContractCoverage([TestRootModule, TestRootModule]);
+    expect(dedupReport.total).toBe(11);
+    expect(dedupReport.covered).toBe(4);
+    expect(dedupReport.httpInputs).toBe(5);
+    expect(dedupReport.graphqlInputs).toBe(3);
+    expect(dedupReport.grpcInputs).toBe(3);
   });
 
   it('支援 DynamicModule 與 forwardRef 模組樹深度解析', () => {
