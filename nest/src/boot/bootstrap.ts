@@ -251,14 +251,13 @@ export function connectGrpcMicroserviceWithBoundary(
 }
 
 export { isStandardSchema, resolveInboundSchema };
-export const resolveOwnedStandardSchema = resolveInboundSchema;
 
 /**
  * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取
  */
 export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
   override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
-    const rawSchema = resolveOwnedStandardSchema(metadata);
+    const rawSchema = resolveInboundSchema(metadata);
     if (!rawSchema) return value;
     return super.transform(value, { ...metadata, schema: rawSchema });
   }
@@ -276,7 +275,7 @@ export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPip
  */
 export class DualBoundaryValidationPipe extends ValidationPipe {
   override toValidate(metadata: ArgumentMetadata): boolean {
-    const rawSchema = resolveOwnedStandardSchema(metadata);
+    const rawSchema = resolveInboundSchema(metadata);
     if (rawSchema) {
       return false;
     }

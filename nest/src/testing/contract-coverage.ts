@@ -5,60 +5,29 @@ import { resolveInboundSchema } from '@app/nest/contract/schema-dto';
 
 import type { PipeTransform, Type } from '@nestjs/common';
 
-export type InboundParamCategory = 'body' | 'query' | 'param' | 'headers';
-
-/**
- * NestJS 內部 RouteParamtypes 枚舉映射表
- */
-const ROUTE_PARAM_TYPE_MAP: Record<
-  number,
-  | 'request'
-  | 'response'
-  | 'next'
-  | 'body'
-  | 'query'
-  | 'param'
-  | 'headers'
-  | 'session'
-  | 'file'
-  | 'files'
-  | 'host'
-  | 'ip'
-  | 'raw_body'
-  | 'other'
-> = {
-  0: 'request',
-  1: 'response',
-  2: 'next',
-  3: 'body',
-  4: 'query',
-  5: 'param',
-  6: 'headers',
-  7: 'session',
-  8: 'file',
-  9: 'files',
-  10: 'host',
-  11: 'ip',
-  12: 'raw_body',
-};
+export type ContractTransport = 'http' | 'graphql' | 'grpc';
+export type ContractInputKind = 'body' | 'query' | 'param' | 'args' | 'grpc_payload';
 
 export interface UncoveredInput {
+  transport: ContractTransport;
   controller: string;
   method: string;
   parameterIndex: number;
-  paramCategory: InboundParamCategory | string;
+  kind: ContractInputKind | string;
   dataName?: string;
   metatypeName?: string;
   reason: string;
 }
 
 export interface ExemptInput {
+  transport: ContractTransport;
   controller: string;
   method: string;
   parameterIndex: number;
-  paramCategory: InboundParamCategory | string;
+  kind: ContractInputKind | string;
   dataName?: string;
   reason: string;
+  exitCondition?: string;
 }
 
 export interface CoverageReport {
@@ -66,68 +35,38 @@ export interface CoverageReport {
   coveredInputs: number;
   exemptInputs: number;
   uncoveredInputs: number;
-  coverageRate: number;
+  httpInputs: number;
+  graphqlInputs: number;
+  grpcInputs: number;
   uncovered: UncoveredInput[];
   exempted: ExemptInput[];
 }
 
-export interface ContractCoverageOptions {
-  /**
-   * 需要進行 Schema 契約審計的參數類別，預設包含 body, query, param, headers
-   */
-  includedCategories?: InboundParamCategory[];
-  /**
-   * 自定義 Pipe 合格判定鉤子
-   */
-  isValidationPipe?: (pipe: unknown) => boolean;
-}
-
 /**
- * 檢查一個 Pipe 是否屬於合法的參數校驗/轉型管道
+ * 檢查一個 Pipe 是否明確綁定了 Standard Schema。
+ * 嚴禁依賴類名（如 Parse*、ValidationPipe*）進行模糊匹配（杜絕逃生口）。
  */
-function isRecognizedValidationPipe(pipe: unknown, customMatcher?: (pipe: unknown) => boolean): boolean {
+function isStandardSchemaPipe(pipe: unknown): boolean {
   if (!pipe) return false;
-  if (customMatcher?.(pipe)) return true;
 
   // 1. 若 Pipe 實例自身持有 schema
   if (typeof pipe === 'object') {
     if ('schema' in pipe && resolveInboundSchema(pipe.schema)) {
       return true;
     }
+    if (resolveInboundSchema(pipe)) {
+      return true;
+    }
   }
 
-  // 2. 若 Pipe 是建構函數且自身帶有 schema
+  // 2. 若 Pipe 是建構函數且自身帶有 static schema
   if (typeof pipe === 'function') {
     if (resolveInboundSchema(pipe)) {
       return true;
     }
-    const name = pipe.name;
-    if (name.startsWith('Parse') || name.includes('ValidationPipe')) {
-      return true;
-    }
-  }
-
-  // 3. 檢查實例的構造函數名稱（如 ParseIntPipe, ZodValidationPipe, StandardValidationPipe）
-  const constructorName = (pipe as { constructor?: { name?: string } }).constructor?.name ?? '';
-  if (constructorName.startsWith('Parse') || constructorName.includes('ValidationPipe')) {
-    return true;
   }
 
   return false;
-}
-
-function unwrapController(ctrlTarget: unknown): Type<unknown> | undefined {
-  if (!ctrlTarget) return undefined;
-  if (typeof ctrlTarget === 'object' && 'forwardRef' in ctrlTarget) {
-    const fn = (ctrlTarget as { forwardRef: () => unknown }).forwardRef;
-    if (typeof fn === 'function') {
-      return unwrapController(fn());
-    }
-  }
-  if (typeof ctrlTarget === 'function') {
-    return ctrlTarget as Type<unknown>;
-  }
-  return undefined;
 }
 
 function unwrapTarget(target: unknown): unknown {
@@ -141,29 +80,73 @@ function unwrapTarget(target: unknown): unknown {
   return target;
 }
 
+function unwrapClass(target: unknown): Type<unknown> | undefined {
+  const unwrapped = unwrapTarget(target);
+  if (!unwrapped) return undefined;
+
+  if (typeof unwrapped === 'function') {
+    return unwrapped as Type<unknown>;
+  }
+
+  if (typeof unwrapped === 'object') {
+    // 支援 { provide: ..., useClass: TargetClass }
+    const withUseClass = unwrapped as { useClass?: unknown };
+    if (typeof withUseClass.useClass === 'function') {
+      return withUseClass.useClass as Type<unknown>;
+    }
+  }
+
+  return undefined;
+}
+
+interface DiscoveredComponents {
+  controllers: Set<Type<unknown>>;
+  resolvers: Set<Type<unknown>>;
+}
+
 /**
- * 靜態遞歸收集模組樹中的所有 Controller，原生相容 DynamicModule 與 forwardRef
+ * 判斷一個類別是否為 GraphQL Resolver
  */
-function collectControllersAndImports(
+function isGraphQLResolverClass(target: Type<unknown>): boolean {
+  return (
+    Reflect.hasMetadata('graphql:resolver_type', target) ||
+    Reflect.hasMetadata('graphql:resolver_name', target) ||
+    Reflect.getMetadataKeys(target).some((k) => typeof k === 'string' && k.startsWith('graphql:'))
+  );
+}
+
+/**
+ * 靜態遞歸收集模組樹中的所有 Controller 與 GraphQL Resolver Provider，原生相容 DynamicModule 與 forwardRef
+ */
+function collectAllComponents(
   rootTarget: unknown,
   visitedModules = new Set<unknown>(),
-  controllersSet = new Set<Type<unknown>>(),
-): Set<Type<unknown>> {
-  if (!rootTarget) return controllersSet;
+  components: DiscoveredComponents = { controllers: new Set(), resolvers: new Set() },
+): DiscoveredComponents {
+  if (!rootTarget) return components;
 
   const current = unwrapTarget(rootTarget);
-  if (!current) return controllersSet;
+  if (!current) return components;
 
   let moduleClass: Type<unknown> | undefined;
   let dynamicControllers: unknown[] = [];
+  let dynamicProviders: unknown[] = [];
   let dynamicImports: unknown[] = [];
 
   // 判斷是否為 DynamicModule
   if (typeof current === 'object' && 'module' in current) {
-    const dyn = current as { module: Type<unknown>; controllers?: unknown[]; imports?: unknown[] };
+    const dyn = current as {
+      module: Type<unknown>;
+      controllers?: unknown[];
+      providers?: unknown[];
+      imports?: unknown[];
+    };
     moduleClass = dyn.module;
     if (Array.isArray(dyn.controllers)) {
       dynamicControllers = dyn.controllers;
+    }
+    if (Array.isArray(dyn.providers)) {
+      dynamicProviders = dyn.providers;
     }
     if (Array.isArray(dyn.imports)) {
       dynamicImports = dyn.imports;
@@ -172,42 +155,44 @@ function collectControllersAndImports(
     moduleClass = current as Type<unknown>;
   }
 
-  if (!moduleClass) return controllersSet;
+  if (!moduleClass) return components;
 
   const isFirstVisit = !visitedModules.has(moduleClass);
   if (isFirstVisit) {
     visitedModules.add(moduleClass);
   }
 
-  // 收集 DynamicModule 顯式宣告的 controllers
-  for (const ctrl of dynamicControllers) {
-    const unwrappedCtrl = unwrapController(ctrl);
+  // 1. 收集 Controllers
+  const classControllersRaw = isFirstVisit ? Reflect.getMetadata('controllers', moduleClass) : undefined;
+  const classControllers: unknown[] = Array.isArray(classControllersRaw) ? classControllersRaw : [];
+  const allControllers = [...dynamicControllers, ...classControllers];
+  for (const ctrl of allControllers) {
+    const unwrappedCtrl = unwrapClass(ctrl);
     if (unwrappedCtrl) {
-      controllersSet.add(unwrappedCtrl);
+      components.controllers.add(unwrappedCtrl);
     }
   }
 
-  // 收集模組類裝飾器上的 controllers
-  if (isFirstVisit) {
-    const rawClassControllers = Reflect.getMetadata('controllers', moduleClass);
-    const classControllers: unknown[] = Array.isArray(rawClassControllers) ? rawClassControllers : [];
-    for (const ctrl of classControllers) {
-      const unwrappedCtrl = unwrapController(ctrl);
-      if (unwrappedCtrl) {
-        controllersSet.add(unwrappedCtrl);
-      }
+  // 2. 收集 Providers (過濾出 GraphQL Resolver)
+  const classProvidersRaw = isFirstVisit ? Reflect.getMetadata('providers', moduleClass) : undefined;
+  const classProviders: unknown[] = Array.isArray(classProvidersRaw) ? classProvidersRaw : [];
+  const allProviders = [...dynamicProviders, ...classProviders];
+  for (const prov of allProviders) {
+    const unwrappedProv = unwrapClass(prov);
+    if (unwrappedProv && isGraphQLResolverClass(unwrappedProv)) {
+      components.resolvers.add(unwrappedProv);
     }
   }
 
-  // 收集並遞歸遍歷 imports
-  const rawImports = isFirstVisit ? Reflect.getMetadata('imports', moduleClass) : undefined;
-  const classImports: unknown[] = Array.isArray(rawImports) ? rawImports : [];
+  // 3. 收集並遞歸遍歷 imports
+  const classImportsRaw = isFirstVisit ? Reflect.getMetadata('imports', moduleClass) : undefined;
+  const classImports: unknown[] = Array.isArray(classImportsRaw) ? classImportsRaw : [];
   const allImports = [...dynamicImports, ...classImports];
   for (const imp of allImports) {
-    collectControllersAndImports(imp, visitedModules, controllersSet);
+    collectAllComponents(imp, visitedModules, components);
   }
 
-  return controllersSet;
+  return components;
 }
 
 /**
@@ -215,27 +200,26 @@ function collectControllersAndImports(
  *
  * 核心特性：
  * 1. 零啟動成本：不依賴 NestFactory.create，不初始化 DI 容器，不建立資料庫/網路連線。
- * 2. 靜態反射：透過 NestJS 裝飾器樹（imports, controllers, __routeArguments__, design:paramtypes）精確審計每個入站端點。
- * 3. 邊界防禦：嚴格防護 @Body('field') 與 @Query('field') 單欄位提取繞過 Schema 的安全盲區。
- * 4. 顯式豁免：認可 @RawInput(reason) 審計標記並納入審計清單。
+ * 2. 全協議支持：涵蓋 HTTP 路由 (@Body, @Query, @Param)、GraphQL 解析器 (@Args)、gRPC 微服務 (@GrpcMethod)。
+ * 3. 邊界防禦與單一真理源：覆蓋判定唯一依賴 resolveInboundSchema，絕無類名猜測逃生口。
+ * 4. 框架上下文自動豁免：@Headers 等傳輸上下文自動豁免，不佔用業務邊界審計分母。
+ * 5. M4 門禁保障：若未列舉到任何入境參數（totalInputs === 0），直接拋錯中斷，杜絕虛假 100% 安全感。
  *
  * @param rootModule NestJS 根模組（如 AppModule）
- * @param options 審計過濾選項
  */
-export function collectInboundContractCoverage(
-  rootModule: unknown,
-  options: ContractCoverageOptions = {},
-): CoverageReport {
-  const includedCategories = new Set<InboundParamCategory>(
-    options.includedCategories ?? ['body', 'query', 'param', 'headers'],
-  );
-
-  const controllers = Array.from(collectControllersAndImports(rootModule));
+export function collectInboundContractCoverage(rootModule: unknown): CoverageReport {
+  const components = collectAllComponents(rootModule);
+  const controllers = Array.from(components.controllers);
+  const resolvers = Array.from(components.resolvers);
 
   const uncovered: UncoveredInput[] = [];
   const exempted: ExemptInput[] = [];
   let coveredCount = 0;
+  let httpCount = 0;
+  let graphqlCount = 0;
+  let grpcCount = 0;
 
+  // 1. 審計 Controllers (HTTP 與 gRPC 微服務)
   for (const controller of controllers) {
     const prototype = controller.prototype as object | undefined;
     if (!prototype) continue;
@@ -249,14 +233,156 @@ export function collectInboundContractCoverage(
 
       const handlerFn = descriptor.value as object;
 
-      // 檢查是否為路由處理器（帶有 path 或 method 元數據）
-      const hasPath = Reflect.getMetadata('path', handlerFn) !== undefined;
-      const hasMethod = Reflect.getMetadata('method', handlerFn) !== undefined;
-      if (!hasPath && !hasMethod) continue;
+      // 檢查是否為 gRPC 微服務方法
+      const hasGrpcPattern = Reflect.getMetadata('microservices:pattern', handlerFn) !== undefined;
+      const hasGrpcTransport = Reflect.getMetadata('microservices:transport', handlerFn) !== undefined;
+      const isGrpcHandler = hasGrpcPattern || hasGrpcTransport;
 
-      // 提取參數元數據
+      // 檢查是否為 HTTP 路由方法
+      const hasHttpPath = Reflect.getMetadata('path', handlerFn) !== undefined;
+      const hasHttpMethod = Reflect.getMetadata('method', handlerFn) !== undefined;
+      const isHttpHandler = !isGrpcHandler && (hasHttpPath || hasHttpMethod);
+
+      if (!isGrpcHandler && !isHttpHandler) continue;
+
       const routeArgs =
         (Reflect.getMetadata('__routeArguments__', controller, propertyKey) as
+          | Record<string, { index: number; data?: unknown; pipes?: (PipeTransform | Type<PipeTransform>)[] }>
+          | undefined) ?? {};
+      const rawParamtypes = Reflect.getMetadata('design:paramtypes', prototype, propertyKey);
+      const paramtypes: unknown[] = Array.isArray(rawParamtypes) ? rawParamtypes : [];
+
+      if (isGrpcHandler) {
+        grpcCount++;
+        // gRPC 預設入參為第 0 個參數 (data payload)
+        const paramIndex = 0;
+        const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
+        const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
+
+        // 檢查 @RawInput 豁免 (支援參數級或方法級)
+        const exemption =
+          getRawInputExemption(prototype, propertyKey, paramIndex) ?? getRawInputExemption(prototype, propertyKey, 0);
+
+        if (exemption) {
+          exempted.push({
+            transport: 'grpc',
+            controller: controller.name,
+            method: propertyKey,
+            parameterIndex: paramIndex,
+            kind: 'grpc_payload',
+            reason: exemption.reason,
+            exitCondition: exemption.exitCondition,
+          });
+          continue;
+        }
+
+        const schema = resolveInboundSchema(metatype);
+        if (schema) {
+          coveredCount++;
+          continue;
+        }
+
+        uncovered.push({
+          transport: 'grpc',
+          controller: controller.name,
+          method: propertyKey,
+          parameterIndex: paramIndex,
+          kind: 'grpc_payload',
+          metatypeName,
+          reason: `gRPC handler '${propertyKey}' payload lacks Standard Schema and is not exempted via @RawInput`,
+        });
+        continue;
+      }
+
+      // HTTP 處理分支
+      for (const [key, argMeta] of Object.entries(routeArgs)) {
+        const [rawTypeNumber] = key.split(':');
+        const typeNumber = Number(rawTypeNumber);
+
+        // 3: BODY, 4: QUERY, 5: PARAM
+        if (typeNumber !== 3 && typeNumber !== 4 && typeNumber !== 5) {
+          // 其餘 (0:req, 1:res, 2:next, 6:headers 等) 均為框架傳輸層上下文，自動豁免
+          continue;
+        }
+
+        httpCount++;
+        const kind: ContractInputKind = typeNumber === 3 ? 'body' : typeNumber === 4 ? 'query' : 'param';
+        const paramIndex = argMeta.index;
+        const dataName = typeof argMeta.data === 'string' ? argMeta.data : undefined;
+        const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
+        const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
+
+        // 1. 檢查是否被 @RawInput 顯式豁免
+        const exemption = getRawInputExemption(prototype, propertyKey, paramIndex);
+        if (exemption) {
+          exempted.push({
+            transport: 'http',
+            controller: controller.name,
+            method: propertyKey,
+            parameterIndex: paramIndex,
+            kind,
+            dataName,
+            reason: exemption.reason,
+            exitCondition: exemption.exitCondition,
+          });
+          continue;
+        }
+
+        // 2. 檢查 Pipe 是否直接持有 Standard Schema
+        const hasStandardSchemaPipe =
+          Array.isArray(argMeta.pipes) && argMeta.pipes.some((pipe) => isStandardSchemaPipe(pipe));
+
+        if (hasStandardSchemaPipe) {
+          coveredCount++;
+          continue;
+        }
+
+        // 3. 檢查 metatype 是否持有 Standard Schema (形式 A, B)
+        const schema = resolveInboundSchema(metatype);
+        if (schema) {
+          coveredCount++;
+          continue;
+        }
+
+        // 4. 未覆蓋
+        uncovered.push({
+          transport: 'http',
+          controller: controller.name,
+          method: propertyKey,
+          parameterIndex: paramIndex,
+          kind,
+          dataName,
+          metatypeName,
+          reason: dataName
+            ? `Parameter extracts single field '${dataName}' without bound Standard Schema`
+            : `Metatype '${metatypeName ?? 'unknown'}' has no Standard Schema attached`,
+        });
+      }
+    }
+  }
+
+  // 2. 審計 GraphQL Resolvers (@Args)
+  for (const resolver of resolvers) {
+    const prototype = resolver.prototype as object | undefined;
+    if (!prototype) continue;
+
+    const propertyNames = Object.getOwnPropertyNames(prototype);
+    for (const propertyKey of propertyNames) {
+      if (propertyKey === 'constructor') continue;
+
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, propertyKey);
+      if (!descriptor || typeof descriptor.value !== 'function') continue;
+
+      const handlerFn = descriptor.value as object;
+      const isGqlHandler =
+        Reflect.hasMetadata('graphql:resolver_type', handlerFn) ||
+        Reflect.hasMetadata('graphql:resolver_name', handlerFn) ||
+        Reflect.getMetadataKeys(handlerFn).some((k) => typeof k === 'string' && k.startsWith('graphql:'));
+
+      if (!isGqlHandler) continue;
+
+      const routeArgs =
+        (Reflect.getMetadata('__routeArguments__', resolver, propertyKey) as
           | Record<string, { index: number; data?: unknown; pipes?: (PipeTransform | Type<PipeTransform>)[] }>
           | undefined) ?? {};
       const rawParamtypes = Reflect.getMetadata('design:paramtypes', prototype, propertyKey);
@@ -265,75 +391,83 @@ export function collectInboundContractCoverage(
       for (const [key, argMeta] of Object.entries(routeArgs)) {
         const [rawTypeNumber] = key.split(':');
         const typeNumber = Number(rawTypeNumber);
-        const category = ROUTE_PARAM_TYPE_MAP[typeNumber] ?? 'other';
 
-        // 只審計納入範圍的邊界輸入（如 body, query, param, headers）
-        if (!includedCategories.has(category as InboundParamCategory)) {
+        // 在 NestJS GraphQL 中，GqlParamtype.ARGS = 3
+        if (typeNumber !== 3) {
           continue;
         }
 
+        graphqlCount++;
         const paramIndex = argMeta.index;
         const dataName = typeof argMeta.data === 'string' ? argMeta.data : undefined;
         const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
 
-        // 1. 檢查是否被 @RawInput 顯式豁免
-        const exemptionReason = getRawInputExemption(prototype, propertyKey, paramIndex);
-        if (exemptionReason) {
+        // 檢查 @RawInput 豁免
+        const exemption = getRawInputExemption(prototype, propertyKey, paramIndex);
+        if (exemption) {
           exempted.push({
-            controller: controller.name,
+            transport: 'graphql',
+            controller: resolver.name,
             method: propertyKey,
             parameterIndex: paramIndex,
-            paramCategory: category,
+            kind: 'args',
             dataName,
-            reason: exemptionReason,
+            reason: exemption.reason,
+            exitCondition: exemption.exitCondition,
           });
           continue;
         }
 
-        // 2. 檢查是否具備合格的 Validation Pipe
-        const hasValidationPipe =
-          Array.isArray(argMeta.pipes) &&
-          argMeta.pipes.some((pipe) => isRecognizedValidationPipe(pipe, options.isValidationPipe));
+        // 檢查 Pipe 是否直接持有 Standard Schema
+        const hasStandardSchemaPipe =
+          Array.isArray(argMeta.pipes) && argMeta.pipes.some((pipe) => isStandardSchemaPipe(pipe));
 
-        if (hasValidationPipe) {
+        if (hasStandardSchemaPipe) {
           coveredCount++;
           continue;
         }
 
-        // 3. 檢查 metatype 是否持有 Standard Schema (形式 A, B, C)
+        // 檢查 metatype 是否持有 Standard Schema
         const schema = resolveInboundSchema(metatype);
         if (schema) {
           coveredCount++;
           continue;
         }
 
-        // 4. 未覆蓋：記入 uncovered 清單
         uncovered.push({
-          controller: controller.name,
+          transport: 'graphql',
+          controller: resolver.name,
           method: propertyKey,
           parameterIndex: paramIndex,
-          paramCategory: category,
+          kind: 'args',
           dataName,
           metatypeName,
           reason: dataName
-            ? `Parameter extracts single field '${dataName}' without validation pipe`
-            : `Metatype '${metatypeName ?? 'unknown'}' has no Standard Schema attached and no validation pipe is configured`,
+            ? `GraphQL @Args('${dataName}') lacks bound Standard Schema`
+            : `GraphQL @Args parameter '${metatypeName ?? 'unknown'}' lacks bound Standard Schema`,
         });
       }
     }
   }
 
   const totalInputs = coveredCount + exempted.length + uncovered.length;
-  const effectiveInputs = totalInputs - exempted.length;
-  const coverageRate = effectiveInputs <= 0 ? 1 : Number((coveredCount / effectiveInputs).toFixed(4));
+
+  // M4 門禁：totalInputs === 0 必須報錯中斷 (Fail-Fast)
+  if (totalInputs === 0) {
+    throw new Error(
+      '[contract-coverage] No inbound inputs discovered in module tree. Ensure rootModule and imports are properly configured.',
+    );
+  }
 
   return {
     totalInputs,
     coveredInputs: coveredCount,
     exemptInputs: exempted.length,
     uncoveredInputs: uncovered.length,
-    coverageRate,
+    httpInputs: httpCount,
+    graphqlInputs: graphqlCount,
+    grpcInputs: grpcCount,
     uncovered,
     exempted,
   };

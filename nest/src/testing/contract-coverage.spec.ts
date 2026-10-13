@@ -1,17 +1,18 @@
 import 'reflect-metadata';
 
-import { Body, Controller, forwardRef, Get, Module, Param, ParseIntPipe, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, forwardRef, Get, Headers, Module, Param, Post, Query, Req, Res } from '@nestjs/common';
+import { Args, Query as GqlQuery, Resolver } from '@nestjs/graphql';
+import { GrpcMethod } from '@nestjs/microservices';
 
 import { RawInput } from '@app/nest/contract/raw-input';
 import { createSchemaDto } from '@app/nest/contract/schema-dto';
-import { ZodValidationPipe } from '@app/nest/pipes/zod.validation.pipe';
 
 import { collectInboundContractCoverage } from './contract-coverage';
 
 import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
-describe('collectInboundContractCoverage (Zero-Boot Static Reflection)', () => {
+describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () => {
   const UserSchema = z.object({
     username: z.string().min(3),
     email: z.string().email(),
@@ -21,145 +22,181 @@ describe('collectInboundContractCoverage (Zero-Boot Static Reflection)', () => {
     page: z.number().int().default(1),
   });
 
-  // 形式 A：createSchemaDto 基類繼承
-  class CreateUserDto extends createSchemaDto(UserSchema, 'CreateUserDto') {}
+  const GrpcSchema = z.object({
+    id: z.string().uuid(),
+  });
 
-  // 形式 B：純類 static schema
+  class CreateUserDto extends createSchemaDto(UserSchema) {}
+
   class SearchQueryDto {
     static readonly schema = QuerySchema;
     page!: number;
   }
 
-  // 無 Schema 的普通 DTO
+  class GrpcPayloadDto extends createSchemaDto(GrpcSchema) {}
+
   class UnprotectedDto {
     name!: string;
   }
 
+  // 1. HTTP Controller
   @Controller('users')
   class UsersController {
-    // 1. Covered: 形式 A DTO
+    // Covered: 形式 A DTO
     @Post()
     createUser(@Body() dto: CreateUserDto) {
       return dto;
     }
 
-    // 2. Covered: 形式 B DTO
+    // Covered: 形式 B DTO
     @Get()
     listUsers(@Query() query: SearchQueryDto) {
       return query;
     }
 
-    // 3. Covered: 使用 NestJS 原生 ParseIntPipe 進行邊界校驗
-    @Get(':id')
-    getUserById(@Param('id', ParseIntPipe) id: number) {
-      return { id };
-    }
-
-    // 4. Covered: 行內配置 ZodValidationPipe
-    @Post('inline')
-    inlineValidate(
-      @Body(new ZodValidationPipe(UserSchema))
-      body: any,
-    ) {
-      return body;
-    }
-
-    // 5. Uncovered: 單欄位提取未加 Pipe（CALO-SERVER-R 盲區，@Body('code') code: string）
+    // Uncovered: 單欄位提取未加 Schema
     @Post('verify')
     verifyCode(@Body('code') code: string) {
       return { code };
     }
 
-    // 6. Uncovered: 未綁定 Schema 的普通類
+    // Uncovered: 未綁定 Schema 的普通類
     @Post('unprotected')
     unprotectedAction(@Body() body: UnprotectedDto) {
       return body;
     }
 
-    // 7. Uncovered: 未加 Pipe 的 Query
-    @Get('search/raw')
-    rawSearch(@Query('keyword') keyword: string) {
-      return { keyword };
-    }
-
-    // 8. Exempted: 顯式標記 @RawInput 豁免
+    // Exempted: 顯式標記 @RawInput 豁免
     @Post('webhook/raw')
     rawWebhook(
-      @RawInput('Third-party raw cryptographic signature verification')
+      @RawInput('Third-party raw cryptographic signature verification', '待提供官方 Schema 後退場')
       @Body()
       rawPayload: any,
     ) {
       return rawPayload;
     }
 
-    // 9. 框架內部對象注入：不應算作入站未受信任邊界
-    @Get('health/stream')
-    streamHealth(@Req() req: any, @Res() res: any) {
-      return { ok: true };
+    // 框架傳輸層上下文：@Headers, @Req, @Res 自動豁免，不佔用邊界審計分母
+    @Get('headers-test')
+    testHeaders(@Headers('x-trace-id') traceId: string, @Req() req: any, @Res() res: any) {
+      return { traceId, req, res };
+    }
+  }
+
+  // 2. GraphQL Resolver
+  @Resolver()
+  class UsersResolver {
+    // Covered: @Args 綁定 Standard Schema DTO
+    @GqlQuery(() => String)
+    queryUser(@Args('input') input: CreateUserDto) {
+      return input.username;
+    }
+
+    // Uncovered: @Args 未綁定 Schema
+    @GqlQuery(() => String)
+    rawArgsQuery(@Args('filter') filter: string) {
+      return filter;
+    }
+
+    // Exempted: @Args 使用 @RawInput 豁免
+    @GqlQuery(() => String)
+    exemptArgsQuery(
+      @RawInput('Dynamic GraphQL JSON filter passthrough', '待規範標準過濾器結構後退場')
+      @Args('jsonFilter')
+      jsonFilter: any,
+    ) {
+      return jsonFilter;
+    }
+  }
+
+  // 3. gRPC Microservice Controller
+  @Controller()
+  class UsersGrpcController {
+    // Covered: gRPC 方法入參綁定 Standard Schema
+    @GrpcMethod('UsersService', 'FindOne')
+    findOne(data: GrpcPayloadDto) {
+      return data;
+    }
+
+    // Uncovered: gRPC 方法入參無 Schema 且無豁免
+    @GrpcMethod('UsersService', 'UnprotectedRpc')
+    unprotectedRpc(data: UnprotectedDto) {
+      return data;
+    }
+
+    // Exempted: gRPC 方法入參標記 @RawInput
+    @GrpcMethod('UsersService', 'RawRpc')
+    rawRpc(
+      @RawInput('Protobuf binary stream handled via low-level parser', '持續保留')
+      data: any,
+    ) {
+      return data;
     }
   }
 
   @Module({
-    controllers: [UsersController],
+    controllers: [UsersController, UsersGrpcController],
+    providers: [UsersResolver],
   })
-  class UsersModule {}
+  class TestRootModule {}
 
-  @Module({
-    imports: [UsersModule],
-  })
-  class AppModule {}
+  it('應覆蓋 HTTP, GraphQL @Args 與 gRPC 三大協議並精確統計各協議輸入', () => {
+    const report = collectInboundContractCoverage(TestRootModule);
 
-  it('應精確統計各類入站參數的覆蓋狀態、豁免與未覆蓋清單', () => {
-    const report = collectInboundContractCoverage(AppModule);
+    // 總輸入分母計數：
+    // HTTP: 5 (createUser body, listUsers query, verifyCode body, unprotectedAction body, rawWebhook body)
+    // 注意：testHeaders 上的 @Headers, @Req, @Res 均為框架上下文，不計入審計分母
+    // GraphQL: 3 (queryUser args, rawArgsQuery args, exemptArgsQuery args)
+    // gRPC: 3 (findOne payload, unprotectedRpc payload, rawRpc payload)
+    // Total = 5 + 3 + 3 = 11
+    expect(report.totalInputs).toBe(11);
+    expect(report.httpInputs).toBe(5);
+    expect(report.graphqlInputs).toBe(3);
+    expect(report.grpcInputs).toBe(3);
 
-    // 總共審計到的入境參數：
-    // Covered: 4 個 (createUser body, listUsers query, getUserById param, inlineValidate body)
-    // Uncovered: 3 個 (verifyCode body('code'), unprotectedAction body, rawSearch query('keyword'))
-    // Exempted: 1 個 (rawWebhook body with @RawInput)
-    // 框架對象 (@Req, @Res) 不計入入站審計
+    // 覆蓋與未覆蓋統計：
+    // Covered: 4 (HTTP: createUser, listUsers; GraphQL: queryUser; gRPC: findOne)
+    // Exempted: 3 (HTTP: rawWebhook; GraphQL: exemptArgsQuery; gRPC: rawRpc)
+    // Uncovered: 4 (HTTP: verifyCode, unprotectedAction; GraphQL: rawArgsQuery; gRPC: unprotectedRpc)
     expect(report.coveredInputs).toBe(4);
-    expect(report.uncoveredInputs).toBe(3);
-    expect(report.exemptInputs).toBe(1);
-    expect(report.totalInputs).toBe(8);
+    expect(report.exemptInputs).toBe(3);
+    expect(report.uncoveredInputs).toBe(4);
 
-    // 覆蓋率計算：covered / (total - exempt) = 4 / (8 - 1) = 4 / 7 ≈ 0.5714
-    expect(report.coverageRate).toBe(0.5714);
+    // 驗證未覆蓋清單
+    expect(report.uncovered).toHaveLength(4);
 
-    // 驗證未覆蓋清單細節
-    expect(report.uncovered).toHaveLength(3);
+    const httpUncovered = report.uncovered.find((u) => u.transport === 'http' && u.method === 'verifyCode');
+    expect(httpUncovered).toBeDefined();
+    expect(httpUncovered?.kind).toBe('body');
+    expect(httpUncovered?.dataName).toBe('code');
 
-    const singleFieldUncovered = report.uncovered.find(
-      (item) => item.method === 'verifyCode' && item.dataName === 'code',
-    );
-    expect(singleFieldUncovered).toBeDefined();
-    expect(singleFieldUncovered?.paramCategory).toBe('body');
-    expect(singleFieldUncovered?.reason).toContain("extracts single field 'code' without validation pipe");
+    const gqlUncovered = report.uncovered.find((u) => u.transport === 'graphql' && u.method === 'rawArgsQuery');
+    expect(gqlUncovered).toBeDefined();
+    expect(gqlUncovered?.kind).toBe('args');
+    expect(gqlUncovered?.dataName).toBe('filter');
 
-    const unprotectedDtoUncovered = report.uncovered.find((item) => item.method === 'unprotectedAction');
-    expect(unprotectedDtoUncovered).toBeDefined();
-    expect(unprotectedDtoUncovered?.metatypeName).toBe('UnprotectedDto');
+    const grpcUncovered = report.uncovered.find((u) => u.transport === 'grpc' && u.method === 'unprotectedRpc');
+    expect(grpcUncovered).toBeDefined();
+    expect(grpcUncovered?.kind).toBe('grpc_payload');
 
-    const queryUncovered = report.uncovered.find((item) => item.method === 'rawSearch' && item.dataName === 'keyword');
-    expect(queryUncovered).toBeDefined();
-
-    // 驗證豁免清單細節
-    expect(report.exempted).toHaveLength(1);
-    expect(report.exempted[0]?.method).toBe('rawWebhook');
-    expect(report.exempted[0]?.reason).toBe('Third-party raw cryptographic signature verification');
+    // 驗證豁免清單包含退場條件
+    expect(report.exempted).toHaveLength(3);
+    const rawWebhookExempt = report.exempted.find((e) => e.method === 'rawWebhook');
+    expect(rawWebhookExempt?.exitCondition).toBe('待提供官方 Schema 後退場');
   });
 
-  it('支援 DynamicModule 與 forwardRef 模組樹解析', () => {
-    @Controller('feature')
-    class FeatureController {
-      @Get('info')
-      getInfo(@Query('filter') filter: string) {
-        return filter;
+  it('支援 DynamicModule 與 forwardRef 模組樹深度解析', () => {
+    @Resolver()
+    class DynamicFeatureResolver {
+      @GqlQuery(() => String)
+      queryDynamic(@Args('term') term: string) {
+        return term;
       }
     }
 
     const DynamicFeatureModule = {
       module: class FeatureModule {},
-      controllers: [FeatureController],
+      providers: [DynamicFeatureResolver],
     };
 
     @Module({
@@ -169,29 +206,29 @@ describe('collectInboundContractCoverage (Zero-Boot Static Reflection)', () => {
 
     const report = collectInboundContractCoverage(RootDynamicModule);
     expect(report.totalInputs).toBe(1);
+    expect(report.graphqlInputs).toBe(1);
     expect(report.uncoveredInputs).toBe(1);
-    expect(report.uncovered[0]?.controller).toBe('FeatureController');
+    expect(report.uncovered[0]?.transport).toBe('graphql');
   });
 
-  it('當模組完全沒有入站參數時應回報 100% 覆蓋率', () => {
-    @Controller('empty')
-    class EmptyController {
-      @Get('ping')
-      ping() {
-        return 'pong';
+  describe('M4 Acceptance Gate: totalInputs === 0 must fail (Fail-Fast)', () => {
+    it('當模組完全沒有入站參數時應拋出異常，嚴禁報 100% 虛假覆蓋', () => {
+      @Controller('empty')
+      class EmptyController {
+        @Get('ping')
+        ping() {
+          return 'pong';
+        }
       }
-    }
 
-    @Module({
-      controllers: [EmptyController],
-    })
-    class EmptyModule {}
+      @Module({
+        controllers: [EmptyController],
+      })
+      class EmptyModule {}
 
-    const report = collectInboundContractCoverage(EmptyModule);
-    expect(report.totalInputs).toBe(0);
-    expect(report.coveredInputs).toBe(0);
-    expect(report.uncoveredInputs).toBe(0);
-    expect(report.exemptInputs).toBe(0);
-    expect(report.coverageRate).toBe(1);
+      expect(() => collectInboundContractCoverage(EmptyModule)).toThrow(
+        '[contract-coverage] No inbound inputs discovered in module tree.',
+      );
+    });
   });
 });

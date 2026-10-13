@@ -30,55 +30,42 @@ export function isStandardSchema(val: unknown): val is StandardSchemaV1 {
  * 解決 NestJS TypeScript 反射需要具名類（Named Class）以在 `design:paramtypes` 中保留元數據的限制，
  * 同時支援強型別推導（自動將 DTO 實例型別推導為 Schema 的 Output 型別）。
  *
- * @param schema 符合 Standard Schema 規範的校驗器（Zod, ArkType, Valibot 等）
- * @param name 可選的類名，便於偵錯與日誌追蹤，預設為 'AnonymousSchemaDto'
+ * 遵循 CFT-02 (One Way To Do It) 規範，僅提供基類繼承唯一形式：
  *
  * @example
- * // 形式 A：推薦用法（類繼承）
  * class VerifyCodeDto extends createSchemaDto(VerifyCodeSchema) {}
  *
- * // 形式 C：工廠具名宣告
- * const VerifyCodeDto = createSchemaDto(VerifyCodeSchema, 'VerifyCodeDto');
+ * @param schema 符合 Standard Schema 規範的校驗器（Zod, ArkType, Valibot 等）
  */
 export function createSchemaDto<
   TSchema extends StandardSchemaV1,
   TOutput = StandardSchemaV1.InferOutput<TSchema>,
   TInput = StandardSchemaV1.InferInput<TSchema>,
->(schema: TSchema, name?: string): SchemaDtoConstructor<TOutput, TInput> {
+>(schema: TSchema): SchemaDtoConstructor<TOutput, TInput> {
   if (!isStandardSchema(schema)) {
     throw new TypeError(
       '[createSchemaDto] The provided schema does not satisfy the Standard Schema specification (~standard property missing).',
     );
   }
 
-  const className = name && /^[A-Z][a-zA-Z0-9_]*$/.test(name) ? name : 'AnonymousSchemaDto';
+  class SchemaDtoHost {
+    static readonly schema = schema;
+    static readonly [SCHEMA_DTO_BRAND] = true as const;
+  }
 
-  const host = {
-    [className]: class {
-      static readonly schema = schema;
-      static readonly [SCHEMA_DTO_BRAND] = true as const;
-    },
-  }[className];
-
-  return host as unknown as SchemaDtoConstructor<TOutput, TInput>;
+  return SchemaDtoHost as unknown as SchemaDtoConstructor<TOutput, TInput>;
 }
-
-/**
- * createSchemaDto 的簡短別名。
- */
-export { createSchemaDto as SchemaDto };
 
 /**
  * 解析入站目標（類、物件或 ArgumentMetadata）所持有的 Standard Schema。
  *
  * 核心安全設計（原型繼承安全與品牌守衛）：
  * 1. 形式 B（原生類）：類自身直接定義 static readonly schema 時（hasOwnProperty === true），解析成功。
- * 2. 形式 C（工廠生成類）：工廠產生的 host 類自身直接持有 schema，解析成功。
- * 3. 形式 A（類繼承工廠類）：檢查目標類的「直接父類」（Object.getPrototypeOf(target)）。
+ * 2. 形式 A（類繼承工廠類）：檢查目標類的「直接父類」（Object.getPrototypeOf(target)）。
  *    若直接父類具有 [SCHEMA_DTO_BRAND] === true 且直接父類自身持有 schema（hasOwnProperty === true），解析成功。
- * 4. 杜絕多層繼承污染：若子類繼承了形式 A 的 DTO（如 GrandChild extends VerifyCodeDto），
+ * 3. 杜絕多層繼承污染：若子類繼承了形式 A 的 DTO（如 GrandChild extends VerifyCodeDto），
  *    GrandChild 的直接父類 VerifyCodeDto 自身並無 schema（其 schema 在 host 上），因此不解析，防止子類業務字段被意外剝離。
- * 5. 杜絕通用基類污染：通用基類（如 CursoredRequestInput）未帶 [SCHEMA_DTO_BRAND]，其子類不會繼承父類 schema。
+ * 4. 杜絕通用基類污染：通用基類（如 CursoredRequestInput）未帶 [SCHEMA_DTO_BRAND]，其子類不會繼承父類 schema。
  */
 export function resolveInboundSchema(target: unknown): StandardSchemaV1 | undefined {
   if (!target) return undefined;
@@ -99,7 +86,7 @@ export function resolveInboundSchema(target: unknown): StandardSchemaV1 | undefi
 
   // 3. 目標是建構函數 / 類 (Function)
   if (typeof target === 'function') {
-    // 3.1 形式 B / 形式 C：類自身直接持有 static schema
+    // 3.1 形式 B：類自身直接持有 static schema
     if (Object.prototype.hasOwnProperty.call(target, 'schema')) {
       const owned = (target as { schema?: unknown }).schema;
       if (isStandardSchema(owned)) {

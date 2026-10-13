@@ -863,7 +863,7 @@ describe('createSchemaDto & DualBoundaryValidationPipe / AppStandardSchemaValida
     age: z.coerce.number().int().positive(),
   });
 
-  class FormADto extends createSchemaDto(FormASchema, 'FormADto') {}
+  class FormADto extends createSchemaDto(FormASchema) {}
 
   it('AppStandardSchemaValidationPipe automatically resolves schema from createSchemaDto parent class', async () => {
     const pipe = new AppStandardSchemaValidationPipe();

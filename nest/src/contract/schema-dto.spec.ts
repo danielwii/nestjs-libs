@@ -1,4 +1,4 @@
-import { createSchemaDto, isStandardSchema, resolveInboundSchema, SCHEMA_DTO_BRAND, SchemaDto } from './schema-dto';
+import { createSchemaDto, isStandardSchema, resolveInboundSchema, SCHEMA_DTO_BRAND } from './schema-dto';
 
 import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ArgumentMetadata } from '@nestjs/common';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 
-describe('SchemaDto & resolveInboundSchema', () => {
+describe('createSchemaDto & resolveInboundSchema (CFT-02 Single Form)', () => {
   const UserSchema = z.object({
     id: z.string().uuid(),
     email: z.string().email(),
@@ -20,16 +20,9 @@ describe('SchemaDto & resolveInboundSchema', () => {
 
   describe('createSchemaDto factory', () => {
     it('應成功建立帶有品牌標記和靜態 schema 的基類', () => {
-      const BaseDto = createSchemaDto(UserSchema, 'UserDto');
+      class BaseDto extends createSchemaDto(UserSchema) {}
 
       expect(isStandardSchema(BaseDto.schema)).toBe(true);
-      expect((BaseDto as any)[SCHEMA_DTO_BRAND]).toBe(true);
-      expect(BaseDto.name).toBe('UserDto');
-    });
-
-    it('未指定類名時應預設為 AnonymousSchemaDto', () => {
-      const BaseDto = SchemaDto(UserSchema);
-      expect(BaseDto.name).toBe('AnonymousSchemaDto');
       expect((BaseDto as any)[SCHEMA_DTO_BRAND]).toBe(true);
     });
 
@@ -41,8 +34,8 @@ describe('SchemaDto & resolveInboundSchema', () => {
   });
 
   describe('resolveInboundSchema', () => {
-    it('形式 A：支援 class extends createSchemaDto(S) {} 形式的 DTO 解析', () => {
-      class CreateUserDto extends createSchemaDto(UserSchema, 'CreateUserBase') {}
+    it('形式 A：支援 class extends createSchemaDto(S) {} 唯一首選形式的 DTO 解析', () => {
+      class CreateUserDto extends createSchemaDto(UserSchema) {}
 
       const resolved = resolveInboundSchema(CreateUserDto);
       expect(resolved).toBeDefined();
@@ -61,16 +54,8 @@ describe('SchemaDto & resolveInboundSchema', () => {
       expect(resolved).toBe(UserSchema);
     });
 
-    it('形式 C：支援工廠具名產生的 DTO 類直接解析', () => {
-      const FactoryUserDto = createSchemaDto(UserSchema, 'FactoryUserDto');
-
-      const resolved = resolveInboundSchema(FactoryUserDto);
-      expect(resolved).toBeDefined();
-      expect(resolved).toBe(UserSchema);
-    });
-
     it('防原型污染 1：形式 A 的孫類（多層繼承）不應解析出父類的 schema', () => {
-      class ParentDto extends createSchemaDto(UserSchema, 'ParentDto') {}
+      class ParentDto extends createSchemaDto(UserSchema) {}
       // 孫類：GrandChildDto 繼承自 ParentDto，但 GrandChildDto 沒有聲明自身 schema，
       // ParentDto 自身也無 ownProperty 'schema'（schema 在 host 上）
       class GrandChildDto extends ParentDto {
@@ -82,14 +67,12 @@ describe('SchemaDto & resolveInboundSchema', () => {
     });
 
     it('防原型污染 2：未帶品牌標記的通用基類（如分頁基類），其子類不應繼承 schema', () => {
-      // 模擬未走 createSchemaDto 的通用基類
       class CursoredRequestInput {
         static readonly schema = PaginationSchema;
         cursor?: string;
         limit?: number;
       }
 
-      // 子類有自己的業務字段
       class QueryArticlesDto extends CursoredRequestInput {
         category!: string;
       }
