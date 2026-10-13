@@ -118,6 +118,27 @@ function isGraphQLResolverClass(target: Type<unknown>): boolean {
 }
 
 /**
+ * 沿原型鏈向上收集所有方法描述符（直至 Object.prototype），子類同名覆寫方法優先。
+ */
+function collectPrototypeMethods(prototype: object): Map<string, PropertyDescriptor> {
+  const methods = new Map<string, PropertyDescriptor>();
+  let currentProto: object | null = prototype;
+
+  while (currentProto && currentProto !== Object.prototype) {
+    for (const propertyKey of Object.getOwnPropertyNames(currentProto)) {
+      if (propertyKey === 'constructor' || methods.has(propertyKey)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(currentProto, propertyKey);
+      if (descriptor && typeof descriptor.value === 'function') {
+        methods.set(propertyKey, descriptor);
+      }
+    }
+    currentProto = Object.getPrototypeOf(currentProto) as object | null;
+  }
+
+  return methods;
+}
+
+/**
  * 靜態遞歸收集模組樹中的所有 Controller 與 GraphQL Resolver Provider，原生相容 DynamicModule 與 forwardRef
  */
 function collectAllComponents(
@@ -129,6 +150,13 @@ function collectAllComponents(
 
   const current = unwrapTarget(rootTarget);
   if (!current) return components;
+
+  // 靜態邊界 Fail-Fast：拒絕未解析的異步 Promise<DynamicModule>，杜絕靜默漏掃
+  if (typeof current === 'object' && 'then' in current && typeof (current as { then?: unknown }).then === 'function') {
+    throw new Error(
+      '[contract-coverage] Asynchronous Promise module detected in module tree. Pass resolved DynamicModule or synchronous module classes to collectInboundContractCoverage.',
+    );
+  }
 
   let moduleClass: Type<unknown> | undefined;
   let dynamicControllers: unknown[] = [];
@@ -235,13 +263,8 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
     const prototype = controller.prototype as object | undefined;
     if (!prototype) continue;
 
-    const propertyNames = Object.getOwnPropertyNames(prototype);
-    for (const propertyKey of propertyNames) {
-      if (propertyKey === 'constructor') continue;
-
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, propertyKey);
-      if (!descriptor || typeof descriptor.value !== 'function') continue;
-
+    const methods = collectPrototypeMethods(prototype);
+    for (const [propertyKey, descriptor] of methods.entries()) {
       const handlerFn = descriptor.value as object;
 
       // 檢查是否為 gRPC 微服務方法
@@ -264,8 +287,10 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
       const paramtypes: unknown[] = Array.isArray(rawParamtypes) ? rawParamtypes : [];
 
       if (isGrpcHandler) {
-        // gRPC 預設入參為第 0 個參數 (data payload)
-        const paramIndex = 0;
+        // 優先從 __routeArguments__ 解析顯式 @Payload() (RpcParamtype.PAYLOAD = 3) 的參數位置，無裝飾器時預設為第 0 個參數
+        const payloadEntry = Object.entries(routeArgs).find(([key]) => Number(key.split(':')[0]) === 3)?.[1];
+        const paramIndex = payloadEntry ? payloadEntry.index : 0;
+        const dataName = typeof payloadEntry?.data === 'string' ? payloadEntry.data : undefined;
         const location = `${controller.name}.${propertyKey}#${paramIndex}`;
         grpcLocations.add(location);
 
@@ -276,7 +301,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
         const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
 
-        // 檢查 @RawInput 豁免 (支援參數級或方法級)
+        // 1. 檢查 @RawInput 豁免 (支援參數級或方法級)
         const exemption = getRawInputExemption(prototype, propertyKey, paramIndex);
 
         if (exemption) {
@@ -287,12 +312,23 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
             method: propertyKey,
             parameterIndex: paramIndex,
             kind: 'payload',
+            dataName,
             reason: exemption.reason,
             exitCondition: exemption.exitCondition,
           });
           continue;
         }
 
+        // 2. 檢查 Pipe 是否直接持有 Standard Schema
+        const hasStandardSchemaPipe =
+          Array.isArray(payloadEntry?.pipes) && payloadEntry.pipes.some((pipe) => isStandardSchemaPipe(pipe));
+
+        if (hasStandardSchemaPipe) {
+          coveredLocations.add(location);
+          continue;
+        }
+
+        // 3. 檢查 metatype 是否持有 Standard Schema
         const schema = resolveInboundSchema(metatype);
         if (schema) {
           coveredLocations.add(location);
@@ -306,6 +342,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
           method: propertyKey,
           parameterIndex: paramIndex,
           kind: 'payload',
+          dataName,
           metatypeName,
           reason: `gRPC handler '${propertyKey}' payload lacks Standard Schema and is not exempted via @RawInput`,
         });
@@ -392,13 +429,8 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
     const prototype = resolver.prototype as object | undefined;
     if (!prototype) continue;
 
-    const propertyNames = Object.getOwnPropertyNames(prototype);
-    for (const propertyKey of propertyNames) {
-      if (propertyKey === 'constructor') continue;
-
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, propertyKey);
-      if (!descriptor || typeof descriptor.value !== 'function') continue;
-
+    const methods = collectPrototypeMethods(prototype);
+    for (const [propertyKey, descriptor] of methods.entries()) {
       const handlerFn = descriptor.value as object;
       const isGqlHandler =
         Reflect.hasMetadata('graphql:resolver_type', handlerFn) ||
