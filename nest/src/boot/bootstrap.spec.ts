@@ -2,6 +2,7 @@ import { Controller, Module, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { GrpcMethod, Transport } from '@nestjs/microservices';
 
+import { createSchemaDto } from '@app/nest/contract/schema-dto';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
@@ -33,6 +34,7 @@ import * as grpc from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { throwError } from 'rxjs';
+import { z } from 'zod';
 
 import type { BootstrapOptions } from './bootstrap';
 import type { INestApplication, OnModuleInit } from '@nestjs/common';
@@ -852,5 +854,33 @@ describe('validation mode is mandatory (type level)', () => {
     const removed: BootstrapOptions = { validation: 'legacy', validationPipe: false };
     void [omitted, ok, bad, bare, removed];
     expect(ok.validation).toBe('standard-schema');
+  });
+});
+
+describe('createSchemaDto & DualBoundaryValidationPipe / AppStandardSchemaValidationPipe integration', () => {
+  const FormASchema = z.object({
+    username: z.string().min(2),
+    age: z.coerce.number().int().positive(),
+  });
+
+  class FormADto extends createSchemaDto(FormASchema, 'FormADto') {}
+
+  it('AppStandardSchemaValidationPipe automatically resolves schema from createSchemaDto parent class', async () => {
+    const pipe = new AppStandardSchemaValidationPipe();
+    const result = await pipe.transform<unknown>(
+      { username: 'daniel', age: '30' },
+      { type: 'body', metatype: FormADto },
+    );
+    expect(result).toEqual({ username: 'daniel', age: 30 });
+  });
+
+  it('DualBoundaryValidationPipe skips class-validator when metatype is a createSchemaDto subclass', () => {
+    const dualPipe = new DualBoundaryValidationPipe();
+    // 形式 A DTO 應被判定為持有 Standard Schema，因此 toValidate 返回 false（跳過 class-validator）
+    const shouldValidateWithClassValidator = dualPipe.toValidate({
+      type: 'body',
+      metatype: FormADto,
+    });
+    expect(shouldValidateWithClassValidator).toBe(false);
   });
 });
