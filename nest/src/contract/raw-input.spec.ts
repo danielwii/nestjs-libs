@@ -90,7 +90,7 @@ describe('@RawInput Decorator', () => {
     expect(getRawInputExemption({}, 'nonExistent', 0)).toBeUndefined();
   });
 
-  describe('Type-level contract assertions (M6)', () => {
+  describe('Type-level contract assertions', () => {
     it('編譯期型別約束驗證', () => {
       // 正常呼叫：單參數 reason 或雙參數 reason + exitCondition
       const decorator1 = RawInput('reason');
