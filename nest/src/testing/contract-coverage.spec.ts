@@ -281,7 +281,7 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
   });
 
   describe('邊界加固：原型鏈方法繼承與 gRPC @Payload() 顯式索引', () => {
-    it('應沿原型鏈掃描 BaseController 繼承而來的路由方法，且子類覆寫方法不重複計數', () => {
+    it('應沿原型鏈掃描 BaseController 與 BaseResolver 繼承而來的端點方法，且子類覆寫方法不重複計數', () => {
       abstract class BaseCrudController {
         @Post('base-covered')
         baseCovered(@Body() dto: CreateUserDto) {
@@ -308,19 +308,40 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
         }
       }
 
+      abstract class BaseCrudResolver {
+        @GqlQuery(() => String)
+        baseGqlCovered(@Args('input') input: CreateUserDto) {
+          return input.username;
+        }
+
+        @GqlQuery(() => String)
+        baseGqlUncovered(@Args('rawFilter') rawFilter: string) {
+          return rawFilter;
+        }
+      }
+
+      @Resolver()
+      class DerivedResolver extends BaseCrudResolver {}
+
       @Module({
         controllers: [DerivedController],
+        providers: [DerivedResolver],
       })
       class InheritedRouteModule {}
 
       const report = collectInboundContractCoverage(InheritedRouteModule);
-      expect(report.total).toBe(3);
-      expect(report.covered).toBe(2);
-      expect(report.uncovered).toBe(1);
-      expect(report.uncoveredInputs[0]?.location).toBe('DerivedController.baseUncovered#0');
+      expect(report.total).toBe(5);
+      expect(report.httpInputs).toBe(3);
+      expect(report.graphqlInputs).toBe(2);
+      expect(report.covered).toBe(3);
+      expect(report.uncovered).toBe(2);
+      expect(report.uncoveredInputs.map((u) => u.location)).toEqual([
+        'DerivedController.baseUncovered#0',
+        'DerivedResolver.baseGqlUncovered#0',
+      ]);
     });
 
-    it('當 gRPC handler 使用 @Ctx() 與 @Payload() 將 payload 置於非 0 索引時應精確定位真實 payload', () => {
+    it('當 gRPC handler 使用 @Ctx() 與 @Payload() 將 payload 置於非 0 索引時應精確定位真實 payload、dataName 與 @RawInput 豁免', () => {
       @Controller()
       class ExplicitPayloadGrpcController {
         @GrpcMethod('UsersService', 'WithCtxCovered')
@@ -329,8 +350,18 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
         }
 
         @GrpcMethod('UsersService', 'WithCtxUncovered')
-        withCtxUncovered(@Ctx() _ctx: unknown, @Payload() data: UnprotectedDto) {
-          return data;
+        withCtxUncovered(@Ctx() _ctx: unknown, @Payload('userId') userId: string) {
+          return userId;
+        }
+
+        @GrpcMethod('UsersService', 'WithCtxExempt')
+        withCtxExempt(
+          @Ctx() _ctx: unknown,
+          @RawInput('Raw protobuf frame at index 1', '待遷移至標準 DTO 後退場')
+          @Payload('rawFrame')
+          rawFrame: unknown,
+        ) {
+          return rawFrame;
         }
       }
 
@@ -340,12 +371,20 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
       class ExplicitPayloadGrpcModule {}
 
       const report = collectInboundContractCoverage(ExplicitPayloadGrpcModule);
-      expect(report.total).toBe(2);
-      expect(report.grpcInputs).toBe(2);
+      expect(report.total).toBe(3);
+      expect(report.grpcInputs).toBe(3);
       expect(report.covered).toBe(1);
+      expect(report.exempt).toBe(1);
       expect(report.uncovered).toBe(1);
+
       expect(report.uncoveredInputs[0]?.location).toBe('ExplicitPayloadGrpcController.withCtxUncovered#1');
       expect(report.uncoveredInputs[0]?.parameterIndex).toBe(1);
+      expect(report.uncoveredInputs[0]?.dataName).toBe('userId');
+
+      expect(report.exemptInputs[0]?.location).toBe('ExplicitPayloadGrpcController.withCtxExempt#1');
+      expect(report.exemptInputs[0]?.parameterIndex).toBe(1);
+      expect(report.exemptInputs[0]?.dataName).toBe('rawFrame');
+      expect(report.exemptInputs[0]?.exitCondition).toBe('待遷移至標準 DTO 後退場');
     });
   });
 });
