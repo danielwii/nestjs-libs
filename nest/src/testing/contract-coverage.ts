@@ -6,14 +6,14 @@ import { resolveInboundSchema } from '@app/nest/contract/schema-dto';
 import type { PipeTransform, Type } from '@nestjs/common';
 
 export type ContractTransport = 'http' | 'graphql' | 'grpc';
-export type ContractInputKind = 'body' | 'query' | 'param' | 'args' | 'grpc_payload';
+export type ContractInputKind = 'body' | 'query' | 'param' | 'args' | 'payload';
 
 export interface UncoveredInput {
   transport: ContractTransport;
   controller: string;
   method: string;
   parameterIndex: number;
-  kind: ContractInputKind | string;
+  kind: ContractInputKind;
   dataName?: string;
   metatypeName?: string;
   reason: string;
@@ -24,22 +24,22 @@ export interface ExemptInput {
   controller: string;
   method: string;
   parameterIndex: number;
-  kind: ContractInputKind | string;
+  kind: ContractInputKind;
   dataName?: string;
   reason: string;
   exitCondition?: string;
 }
 
 export interface CoverageReport {
-  totalInputs: number;
-  coveredInputs: number;
-  exemptInputs: number;
-  uncoveredInputs: number;
+  total: number;
+  covered: number;
+  exempt: number;
+  uncovered: number;
   httpInputs: number;
   graphqlInputs: number;
   grpcInputs: number;
-  uncovered: UncoveredInput[];
-  exempted: ExemptInput[];
+  uncoveredInputs: UncoveredInput[];
+  exemptInputs: ExemptInput[];
 }
 
 /**
@@ -203,7 +203,7 @@ function collectAllComponents(
  * 2. 全協議支持：涵蓋 HTTP 路由 (@Body, @Query, @Param)、GraphQL 解析器 (@Args)、gRPC 微服務 (@GrpcMethod)。
  * 3. 邊界防禦與單一真理源：覆蓋判定唯一依賴 resolveInboundSchema，絕無類名猜測逃生口。
  * 4. 框架上下文自動豁免：@Headers 等傳輸上下文自動豁免，不佔用業務邊界審計分母。
- * 5. M4 門禁保障：若未列舉到任何入境參數（totalInputs === 0），直接拋錯中斷，杜絕虛假 100% 安全感。
+ * 5. 零入參防護門禁 (Fail-Fast Zero Inputs Invariant)：若未列舉到任何入境參數（total === 0），直接拋錯中斷，杜絕虛假 100% 安全感。
  *
  * @param rootModule NestJS 根模組（如 AppModule）
  */
@@ -260,8 +260,7 @@ export function collectInboundContractCoverage(rootModule: unknown): CoverageRep
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
 
         // 檢查 @RawInput 豁免 (支援參數級或方法級)
-        const exemption =
-          getRawInputExemption(prototype, propertyKey, paramIndex) ?? getRawInputExemption(prototype, propertyKey, 0);
+        const exemption = getRawInputExemption(prototype, propertyKey, paramIndex);
 
         if (exemption) {
           exempted.push({
@@ -269,7 +268,7 @@ export function collectInboundContractCoverage(rootModule: unknown): CoverageRep
             controller: controller.name,
             method: propertyKey,
             parameterIndex: paramIndex,
-            kind: 'grpc_payload',
+            kind: 'payload',
             reason: exemption.reason,
             exitCondition: exemption.exitCondition,
           });
@@ -287,7 +286,7 @@ export function collectInboundContractCoverage(rootModule: unknown): CoverageRep
           controller: controller.name,
           method: propertyKey,
           parameterIndex: paramIndex,
-          kind: 'grpc_payload',
+          kind: 'payload',
           metatypeName,
           reason: `gRPC handler '${propertyKey}' payload lacks Standard Schema and is not exempted via @RawInput`,
         });
@@ -451,24 +450,24 @@ export function collectInboundContractCoverage(rootModule: unknown): CoverageRep
     }
   }
 
-  const totalInputs = coveredCount + exempted.length + uncovered.length;
+  const total = coveredCount + exempted.length + uncovered.length;
 
-  // M4 門禁：totalInputs === 0 必須報錯中斷 (Fail-Fast)
-  if (totalInputs === 0) {
+  // 零入參防護門禁 (Fail-Fast Zero Inputs Invariant)：total === 0 必須報錯中斷
+  if (total === 0) {
     throw new Error(
       '[contract-coverage] No inbound inputs discovered in module tree. Ensure rootModule and imports are properly configured.',
     );
   }
 
   return {
-    totalInputs,
-    coveredInputs: coveredCount,
-    exemptInputs: exempted.length,
-    uncoveredInputs: uncovered.length,
+    total,
+    covered: coveredCount,
+    exempt: exempted.length,
+    uncovered: uncovered.length,
     httpInputs: httpCount,
     graphqlInputs: graphqlCount,
     grpcInputs: grpcCount,
-    uncovered,
-    exempted,
+    uncoveredInputs: uncovered,
+    exemptInputs: exempted,
   };
 }
