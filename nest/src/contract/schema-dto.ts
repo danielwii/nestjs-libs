@@ -30,7 +30,7 @@ export function isStandardSchema(val: unknown): val is StandardSchemaV1 {
  * 解決 NestJS TypeScript 反射需要具名類（Named Class）以在 `design:paramtypes` 中保留元數據的限制，
  * 同時支援強型別推導（自動將 DTO 實例型別推導為 Schema 的 Output 型別）。
  *
- * 遵循 CFT-02 (One Way To Do It) 規範，僅提供基類繼承唯一形式：
+ * 遵循單一繼承模式 (Single Subclass DTO Pattern)，僅提供基類繼承唯一形式：
  *
  * @example
  * class VerifyCodeDto extends createSchemaDto(VerifyCodeSchema) {}
@@ -60,8 +60,8 @@ export function createSchemaDto<
  * 解析入站目標（類、物件或 ArgumentMetadata）所持有的 Standard Schema。
  *
  * 核心安全設計（原型繼承安全與品牌守衛）：
- * 1. 形式 B（原生類）：類自身直接定義 static readonly schema 時（hasOwnProperty === true），解析成功。
- * 2. 形式 A（類繼承工廠類）：檢查目標類的「直接父類」（Object.getPrototypeOf(target)）。
+ * 1. 靜態類別直接持有：類自身直接定義 static readonly schema 時（hasOwnProperty === true），解析成功。
+ * 2. 類繼承工廠類：檢查目標類的「直接父類」（Object.getPrototypeOf(target)）。
  *    若直接父類具有 [SCHEMA_DTO_BRAND] === true 且直接父類自身持有 schema（hasOwnProperty === true），解析成功。
  * 3. 杜絕多層繼承污染：若子類繼承了形式 A 的 DTO（如 GrandChild extends VerifyCodeDto），
  *    GrandChild 的直接父類 VerifyCodeDto 自身並無 schema（其 schema 在 host 上），因此不解析，防止子類業務字段被意外剝離。

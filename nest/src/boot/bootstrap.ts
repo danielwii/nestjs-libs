@@ -23,7 +23,7 @@ import { getAppLogger } from '@app/utils/app-logger';
 import { normalizeTimezone } from '@app/utils/datetime';
 import { maskSecret } from '@app/utils/security';
 
-import { isStandardSchema, resolveInboundSchema } from '../contract';
+import { resolveInboundSchema } from '../contract';
 
 import os from 'node:os';
 
@@ -210,8 +210,6 @@ export function connectGrpcMicroserviceWithBoundary(
   }
   return grpcMs;
 }
-
-export { isStandardSchema, resolveInboundSchema };
 
 /**
  * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取

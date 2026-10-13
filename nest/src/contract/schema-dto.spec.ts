@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ArgumentMetadata } from '@nestjs/common';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 
-describe('createSchemaDto & resolveInboundSchema (CFT-02 Single Form)', () => {
+describe('createSchemaDto & resolveInboundSchema (Single Subclass DTO Pattern)', () => {
   const UserSchema = z.object({
     id: z.string().uuid(),
     email: z.string().email(),
@@ -30,6 +30,19 @@ describe('createSchemaDto & resolveInboundSchema (CFT-02 Single Form)', () => {
       expect(() => createSchemaDto({} as any)).toThrow(TypeError);
       expect(() => createSchemaDto(null as any)).toThrow(TypeError);
       expect(() => createSchemaDto(undefined as any)).toThrow(TypeError);
+    });
+
+    it('靜態型別負向約束：子類實例訪問 Schema 未定義的屬性時 TypeScript 編譯期報錯', () => {
+      class StrictlyTypedDto extends createSchemaDto(UserSchema) {}
+      const instance = new StrictlyTypedDto();
+
+      // 合法欄位推導正確
+      const validEmail: string = instance.email;
+      expect(typeof validEmail).toBe('undefined');
+
+      // @ts-expect-error 屬性 'nonExistentProperty' 未在 UserSchema (InferOutput) 中定義，tsc 必須報錯
+      const invalidField = instance.nonExistentProperty;
+      expect(invalidField).toBeUndefined();
     });
   });
 

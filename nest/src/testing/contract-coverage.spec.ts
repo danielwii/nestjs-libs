@@ -149,7 +149,7 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
     // GraphQL: 3 (queryUser args, rawArgsQuery args, exemptArgsQuery args)
     // gRPC: 3 (findOne payload, unprotectedRpc payload, rawRpc payload)
     // Total = 5 + 3 + 3 = 11
-    expect(report.totalInputs).toBe(11);
+    expect(report.total).toBe(11);
     expect(report.httpInputs).toBe(5);
     expect(report.graphqlInputs).toBe(3);
     expect(report.grpcInputs).toBe(3);
@@ -158,30 +158,30 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
     // Covered: 4 (HTTP: createUser, listUsers; GraphQL: queryUser; gRPC: findOne)
     // Exempted: 3 (HTTP: rawWebhook; GraphQL: exemptArgsQuery; gRPC: rawRpc)
     // Uncovered: 4 (HTTP: verifyCode, unprotectedAction; GraphQL: rawArgsQuery; gRPC: unprotectedRpc)
-    expect(report.coveredInputs).toBe(4);
-    expect(report.exemptInputs).toBe(3);
-    expect(report.uncoveredInputs).toBe(4);
+    expect(report.covered).toBe(4);
+    expect(report.exempt).toBe(3);
+    expect(report.uncovered).toBe(4);
 
     // 驗證未覆蓋清單
-    expect(report.uncovered).toHaveLength(4);
+    expect(report.uncoveredInputs).toHaveLength(4);
 
-    const httpUncovered = report.uncovered.find((u) => u.transport === 'http' && u.method === 'verifyCode');
+    const httpUncovered = report.uncoveredInputs.find((u) => u.transport === 'http' && u.method === 'verifyCode');
     expect(httpUncovered).toBeDefined();
     expect(httpUncovered?.kind).toBe('body');
     expect(httpUncovered?.dataName).toBe('code');
 
-    const gqlUncovered = report.uncovered.find((u) => u.transport === 'graphql' && u.method === 'rawArgsQuery');
+    const gqlUncovered = report.uncoveredInputs.find((u) => u.transport === 'graphql' && u.method === 'rawArgsQuery');
     expect(gqlUncovered).toBeDefined();
     expect(gqlUncovered?.kind).toBe('args');
     expect(gqlUncovered?.dataName).toBe('filter');
 
-    const grpcUncovered = report.uncovered.find((u) => u.transport === 'grpc' && u.method === 'unprotectedRpc');
+    const grpcUncovered = report.uncoveredInputs.find((u) => u.transport === 'grpc' && u.method === 'unprotectedRpc');
     expect(grpcUncovered).toBeDefined();
-    expect(grpcUncovered?.kind).toBe('grpc_payload');
+    expect(grpcUncovered?.kind).toBe('payload');
 
     // 驗證豁免清單包含退場條件
-    expect(report.exempted).toHaveLength(3);
-    const rawWebhookExempt = report.exempted.find((e) => e.method === 'rawWebhook');
+    expect(report.exemptInputs).toHaveLength(3);
+    const rawWebhookExempt = report.exemptInputs.find((e) => e.method === 'rawWebhook');
     expect(rawWebhookExempt?.exitCondition).toBe('待提供官方 Schema 後退場');
   });
 
@@ -205,13 +205,13 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
     class RootDynamicModule {}
 
     const report = collectInboundContractCoverage(RootDynamicModule);
-    expect(report.totalInputs).toBe(1);
+    expect(report.total).toBe(1);
     expect(report.graphqlInputs).toBe(1);
-    expect(report.uncoveredInputs).toBe(1);
-    expect(report.uncovered[0]?.transport).toBe('graphql');
+    expect(report.uncovered).toBe(1);
+    expect(report.uncoveredInputs[0]?.transport).toBe('graphql');
   });
 
-  describe('M4 Acceptance Gate: totalInputs === 0 must fail (Fail-Fast)', () => {
+  describe('零入參防護門禁 (Fail-Fast Zero Inputs Invariant)', () => {
     it('當模組完全沒有入站參數時應拋出異常，嚴禁報 100% 虛假覆蓋', () => {
       @Controller('empty')
       class EmptyController {
