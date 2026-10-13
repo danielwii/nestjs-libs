@@ -2,7 +2,7 @@ import 'reflect-metadata';
 
 import { Body, Controller, forwardRef, Get, Headers, Module, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { Args, Query as GqlQuery, Resolver } from '@nestjs/graphql';
-import { GrpcMethod } from '@nestjs/microservices';
+import { Ctx, GrpcMethod, Payload } from '@nestjs/microservices';
 
 import { RawInput } from '@app/nest/contract/raw-input';
 import { createSchemaDto } from '@app/nest/contract/schema-dto';
@@ -261,6 +261,91 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage)', () 
       expect(() => collectInboundContractCoverage(EmptyModule)).toThrow(
         '[contract-coverage] No inbound inputs discovered in module tree.',
       );
+    });
+
+    it('當模組樹包含未解析的異步 Promise 模組時應 Fail-Fast 拋錯，杜絕靜默漏掃', () => {
+      const AsyncModulePromise = Promise.resolve({
+        module: class AsyncFeatureModule {},
+      });
+
+      @Module({
+        imports: [AsyncModulePromise as any],
+        controllers: [UsersController],
+      })
+      class ModuleWithAsyncImport {}
+
+      expect(() => collectInboundContractCoverage(ModuleWithAsyncImport)).toThrow(
+        '[contract-coverage] Asynchronous Promise module detected in module tree.',
+      );
+    });
+  });
+
+  describe('邊界加固：原型鏈方法繼承與 gRPC @Payload() 顯式索引', () => {
+    it('應沿原型鏈掃描 BaseController 繼承而來的路由方法，且子類覆寫方法不重複計數', () => {
+      abstract class BaseCrudController {
+        @Post('base-covered')
+        baseCovered(@Body() dto: CreateUserDto) {
+          return dto;
+        }
+
+        @Post('base-uncovered')
+        baseUncovered(@Body() dto: UnprotectedDto) {
+          return dto;
+        }
+
+        @Post('overridden')
+        overriddenAction(@Body() dto: unknown): unknown {
+          return dto;
+        }
+      }
+
+      @Controller('derived')
+      class DerivedController extends BaseCrudController {
+        // 子類覆寫為已綁定 Schema 的 DTO
+        @Post('overridden')
+        override overriddenAction(@Body() dto: CreateUserDto): unknown {
+          return dto;
+        }
+      }
+
+      @Module({
+        controllers: [DerivedController],
+      })
+      class InheritedRouteModule {}
+
+      const report = collectInboundContractCoverage(InheritedRouteModule);
+      expect(report.total).toBe(3);
+      expect(report.covered).toBe(2);
+      expect(report.uncovered).toBe(1);
+      expect(report.uncoveredInputs[0]?.location).toBe('DerivedController.baseUncovered#0');
+    });
+
+    it('當 gRPC handler 使用 @Ctx() 與 @Payload() 將 payload 置於非 0 索引時應精確定位真實 payload', () => {
+      @Controller()
+      class ExplicitPayloadGrpcController {
+        @GrpcMethod('UsersService', 'WithCtxCovered')
+        withCtxCovered(@Ctx() _ctx: unknown, @Payload() data: GrpcPayloadDto) {
+          return data;
+        }
+
+        @GrpcMethod('UsersService', 'WithCtxUncovered')
+        withCtxUncovered(@Ctx() _ctx: unknown, @Payload() data: UnprotectedDto) {
+          return data;
+        }
+      }
+
+      @Module({
+        controllers: [ExplicitPayloadGrpcController],
+      })
+      class ExplicitPayloadGrpcModule {}
+
+      const report = collectInboundContractCoverage(ExplicitPayloadGrpcModule);
+      expect(report.total).toBe(2);
+      expect(report.grpcInputs).toBe(2);
+      expect(report.covered).toBe(1);
+      expect(report.uncovered).toBe(1);
+      expect(report.uncoveredInputs[0]?.location).toBe('ExplicitPayloadGrpcController.withCtxUncovered#1');
+      expect(report.uncoveredInputs[0]?.parameterIndex).toBe(1);
     });
   });
 });
