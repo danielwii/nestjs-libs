@@ -16,6 +16,7 @@ import {
   assertGrpcServiceTokenConfiguredForMode,
   assertRequiredEnvs,
   bootstrap,
+  buildGrpcTransportOptions,
   configureGrpcMicroserviceBoundary,
   connectGrpcMicroserviceWithBoundary,
   createGlobalValidationPipes,
@@ -294,6 +295,89 @@ class MiswiredProbeController {
 
 @Module({ controllers: [MiswiredProbeController] })
 class MiswiredProbeModule {}
+
+describe('gRPC message size limits', () => {
+  const BASE = { package: 'libs.test.hybrid', protoPath: HYBRID_PROTO, loader: HYBRID_LOADER };
+
+  it('passes the limits that are set and leaves the keys out when they are not (the grpc-js default stays)', () => {
+    const unset = buildGrpcTransportOptions(BASE, '127.0.0.1:1');
+    expect('maxReceiveMessageLength' in unset).toBe(false);
+    expect('maxSendMessageLength' in unset).toBe(false);
+    expect(unset).toMatchObject({ package: 'libs.test.hybrid', url: '127.0.0.1:1', gracefulShutdown: true });
+    expect(buildGrpcTransportOptions({ ...BASE, maxReceiveMessageLength: 16 * 1024 * 1024 }, 'u')).toMatchObject({
+      maxReceiveMessageLength: 16 * 1024 * 1024,
+    });
+    const both = buildGrpcTransportOptions({ ...BASE, maxReceiveMessageLength: 1, maxSendMessageLength: 2 }, 'u');
+    expect(both).toMatchObject({ maxReceiveMessageLength: 1, maxSendMessageLength: 2 });
+  });
+
+  // The builder bootstrap calls produces the keys; this proves they reach grpc-js through the Nest transport.
+  describe('real transport', () => {
+    const PAYLOAD = 'x'.repeat(4096);
+    let app: INestApplication;
+    let client: Record<string, (...args: unknown[]) => void>;
+
+    async function start(limits: { maxReceiveMessageLength?: number; maxSendMessageLength?: number }) {
+      process.env.GRPC_SERVICE_TOKEN = HYBRID_TOKEN;
+      app = await NestFactory.create(HybridProbeModule, { logger: false });
+      const port = await freePort();
+      connectGrpcMicroserviceWithBoundary(
+        app,
+        {
+          transport: Transport.GRPC,
+          options: buildGrpcTransportOptions({ ...BASE, ...limits }, `127.0.0.1:${port}`),
+        },
+        'api',
+        'HybridProbe',
+        'standard-schema',
+      );
+      await app.startAllMicroservices();
+      await app.init();
+      const pkg = grpc.loadPackageDefinition(loadSync(HYBRID_PROTO, HYBRID_LOADER)) as unknown as {
+        libs: { test: { hybrid: { HybridProbe: new (addr: string, creds: grpc.ChannelCredentials) => unknown } } };
+      };
+      client = new pkg.libs.test.hybrid.HybridProbe(
+        `127.0.0.1:${port}`,
+        grpc.credentials.createInsecure(),
+      ) as typeof client;
+    }
+
+    const ping = (echo: string): Promise<UnaryResult> => {
+      const metadata = new grpc.Metadata();
+      metadata.set('x-service-token', HYBRID_TOKEN);
+      const unary = client.ping?.bind(client);
+      if (!unary) throw new Error('no such rpc: ping');
+      return new Promise((resolve) => {
+        unary(
+          { echo },
+          metadata,
+          { deadline: Date.now() + 3_000 },
+          (err: grpc.ServiceError | null, res: { echo: string }) => resolve(err ? { err } : { ok: res }),
+        );
+      });
+    };
+
+    afterEach(async () => {
+      (client as unknown as { close?: () => void }).close?.();
+      await app?.close();
+      restoreToken();
+    });
+
+    it('a request over the configured receive limit is rejected as RESOURCE_EXHAUSTED; one under it is served', async () => {
+      await start({ maxReceiveMessageLength: 2048 });
+      const over = await ping(PAYLOAD);
+      expect('err' in over && over.err.code).toBe(grpc.status.RESOURCE_EXHAUSTED);
+      const under = await ping('x'.repeat(100));
+      expect('ok' in under && under.ok.echo).toBe('x'.repeat(100));
+    }, 30_000);
+
+    it('with no limit set the same request is served (the grpc-js default is far above it)', async () => {
+      await start({});
+      const result = await ping(PAYLOAD);
+      expect('ok' in result && result.ok.echo.length).toBe(PAYLOAD.length);
+    }, 30_000);
+  });
+});
 
 describe('AnyExceptionFilter reached from a miswired gRPC microservice (real transport)', () => {
   let app: INestApplication;
