@@ -110,6 +110,10 @@ export interface BootstrapOptions {
     loader?: object;
     /** 是否启用 gRPC reflection，默认 true */
     reflection?: boolean;
+    /** 服务端可接收的单条消息上限（字节）。不设则不传给 grpc-js，沿用它的默认值（4 MiB）；超限的请求整条被拒（RESOURCE_EXHAUSTED）。 */
+    maxReceiveMessageLength?: number;
+    /** 服务端可发送的单条消息上限（字节）。不设则不传给 grpc-js，沿用它的默认值（不限）。 */
+    maxSendMessageLength?: number;
   };
   /** 服务提供者标识（grpc 模式，用于异常追踪），默认从 grpc.package 提取 */
   grpcProvider?: string;
@@ -142,6 +146,41 @@ export interface BootstrapOptions {
 
 export function hasGrpcMicroserviceConfigured(mode: BootstrapMode, options?: Pick<BootstrapOptions, 'grpc'>): boolean {
   return mode === 'grpc' || options?.grpc !== undefined;
+}
+
+/**
+ * `options.grpc` → `Transport.GRPC` 的 options（bootstrap 与测试用同一个函数）。
+ * 目标：这里是逐字段拷贝，没拷的字段永远到不了 grpc-js；消息大小上限（`maxReceiveMessageLength` / `maxSendMessageLength`）因此无处可设。
+ * 保证：上限没设的键不出现在结果里（不是 `undefined`），行为与改动前完全一致；设了的原样透传。
+ */
+export function buildGrpcTransportOptions(
+  grpc: NonNullable<BootstrapOptions['grpc']>,
+  url: string,
+  onLoadPackageDefinition?: (pkg: PackageDefinition, server: Pick<Server, 'addService'>) => void,
+) {
+  return {
+    package: grpc.package,
+    protoPath: grpc.protoPath,
+    url,
+    loader: grpc.loader,
+    ...(grpc.maxReceiveMessageLength !== undefined && { maxReceiveMessageLength: grpc.maxReceiveMessageLength }),
+    ...(grpc.maxSendMessageLength !== undefined && { maxSendMessageLength: grpc.maxSendMessageLength }),
+    gracefulShutdown: true,
+    onLoadPackageDefinition,
+  };
+}
+
+/**
+ * 启动日志里的消息大小上限：读的是传给 transport 的那个 options 对象（与 `buildGrpcTransportOptions` 同一份），所以日志上的值就是生效的值。
+ * 没设的键写 `default`（沿用 grpc-js 的默认值）。
+ */
+export function describeGrpcMessageLimits(
+  transportOptions: Pick<
+    ReturnType<typeof buildGrpcTransportOptions>,
+    'maxReceiveMessageLength' | 'maxSendMessageLength'
+  >,
+): string {
+  return `maxReceive=${transportOptions.maxReceiveMessageLength ?? 'default'} maxSend=${transportOptions.maxSendMessageLength ?? 'default'}`;
 }
 
 export function resolveGrpcProvider(options?: Pick<BootstrapOptions, 'grpc' | 'grpcProvider'>): string {
@@ -627,25 +666,23 @@ export async function bootstrap(
   if (options.grpc) {
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
+    const transportOptions = buildGrpcTransportOptions(
+      options.grpc,
+      `0.0.0.0:${grpcPort}`,
+      options.grpc.descriptorSetPath
+        ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
+            const dsPath = options.grpc?.descriptorSetPath;
+            if (!dsPath) return;
+            if (enableReflection) addDescriptorSetReflection(server, dsPath);
+            addGrpcHealthService(server, dsPath, () => shutdownState.value);
+          }
+        : undefined,
+    );
     const grpcMs = connectGrpcMicroserviceWithBoundary(
       app,
       {
         transport: Transport.GRPC,
-        options: {
-          package: options.grpc.package,
-          protoPath: options.grpc.protoPath,
-          url: `0.0.0.0:${grpcPort}`,
-          loader: options.grpc.loader,
-          gracefulShutdown: true,
-          onLoadPackageDefinition: options.grpc.descriptorSetPath
-            ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
-                const dsPath = options.grpc?.descriptorSetPath;
-                if (!dsPath) return;
-                if (enableReflection) addDescriptorSetReflection(server, dsPath);
-                addGrpcHealthService(server, dsPath, () => shutdownState.value);
-              }
-            : undefined,
-        },
+        options: transportOptions,
       },
       mode,
       grpcProvider,
@@ -655,7 +692,7 @@ export async function bootstrap(
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 
     await app.startAllMicroservices();
-    bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}`;
+    bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''} ${describeGrpcMessageLimits(transportOptions)}`;
   }
 
   // --- listen ---
