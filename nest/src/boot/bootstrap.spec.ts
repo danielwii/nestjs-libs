@@ -20,6 +20,7 @@ import {
   configureGrpcMicroserviceBoundary,
   connectGrpcMicroserviceWithBoundary,
   createGlobalValidationPipes,
+  describeGrpcMessageLimits,
   DualBoundaryValidationPipe,
   hasGrpcMicroserviceConfigured,
   resolveGrpcHybridAppOptions,
@@ -309,6 +310,18 @@ describe('gRPC message size limits', () => {
     });
     const both = buildGrpcTransportOptions({ ...BASE, maxReceiveMessageLength: 1, maxSendMessageLength: 2 }, 'u');
     expect(both).toMatchObject({ maxReceiveMessageLength: 1, maxSendMessageLength: 2 });
+  });
+
+  it('describes the limits in effect for the start-up log: the value when set, `default` when not', () => {
+    expect(describeGrpcMessageLimits(buildGrpcTransportOptions(BASE, 'u'))).toBe('maxReceive=default maxSend=default');
+    expect(
+      describeGrpcMessageLimits(buildGrpcTransportOptions({ ...BASE, maxReceiveMessageLength: 16777216 }, 'u')),
+    ).toBe('maxReceive=16777216 maxSend=default');
+    expect(
+      describeGrpcMessageLimits(
+        buildGrpcTransportOptions({ ...BASE, maxReceiveMessageLength: 16777216, maxSendMessageLength: 1048576 }, 'u'),
+      ),
+    ).toBe('maxReceive=16777216 maxSend=1048576');
   });
 
   // The builder bootstrap calls produces the keys; this proves they reach grpc-js through the Nest transport.

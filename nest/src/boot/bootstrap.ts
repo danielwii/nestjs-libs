@@ -170,6 +170,19 @@ export function buildGrpcTransportOptions(
   };
 }
 
+/**
+ * 启动日志里的消息大小上限：读的是传给 transport 的那个 options 对象（与 `buildGrpcTransportOptions` 同一份），所以日志上的值就是生效的值。
+ * 没设的键写 `default`（沿用 grpc-js 的默认值）。
+ */
+export function describeGrpcMessageLimits(
+  transportOptions: Pick<
+    ReturnType<typeof buildGrpcTransportOptions>,
+    'maxReceiveMessageLength' | 'maxSendMessageLength'
+  >,
+): string {
+  return `maxReceive=${transportOptions.maxReceiveMessageLength ?? 'default'} maxSend=${transportOptions.maxSendMessageLength ?? 'default'}`;
+}
+
 export function resolveGrpcProvider(options?: Pick<BootstrapOptions, 'grpc' | 'grpcProvider'>): string {
   return (
     options?.grpcProvider ??
@@ -653,22 +666,23 @@ export async function bootstrap(
   if (options.grpc) {
     grpcPort = isGrpc ? (options.grpc.port ?? SysEnv.GRPC_PORT) : SysEnv.GRPC_PORT;
     const enableReflection = options.grpc.reflection !== false;
+    const transportOptions = buildGrpcTransportOptions(
+      options.grpc,
+      `0.0.0.0:${grpcPort}`,
+      options.grpc.descriptorSetPath
+        ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
+            const dsPath = options.grpc?.descriptorSetPath;
+            if (!dsPath) return;
+            if (enableReflection) addDescriptorSetReflection(server, dsPath);
+            addGrpcHealthService(server, dsPath, () => shutdownState.value);
+          }
+        : undefined,
+    );
     const grpcMs = connectGrpcMicroserviceWithBoundary(
       app,
       {
         transport: Transport.GRPC,
-        options: buildGrpcTransportOptions(
-          options.grpc,
-          `0.0.0.0:${grpcPort}`,
-          options.grpc.descriptorSetPath
-            ? (_pkg: PackageDefinition, server: Pick<Server, 'addService'>) => {
-                const dsPath = options.grpc?.descriptorSetPath;
-                if (!dsPath) return;
-                if (enableReflection) addDescriptorSetReflection(server, dsPath);
-                addGrpcHealthService(server, dsPath, () => shutdownState.value);
-              }
-            : undefined,
-        ),
+        options: transportOptions,
       },
       mode,
       grpcProvider,
@@ -678,7 +692,7 @@ export async function bootstrap(
     setGrpcMicroserviceRef(grpcMs, grpcPort);
 
     await app.startAllMicroservices();
-    bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''}`;
+    bootstrapLogger.info`[gRPC] Microservice started on port ${grpcPort}${enableReflection ? ' (reflection enabled)' : ''} ${describeGrpcMessageLimits(transportOptions)}`;
   }
 
   // --- listen ---
