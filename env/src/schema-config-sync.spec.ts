@@ -149,6 +149,29 @@ describe('schema configuration sync', () => {
     expect(Object.hasOwn(config.vars, 'SAMPLE_JSON')).toBe(false);
   });
 
+  test('source map: absent means schema default; overrides add database:<scope>; withdrawal restores startup sources', async () => {
+    process.env.SAMPLE_LIMIT = '7';
+    delete process.env.SAMPLE_ENABLED;
+    const config = configured();
+    const sourcesOf = () => new Map([...config.envSourceMap].filter(([key]) => key.startsWith('SAMPLE_')));
+    const startup = sourcesOf();
+    expect(startup).toEqual(new Map([['SAMPLE_LIMIT', 'host']]));
+    expect(config.vars.SAMPLE_ENABLED).toBe(true); // Filled by the schema default, so it has no source entry.
+
+    const db = store([row('SAMPLE_LIMIT', '0'), row('SAMPLE_ENABLED', 'false', { format: 'boolean' })]);
+    expect((await config.sync(db.client)).isOk()).toBe(true);
+    expect(sourcesOf()).toEqual(
+      new Map([
+        ['SAMPLE_LIMIT', 'database:sample-app'],
+        ['SAMPLE_ENABLED', 'database:sample-app'],
+      ]),
+    );
+
+    for (const record of db.rows) record.value = null;
+    expect((await config.sync(db.client)).isOk()).toBe(true);
+    expect(sourcesOf()).toEqual(startup);
+  });
+
   test('publishes false and zero, preserves identity, restores host/default and removes absent optional keys', async () => {
     process.env.SAMPLE_LIMIT = '7';
     const config = configured();
