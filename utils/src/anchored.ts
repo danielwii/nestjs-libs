@@ -114,7 +114,8 @@ export interface AnchoredJson {
  * possibilities are plain strings, just narrower ones.
  *
  * For `shape: 'instant'` the `value` must be an absolute UTC moment ending in `Z` (fractional seconds allowed): a numeric offset or a `[Zone]`
- * annotation is rejected, because ownership is written once, in `zone`.
+ * annotation is rejected, because ownership is written once, in `zone`. `date` / `time` values are likewise exactly `YYYY-MM-DD` /
+ * plain clock text, with no time, offset or `[Zone]` riding along.
  */
 export interface AnchoredJsonInput {
   readonly shape: string;
@@ -129,6 +130,8 @@ export interface AnchoredJsonInput {
  */
 type Anchoring = { readonly kind: 'zone'; readonly zone: Zone } | { readonly kind: 'floating' };
 
+const PLAIN_DATE_TEXT = /^\d{4}-\d{2}-\d{2}$/;
+const PLAIN_TIME_TEXT = /^\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/;
 const UTC_INSTANT_TEXT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?Z$/;
 
 export class Anchored {
@@ -274,6 +277,16 @@ export class Anchored {
         );
       return Anchored.instant(Temporal.Instant.from(json.value), zone);
     }
+    // date / time 的值同样只写自己的部分：日历日 `YYYY-MM-DD`、钟点 `HH:mm[:ss[.fff]]`。带时间与偏移的日期、带偏移或 `[Zone]` 的钟点会把归属写第二遍
+    // （`PlainDate.from` / `PlainTime.from` 会无声吃掉后缀），所以只在 `fromJSON` 拒；`fromStored` 不动：存储里的日期列可以是日期时间。
+    if (shape === 'date' && !PLAIN_DATE_TEXT.test(json.value))
+      throw new Error(
+        `Anchored: date value must be a plain YYYY-MM-DD; ownership lives in zone, received "${json.value}"`,
+      );
+    if (shape === 'time' && !PLAIN_TIME_TEXT.test(json.value))
+      throw new Error(
+        `Anchored: time value must be plain clock text; ownership lives in zone, received "${json.value}"`,
+      );
     if (shape === 'date' || shape === 'time') return Anchored.fromStored(json.value, json.zone, shape);
     throw new Error(`Anchored: 未知形态 "${shape}"`);
   }

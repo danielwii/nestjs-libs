@@ -313,6 +313,32 @@ describe('Anchored', () => {
       expect(Anchored.fromJSON(json).toJSON()).toEqual(json);
     });
 
+    it('fromJSON 对 date / time：值只写自己的部分，带时间偏移或 [Zone] 的被拒绝，纯文本仍通过（fromStored 不动）', () => {
+      for (const value of [
+        '2026-09-21T23:30:00-07:00',
+        '2026-09-21[Asia/Tokyo]',
+        '2026-09-21T00:00:00',
+        '26-09-21',
+        '',
+      ])
+        expect(() => Anchored.fromJSON({ shape: 'date', value, zone: 'Asia/Tokyo' }), value).toThrow(
+          /date value must be a plain YYYY-MM-DD; ownership lives in zone/,
+        );
+      for (const value of ['07:00+09:00', '07:00[Asia/Tokyo]', '07:00:00Z', '2026-09-21T07:00', '7:00', ''])
+        expect(() => Anchored.fromJSON({ shape: 'time', value, zone: 'Asia/Tokyo' }), value).toThrow(
+          /time value must be plain clock text; ownership lives in zone/,
+        );
+      expect(Anchored.fromJSON({ shape: 'date', value: '2026-09-21', zone: 'Asia/Tokyo' }).toJSON().value).toBe(
+        '2026-09-21',
+      );
+      expect(Anchored.fromJSON({ shape: 'time', value: '07:00', zone: 'Asia/Tokyo' }).toJSON().value).toBe('07:00:00');
+      expect(Anchored.fromJSON({ shape: 'time', value: '07:00:30.5', zone: 'floating' }).toJSON().zone).toBe(
+        'floating',
+      );
+      // fromStored keeps accepting a stored date column that is a datetime.
+      expect(Anchored.fromStored('2026-09-21T00:00:00', 'Asia/Tokyo', 'date').toJSON().value).toBe('2026-09-21');
+    });
+
     it('fromJSON 对 instant/date 传入 "floating" 归属仍然拒绝——floating 只是 time 的锚定方式', () => {
       expect(() => Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T10:00:00Z', zone: 'floating' })).toThrow(
         /不是 Zone/,

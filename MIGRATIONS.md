@@ -11,6 +11,7 @@ object could belong to two zones. The instant's `value` is now only the absolute
   A `Z` is notation, not ownership.
 - **Breaking for stored / wire instants** in the old form (`…+09:00[Asia/Tokyo]`): they no longer decode. Re-encode them with `toJSON()` before reading them
   with this version. Within this repository's consumers there were no producers or stored rows at the time of the change.
+- **`date` / `time` values are checked the same way in `fromJSON`:** a date must be exactly `YYYY-MM-DD`, a time plain clock text (`HH:mm[:ss[.fff]]`); a date with a time and offset, or a time with an offset or a `[Zone]`, is rejected (they used to be accepted with the suffix silently dropped). `fromStored` is unchanged.
 - `toString()` is unchanged (RFC 9557, for logs and people).
 
 ## `readLocalTime` / `readLocalSpan` require `ownZone`; `@app/utils/utc-offset` added
