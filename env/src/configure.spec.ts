@@ -507,7 +507,7 @@ describe('AppConfigure', () => {
           ),
           updateMany: mock(() => Promise.resolve({ count: 0 })),
           createMany: mock(() => Promise.resolve({ count: 0 })),
-          findUnique: mock(() => Promise.resolve({ key: 'FIELD' })),
+          findUnique: mock(() => Promise.resolve({ key: 'FIELD', scope: 'shared', createdBy: 'test-project' })),
           update: mock(() => Promise.resolve({})),
         },
       };

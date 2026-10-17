@@ -1,9 +1,18 @@
 import 'reflect-metadata';
 
+import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
 import { errorStack } from '@app/utils/error';
 
 import { NODE_ENV } from './env';
+import { createSchemaConfigSync } from './schema-config-sync';
+import {
+  applySettingStructure,
+  applySettingUpdate,
+  effectiveSetting,
+  planSettingMetadata,
+  settingFormatSchema,
+} from './settings-store';
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,6 +22,12 @@ import { config } from '@dotenvx/dotenvx';
 import JSON5 from 'json5';
 import * as _ from 'radash';
 import { z } from 'zod';
+
+import type { SchemaConfigSync } from './schema-config-sync';
+import type { SettingFormat } from './settings-store';
+
+export type { ConfigSyncStats, SchemaConfigSync } from './schema-config-sync';
+export type { SettingFormat } from './settings-store';
 
 // ==================== Architectural Clean Cut: Zero Legacy Shims ====================
 /**
@@ -77,12 +92,15 @@ export const DATABASE_FIELD_METADATA = Symbol('DATABASE_FIELD_METADATA');
 export interface DatabaseFieldOptions {
   description?: string;
   scoped?: boolean;
+  /** Required when synchronizing this field with the settings store. */
+  format?: SettingFormat;
 }
 
 export interface DatabaseFieldSpec {
   isDatabaseField: true;
   scoped: boolean;
   description?: string;
+  format?: SettingFormat;
   schema: z.ZodType;
 }
 
@@ -98,9 +116,9 @@ export interface DatabaseFieldSpec {
  * export const appEnvSchema = baseEnvSchema.extend({
  *   TASK_BATCH_SIZE: asDatabaseField(
  *     z.number().int().min(10).max(5000).default(100),
- *     { description: '批次处理大小', scoped: true }
+ *     { format: 'number', description: '批次处理大小', scoped: true }
  *   ),
- *   FEATURE_FLAG: asDatabaseField(z.boolean().default(false), '功能旗标'),
+ *   FEATURE_FLAG: asDatabaseField(z.boolean().default(false), { format: 'boolean', description: '功能旗标' }),
  * });
  * ```
  */
@@ -117,6 +135,7 @@ export function asDatabaseField<T extends z.ZodType>(
     isDatabaseField: true,
     scoped: options.scoped === true,
     description: options.description,
+    format: options.format,
     schema: targetSchema,
   };
 
@@ -229,6 +248,7 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   /** CORS 允许的前端域名（逗号分隔），未设置时禁止所有跨域请求 */
   APP_WEB_DOMAINS?: string;
 
+  APP_NAME?: string;
   SERVICE_NAME?: string;
   TRACING_EXPORTER_URL?: string;
   LOG_REDACTION_KEY?: string;
@@ -481,7 +501,7 @@ export interface ISysAppSettingClient {
   sysAppSetting: {
     findMany(args?: { where?: { scope?: { in: string[] } } }): Promise<ISysAppSettingRecord[]>;
     updateMany(args: {
-      where: { key: { in: string[] }; scope?: string };
+      where: { key: { in: string[] }; scope?: string; createdBy?: string };
       data: { deprecatedAt: Date | null };
     }): Promise<{ count: number }>;
     createMany(args: {
@@ -489,7 +509,7 @@ export interface ISysAppSettingClient {
         key: string;
         scope: string;
         defaultValue: string | null;
-        format: string;
+        format: SettingFormat;
         description?: string | null;
         createdBy?: string | null;
       }>;
@@ -502,13 +522,13 @@ export interface ISysAppSettingClient {
         scope: string;
         value: string | null;
         defaultValue: string | null;
-        format: string;
+        format: SettingFormat;
         description?: string | null;
         createdBy?: string | null;
       };
     }): Promise<ISysAppSettingRecord>;
     update(args: {
-      where: { scope_key: { scope: string; key: string } };
+      where: { scope_key: { scope: string; key: string }; createdBy?: string };
       data: { defaultValue?: string | null; description?: string | null; deprecatedAt?: Date | null };
     }): Promise<ISysAppSettingRecord>;
   };
@@ -544,6 +564,7 @@ export function coerceNumber<T extends z.ZodType>(schema: T) {
   return z.preprocess((v) => {
     if (v === undefined || v === null) return undefined;
     if (typeof v === 'string' && v.trim() === '') return undefined;
+    if (typeof v !== 'string' && typeof v !== 'number') return v;
     const n = Number(v);
     return Number.isNaN(n) ? v : n;
   }, schema);
@@ -556,11 +577,9 @@ export function coerceBoolean<T extends z.ZodType>(schema: T) {
   return z.preprocess((v) => {
     if (v === undefined || v === null) return undefined;
     if (typeof v === 'string' && v.trim() === '') return undefined;
-    if (typeof v === 'boolean') return v;
-    if (typeof v === 'string' || typeof v === 'number') {
-      return [true, 'true', '1', 1].includes(v);
-    }
-    return false;
+    if (v === true || v === 'true' || v === 1 || v === '1') return true;
+    if (v === false || v === 'false' || v === 0 || v === '0') return false;
+    return v;
   }, schema);
 }
 
@@ -574,11 +593,15 @@ export const baseEnvSchema = z.object({
   GRPC_PORT: coerceNumber(z.number().int().min(1).max(65535).default(50051)),
   TZ: z.string().default('UTC'),
   LOG_LEVEL: z.enum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal']).default('debug'),
-  API_KEY: z.string().optional(),
+  API_KEY: asDatabaseField(z.string().optional(), {
+    format: 'string',
+    description: '系统API密钥，仅用于验证系统级内部API请求，不自行设置的话每次启动都会变更，注意: 不要外部使用',
+  }),
   NEST_DEBUG: z.string().optional(),
   DOPPLER_ENVIRONMENT: z.string().optional(),
   SESSION_SECRET: z.string().optional(),
   APP_WEB_DOMAINS: z.string().optional(),
+  APP_NAME: z.string().optional(),
   SERVICE_NAME: z.string().optional(),
   TRACING_EXPORTER_URL: z.string().optional(),
   LOG_REDACTION_KEY: z.string().optional(),
@@ -603,20 +626,28 @@ export const baseEnvSchema = z.object({
   AI_BEDROCK_REGION: z.string().optional(),
   AI_JINA_API_KEY: z.string().optional(),
   AI_VOYAGE_API_KEY: z.string().optional(),
-  AI_LLM_TIMEOUT_MS: asDatabaseField(
-    coerceNumber(z.number().min(30_000).default(120_000)),
-    '默认 LLM 调用超时（毫秒）',
-  ),
-  AI_LLM_MAX_RETRIES: asDatabaseField(coerceNumber(z.number().min(0).default(2)), '默认 LLM 最大重试次数'),
-  LLM_FETCH_VERBOSE: asDatabaseField(
-    coerceBoolean(z.boolean().default(false)),
-    'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）',
-  ),
-  PRISMA_TRANSACTION_TIMEOUT: asDatabaseField(coerceNumber(z.number().default(30_000)), 'Prisma 事务超时时间（毫秒）'),
-  I18N_EXCEPTION_ENABLED: asDatabaseField(
-    coerceBoolean(z.boolean().default(false)),
-    '是否启用异常处理器的 I18n 翻译功能',
-  ),
+  AI_TYPESAFE_API_KEY: z.string().optional(),
+  AI_LLM_TIMEOUT_MS: asDatabaseField(coerceNumber(z.number().min(30_000).default(120_000)), {
+    format: 'number',
+    description: '默认 LLM 调用超时（毫秒）',
+  }),
+  AI_LLM_MAX_RETRIES: asDatabaseField(coerceNumber(z.number().min(0).default(2)), {
+    format: 'number',
+    description: '默认 LLM 最大重试次数',
+  }),
+  LLM_FETCH_VERBOSE: asDatabaseField(coerceBoolean(z.boolean().default(false)), {
+    format: 'boolean',
+    description: 'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）',
+  }),
+  PRISMA_TRANSACTION_TIMEOUT: asDatabaseField(coerceNumber(z.number().default(30_000)), {
+    format: 'number',
+    description: 'Prisma 事务超时时间（毫秒）',
+  }),
+  I18N_EXCEPTION_ENABLED: asDatabaseField(coerceBoolean(z.boolean().default(false)), {
+    format: 'boolean',
+    description: '是否启用异常处理器的 I18n 翻译功能',
+  }),
+  INFRA_REDIS_URL: z.string().optional(),
   CLUSTER_ENABLED: coerceBoolean(z.boolean().default(true)),
   CLUSTER_NODE_TTL_SECONDS: z.string().optional(),
   CLUSTER_HEARTBEAT_INTERVAL_MS: z.string().optional(),
@@ -637,7 +668,7 @@ export type BaseEnv = z.infer<typeof baseEnvSchema>;
 
 // 🛡️ 静态编译期类型防卫：确保 baseEnvSchema 的每一个键名都与 AbstractEnvironmentVariables 中的属性对齐，杜绝命名漂移
 export type _AssertBaseEnvKeys<T extends keyof AbstractEnvironmentVariables = keyof BaseEnv> = T;
-export type _AssertBaseEnvCoverage<T extends SysEnvConfigKey = keyof BaseEnv> = T;
+export type _AssertBaseEnvCoverage<T extends keyof BaseEnv = SysEnvConfigKey> = T;
 
 /**
  * 获取标准环境信息（对齐 AbstractEnvironmentVariables.environment 行为，支持 DOPPLER_ENVIRONMENT 回退）
@@ -896,7 +927,6 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
     const SHARED = 'shared';
     const rawScope = options?.scope;
     const projectScope = rawScope === SHARED ? undefined : rawScope;
-
     const validateDbValue = (
       field: string,
       rawValue: unknown,
@@ -954,93 +984,22 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
         };
       }
     };
-
     const fields = Object.getOwnPropertyNames(originalEnvs)
-      .map((field) => {
-        const isDatabaseField = Reflect.getMetadata(DatabaseFieldSymbol, activeEnvs, field);
-        const format = Reflect.getMetadata(DatabaseFieldFormatSymbol, activeEnvs, field);
-        const description = Reflect.getMetadata(DatabaseFieldDescriptionSymbol, activeEnvs, field);
-        const isScoped = Reflect.getMetadata(DatabaseFieldScopedSymbol, activeEnvs, field) === true;
-
-        return {
-          field,
-          isDatabaseField,
-          isScoped,
-          format,
-          description,
-          defaultValue: (originalEnvs as Record<string, unknown>)[field],
-          value: (activeEnvs as Record<string, unknown>)[field],
-        };
-      })
-      .filter(({ isDatabaseField }) => !!isDatabaseField);
-
-    /** 决定字段的写入 scope：scoped 字段写项目 scope，否则写 shared。无 projectScope 时 fallback 到 shared */
-    const scopedWithoutProject: string[] = [];
-    const resolveWriteScope = (field: string, isScoped: boolean): string => {
-      if (isScoped && projectScope) return projectScope;
-      if (isScoped && !projectScope) {
-        scopedWithoutProject.push(field);
-      }
-      return SHARED;
-    };
-
-    const sharedFields = fields.filter((f) => !f.isScoped);
-    const scopedFields = fields.filter((f) => f.isScoped);
-
-    // 有 projectScope 就能写 — scope 隔离 + createdBy 归属保障安全
-    const writeEnabled = !!projectScope;
-    const syncMode = writeEnabled ? 'read-write' : 'read-only';
-    const managedFieldNames = fields.map((f) => f.field).sort((a, b) => a.localeCompare(b));
-
+      .filter((field) => Reflect.getMetadata(DatabaseFieldSymbol, activeEnvs, field))
+      .map((field) => ({
+        field,
+        format: settingFormatSchema.parse(Reflect.getMetadata(DatabaseFieldFormatSymbol, activeEnvs, field)),
+        description: Reflect.getMetadata(DatabaseFieldDescriptionSymbol, activeEnvs, field) as string | undefined,
+        isScoped: Reflect.getMetadata(DatabaseFieldScopedSymbol, activeEnvs, field) === true,
+        defaultValue: (originalEnvs as Record<string, unknown>)[field],
+        value: (activeEnvs as Record<string, unknown>)[field],
+      }));
     const logger = getAppLogger('AppConfigure');
-
-    if (rawScope === SHARED) {
-      logger.error`#syncFromDB scope="${SHARED}" 是保留值，不能作为服务的 project scope —— 归属隔离失效，本次降级为只读。请改用服务名（APP_NAME）。`;
-    }
-
-    logger.debug`#syncFromDB... reload app settings from db.`;
-    logger.debug`${`#syncFromDB mode=${syncMode} scope=${projectScope ?? '(none)'}`}`;
-    logger.debug`#syncFromDB managed keys (${managedFieldNames.length}): ${managedFieldNames.join(', ') || '(none)'}`;
-
-    // 拉取相关 scope 的行：shared + 项目 scope（如有）
-    const scopesToRead = projectScope ? [SHARED, projectScope] : [SHARED];
-    // 单行值坏（空串/非法 JSON）按「未设置」处理（null），绝不让一行拖垮整场 sync ——
-    // 2026-09-02 staging 事故：一个 boolean 行被写成空串，JSON.parse('') 在这里裸抛，
-    // server/agents 每分钟同步全炸、boot 初始同步也炸，DB 配置整体失效（模型等回落
-    // 到过期的进程 env 值）。空串常见来源：admin 清空输入框后保存。
-    const parseRowValue = (key: string, format: string, value: unknown): unknown => {
-      if (format === 'string' || value == null) return value;
-      const raw = typeof value === 'string' ? value.trim() : value;
-      if (raw === '') {
-        logger.warn`#syncFromDB key=${key} 空串按未设置处理（应存 NULL）`;
-        return null;
-      }
-      try {
-        return typeof raw === 'string' ? JSON.parse(raw) : raw;
-      } catch {
-        // 只有 string 会走到 JSON.parse 并抛异常，raw 此处必为 string
-        const preview = typeof raw === 'string' ? raw.slice(0, 80) : '';
-        logger.warn`#syncFromDB key=${key} value 非法 JSON，按未设置处理: ${preview}`;
-        return null;
-      }
-    };
-    const appSettings = (await prisma.sysAppSetting.findMany({ where: { scope: { in: scopesToRead } } })).map(
-      ({ value, format, ...rest }) => ({
-        ...rest,
-        value: parseRowValue((rest as { key: string }).key, format, value),
-        format,
-      }),
-    ) as Array<{
-      key: string;
-      scope: string;
-      defaultValue: unknown;
-      format: string;
-      description?: string;
-      value: unknown;
-      deprecatedAt?: Date | null;
-      createdBy?: string | null;
-    }>;
-
+    const writeEnabled = !!projectScope;
+    if (rawScope === SHARED) logger.error`#syncFromDB reserved project scope; using read-only mode`;
+    const appSettings = await prisma.sysAppSetting.findMany({
+      where: { scope: { in: projectScope ? [SHARED, projectScope] : [SHARED] } },
+    });
     const stats = {
       runtimeOverridesApplied: 0,
       runtimeOverridesUnchanged: 0,
@@ -1054,235 +1013,62 @@ export class AppConfigure<T extends AbstractEnvironmentVariables> {
       metadataSkippedNotOwned: 0,
       metadataDefaultConflicts: 0,
     };
-
-    if (writeEnabled) {
-      // =====================================================
-      // Orphan 检测：按 scope 隔离，只标记自己管理的行
-      // =====================================================
-
-      // 1. shared scope: 只看 shared 行 vs sharedFields
-      const sharedFieldNames = new Set(sharedFields.map((f) => f.field));
-      const sharedRows = appSettings.filter((s) => s.scope === SHARED);
-      const sharedOrphans = sharedRows.filter(
-        (s) => !sharedFieldNames.has(s.key) && !s.deprecatedAt && s.createdBy === projectScope,
-      );
-      if (sharedOrphans.length > 0) {
-        stats.metadataDeprecatedMarked += sharedOrphans.length;
-        logger.info`#syncFromDB 标记 ${sharedOrphans.length} 个废弃配置 (shared): ${sharedOrphans.map((s) => s.key).join(', ')}`;
-        await prisma.sysAppSetting.updateMany({
-          where: { key: { in: sharedOrphans.map((s) => s.key) }, scope: SHARED },
-          data: { deprecatedAt: new Date() },
-        });
-      }
-
-      // 2. project scope: 只看项目行 vs scopedFields
-      if (projectScope) {
-        const scopedFieldNames = new Set(scopedFields.map((f) => f.field));
-        const projectRows = appSettings.filter((s) => s.scope === projectScope);
-        const projectOrphans = projectRows.filter((s) => !scopedFieldNames.has(s.key) && !s.deprecatedAt);
-        if (projectOrphans.length > 0) {
-          stats.metadataDeprecatedMarked += projectOrphans.length;
-          logger.info`#syncFromDB 标记 ${projectOrphans.length} 个废弃配置 (${projectScope}): ${projectOrphans.map((s) => s.key).join(', ')}`;
-          await prisma.sysAppSetting.updateMany({
-            where: { key: { in: projectOrphans.map((s) => s.key) }, scope: projectScope },
-            data: { deprecatedAt: new Date() },
-          });
-        }
-      }
-
-      // 恢复：被重新添加到代码中的配置（分 scope 检查）
-      const allFieldNames = new Set(fields.map((f) => f.field));
-      const restoredSettings = appSettings.filter((s) => allFieldNames.has(s.key) && Boolean(s.deprecatedAt));
-      if (restoredSettings.length > 0) {
-        stats.metadataRestored += restoredSettings.length;
-        logger.info`#syncFromDB 恢复 ${restoredSettings.length} 个配置: ${restoredSettings.map((s) => s.key).join(', ')}`;
-        await prisma.sysAppSetting.updateMany({
-          where: { key: { in: restoredSettings.map((s) => s.key) } },
-          data: { deprecatedAt: null },
-        });
-      }
-
-      // 创建不存在的配置字段
-      const nonExistsFields = fields.filter(({ field, isScoped }) => {
-        const writeScope = resolveWriteScope(field, isScoped);
-        return !appSettings.some((s) => s.key === field && s.scope === writeScope);
-      });
-      if (nonExistsFields.length > 0) {
-        stats.metadataCreated += nonExistsFields.length;
-        logger.info`#syncFromDB 创建 ${nonExistsFields.length} 个新配置字段...`;
-        await prisma.sysAppSetting.createMany({
-          data: nonExistsFields.map(({ field, format, description, defaultValue, isScoped }) => {
-            const defaultVal =
-              defaultValue !== undefined
-                ? typeof defaultValue === 'string'
-                  ? defaultValue
-                  : JSON.stringify(defaultValue)
-                : null;
-
-            const scope = resolveWriteScope(field, isScoped);
-            logger.info`#syncFromDB 创建配置: ${field} scope=${scope} (默认值: ${defaultVal})`;
-            return {
-              key: field,
-              scope,
-              value: null,
-              defaultValue: defaultVal,
-              format: format as string,
-              description: description as string | null,
-              createdBy: projectScope,
-            };
-          }),
-          skipDuplicates: true,
-        });
-      }
+    const metadata = projectScope ? planSettingMetadata(fields, appSettings, projectScope) : undefined;
+    if (metadata) {
+      await applySettingStructure(prisma, metadata);
+      stats.metadataDeprecatedMarked = metadata.deprecations.reduce((n, item) => n + item.keys.length, 0);
+      stats.metadataRestored = metadata.restorations.reduce((n, item) => n + item.keys.length, 0);
+      stats.metadataCreated = metadata.creations.length;
+      stats.metadataSkippedNotOwned = metadata.skippedNotOwned;
+      stats.metadataDefaultConflicts = metadata.conflicts.length;
+      if (metadata.conflicts.length)
+        logger.warning`#syncFromDB shared default conflicts: ${metadata.conflicts.join(', ')}`;
     }
-
-    // 读取 DB value 覆盖 runtime：resolve scoped > shared > code default
-    for (const { field, value, defaultValue, description, format, isScoped } of fields) {
-      const writeScope = resolveWriteScope(field, isScoped);
-
-      // scoped 字段优先读项目行，fallback 到 shared
-      const scopedRow = projectScope ? appSettings.find((s) => s.key === field && s.scope === projectScope) : undefined;
-      const sharedRow = appSettings.find((s) => s.key === field && s.scope === SHARED);
-      const effectiveRow = isScoped ? (scopedRow ?? sharedRow) : sharedRow;
-
-      if (!effectiveRow) {
-        stats.runtimeMissingDBValue += 1;
-        continue;
-      }
-
-      // 更新环境变量值
-      if (effectiveRow.value != null) {
-        const validation = validateDbValue(field, effectiveRow.value);
-        if (!validation.ok) {
-          stats.runtimeInvalidDBValue += 1;
-          logger.warning`#syncFromDB skip invalid DB value ${{ field, value: effectiveRow.value, reason: validation.reason }}`;
-        } else if (!_.isEqual(value, validation.value)) {
-          stats.runtimeOverridesApplied += 1;
-          logger.info`#syncFromDB 配置覆盖: ${field} = "${value}" -> "${validation.value}" (scope=${effectiveRow.scope})`;
-          (activeEnvs as Record<string, unknown>)[field] = validation.value;
-        } else {
-          stats.runtimeOverridesUnchanged += 1;
-        }
-      } else {
-        stats.runtimeMissingDBValue += 1;
-      }
-
-      if (!writeEnabled) {
-        continue;
-      }
-
-      // 检查并更新默认值和描述（写入该字段的 writeScope）
-      const metaRow = appSettings.find((s) => s.key === field && s.scope === writeScope);
-      if (!metaRow) continue;
-
-      // 归属隔离 —— 与上面 orphan 检测**同样的不对称**：
-      //   · project-scoped 行（writeScope === projectScope）：scope 本身就是归属证明，
-      //     只有本 project 会写这个 scope，不存在跨服务冲突 → 无条件更新。
-      //     （对应 orphan 检测里 project 分支不按 createdBy 过滤。）
-      //   · shared 行：N 个服务共读共写 → 必须按 createdBy 判归属。
-      //     （对应 orphan 检测里 shared 分支的 `s.createdBy === projectScope`。）
-      // 若对 project 行也要求 createdBy，历史上 createdBy 为空的 project 行会被永久
-      // 冻结元数据，而它们本来就没有冲突风险。
-      //
-      // scope='shared' 的一行会被 N 个服务共读共写，但 defaultValue 存的是「**某个服务**
-      // 对这个 key 的代码默认值」——per-(service,key) 的事实被存进了 per-key 的位置。
-      // 少了这道判断，每个服务都会把别人的默认值改回自己的：unee-prod 实测
-      // PRISMA_TRANSACTION_TIMEOUT 被 unee-server 每分钟写 '30000'、被 unee-ai-persona
-      // 每分钟改回 '5000'，7 个进程 × 2 个 key ≈ 2 万次写/天，永不收敛，且把
-      // updated_at 冲成噪音（排障时无法判断一行到底何时被真正改过）。
-      // 两边的默认值本来就该不同（server 事务 30s、persona 5s 都对），所以这不可能
-      // 靠「统一默认值」消除，只能靠归属隔离。
-      //
-      // createdBy 为 null 的历史行同样跳过（与 orphan 检测一致，见上）：让某个服务
-      // 顺手「认领」会引入新危害 —— 认领方将来从代码里删掉该字段时，orphan 检测就会
-      // 去 deprecate 这一行，而其他服务还在用它。历史行的归属需要人判断后一次性回填，
-      // 不该由每分钟跑一次的同步循环去猜。
-      // 用 isScoped 而不是 `writeScope === projectScope`：公开 API 的 `scope?: string`
-      // 允许传入保留值 'shared'，那时非 scoped 字段的 writeScope 也等于 projectScope，
-      // 字符串相等会把**所有** shared 行判成自己的 —— 跨服务写冲突原样回来。
-      const valueToStore =
-        defaultValue !== undefined
-          ? typeof defaultValue === 'string'
-            ? defaultValue
-            : JSON.stringify(defaultValue)
-          : null;
-
-      const ownsRow = isScoped || metaRow.createdBy === projectScope;
-      if (!ownsRow) {
-        stats.metadataSkippedNotOwned += 1;
-        // 归属隔离只是止住了互相覆盖的写循环，它本身是静音的。真正该被看见的是：
-        // shared 字段按定义应当全网一个默认值，值不一致说明有人把它用错了。两种成因：
-        //   · 某个服务在子类里重新声明了基类字段并改了默认值；
-        //   · 某个部署用 env 覆盖了它 —— 注意 defaultValue 取自 env 解析后的值，
-        //     所以部署级 env 会被记进「默认值」这一列。
-        // 只在值真的不同时才报，正常情况完全安静；一旦响，就是真分歧。
-        if (valueToStore !== null && metaRow.defaultValue !== valueToStore) {
-          stats.metadataDefaultConflicts += 1;
-          // 必须脱敏：API_KEY 等本身就是 @DatabaseField，且「不自行设置每次启动都会变更」
-          // —— 每个服务的值天然不同、必然命中这条分支，不脱敏就是每分钟把两份真实凭据
-          // 写进应用日志（进而进 Loki）。
-          const redact = AppConfigure.isSensitive(field);
-          const mine = redact ? '***' : valueToStore;
-          const theirs = redact ? '***' : metaRow.defaultValue;
-          logger.warning`#syncFromDB shared 字段 ${field} 默认值分歧：本服务(${projectScope})=${mine}，DB 中(归属 ${metaRow.createdBy ?? '未知'})=${theirs}。shared 字段应当全网一个默认值 —— 检查是否在子类里改了基类默认值，或部署 env 覆盖了它。`;
-        }
-        continue;
-      }
-
-      const updates: { defaultValue?: string; description?: string } = {};
-
-      if (metaRow.defaultValue !== valueToStore && valueToStore !== null) {
-        updates.defaultValue = valueToStore;
-      }
-      if (description && description !== metaRow.description) {
-        updates.description = description;
-      }
-
-      if (!_.isEmpty(updates)) {
-        stats.metadataUpdated += 1;
-        logger.info`#syncFromDB 更新元数据: ${field} scope=${writeScope} ${updates}`;
-        try {
-          const existingRecord = await prisma.sysAppSetting.findUnique({
-            where: { scope_key: { scope: writeScope, key: field } },
-          });
-
-          if (!existingRecord) {
-            logger.warning`#syncFromDB record not found for update: ${field} scope=${writeScope}`;
-            await prisma.sysAppSetting.create({
-              data: {
-                key: field,
-                scope: writeScope,
-                value: null,
-                defaultValue: updates.defaultValue ?? null,
-                format: format as string,
-                description: updates.description ?? null,
-                // 必须带归属：否则这一行永远无主，之后每一轮都会被上面的归属判断跳过，
-                // 元数据再也不会更新（与 createMany 的建行路径保持一致）。
-                createdBy: projectScope,
-              },
-            });
-            logger.info`#syncFromDB created record for ${field} scope=${writeScope}`;
-          } else {
-            await prisma.sysAppSetting.update({
-              where: { scope_key: { scope: writeScope, key: field } },
-              data: updates,
-            });
-            logger.info`#syncFromDB updated metadata for ${field} scope=${writeScope}`;
+    // Preserve the legacy per-field admission contract. Schema runtimes validate the whole snapshot.
+    for (const field of fields) {
+      const row = effectiveSetting(field, appSettings, projectScope);
+      let value: unknown = row?.value;
+      if (row && row.format !== 'string' && value != null) {
+        const raw = typeof value === 'string' ? value.trim() : value;
+        if (raw === '') value = null;
+        else {
+          try {
+            value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          } catch {
+            value = null;
+            logger.warning`#syncFromDB invalid stored JSON for ${field.field}`;
           }
-        } catch (error: unknown) {
-          stats.metadataUpdateFailed += 1;
-          logger.error`#syncFromDB failed to update metadata for ${field}: ${error instanceof Error ? error.message : String(error)} ${errorStack(error) ?? ''}`;
+        }
+      }
+      if (value == null) {
+        stats.runtimeMissingDBValue++;
+        continue;
+      }
+      const validated = validateDbValue(field.field, value);
+      if (!validated.ok) {
+        stats.runtimeInvalidDBValue++;
+        logger.warning`#syncFromDB invalid stored value for ${field.field}`;
+      } else if (!_.isEqual(field.value, validated.value)) {
+        (activeEnvs as Record<string, unknown>)[field.field] = validated.value;
+        stats.runtimeOverridesApplied++;
+      } else stats.runtimeOverridesUnchanged++;
+    }
+    if (metadata && projectScope) {
+      for (const update of metadata.updates) {
+        stats.metadataUpdated++;
+        try {
+          await applySettingUpdate(prisma, update, projectScope);
+        } catch (error) {
+          // Existing callers consume these statistics; the schema runtime instead returns Err.
+          stats.metadataUpdateFailed++;
+          logger.error`#syncFromDB metadata update failed for ${update.field.field}: ${errorStack(error)}`;
         }
       }
     }
-
-    if (scopedWithoutProject.length > 0) {
-      logger.warning`#syncFromDB scoped fields used without project scope, falling back to "${SHARED}": ${scopedWithoutProject.join(', ')}`;
+    if (!projectScope && fields.some((field) => field.isScoped)) {
+      logger.warning`#syncFromDB scoped fields without project scope use shared values in read-only mode`;
     }
-
-    logger.info`#syncFromDB summary mode=${syncMode} scope=${projectScope ?? SHARED} managed=${fields.length} dbRows=${appSettings.length} applied=${stats.runtimeOverridesApplied} unchanged=${stats.runtimeOverridesUnchanged} missingDbValue=${stats.runtimeMissingDBValue} invalidDbValue=${stats.runtimeInvalidDBValue} deprecated=${stats.metadataDeprecatedMarked} restored=${stats.metadataRestored} created=${stats.metadataCreated} metadataUpdated=${stats.metadataUpdated} metadataUpdateFailed=${stats.metadataUpdateFailed} metadataSkippedNotOwned=${stats.metadataSkippedNotOwned} defaultConflicts=${stats.metadataDefaultConflicts}`;
-
-    // 返回统计供调用方断言/告警（现有调用方忽略返回值即可）。
+    logger.info`#syncFromDB mode=${writeEnabled ? 'read-write' : 'read-only'} scope=${projectScope ?? SHARED} managed=${fields.length} stats=${JSON.stringify(stats)}`;
     return stats;
   }
 }
@@ -1335,6 +1121,7 @@ export function createEnvConfig<T extends z.ZodRawShape>(
     isProd: boolean;
   };
   databaseFields: Array<{ key: string; spec: DatabaseFieldSpec }>;
+  sync: SchemaConfigSync;
 } {
   const envSourceMap = new Map<string, string>();
   for (const key of Object.keys(process.env)) {
@@ -1364,7 +1151,8 @@ export function createEnvConfig<T extends z.ZodRawShape>(
     });
   }
 
-  const parsed = schema.safeParse(process.env);
+  const rawBaseline = { ...process.env };
+  const parsed = schema.safeParse(rawBaseline);
   if (!parsed.success) {
     const logger = getAppLogger('Configure');
     logger.error`[Env] Configuration validation failed:`;
@@ -1376,10 +1164,16 @@ export function createEnvConfig<T extends z.ZodRawShape>(
   }
 
   const rawVars = parsed.data as Record<string, unknown>;
-  const resolvedEnv =
-    (typeof rawVars.ENV === 'string' ? rawVars.ENV : undefined) ??
-    (typeof rawVars.DOPPLER_ENVIRONMENT === 'string' ? rawVars.DOPPLER_ENVIRONMENT : undefined) ??
-    'dev';
+  const configuredEnv = [rawVars.ENV, rawVars.DOPPLER_ENVIRONMENT].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  );
+  if (
+    (rawBaseline.NODE_ENV === NODE_ENV.Production || rawVars.NODE_ENV === NODE_ENV.Production) &&
+    configuredEnv === undefined
+  ) {
+    throw Oops.Panic.Config('Production configuration requires ENV or DOPPLER_ENVIRONMENT');
+  }
+  const resolvedEnv = configuredEnv ?? 'dev';
   const environment = {
     env: resolvedEnv,
     isProd: resolvedEnv === 'prd',
@@ -1399,5 +1193,12 @@ export function createEnvConfig<T extends z.ZodRawShape>(
     isSensitive: AppConfigure.isSensitive,
     environment,
     databaseFields,
+    sync: createSchemaConfigSync(schema, {
+      vars: parsed.data,
+      rawBaseline,
+      databaseFields,
+      envSourceMap,
+      scope: options.scope,
+    }),
   };
 }
