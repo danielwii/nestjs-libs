@@ -91,6 +91,10 @@ export type AnchoredProjection =
   | { shape: 'date'; date: Temporal.PlainDate; ownZone: Zone; sameZone: boolean }
   | { shape: 'time'; time: Temporal.PlainTime; ownZone: Zone; sameZone: boolean };
 
+/**
+ * An `instant`'s `value` is only the absolute moment (UTC, `…Z`); whose time it is lives only in `zone`. The `Z` is notation, not ownership.
+ * `date` / `time` values are the plain date / clock text, with `zone` the calendar / clock they belong to.
+ */
 export interface AnchoredJson {
   readonly shape: AnchoredShape;
   readonly value: string;
@@ -108,6 +112,9 @@ export interface AnchoredJson {
  * there, checked at `fromJSON` itself, same untrusted-boundary posture as `fromStored`. An
  * `AnchoredJson` (e.g. from a prior `toJSON()`) is always assignable here — both its `zone`
  * possibilities are plain strings, just narrower ones.
+ *
+ * For `shape: 'instant'` the `value` must be an absolute UTC moment ending in `Z` (fractional seconds allowed): a numeric offset or a `[Zone]`
+ * annotation is rejected, because ownership is written once, in `zone`.
  */
 export interface AnchoredJsonInput {
   readonly shape: string;
@@ -121,6 +128,8 @@ export interface AnchoredJsonInput {
  * 具体 `Zone`：floating 在投影那一刻已经解析成观察者）读锚定信息，不需要看到这个内部判别式。
  */
 type Anchoring = { readonly kind: 'zone'; readonly zone: Zone } | { readonly kind: 'floating' };
+
+const UTC_INSTANT_TEXT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?Z$/;
 
 export class Anchored {
   private constructor(
@@ -244,7 +253,10 @@ export class Anchored {
 
   toJSON(): AnchoredJson {
     const zone = this.anchoring.kind === 'floating' ? FLOATING_LITERAL : this.anchoring.zone;
-    return { shape: this.shape, value: this.value.toString(), zone };
+    // instant 的值只写绝对时刻（`2026-09-21T10:00:00Z`），归属只在 `zone`：不在值里再写一遍 `[Zone]`，免得两处不一致。
+    const value =
+      this.shape === 'instant' ? (this.value as Temporal.ZonedDateTime).toInstant().toString() : this.value.toString();
+    return { shape: this.shape, value, zone };
   }
 
   /** 线上传来的坏数据与存储里的坏数据受同一道约束。 */
@@ -254,15 +266,13 @@ export class Anchored {
     if (shape === 'instant') {
       if (!json.zone) throw new Error('Anchored: instant 缺少归属');
       const zone = assertZone(json.zone);
-      const at = Temporal.ZonedDateTime.from(json.value);
-      // 值自带的 [Zone] 后缀与 `zone` 必须是同一个时区：两处各说各话，下游按 `zone` 判归属、按值判时刻，
-      // 同一个对象就同时属于两个时区。按时区等价比较而不是比字符串——别名与规范名（`Asia/Calcutta` /
-      // `Asia/Kolkata`）是同一个时区，不能被拒。
-      if (!at.equals(at.withTimeZone(zone)))
-        throw new Error(`Anchored: instant 的值 "${json.value}" 自带的时区与归属 "${zone}" 不一致`);
-      // 以规范后的 `zone` 重新表示这个值：别名的值（`…[Asia/Calcutta]`）不能和 `zone`（`Asia/Kolkata`）并存，
-      // 否则同一个时刻有两种序列化，摘要与去重会各算各的。
-      return new Anchored('instant', at.withTimeZone(zone), { kind: 'zone', zone });
+      // 值只是绝对时刻（UTC 的 `Z` 写法）；归属只写在 `zone` 里。带偏移或 `[Zone]` 的值把归属写了第二遍，
+      // 两处可以各说各话，所以不收：`Z` 是记法，不是归属。
+      if (!UTC_INSTANT_TEXT.test(json.value))
+        throw new Error(
+          `Anchored: instant value must be an absolute UTC moment; ownership lives in zone, received "${json.value}"`,
+        );
+      return Anchored.instant(Temporal.Instant.from(json.value), zone);
     }
     if (shape === 'date' || shape === 'time') return Anchored.fromStored(json.value, json.zone, shape);
     throw new Error(`Anchored: 未知形态 "${shape}"`);

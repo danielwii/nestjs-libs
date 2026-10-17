@@ -260,52 +260,63 @@ describe('Anchored', () => {
     });
 
     it('fromJSON 对缺归属或未知形态抛错', () => {
-      expect(() =>
-        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]', zone: '' }),
-      ).toThrow(/缺少归属/);
+      expect(() => Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T10:00:00Z', zone: '' })).toThrow(
+        /缺少归属/,
+      );
       expect(() => Anchored.fromJSON({ shape: 'date', value: '2026-09-21', zone: '' })).toThrow(/缺少归属/);
       expect(() => Anchored.fromJSON({ shape: 'duration' as never, value: 'PT1H', zone: 'UTC' })).toThrow(/未知形态/);
     });
 
-    it('fromJSON 对 instant：值自带的时区与 zone 不一致就拒绝，同一时区的别名不拒绝', () => {
-      // 同一时刻、不同时区：值说东京、归属说洛杉矶——不能让同一个对象同时属于两个时区。
+    it('instant 的 JSON 只写一次归属：值是 UTC 绝对时刻，时区只在 zone', () => {
+      const json = Anchored.instant(new Date('2026-09-21T10:00:00Z'), TOKYO).toJSON();
+      expect(json).toEqual({ shape: 'instant', value: '2026-09-21T10:00:00Z', zone: TOKYO });
+      // 往返不丢归属，toString 仍是 RFC 9557（人读与日志用）。
+      const restored = Anchored.fromJSON(JSON.parse(JSON.stringify(json)));
+      expect(restored.toJSON()).toEqual(json);
+      expect(restored.toString()).toBe('2026-09-21T19:00:00+09:00[Asia/Tokyo]');
+    });
+
+    it('fromJSON 对 instant：带偏移或 [Zone] 的值被拒绝（归属不写第二遍），Z 值接受，zone 大小写规范化', () => {
+      for (const value of [
+        '2026-09-21T19:00:00+09:00',
+        '2026-09-21T19:00:00+09:00[Asia/Tokyo]',
+        '2026-09-21T10:00:00Z[Asia/Tokyo]',
+        '2026-09-21T10:00:00z',
+        '2026-09-21',
+        '',
+      ])
+        expect(() => Anchored.fromJSON({ shape: 'instant', value, zone: 'Asia/Tokyo' })).toThrow(
+          /absolute UTC moment; ownership lives in zone/,
+        );
       expect(() =>
-        Anchored.fromJSON({
-          shape: 'instant',
-          value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]',
-          zone: 'America/Los_Angeles',
-        }),
-      ).toThrow(/不一致/);
-      // 偏移与后缀自相矛盾，本来就由 ZonedDateTime.from 拒绝。
-      expect(() =>
-        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+05:00[Asia/Tokyo]', zone: 'Asia/Tokyo' }),
+        Anchored.fromJSON({ shape: 'instant', value: '2026-13-40T10:00:00Z', zone: 'Asia/Tokyo' }),
       ).toThrow();
-      // 没有 [Zone] 后缀的值同样本来就被拒绝。
-      expect(() =>
-        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+09:00', zone: 'Asia/Tokyo' }),
-      ).toThrow();
-      // 一致则通过，且 zone 大小写由 assertZone 规范化。
-      const ok = Anchored.fromJSON({
+      const fractional = Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T10:00:00.000Z', zone: 'asia/tokyo' });
+      expect(fractional.toJSON()).toEqual({ shape: 'instant', value: '2026-09-21T10:00:00Z', zone: TOKYO });
+      expect(
+        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T10:00Z', zone: 'Asia/Tokyo' }).toJSON().value,
+      ).toBe('2026-09-21T10:00:00Z');
+      // Date.toISOString() output is accepted as is.
+      const date = new Date('2026-09-21T10:00:00.123Z');
+      expect(
+        Anchored.fromJSON({ shape: 'instant', value: date.toISOString(), zone: 'Asia/Tokyo' }).toJSON().value,
+      ).toBe('2026-09-21T10:00:00.123Z');
+    });
+
+    it('fromJSON 对 instant：zone 原样经 assertZone（只规范大小写），值里没有第二处时区可以不一致', () => {
+      const json = Anchored.fromJSON({
         shape: 'instant',
-        value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]',
-        zone: 'asia/tokyo',
-      });
-      expect(ok.toJSON()).toEqual({ shape: 'instant', value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]', zone: TOKYO });
-      // 链接名（别名）与规范名是同一个时区，按时区等价比较，不是比字符串。
-      const alias = Anchored.fromJSON({
-        shape: 'instant',
-        value: '2026-09-21T19:00:00+05:30[Asia/Calcutta]',
-        zone: 'Asia/Kolkata',
-      });
-      // 且只有一种序列化：值跟着 zone 走，不留别名，同一时刻不会出现两个串。
-      expect(alias.toJSON().value).toBe('2026-09-21T19:00:00+05:30[Asia/Kolkata]');
-      expect(alias.toJSON().zone).toBe(KOLKATA);
+        value: '2026-09-21T13:30:00Z',
+        zone: 'asia/kolkata',
+      }).toJSON();
+      expect(json).toEqual({ shape: 'instant', value: '2026-09-21T13:30:00Z', zone: KOLKATA });
+      expect(Anchored.fromJSON(json).toJSON()).toEqual(json);
     });
 
     it('fromJSON 对 instant/date 传入 "floating" 归属仍然拒绝——floating 只是 time 的锚定方式', () => {
-      expect(() =>
-        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]', zone: 'floating' }),
-      ).toThrow(/不是 Zone/);
+      expect(() => Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T10:00:00Z', zone: 'floating' })).toThrow(
+        /不是 Zone/,
+      );
       expect(() => Anchored.fromJSON({ shape: 'date', value: '2026-09-21', zone: 'floating' })).toThrow(/不是 Zone/);
     });
   });
