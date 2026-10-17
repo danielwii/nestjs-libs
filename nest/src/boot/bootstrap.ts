@@ -23,6 +23,8 @@ import { getAppLogger } from '@app/utils/app-logger';
 import { normalizeTimezone } from '@app/utils/datetime';
 import { maskSecret } from '@app/utils/security';
 
+import { resolveInboundSchema } from '../contract';
+
 import os from 'node:os';
 
 import compression from 'compression';
@@ -53,7 +55,6 @@ import type {
 } from '@nestjs/common';
 import type { MicroserviceOptions, NestMicroservice } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { NextFunction, Request, Response } from 'express';
 
 const bootstrapLogger = getAppLogger('boot', 'Bootstrap');
@@ -250,40 +251,11 @@ export function connectGrpcMicroserviceWithBoundary(
 }
 
 /**
- * 校验对象或函数是否符合 Standard Schema 规范（支持 Object 与 Callable Function 如 ArkType）
- */
-function isStandardSchema(val: unknown): val is StandardSchemaV1 {
-  return ((typeof val === 'object' && val !== null) || typeof val === 'function') && '~standard' in val;
-}
-
-/**
- * 解析参数或类自身显式绑定的 Standard Schema。
- *
- * 核心设计（原型继承安全）：
- * 使用 Object.prototype.hasOwnProperty 确保只解析类自身直接声明的静态 schema，
- * 杜绝子类沿 JavaScript 原型链隐式继承父类 schema（如 CursoredRequestInput），
- * 从而彻底消灭子类业务字段被父类 closed schema 默认剥离（strip）的安全盲区。
- */
-function resolveOwnedStandardSchema(metadata: ArgumentMetadata): StandardSchemaV1 | undefined {
-  if (isStandardSchema(metadata.schema)) {
-    return metadata.schema;
-  }
-  const metatype = metadata.metatype;
-  if (metatype && typeof metatype === 'function' && Object.prototype.hasOwnProperty.call(metatype, 'schema')) {
-    const owned = (metatype as { schema?: unknown }).schema;
-    if (isStandardSchema(owned)) {
-      return owned;
-    }
-  }
-  return undefined;
-}
-
-/**
  * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取
  */
 export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
   override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
-    const rawSchema = resolveOwnedStandardSchema(metadata);
+    const rawSchema = resolveInboundSchema(metadata);
     if (!rawSchema) return value;
     return super.transform(value, { ...metadata, schema: rawSchema });
   }
@@ -301,7 +273,7 @@ export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPip
  */
 export class DualBoundaryValidationPipe extends ValidationPipe {
   override toValidate(metadata: ArgumentMetadata): boolean {
-    const rawSchema = resolveOwnedStandardSchema(metadata);
+    const rawSchema = resolveInboundSchema(metadata);
     if (rawSchema) {
       return false;
     }

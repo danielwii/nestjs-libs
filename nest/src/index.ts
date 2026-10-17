@@ -5,6 +5,6 @@
 export * from './common/interface';
 export * from './common/response';
 export * from './exceptions/error-codes';
-// OOPS_ERROR_METADATA_KEY already exported via error-codes above
 export * from './exceptions/oops-error';
 export * from './exceptions/oops';
+export * from './contract';
