@@ -260,7 +260,9 @@ export class Anchored {
       // `Asia/Kolkata`）是同一个时区，不能被拒。
       if (!at.equals(at.withTimeZone(zone)))
         throw new Error(`Anchored: instant 的值 "${json.value}" 自带的时区与归属 "${zone}" 不一致`);
-      return new Anchored('instant', at, { kind: 'zone', zone });
+      // 以规范后的 `zone` 重新表示这个值：别名的值（`…[Asia/Calcutta]`）不能和 `zone`（`Asia/Kolkata`）并存，
+      // 否则同一个时刻有两种序列化，摘要与去重会各算各的。
+      return new Anchored('instant', at.withTimeZone(zone), { kind: 'zone', zone });
     }
     if (shape === 'date' || shape === 'time') return Anchored.fromStored(json.value, json.zone, shape);
     throw new Error(`Anchored: 未知形态 "${shape}"`);

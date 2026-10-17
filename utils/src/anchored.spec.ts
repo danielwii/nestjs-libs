@@ -292,13 +292,14 @@ describe('Anchored', () => {
       });
       expect(ok.toJSON()).toEqual({ shape: 'instant', value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]', zone: TOKYO });
       // 链接名（别名）与规范名是同一个时区，按时区等价比较，不是比字符串。
-      expect(() =>
-        Anchored.fromJSON({
-          shape: 'instant',
-          value: '2026-09-21T19:00:00+05:30[Asia/Calcutta]',
-          zone: 'Asia/Kolkata',
-        }),
-      ).not.toThrow();
+      const alias = Anchored.fromJSON({
+        shape: 'instant',
+        value: '2026-09-21T19:00:00+05:30[Asia/Calcutta]',
+        zone: 'Asia/Kolkata',
+      });
+      // 且只有一种序列化：值跟着 zone 走，不留别名，同一时刻不会出现两个串。
+      expect(alias.toJSON().value).toBe('2026-09-21T19:00:00+05:30[Asia/Kolkata]');
+      expect(alias.toJSON().zone).toBe(KOLKATA);
     });
 
     it('fromJSON 对 instant/date 传入 "floating" 归属仍然拒绝——floating 只是 time 的锚定方式', () => {
