@@ -239,6 +239,17 @@ type StreamOnErrorResult = Awaited<ReturnType<StreamTextOnErrorRetryCallback>>;
 /** SDK 契约下 onError 的非空返回值只有 `{ retry: true }` 一种形态，故「是对象」即等价于请求重试。 */
 const isStreamRetryRequested = (result: StreamOnErrorResult | undefined): boolean => typeof result === 'object';
 
+/**
+ * A streamText request that opts out of the SDK's single-consumer mode (`experimental_lowMemory`, ai ≥ 7.0.143).
+ * `LLMStreamTextResult` promises the full result (replay and final-content getters), so the wrapper pins
+ * `experimental_lowMemory: false`; this also selects the SDK overload that returns `StreamTextResult`.
+ */
+type FullStreamTextRequest<
+  TOOLS extends ToolSet,
+  RUNTIME_CONTEXT extends Context,
+  OUTPUT extends Output.Output,
+> = Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, OUTPUT>>[0] & { experimental_lowMemory: false };
+
 /** Canonical AI SDK v7 stream result. The deprecated `fullStream` alias is intentionally hidden. */
 export type LLMStreamTextResult<
   TOOLS extends ToolSet = ToolSet,
@@ -1829,7 +1840,8 @@ export class LLM {
       },
       onAbort: lifecycle.onAbort,
       onEnd: lifecycle.onEnd,
-    } as Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, typeof output>>[0];
+      experimental_lowMemory: false,
+    } as FullStreamTextRequest<TOOLS, RUNTIME_CONTEXT, typeof output>;
 
     try {
       const result = streamText<TOOLS, RUNTIME_CONTEXT, typeof output>(streamRequest);
@@ -1970,7 +1982,7 @@ export class LLM {
       },
     );
 
-    const streamRequest: Parameters<typeof streamText<TOOLS, RUNTIME_CONTEXT, OUTPUT>>[0] = {
+    const streamRequest: FullStreamTextRequest<TOOLS, RUNTIME_CONTEXT, OUTPUT> = {
       ...restAiOptions,
       model: languageModel,
       ...(instructions !== undefined ? { instructions: cachedInstructions(modelKey, instructions) } : {}),
@@ -1996,6 +2008,7 @@ export class LLM {
       },
       onAbort: lifecycle.onAbort,
       onEnd: lifecycle.onEnd,
+      experimental_lowMemory: false,
     };
 
     try {
