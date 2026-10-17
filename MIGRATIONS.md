@@ -1,5 +1,19 @@
 # Migrations
 
+## `Anchored` instant JSON carries its zone once
+
+An `instant`'s JSON used to write the zone twice: the `[Zone]` suffix of `value` and the `zone` field. The two could disagree, so a decoded
+object could belong to two zones. The instant's `value` is now only the absolute moment, and `zone` is the only place that says whose time it is.
+
+- **`toJSON()` (instant):** `value` is the UTC instant text (`2026-09-21T10:00:00Z`), no `[Zone]`, no offset; `zone` is unchanged. `date` / `time` are unchanged.
+- **`fromJSON()` (instant):** `zone` is required (`assertZone`); `value` must be a UTC instant ending in `Z` (fractional seconds allowed, so `Date#toISOString()`
+  output passes). A numeric offset or a `[Zone]` annotation is rejected: `Anchored: instant value must be an absolute UTC moment; ownership lives in zone`.
+  A `Z` is notation, not ownership.
+- **Breaking for stored / wire instants** in the old form (`…+09:00[Asia/Tokyo]`): they no longer decode. Re-encode them with `toJSON()` before reading them
+  with this version. Within this repository's consumers there were no producers or stored rows at the time of the change.
+- **`date` / `time` values are checked the same way in `fromJSON`:** a date must be exactly `YYYY-MM-DD`, a time plain clock text (`HH:mm[:ss[.fff]]`); a date with a time and offset, or a time with an offset or a `[Zone]`, is rejected (they used to be accepted with the suffix silently dropped). `fromStored` is unchanged.
+- `toString()` is unchanged (RFC 9557, for logs and people).
+
 ## `readLocalTime` / `readLocalSpan` require `ownZone`; `@app/utils/utc-offset` added
 
 `ownZone` used to be optional and, when omitted, silently meant "the reader's own zone". A call site
