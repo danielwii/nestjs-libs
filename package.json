@@ -227,7 +227,7 @@
     "@types/response-time": "^2.3.9",
     "@types/ws": "^8.18.2",
     "@typesafe-ai/sdk": "^0.6.0",
-    "ai": "^7.0.137",
+    "ai": "^7.0.143",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "compression": "^1.8.2",
