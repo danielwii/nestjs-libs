@@ -253,10 +253,14 @@ export class Anchored {
     const shape: string = json.shape;
     if (shape === 'instant') {
       if (!json.zone) throw new Error('Anchored: instant 缺少归属');
-      return new Anchored('instant', Temporal.ZonedDateTime.from(json.value), {
-        kind: 'zone',
-        zone: assertZone(json.zone),
-      });
+      const zone = assertZone(json.zone);
+      const at = Temporal.ZonedDateTime.from(json.value);
+      // 值自带的 [Zone] 后缀与 `zone` 必须是同一个时区：两处各说各话，下游按 `zone` 判归属、按值判时刻，
+      // 同一个对象就同时属于两个时区。按时区等价比较而不是比字符串——别名与规范名（`Asia/Calcutta` /
+      // `Asia/Kolkata`）是同一个时区，不能被拒。
+      if (!at.equals(at.withTimeZone(zone)))
+        throw new Error(`Anchored: instant 的值 "${json.value}" 自带的时区与归属 "${zone}" 不一致`);
+      return new Anchored('instant', at, { kind: 'zone', zone });
     }
     if (shape === 'date' || shape === 'time') return Anchored.fromStored(json.value, json.zone, shape);
     throw new Error(`Anchored: 未知形态 "${shape}"`);

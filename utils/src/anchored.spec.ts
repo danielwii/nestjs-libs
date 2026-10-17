@@ -267,6 +267,40 @@ describe('Anchored', () => {
       expect(() => Anchored.fromJSON({ shape: 'duration' as never, value: 'PT1H', zone: 'UTC' })).toThrow(/未知形态/);
     });
 
+    it('fromJSON 对 instant：值自带的时区与 zone 不一致就拒绝，同一时区的别名不拒绝', () => {
+      // 同一时刻、不同时区：值说东京、归属说洛杉矶——不能让同一个对象同时属于两个时区。
+      expect(() =>
+        Anchored.fromJSON({
+          shape: 'instant',
+          value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]',
+          zone: 'America/Los_Angeles',
+        }),
+      ).toThrow(/不一致/);
+      // 偏移与后缀自相矛盾，本来就由 ZonedDateTime.from 拒绝。
+      expect(() =>
+        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+05:00[Asia/Tokyo]', zone: 'Asia/Tokyo' }),
+      ).toThrow();
+      // 没有 [Zone] 后缀的值同样本来就被拒绝。
+      expect(() =>
+        Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+09:00', zone: 'Asia/Tokyo' }),
+      ).toThrow();
+      // 一致则通过，且 zone 大小写由 assertZone 规范化。
+      const ok = Anchored.fromJSON({
+        shape: 'instant',
+        value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]',
+        zone: 'asia/tokyo',
+      });
+      expect(ok.toJSON()).toEqual({ shape: 'instant', value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]', zone: TOKYO });
+      // 链接名（别名）与规范名是同一个时区，按时区等价比较，不是比字符串。
+      expect(() =>
+        Anchored.fromJSON({
+          shape: 'instant',
+          value: '2026-09-21T19:00:00+05:30[Asia/Calcutta]',
+          zone: 'Asia/Kolkata',
+        }),
+      ).not.toThrow();
+    });
+
     it('fromJSON 对 instant/date 传入 "floating" 归属仍然拒绝——floating 只是 time 的锚定方式', () => {
       expect(() =>
         Anchored.fromJSON({ shape: 'instant', value: '2026-09-21T19:00:00+09:00[Asia/Tokyo]', zone: 'floating' }),

@@ -1,5 +1,18 @@
 # Migrations
 
+## `Anchored.fromJSON` rejects an `instant` whose own zone differs from `zone`
+
+An `instant` carries its zone twice on the wire: the `[Zone]` suffix of `value` and the `zone` field.
+`fromJSON` used to trust `zone` and ignore the suffix, so `{ value: '…+09:00[Asia/Tokyo]', zone: 'America/Los_Angeles' }`
+produced an object that belonged to two zones at once. It now throws. The comparison is by zone equivalence,
+not by string: an alias and its canonical name (for example `Asia/Calcutta` and `Asia/Kolkata`) are the same zone
+and are accepted.
+
+- **Behavioural, no type change.** A consumer that decodes wire data with `fromJSON` must be on this version
+  before it relies on the check; older versions accept the mismatch silently.
+- A value with no `[Zone]` suffix, or with an offset that contradicts its zone, was already rejected by
+  `Temporal.ZonedDateTime.from` and still is.
+
 ## `readLocalTime` / `readLocalSpan` require `ownZone`; `@app/utils/utc-offset` added
 
 `ownZone` used to be optional and, when omitted, silently meant "the reader's own zone". A call site
