@@ -1,20 +1,8 @@
 /**
- * 渲染侧的时区宽容层。
- *
- * 只做一件事：把一个来路不明的时区字符串，变成「能拿去渲染的东西，或者 null」。它**不是**时区解析
- * 器，也**不是** {@link ./anchored} 的前置适配器——两者的策略是相反的：
- *
- *   - `Anchored` 只认 IANA 名，拿到 `+08:00` 直接抛错。因为偏移量里没有地区身份，且同一时区在夏令时
- *     前后是两个偏移；把偏移量当归属存下来，跨季节会静默差一小时。
- *   - 本模块拿到 `+8` 会补成 `+08:00` 原样放行。它不翻译成 IANA 名，也翻译不了。
- *
- * 所以：**本模块的输出不得进入 `Anchored`，也不得写入持久层。** 它的合法用途只有一个——在纯展示路径
- * 上（日志 banner、给模型看的时间、调试输出）避免因为一个脏时区字符串让整条渲染崩掉。
- *
- * 它之所以还存在，是因为存量数据里通常仍有极少量裸偏移量。那些行是坏数据，正确的处理是在应用侧用别的
- * 证据（用户地址/国家、设备上报的 IANA 名、locale）把它们迁成 IANA 名——见 `anchored.ts` 里关于迁移
- * 输入的说明。**那批数据清干净之后，本模块就该被删掉**，调用点直接用 `Anchored` 的规则：认不出来的
- * 时区就是认不出来，回落到显式的默认值，不要先洗一道。
+ * Normalize a timezone for display, accepting IANA names and fixed offsets.
+ * A fixed offset describes a clock projection, not geographic attribution.
+ * Never promote this result to Anchored's Zone or infer a region from it.
+ * Missing/invalid input returns null; callers choose an explicit rejection policy.
  */
 
 const REFERENCE_INSTANT = Temporal.Instant.fromEpochMilliseconds(0);
@@ -67,8 +55,8 @@ export function normalizeTimezone(timezone: string | null | undefined): string |
 
   try {
     return REFERENCE_INSTANT.toZonedDateTimeISO(tz).timeZoneId;
-  } catch {
-    // 宽容层的契约就是不抛：认不出来返回 null，让调用方用自己的显式默认值。
-    return null;
+  } catch (cause) {
+    if (cause instanceof RangeError) return null;
+    throw cause; // A runtime failure is not an invalid timezone.
   }
 }

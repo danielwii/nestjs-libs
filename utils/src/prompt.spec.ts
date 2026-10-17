@@ -39,7 +39,7 @@ const ORIGINAL_TZ = process.env.TZ;
 const mockDate = new Date('2024-01-15T10:30:00Z');
 
 // tz-d7 (Zone 品牌化) — `readLocalTime`/`readLocalSpan` only accept an already-validated `Zone`
-// (the caller — a resolver function, or `formatLocalDateTime`/`zonedAt` — runs `assertZone` first);
+// (the caller — an attribution resolver or `zonedAt` — runs `assertZone` first);
 // these are this file's shared validated constants for every direct call below.
 const TAIPEI = assertZone('Asia/Taipei');
 const LA = assertZone('America/Los_Angeles');
@@ -337,20 +337,15 @@ describe('PromptBuilder', () => {
     expect(rendered).not.toContain("Match the user's current message language");
   });
 
-  // tz-d6：渲染现在完全经过 Anchored/assertZone，它的协议本来就拒绝裸偏移量（"+8"/"+08:00"）
-  // ——偏移量不是归属，见 anchored.ts 的doc（同一时刻不同季节真实偏移会变，偏移量本身
-  // 无法判断该按哪个 IANA 规则找 DST）。旧格式时区曾经被容忍，现在跟其它非法时区一样抛错。
-  it('拒绝裸偏移量格式时区 "+8"（不再是被容忍的旧格式）', () => {
-    const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
-
-    expect(() => prompt.render({ timezone: '+8', sensitivity: TimeSensitivity.Minute })).toThrow(/Anchored/);
-  });
-
-  it('拒绝裸偏移量格式时区 "+08:00"', () => {
-    const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
-
-    expect(() => prompt.render({ timezone: '+08:00', sensitivity: TimeSensitivity.Minute })).toThrow(/Anchored/);
-  });
+  // The Now line is a clock display; offsets do not acquire geographic attribution.
+  for (const timezone of ['+8', '+08:00']) {
+    it(`displays fixed offset ${timezone}`, () => {
+      const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
+      expect(prompt.render({ timezone, sensitivity: TimeSensitivity.Minute })).toContain(
+        'Now:2024-01-15 Monday 18:30 in the evening (UTC+8)',
+      );
+    });
+  }
 
   it('应该正确处理 IANA 格式时区 "Asia/Tokyo"', () => {
     const prompt = new PromptBuilder('tz-test', '1.0').role('测试').objective('验证时区').build();
@@ -546,12 +541,11 @@ describe('cache-aware prompt decorators', () => {
   // read as someone else's "now". No default; the caller states whose clock this is.
   it('rejects a missing or invalid timezone instead of falling back to process.env.TZ', () => {
     process.env.TZ = 'America/Los_Angeles';
-    // 校验现在完全交给 Anchored/assertZone，错误文案是它的（"Anchored: ... 缺少归属" /
-    // "Anchored: 未知的 IANA 时区 ..."），不再是这里自己拼的英文 TypeError。
-    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, undefined)).toThrow(/Anchored/);
-    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, null)).toThrow(/Anchored/);
+    // Display rejection is independent of Anchored's geographic attribution contract.
+    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, undefined)).toThrow(Oops.Block);
+    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, null)).toThrow(Oops.Block);
     expect(() => zonedAt('2026-09-15T10:22:00Z', undefined)).toThrow(/Anchored/);
-    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, 'not-a-real-zone')).toThrow(/Anchored/);
+    expect(() => formatLocalDateTime(undefined, TimeSensitivity.Minute, 'not-a-real-zone')).toThrow(Oops.Block);
   });
 
   it('render with now:null omits the trailing Now line so the system prompt stays static', () => {
@@ -620,7 +614,7 @@ describe('readLocalTime (tz-d6: the one validate+project+render core)', () => {
 
   // tz-d7 (Zone 品牌化) — `observer` only accepts an already-validated `Zone`; a bare string
   // (missing, or a real-looking but bogus name) can no longer reach `readLocalTime` at all —
-  // the caller (a resolver function, or `formatLocalDateTime`/`zonedAt`) must run it through
+  // the caller (an attribution resolver or `zonedAt`) must run it through
   // `assertZone` first, which is where "missing or invalid observer" is actually rejected now
   // (with a runtime `/Anchored/` message — see the boundary-level test in the decorators
   // describe above). What used to be a runtime check on `readLocalTime` itself is now a

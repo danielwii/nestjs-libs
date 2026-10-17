@@ -1,10 +1,13 @@
+import { Oops } from '@app/nest/exceptions/oops';
+
 import { Anchored, assertZone } from './anchored';
+import { normalizeTimezone } from './datetime';
 
 import type { AnchoredProjection, Zone } from './anchored';
 import type { z } from 'zod';
 
 export function generateJsonFormat(schema: z.ZodType, indent = 0): string {
-  const definition = Reflect.get(schema, '_def');
+  const definition = schema._def;
   const serialized = JSON.stringify(definition, (_key, value) => (typeof value === 'function' ? undefined : value), 2);
   const indentPrefix = ' '.repeat(indent);
   return serialized
@@ -204,6 +207,11 @@ function renderLocalMoment(
   return `${formatTemporal(zdt, effective)}${clockSuffix} ${dayPeriod}`;
 }
 
+/** Display wording shared by attributed readings and the offset-capable Now line. */
+function renderZonedMoment(zdt: Temporal.ZonedDateTime, sensitivity: TimeSensitivity): string {
+  return `${renderLocalMoment(zdt, sensitivity, formatDayPeriod(zdt), ambiguityOffset(zdt))} (${formatZoneName(zdt)})`;
+}
+
 /**
  * 歧义时的偏移量后缀，否则空串——这是本模块**唯一**把"这个钟点有没有歧义"变成"要不要附
  * 偏移量"的地方。单点的观察者钟点、单点的归属方钟点（`ownText`）、区间两端的钟点，都调这
@@ -249,14 +257,13 @@ function isAmbiguousLocalClock(zdt: Temporal.ZonedDateTime): boolean {
 }
 
 /**
- * 把一个时间读给读者：本模块唯一的投影 + 渲染实现，其余导出函数都是它的薄壳。
+ * 把有归属的时间读给读者；归属与观察者均使用已验证的 IANA Zone。
  * 返回值的字段与措辞的理由见 {@link TimeReading}。
  *
  * - `value`：instant（会议、"现在"）或 `Temporal.PlainDate`（生日、假期这类全天日期）。
  *   `null`/`undefined` 表示"现在"，只允许在 Now 行这条路径上出现（`formatLocalDateTime`）。
  * - `observer`：读这段文字的人所在的时区，**必填、无默认**，且必须已是 `Zone`——校验只发生
- *   一次，在调用方把裸字符串变成 `Zone` 的那一步（`assertZone`，例如 `formatLocalDateTime`/
- *   `zonedAt` 这类真正的写入闸门），不在这里重来一遍。默认值本身曾是事故来源：缺省时静默落回
+ *   一次，在调用方把裸字符串变成 `Zone` 的那一步（`assertZone`，例如 `zonedAt` 这类真正的写入闸门），不在这里重来一遍。默认值本身曾是事故来源：缺省时静默落回
  *   `process.env.TZ`，让台北的家庭读到洛杉矶的 Now 行——这条规则没变，只是校验点挪到了闸门。
  * - `ownZone`：这个值实际归属的时区，同样必须已是 `Zone`，**必填、无默认**。以前省略即「就是读者自己的」，
  *   漏传归属的调用点会悄悄把别人的事件标成 `sameZone: true`；现在每个调用点都要写出归属：Now 行 / 读者自己的值
@@ -295,8 +302,7 @@ export function readLocalTime(
   const projection = projectInstant(value, observerZone, attribution);
   const zdt = projection.at;
   const dayPeriod = formatDayPeriod(zdt);
-  const clockSuffix = ambiguityOffset(zdt);
-  const text = `${renderLocalMoment(zdt, sensitivity, dayPeriod, clockSuffix)} (${formatZoneName(zdt)})`;
+  const text = renderZonedMoment(zdt, sensitivity);
   const result: TimeReading = {
     text,
     instant: zdt.toInstant().toString(),
@@ -321,11 +327,11 @@ export function formatLocalDateTime(
   sensitivity: TimeSensitivity = TimeSensitivity.Minute,
   timezone?: string | null,
 ): string {
-  // This function (like `zonedAt`) is the untrusted boundary — `timezone` is a raw caller string
-  // (possibly missing/empty), validated here once via `assertZone` before it ever becomes a `Zone`.
-  const observer = assertZone(timezone ?? '');
-  // The Now line belongs to the reader: attribution is the observer itself, stated rather than defaulted.
-  return readLocalTime(dateOrIso, observer, observer, sensitivity).text;
+  // A Now line is display data, not a claim about an event's geographic attribution.
+  const displayZone = normalizeTimezone(timezone);
+  if (!displayZone) throw Oops.Validation('Prompt rendering requires a valid explicit timezone');
+  const at = toInstant(dateOrIso).toZonedDateTimeISO(displayZone);
+  return renderZonedMoment(at, sensitivity);
 }
 
 /**

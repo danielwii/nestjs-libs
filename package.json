@@ -9,6 +9,7 @@
     "format": "prettier --write \"{nest,utils,env,features}/**/*.ts\"",
     "test": "bun test",
     "test:cov": "bun test --coverage",
+    "test:settings-integration": "bun test ./env/src/schema-config-sync.integration.ts",
     "typecheck": "bun check",
     "typecheck:tsc": "tsc --noEmit",
     "prepare": "husky",
