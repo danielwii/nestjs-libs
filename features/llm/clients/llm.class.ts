@@ -1548,7 +1548,7 @@ export class LLM {
 
     // 结构化输出生成失败（调用成功但输出不可用）
     if (NoObjectGeneratedError.isInstance(error)) {
-      return Oops.Panic.AIObjectGenerationFailed(model, error.finishReason ?? 'unknown', error.text, { cause: error });
+      return Oops.Panic.AIObjectGenerationFailed(model, error.finishReason ?? 'unknown', { cause: error });
     }
 
     // Fallback
@@ -2160,7 +2160,7 @@ export class LLM {
         // 从 toolCalls 中提取结果（只取第一个，忽略可能的重复 tool call）
         const toolCall = result.toolCalls.at(0);
         if (!toolCall || !('input' in toolCall) || (!forced && toolCall.toolName !== toolName)) {
-          throw Oops.Panic.AIObjectGenerationFailed(modelKey, 'no-tool-call', undefined, {
+          throw Oops.Panic.AIObjectGenerationFailed(modelKey, 'no-tool-call', {
             cause: new Error(
               forced ? 'No tool call returned from LLM' : `Tool "${toolName}" was not called (toolChoice auto)`,
             ),
@@ -2201,7 +2201,9 @@ export class LLM {
               return `${i.path.join('.')}: ${i.message}${actualStr}`;
             })
             .join('; ');
-          throw Oops.Panic.AIObjectGenerationFailed(modelKey, 'validation-failed', issues);
+          // Diagnostic detail goes to the log; the error message stays the same for every validation failure.
+          LLM.logger.warning`[LLM:validation-failed] id=${id} issues=${issues}`;
+          throw Oops.Panic.AIObjectGenerationFailed(modelKey, 'validation-failed', { cause: parseResult.error });
         }
 
         return {

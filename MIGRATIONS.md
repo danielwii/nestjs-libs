@@ -1,5 +1,18 @@
 # Migrations
 
+## `Oops.Panic.AIObjectGenerationFailed` no longer puts model output in the message
+
+When structured output failed, the error message carried the model's partial output (or the validation values, or parser text).
+The message is `Error.message`, so every failure had a different message and the model's text reached logs and error trackers.
+
+- **Breaking**: the signature is `AIObjectGenerationFailed(model, finishReason, options?: { cause?: unknown })`. The former third
+  argument `partialText` is gone; passing text there is a type error.
+- `internalDetails` is always `AI object generation failed [<model>] reason=<finishReason>`, so the same model and reason produce
+  the same message.
+- The detail moves to where it belongs: `NoObjectGeneratedError` stays the `cause` (its `text` is still there for debugging);
+  `validation-failed` keeps the Zod error as `cause` and logs the issue summary as `[LLM:validation-failed] … issues=`;
+  `parseJsonLoose` attaches the parser attempts as an `AggregateError` cause.
+
 ## `Anchored` instant JSON carries its zone once
 
 An `instant`'s JSON used to write the zone twice: the `[Zone]` suffix of `value` and the `zone` field. The two could disagree, so a decoded
