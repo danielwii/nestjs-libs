@@ -1,11 +1,13 @@
 import { AbstractEnvironmentVariables, AppConfigure, coerceBoolean, coerceNumber, DatabaseField } from './configure';
 
-import { describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { z } from 'zod';
 
 import 'reflect-metadata';
 
+import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as path from 'node:path';
 
 import * as _ from 'radash';
 
@@ -603,6 +605,22 @@ describe('AppConfigure', () => {
   });
 
   describe('Validation and Debugging', () => {
+    // AppConfigure loads .env files relative to PWD. These tests assert what happens when a variable is
+    // absent, so they must not pick up the .env files of whichever project runs them (e.g. a consumer
+    // repository that vendors this library and defines PORT in its .env.test).
+    let originalPwd: string | undefined;
+    let isolatedPwd: string;
+    beforeEach(() => {
+      originalPwd = process.env.PWD;
+      isolatedPwd = fs.mkdtempSync(path.join(os.tmpdir(), 'appconfigure-spec-'));
+      process.env.PWD = isolatedPwd;
+    });
+    afterEach(() => {
+      if (originalPwd !== undefined) process.env.PWD = originalPwd;
+      else delete process.env.PWD;
+      fs.rmSync(isolatedPwd, { recursive: true, force: true });
+    });
+
     it('allFields should return property names', () => {
       const fields = AbstractEnvironmentVariables.allFields;
       expect(fields).toContain('PORT');
