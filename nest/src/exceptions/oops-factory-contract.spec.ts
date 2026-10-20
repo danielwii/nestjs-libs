@@ -222,15 +222,14 @@ const factoryCases: FactoryCase[] = [
   },
   {
     path: 'Oops.Panic.AIObjectGenerationFailed',
-    create: () =>
-      Oops.Panic.AIObjectGenerationFailed('vertex:gemini', 'content-filter', 'partial', { cause: aiObjectCause }),
+    create: () => Oops.Panic.AIObjectGenerationFailed('vertex:gemini', 'content-filter', { cause: aiObjectCause }),
     expected: {
       variant: 'Panic',
       httpStatus: 500,
       errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
       oopsCode: 'AI04',
       userMessage: '内容被安全过滤器拦截，请调整表达后重试',
-      internalDetails: 'AI object generation failed [vertex:gemini] reason=content-filter partial=partial',
+      internalDetails: 'AI object generation failed [vertex:gemini] reason=content-filter',
       provider: 'vertex:gemini',
       cause: aiObjectCause,
     },
@@ -359,4 +358,26 @@ describe('public generic Oops factory contract', () => {
       expect(error.isFatal()).toBe(factoryCase.expected.variant === 'Panic');
     });
   }
+
+  it('Oops.Panic.AIObjectGenerationFailed keeps model output out of the message so failures group together', () => {
+    const first = Oops.Panic.AIObjectGenerationFailed('openrouter:model', 'stop', {
+      cause: new Error('output {"note":"first"}'),
+    });
+    const second = Oops.Panic.AIObjectGenerationFailed('openrouter:model', 'stop', {
+      cause: new Error('output {"note":"second"}'),
+    });
+
+    expect(first.message).toBe(second.message);
+    expect(first.message).not.toContain('note');
+    expect(first.internalDetails).toBe('AI object generation failed [openrouter:model] reason=stop');
+  });
+
+  it('Oops.Panic.AIObjectGenerationFailed does not accept model text (type level)', () => {
+    // @ts-expect-error the third argument is the options object; model output cannot be passed as text
+    const rejected = () => Oops.Panic.AIObjectGenerationFailed('openrouter:model', 'stop', 'model output');
+    void rejected;
+    // @ts-expect-error the reason is a closed set; free text (such as a summary of the output) is not a reason
+    const freeReason = () => Oops.Panic.AIObjectGenerationFailed('openrouter:model', 'the model said: {...}');
+    void freeReason;
+  });
 });

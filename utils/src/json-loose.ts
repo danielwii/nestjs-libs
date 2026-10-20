@@ -130,16 +130,18 @@ export function parseJsonLoose<T = unknown>(raw: string): T {
     );
   }
 
-  const errors: string[] = [];
+  const errors: Error[] = [];
   for (const attempt of attempts) {
     try {
       return attempt.parse();
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      errors.push(`${attempt.label}: ${reason}`);
+      errors.push(new Error(`${attempt.label}: ${reason}`));
     }
   }
 
-  const detail = errors.length ? ` attempts=${errors.join(' | ').slice(0, 256)}` : '';
-  throw Oops.Panic.AIObjectGenerationFailed('unknown', 'json-parse-failed', detail.slice(0, 256));
+  // Parser messages can quote the input, so they travel as the cause, not in the error message.
+  throw Oops.Panic.AIObjectGenerationFailed('unknown', 'json-parse-failed', {
+    cause: new AggregateError(errors, 'parseJsonLoose attempts failed'),
+  });
 }

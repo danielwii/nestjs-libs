@@ -2,6 +2,15 @@ import { ErrorCodes } from './error-codes';
 import { OopsError } from './oops-error';
 
 import type { ErrorCodeValue } from './error-codes';
+import type { FinishReason } from 'ai';
+
+/**
+ * Why structured output generation failed: an AI SDK finish reason or one of our own closed reasons.
+ * Closed on purpose — the reason goes into the error message and the user message, so free text here
+ * would bring model output back into titles and grouping.
+ */
+export type AIObjectFailureReason =
+  FinishReason | 'unknown' | 'no-tool-call' | 'validation-failed' | 'json-parse-failed';
 
 // ==================== Config Interfaces ====================
 
@@ -242,18 +251,21 @@ namespace Oops {
      * AI 结构化输出生成失败
      *
      * 调用成功但未生成有效的结构化对象。finishReason 来自 AI SDK。
+     *
+     * The message carries only the model and the reason, never model output or validated values:
+     * internalDetails becomes Error.message, which reaches logs and error trackers and is used for grouping.
+     * Model output stays reachable through `cause`.
      */
     export function AIObjectGenerationFailed(
       model: string,
-      finishReason: string,
-      partialText?: string,
+      finishReason: AIObjectFailureReason,
       options?: { cause?: unknown },
     ): Oops.Panic {
       return new Oops.Panic({
         errorCode: ErrorCodes.EXTERNAL_SERVICE_ERROR,
         oopsCode: 'AI04',
         userMessage: AI_FINISH_REASON_MESSAGES[finishReason] ?? `回复生成失败（${finishReason}）`,
-        internalDetails: `AI object generation failed [${model}] reason=${finishReason}${partialText !== undefined ? ` partial=${partialText || '(empty)'}` : ''}`,
+        internalDetails: `AI object generation failed [${model}] reason=${finishReason}`,
         provider: model,
         cause: options?.cause,
       });
