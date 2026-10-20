@@ -376,5 +376,8 @@ describe('public generic Oops factory contract', () => {
     // @ts-expect-error the third argument is the options object; model output cannot be passed as text
     const rejected = () => Oops.Panic.AIObjectGenerationFailed('openrouter:model', 'stop', 'model output');
     void rejected;
+    // @ts-expect-error the reason is a closed set; free text (such as a summary of the output) is not a reason
+    const freeReason = () => Oops.Panic.AIObjectGenerationFailed('openrouter:model', 'the model said: {...}');
+    void freeReason;
   });
 });

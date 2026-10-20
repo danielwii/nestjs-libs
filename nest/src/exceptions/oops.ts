@@ -2,6 +2,15 @@ import { ErrorCodes } from './error-codes';
 import { OopsError } from './oops-error';
 
 import type { ErrorCodeValue } from './error-codes';
+import type { FinishReason } from 'ai';
+
+/**
+ * Why structured output generation failed: an AI SDK finish reason or one of our own closed reasons.
+ * Closed on purpose — the reason goes into the error message and the user message, so free text here
+ * would bring model output back into titles and grouping.
+ */
+export type AIObjectFailureReason =
+  FinishReason | 'unknown' | 'no-tool-call' | 'validation-failed' | 'json-parse-failed';
 
 // ==================== Config Interfaces ====================
 
@@ -249,7 +258,7 @@ namespace Oops {
      */
     export function AIObjectGenerationFailed(
       model: string,
-      finishReason: string,
+      finishReason: AIObjectFailureReason,
       options?: { cause?: unknown },
     ): Oops.Panic {
       return new Oops.Panic({

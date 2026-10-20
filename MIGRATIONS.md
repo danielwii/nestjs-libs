@@ -7,6 +7,9 @@ The message is `Error.message`, so every failure had a different message and the
 
 - **Breaking**: the signature is `AIObjectGenerationFailed(model, finishReason, options?: { cause?: unknown })`. The former third
   argument `partialText` is gone; passing text there is a type error.
+- **Breaking**: `finishReason` is the closed type `AIObjectFailureReason` (the AI SDK `FinishReason` plus `unknown`,
+  `no-tool-call`, `validation-failed`, `json-parse-failed`). It is part of both the error message and the user message,
+  so it cannot be free text.
 - `internalDetails` is always `AI object generation failed [<model>] reason=<finishReason>`, so the same model and reason produce
   the same message.
 - The detail moves to where it belongs: `NoObjectGeneratedError` stays the `cause` (its `text` is still there for debugging);
@@ -154,8 +157,8 @@ a recurring clock time with no fixed zone, e.g. a daily 7am reminder that's 7am 
 person currently is) was previously a special string value (`FLOATING`) that a `Zone` could
 equal, gated by a `shape` parameter at the one call site (`Anchored.time`) that accepted it.
 That modeled floating as a degenerate zone, when it's actually a wholly different kind of
-anchoring that only the `time` shape has: a real timezone *is* an attribution; floating
-*defers* attribution to whoever eventually reads the value. Squeezing it into the `Zone` slot
+anchoring that only the `time` shape has: a real timezone _is_ an attribution; floating
+_defers_ attribution to whoever eventually reads the value. Squeezing it into the `Zone` slot
 meant every `Zone` consumer had to know, or forget, that one specific shape's zone value might
 not be a zone at all.
 
@@ -174,9 +177,8 @@ not be a zone at all.
   union at all, since they only ever anchor to a real `Zone`.
 - `Anchored.instant`/`Anchored.date`/`Anchored.time`/`.in()` accept **only** `Zone` and no
   longer re-validate internally — the brand is the proof that validation already happened once,
-  at construction. Calling any of them with a bare string is a compile error, not a runtime
-  400.
-- `AnchoredJson.zone` is now `Zone | 'floating'` — the storage/wire boundary is the *only* place
+  at construction. Calling any of them with a bare string is a compile error, not a runtime 400.
+- `AnchoredJson.zone` is now `Zone | 'floating'` — the storage/wire boundary is the _only_ place
   the literal `'floating'` still appears (`toJSON()` emits it for a floating `time`; `fromStored`/
   `fromJSON` recognize it only for `shape === 'time'` and route to `floatingTime`; any other
   shape carrying `'floating'` is rejected the same as any other invalid zone string, by
@@ -248,7 +250,7 @@ core function that both `formatLocalDateTime` and a new span renderer build on.
 - **New**: `readLocalSpan(start, end, observer, ownZone?)` — a start–end instant range in the same
   wording (`2026-09-23 15:00–16:00 (Asia/Taipei)`, or `→` across a local day boundary).
   When the two endpoints carry different UTC offsets (a span crossing a DST transition) each clock is printed with its offset, e.g. `01:30-07:00–01:30-08:00`, because identical local clocks can name different instants there. Blank endpoints throw; a blank attribution zone passed to `readLocalTime` throws instead of being treated as omitted.
-- **New types**: `TimeReading`, `SpanReading`, `LocalTimeValue` — a *reading* is a time as one reader sees it: `text` is presentation for the model, never an identity; `instant` / `start` / `end` (ISO-8601 UTC) are for code. Ambiguous local clocks (DST repeated hour) carry their UTC offset in `text`; a cross-midnight owner date rides in `ownText`.
+- **New types**: `TimeReading`, `SpanReading`, `LocalTimeValue` — a _reading_ is a time as one reader sees it: `text` is presentation for the model, never an identity; `instant` / `start` / `end` (ISO-8601 UTC) are for code. Ambiguous local clocks (DST repeated hour) carry their UTC offset in `text`; a cross-midnight owner date rides in `ownText`.
 - **Breaking**: a raw UTC offset (`"+8"`, `"+08:00"`) as `timezone`/`observer` — to
   `formatLocalDateTime`, `zonedAt`, `readLocalSpan`, `readLocalTime`, or
   `PromptBuilder.render()`'s `timezone` option — now throws instead of being tolerated. Only
@@ -469,6 +471,7 @@ Before:
 
 ```ts
 import { Oops } from '@app/nest/exceptions/oops';
+
 import '@app/nest/exceptions/oops-factories';
 ```
 
@@ -553,17 +556,17 @@ authority.
 Inventory date: 2026-07-23. Counts exclude embedded `libs`, contract checkouts,
 dependencies, generated output, dist, build, and coverage.
 
-| project_id | `Oops.NotFound` calls | old factory imports | direct Panic without `oopsCode` |
-|---|---:|---:|---:|
-| `calo-server` | 0 active (1 dated plan reference) | 0 | 5 |
-| `calo-agents` | 0 | 0 | 0 |
-| `unee` | 2 | 14 | 2 |
-| `unee-admin-web` | 0 | 0 | 0 |
-| `unee-ai-persona` | 0 | 7 | 1 |
-| `mcp` | 0 | 0 | 0 |
-| `marsgate` | 4 | 5 | 1 |
-| `third-party` | 4 | 5 | 1 |
-| **Total active** | **10** | **31** | **10** |
+| project_id        |             `Oops.NotFound` calls | old factory imports | direct Panic without `oopsCode` |
+| ----------------- | --------------------------------: | ------------------: | ------------------------------: |
+| `calo-server`     | 0 active (1 dated plan reference) |                   0 |                               5 |
+| `calo-agents`     |                                 0 |                   0 |                               0 |
+| `unee`            |                                 2 |                  14 |                               2 |
+| `unee-admin-web`  |                                 0 |                   0 |                               0 |
+| `unee-ai-persona` |                                 0 |                   7 |                               1 |
+| `mcp`             |                                 0 |                   0 |                               0 |
+| `marsgate`        |                                 4 |                   5 |                               1 |
+| `third-party`     |                                 4 |                   5 |                               1 |
+| **Total active**  |                            **10** |              **31** |                          **10** |
 
 This table estimates migration work; it is not a release gate for this Libs
 revision. Re-run the searches against the exact consumer head when that
