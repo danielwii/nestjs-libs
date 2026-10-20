@@ -2,15 +2,27 @@ import { ErrorCodes } from './error-codes';
 import { OopsError } from './oops-error';
 
 import type { ErrorCodeValue } from './error-codes';
-import type { FinishReason } from 'ai';
 
 /**
  * Why structured output generation failed: an AI SDK finish reason or one of our own closed reasons.
  * Closed on purpose — the reason goes into the error message and the user message, so free text here
  * would bring model output back into titles and grouping.
+ *
+ * The SDK finish reasons are spelled out instead of imported from `ai`: exceptions are type-checked by
+ * packages that do not depend on the AI SDK (e.g. a shared contract package). The LLM client passes the
+ * SDK's `FinishReason` here, so a reason the SDK adds fails to compile at that call site.
  */
 export type AIObjectFailureReason =
-  FinishReason | 'unknown' | 'no-tool-call' | 'validation-failed' | 'json-parse-failed';
+  | 'stop'
+  | 'length'
+  | 'content-filter'
+  | 'tool-calls'
+  | 'error'
+  | 'other'
+  | 'unknown'
+  | 'no-tool-call'
+  | 'validation-failed'
+  | 'json-parse-failed';
 
 // ==================== Config Interfaces ====================
 

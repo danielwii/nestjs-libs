@@ -3,7 +3,7 @@ import { Oops } from './oops';
 import { OopsError } from './oops-error';
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'bun:test';
@@ -370,6 +370,15 @@ describe('public generic Oops factory contract', () => {
     expect(first.message).toBe(second.message);
     expect(first.message).not.toContain('note');
     expect(first.internalDetails).toBe('AI object generation failed [openrouter:model] reason=stop');
+  });
+
+  it('exceptions do not import the AI SDK, so packages without it can type-check them', () => {
+    const dir = import.meta.dir;
+    const importsAi = readdirSync(dir)
+      .filter((file) => file.endsWith('.ts') && !file.endsWith('.spec.ts'))
+      .filter((file) => /from ['"]ai['"]/.test(readFileSync(join(dir, file), 'utf8')));
+
+    expect(importsAi).toEqual([]);
   });
 
   it('Oops.Panic.AIObjectGenerationFailed does not accept model text (type level)', () => {

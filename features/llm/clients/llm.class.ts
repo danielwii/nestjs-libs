@@ -1548,6 +1548,7 @@ export class LLM {
 
     // 结构化输出生成失败（调用成功但输出不可用）
     if (NoObjectGeneratedError.isInstance(error)) {
+      // The SDK's FinishReason must stay a subset of AIObjectFailureReason; a new SDK reason fails here.
       return Oops.Panic.AIObjectGenerationFailed(model, error.finishReason ?? 'unknown', { cause: error });
     }
 
