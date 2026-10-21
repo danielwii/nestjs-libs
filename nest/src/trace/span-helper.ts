@@ -4,7 +4,7 @@ import type { Attributes, Span, Tracer } from '@opentelemetry/api';
 
 export interface SpanInputOutputOptions {
   name: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Attributes;
   parentSpan?: Span;
   startTime?: Date;
   /** 测试可注入 fake tracer，避免 spec 用 spyOn 污染全局 trace.getTracer */
@@ -37,12 +37,12 @@ function createSpan(options: SpanInputOutputOptions) {
   );
 
   // 设置基础属性
-  const attributes: Record<string, unknown> = {
+  const attributes: Attributes = {
     ...metadata,
   };
 
   // 设置所有属性
-  span.setAttributes(attributes as Attributes);
+  span.setAttributes(attributes);
 
   return span;
 }

@@ -93,22 +93,35 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
   - Do not use `@Transform()` or legacy `@Is*` / `@Type` decorators on environment classes. Subclasses of `AbstractEnvironmentVariables` no longer require reflection decorators.
   - Core system environments are validated at bootstrap via `baseEnvSchema` (Fail-Fast). For modular or custom service configurations, pass Zod schemas directly to `createEnvConfig(schema)`.
   - **Decouple `DEFAULT_LLM_MODEL` from SysEnv**: `DEFAULT_LLM_MODEL` is no longer a system-level environment variable on `AbstractEnvironmentVariables` / `SysEnv`. Downstream applications requiring a default LLM model should declare it directly in their own application environment class (e.g. `class AppEnvironmentVariables extends AbstractEnvironmentVariables { @LLMModelField() DEFAULT_LLM_MODEL?: string; }`). This prevents non-AI API services from being blocked by mandatory AI provider key validations during bootstrap.
-- **GraphQL Code-First DTOs**:
-  - **Pure inputs (e.g. pagination, ID lookups)**: Remove all `class-validator` decorators (including `@Allow()`, `@IsOptional()`). Let `@Field()` define the schema.
-  - **Inputs requiring business validation (e.g. email, min length)**:
-    1. Define the validation contract using Zod: `export const CreateUserInputSchema = z.object({ ... });`
-    2. Derive TypeScript type: `export type CreateUserInputType = z.infer<typeof CreateUserInputSchema>;`
-    3. Implement in Code-First class:
-       ```typescript
-       @InputType()
-       export class CreateUserInput implements CreateUserInputType {
-         @Field(() => String)
-         name!: string;
+- **GraphQL Code-First DTOs (`@app/nest/contract` — 100% Zod v4 AST Auto-Derivation)**:
+  - Instead of maintaining duplicate `@Field()` decorators or manual field tables alongside Zod schemas, use `createSchemaInputType(schema, 'MyInput')` and `createSchemaArgsType(schema)` from `@app/nest/contract` (or `@app/nest/contract/schema-gql`).
+  - Both factories inspect the Zod v4 AST (`schema.shape` and `_zod.def`) and register `@InputType(name)` / `@ArgsType()` + `@Field()` metadata automatically, including automatic promotion of `class MyInput extends createSchemaInputType(MySchema, 'MyInput') {}` subclasses during `GraphQLSchemaFactory.create()`.
+  - **Zod v4 $\to$ GraphQL SDL Derivation Mapping Table**:
 
-         static readonly schema = CreateUserInputSchema;
-       }
-       ```
-    4. In Resolvers, pass schema via `@Args('input', { schema: CreateUserInput.schema })`, or rely on `AppStandardSchemaValidationPipe` auto-detection.
+    | Zod v4 Schema Expression | Derived GraphQL SDL Type | Notes |
+    | --- | --- | --- |
+    | `z.string()`, `z.cuid()`, `z.ulid()`, `z.nanoid()` | `String!` | Non-UUID strings default to `String` |
+    | `z.uuid()`, `z.guid()`, `z.string().uuid()` | `ID!` | Automatic `ID` scalar derivation for UUID/GUID |
+    | `z.string().meta({ gqlType: 'ID' })` (or `{ gqlId: true }`) | `ID!` | Explicit `ID` override for non-UUID identifier strings |
+    | `z.number()` | `Float!` | Standard numbers default to `Float` |
+    | `z.int()`, `z.number().int()` | `Int!` | Integer checks (`safeint` / `int32` / `isInt`) derive `Int` |
+    | `z.boolean()` | `Boolean!` | Boolean scalar |
+    | `z.date()` | `DateTime!` | Mapped to `@nestjs/graphql` `Date` scalar |
+    | `z.enum(MyEnum)` / `z.nativeEnum(MyEnum)` | `MyEnum!` | Enum must be registered via `registerEnumType(MyEnum, { name })` |
+    | `NestedInputSchema` (registered via `createSchemaInputType`) | `NestedInput!` | Looked up automatically from the `createSchemaInputType` WeakMap registry |
+    | `z.array(T)` | `[T!]!` | Non-null list of non-null items (`nullable: false`) |
+    | `z.array(T).optional()` / `.nullable()` / `.nullish()` | `[T!]` | Nullable list of non-null items (`nullable: true`) |
+    | `z.array(T.nullable())` | `[T]!` | Non-null list of nullable items (`nullable: 'items'`) |
+    | `z.array(T.nullable()).optional()` / `.nullable()` | `[T]` | Nullable list of nullable items (`nullable: 'itemsAndList'`) |
+    | `T.optional()`, `T.nullable()`, `T.nullish()` | `T` (nullable) | All three map to `nullable: true` in GraphQL SDL (`T` without `!`) |
+    | `T.default(val)` | `T! = val` | Passes `defaultValue: val` to `@Field({ defaultValue: val, nullable: false })`, matching `@Args(..., { defaultValue: val })` byte-for-byte |
+    | `T.optional().default(val)` / `T.nullable().default(val)` | `T = val` | Passes `defaultValue: val` with `nullable: true` |
+    | `T.prefault(val)` | `T` (nullable in SDL) | Marks SDL field as `nullable: true` without printing `= val` in SDL while Zod supplies `val` pre-parse at runtime |
+    | `T.describe('text')` / `T.meta({ description: 'text' })` | `"""text"""` | Emitted as GraphQL SDL field description |
+
+- **Inbound Contract Coverage & Staged Default-Deny (`@app/nest/testing` & `@app/nest/boot`)**:
+  - **Static Coverage Gate (`collectInboundContractCoverage`)**: Scans the NestJS module tree (including `DynamicModule`, `forwardRef`, controller/resolver inheritance chains, `@Body({ schema })`, `@UsePipes()`, and multi-`@Payload()` gRPC handlers) at zero boot cost with zero escape hatches (`@RawInput` is removed). Framework transport contexts (`@Req`, `@Res`, `@Headers`, `@Ctx`, etc.) are automatically excluded from the business input denominator.
+  - **Staged Runtime Default-Deny (`missingSchema?: 'allow' | 'reject'`)**: `BootstrapOptions.standardSchemaValidationPipe` accepts `{ missingSchema?: 'allow' | 'reject', exceptionFactory?: ... }`. It defaults to `'allow'` during the Expand $\to$ Contract migration phase so services that already set `validation: 'standard-schema'` can upgrade `@danielwii/nestjs-libs` immediately without breaking un-migrated endpoints, then flip `missingSchema: 'reject'` once `collectInboundContractCoverage` reports `uncovered === 0`.
 - **Pagination inputs (silent data loss with the legacy pipe)**:
   - Symptom: with `validation: 'legacy'`, a request that reaches `CursoredRequestInput`, or any subclass of it, arrives as `{}`: `first` and `after` are removed, so even the default `first = 20` is gone, and no error is raised. Business fields added by a subclass without `class-validator` decorators are removed as well.
   - Cause: the `'legacy'` pipe is `DualBoundaryValidationPipe` with `whitelist: true` (`nest/src/boot/bootstrap.ts`, `GLOBAL_VALIDATION_PIPE_OPTIONS` and `createGlobalValidationPipes`). It strips every property that has no `class-validator` decorator, and `CursoredRequestInput` has none. It skips whitelisting only when a Standard Schema is found through `resolveOwnedStandardSchema`, which accepts the argument-level `schema` or a `static schema` the class owns itself.

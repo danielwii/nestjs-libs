@@ -2,6 +2,7 @@ import { Controller, Module, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { GrpcMethod, Transport } from '@nestjs/microservices';
 
+import { createSchemaDto } from '@app/nest/contract/schema-dto';
 import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
 import { GrpcExceptionFilter } from '@app/nest/exceptions/grpc-exception.filter';
@@ -9,7 +10,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
-import { CursoredRequestInput } from '@app/utils/graphql';
+import { CursoredRequestInput, cursoredRequestSchema } from '@app/utils/graphql';
 
 import {
   AppStandardSchemaValidationPipe,
@@ -33,6 +34,7 @@ import * as grpc from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { throwError } from 'rxjs';
+import { z } from 'zod';
 
 import type { BootstrapOptions } from './bootstrap';
 import type { INestApplication, OnModuleInit } from '@nestjs/common';
@@ -815,26 +817,59 @@ describe('AppStandardSchemaValidationPipe & DualBoundaryValidationPipe with call
 });
 
 // 分页输入（CursoredRequestInput 及子类）不携带 static schema：
-// 只有 legacy 的 whitelist 管道会把它静默剥成空对象，standard-schema 模式下原样放行。
-describe('validation mode and pagination inputs', () => {
-  const runPipes = async (pipes: ReturnType<typeof createGlobalValidationPipes>, value: unknown) => {
+// legacy 模式下无 schema 时 whitelist 管道会把它剥成空对象；
+// standard-schema 模式下绑定 cursoredRequestSchema 时原样校验放行，开启 missingSchema: 'reject' 时拦截漏绑 schema 的自定义 DTO 类。
+describe('validation mode, pagination inputs, and Default-Deny boundary', () => {
+  const runPipes = async (
+    pipes: ReturnType<typeof createGlobalValidationPipes>,
+    value: unknown,
+    schema?: unknown,
+    metatype: any = CursoredRequestInput,
+  ) => {
     let current = value;
     for (const pipe of pipes) {
-      current = await pipe.transform(current, { type: 'body', metatype: CursoredRequestInput });
+      current = await pipe.transform(current, {
+        type: 'body',
+        metatype,
+        ...(schema ? { schema: schema as any } : {}),
+      });
     }
     return current;
   };
 
-  it('legacy: the whitelist pipe strips pagination fields that have no class-validator decorator', async () => {
+  it('legacy: the whitelist pipe strips pagination fields that have no class-validator decorator or schema', async () => {
     const out = await runPipes(createGlobalValidationPipes('legacy'), { first: 5, after: 'c1' });
     expect(out).not.toHaveProperty('after');
     expect(Object.keys(out as object)).not.toContain('first');
   });
 
-  it('standard-schema: pagination fields reach the resolver untouched', async () => {
+  it('standard-schema: pagination fields reach the resolver untouched when cursoredRequestSchema is bound', async () => {
+    const input = { first: 5, after: 'c1' };
+    const out = await runPipes(
+      createGlobalValidationPipes('standard-schema', { missingSchema: 'reject' }),
+      input,
+      cursoredRequestSchema,
+    );
+    expect(out).toEqual({ first: 5, after: 'c1' });
+  });
+
+  it('standard-schema: defaults to missingSchema=allow during migration so un-schemed endpoints do not break prior to cutover', async () => {
     const input = { first: 5, after: 'c1' };
     const out = await runPipes(createGlobalValidationPipes('standard-schema'), input);
     expect(out).toEqual({ first: 5, after: 'c1' });
+  });
+
+  it('standard-schema: missingSchema=reject blocks custom DTO classes missing a bound Standard Schema while allowing built-in Date/Buffer', async () => {
+    const input = { first: 5, after: 'c1' };
+    const strictPipes = createGlobalValidationPipes('standard-schema', { missingSchema: 'reject' });
+    await expect(runPipes(strictPipes, input)).rejects.toThrow(
+      "Inbound DTO 'CursoredRequestInput' is missing a bound Standard Schema in standard-schema validation mode",
+    );
+
+    const now = new Date();
+    expect(await runPipes(strictPipes, now, undefined, Date)).toBe(now);
+    const buf = Buffer.from('ok');
+    expect(await runPipes(strictPipes, buf, undefined, Buffer)).toBe(buf);
   });
 });
 
@@ -852,5 +887,33 @@ describe('validation mode is mandatory (type level)', () => {
     const removed: BootstrapOptions = { validation: 'legacy', validationPipe: false };
     void [omitted, ok, bad, bare, removed];
     expect(ok.validation).toBe('standard-schema');
+  });
+});
+
+describe('createSchemaDto & DualBoundaryValidationPipe / AppStandardSchemaValidationPipe integration', () => {
+  const FormASchema = z.object({
+    username: z.string().min(2),
+    age: z.coerce.number().int().positive(),
+  });
+
+  class FormADto extends createSchemaDto(FormASchema) {}
+
+  it('AppStandardSchemaValidationPipe automatically resolves schema from createSchemaDto parent class', async () => {
+    const pipe = new AppStandardSchemaValidationPipe();
+    const result = await pipe.transform<unknown>(
+      { username: 'daniel', age: '30' },
+      { type: 'body', metatype: FormADto },
+    );
+    expect(result).toEqual({ username: 'daniel', age: 30 });
+  });
+
+  it('DualBoundaryValidationPipe skips class-validator when metatype is a createSchemaDto subclass', () => {
+    const dualPipe = new DualBoundaryValidationPipe();
+    // 形式 A DTO 應被判定為持有 Standard Schema，因此 toValidate 返回 false（跳過 class-validator）
+    const shouldValidateWithClassValidator = dualPipe.toValidate({
+      type: 'body',
+      metatype: FormADto,
+    });
+    expect(shouldValidateWithClassValidator).toBe(false);
   });
 });

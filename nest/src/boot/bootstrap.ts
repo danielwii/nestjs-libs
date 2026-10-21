@@ -23,6 +23,8 @@ import { getAppLogger } from '@app/utils/app-logger';
 import { normalizeTimezone } from '@app/utils/datetime';
 import { maskSecret } from '@app/utils/security';
 
+import { resolveInboundSchema } from '../contract';
+
 import os from 'node:os';
 
 import compression from 'compression';
@@ -53,7 +55,6 @@ import type {
 } from '@nestjs/common';
 import type { MicroserviceOptions, NestMicroservice } from '@nestjs/microservices';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { NextFunction, Request, Response } from 'express';
 
 const bootstrapLogger = getAppLogger('boot', 'Bootstrap');
@@ -77,6 +78,18 @@ const GLOBAL_VALIDATION_PIPE_OPTIONS = { enableDebugMessages: true, transform: t
 export type BootstrapMode = 'api' | 'grpc' | 'scheduler';
 
 export type ValidationMode = 'standard-schema' | 'legacy';
+
+export type MissingSchemaPolicy = 'allow' | 'reject';
+
+export interface AppStandardSchemaValidationPipeOptions extends StandardSchemaValidationPipeOptions {
+  /**
+   * 当入站参数（`@Body` / `@Query` / `@Param` / GraphQL `@Args`）的 `metatype` 是自定义 DTO 类，
+   * 但既未在参数上绑定 `{ schema }`、类自身也无 `static schema` 时的处置策略：
+   * - `'allow'`（迁移期默认）：原样放行，配合静态覆盖率门禁 `collectInboundContractCoverage` 分批推进存量迁移（Expand -> Contract）。
+   * - `'reject'`（终态 Default-Deny）：立即抛出 `Oops.Validation` 拒绝请求，封死运行时静默裸奔漏洞。
+   */
+  missingSchema?: MissingSchemaPolicy;
+}
 
 export interface BootstrapOptions {
   /** 启动模式：api（默认）、grpc、scheduler */
@@ -123,9 +136,9 @@ export interface BootstrapOptions {
    * 全域 Standard Schema 校验管道配置。
    * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema）
    * - 设为 false：完全停用 StandardSchemaValidationPipe
-   * - 传入 StandardSchemaValidationPipeOptions：自定义 Standard Schema 管道的配置（如自建 exceptionFactory、transform 等）
+   * - 传入 AppStandardSchemaValidationPipeOptions：自定义 Standard Schema 管道的配置（如 missingSchema: 'reject'、exceptionFactory 等）
    */
-  standardSchemaValidationPipe?: boolean | StandardSchemaValidationPipeOptions;
+  standardSchemaValidationPipe?: boolean | AppStandardSchemaValidationPipeOptions;
   /**
    * 校验模式（必填，无默认值：忘填是编译错误，避免静默落回 legacy）。
    *
@@ -222,7 +235,7 @@ export function connectGrpcMicroserviceWithBoundary(
   bootMode: BootstrapMode,
   provider: string,
   validation: ValidationMode,
-  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | AppStandardSchemaValidationPipeOptions,
 ): INestMicroservice {
   const { inheritAppConfig } = resolveGrpcHybridAppOptions(bootMode);
 
@@ -249,42 +262,60 @@ export function connectGrpcMicroserviceWithBoundary(
   return grpcMs;
 }
 
-/**
- * 校验对象或函数是否符合 Standard Schema 规范（支持 Object 与 Callable Function 如 ArkType）
- */
-function isStandardSchema(val: unknown): val is StandardSchemaV1 {
-  return ((typeof val === 'object' && val !== null) || typeof val === 'function') && '~standard' in val;
+const BUILTIN_SCALAR_OR_BOX_METATYPES = new Set<unknown>([
+  String,
+  Number,
+  Boolean,
+  Object,
+  Array,
+  Function,
+  Symbol,
+  BigInt,
+  Date,
+  Buffer,
+  Uint8Array,
+  ArrayBuffer,
+]);
+
+function isCustomClassMetatype(metatype: unknown): metatype is { name?: string } {
+  return typeof metatype === 'function' && !BUILTIN_SCALAR_OR_BOX_METATYPES.has(metatype);
 }
 
 /**
- * 解析参数或类自身显式绑定的 Standard Schema。
- *
- * 核心设计（原型继承安全）：
- * 使用 Object.prototype.hasOwnProperty 确保只解析类自身直接声明的静态 schema，
- * 杜绝子类沿 JavaScript 原型链隐式继承父类 schema（如 CursoredRequestInput），
- * 从而彻底消灭子类业务字段被父类 closed schema 默认剥离（strip）的安全盲区。
- */
-function resolveOwnedStandardSchema(metadata: ArgumentMetadata): StandardSchemaV1 | undefined {
-  if (isStandardSchema(metadata.schema)) {
-    return metadata.schema;
-  }
-  const metatype = metadata.metatype;
-  if (metatype && typeof metatype === 'function' && Object.prototype.hasOwnProperty.call(metatype, 'schema')) {
-    const owned = (metatype as { schema?: unknown }).schema;
-    if (isStandardSchema(owned)) {
-      return owned;
-    }
-  }
-  return undefined;
-}
-
-/**
- * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取
+ * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取。
+ * 当配置 `missingSchema: 'reject'` 时，对未绑定 Standard Schema 的自定义入站 DTO 类实施 Default-Deny (Safe-Reject) 拦截，
+ * 杜绝因遗漏 schema 导致的静默裸奔放行。
  */
 export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
+  private readonly missingSchema: MissingSchemaPolicy;
+
+  constructor(
+    options?: AppStandardSchemaValidationPipeOptions,
+    private readonly mode: ValidationMode = 'standard-schema',
+  ) {
+    super(options);
+    this.missingSchema = options?.missingSchema ?? 'allow';
+  }
+
   override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
-    const rawSchema = resolveOwnedStandardSchema(metadata);
-    if (!rawSchema) return value;
+    const rawSchema = resolveInboundSchema(metadata);
+    if (!rawSchema) {
+      // 注：在 @nestjs/core/pipes/pipes-consumer.js 中，ParamsTokenFactory.exchangeEnumForString(3)
+      // 会将 HTTP @Body (RouteParamtypes.BODY = 3)、GraphQL @Args (GqlParamtype.ARGS = 3)
+      // 与 gRPC @Payload (RpcParamtype.PAYLOAD = 3) 统一映射为 metadata.type === 'body'；
+      // 而自定义参数装饰器 (@CurrentUser / @RawBody 等) 映射为 'custom'，属于框架上下文，绝不能误杀。
+      if (
+        this.mode === 'standard-schema' &&
+        this.missingSchema === 'reject' &&
+        (metadata.type === 'body' || metadata.type === 'query' || metadata.type === 'param') &&
+        isCustomClassMetatype(metadata.metatype)
+      ) {
+        throw Oops.Validation(
+          `Inbound DTO '${metadata.metatype.name || 'AnonymousDto'}' is missing a bound Standard Schema in standard-schema validation mode`,
+        );
+      }
+      return value;
+    }
     return super.transform(value, { ...metadata, schema: rawSchema });
   }
 }
@@ -301,7 +332,7 @@ export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPip
  */
 export class DualBoundaryValidationPipe extends ValidationPipe {
   override toValidate(metadata: ArgumentMetadata): boolean {
-    const rawSchema = resolveOwnedStandardSchema(metadata);
+    const rawSchema = resolveInboundSchema(metadata);
     if (rawSchema) {
       return false;
     }
@@ -317,13 +348,13 @@ export class DualBoundaryValidationPipe extends ValidationPipe {
  */
 export function createGlobalValidationPipes(
   mode: ValidationMode,
-  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | AppStandardSchemaValidationPipeOptions,
 ): PipeTransform[] {
   const pipes: PipeTransform[] = [];
   if (standardSchemaValidationPipeOption !== false) {
     const options =
       typeof standardSchemaValidationPipeOption === 'object' ? standardSchemaValidationPipeOption : undefined;
-    pipes.push(new AppStandardSchemaValidationPipe(options));
+    pipes.push(new AppStandardSchemaValidationPipe(options, mode));
   }
   if (mode === 'legacy') {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- 唯一的 legacy 挂载点，随 'legacy' 取值一并删除
@@ -360,7 +391,7 @@ export function configureGrpcMicroserviceBoundary(
   reflector: Reflector,
   provider: string,
   mode: ValidationMode,
-  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | AppStandardSchemaValidationPipeOptions,
 ): void {
   target.useGlobalPipes(...createGlobalValidationPipes(mode, standardSchemaValidationPipeOption));
   target.useGlobalFilters(new GrpcExceptionFilter(provider));
