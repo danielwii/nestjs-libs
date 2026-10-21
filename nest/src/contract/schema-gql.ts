@@ -474,8 +474,12 @@ export function createSchemaInputType<S extends StandardSchemaV1>(
   InputType(name)(SchemaInputHost);
   registerSubclassAutoPromotion(SchemaInputHost, 'inputType', name);
 
-  // 3. 註冊 Schema -> Host 映射以支援嵌套對象自動關聯
+  // 3. 註冊 Schema（含外層包裝與解包後的內層 z.object 節點）-> Host 映射以支援嵌套對象自動關聯
   SCHEMA_INPUT_TYPE_REGISTRY.set(schema, SchemaInputHost);
+  const unwrappedRoot = analyzeFieldSchema(schema).leafNode;
+  if (unwrappedRoot && typeof unwrappedRoot === 'object') {
+    SCHEMA_INPUT_TYPE_REGISTRY.set(unwrappedRoot, SchemaInputHost);
+  }
   SCHEMA_INPUT_TYPE_REGISTRY.set(SchemaInputHost, SchemaInputHost);
 
   return SchemaInputHost;

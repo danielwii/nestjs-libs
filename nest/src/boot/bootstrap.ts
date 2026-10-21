@@ -300,6 +300,10 @@ export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPip
   override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
     const rawSchema = resolveInboundSchema(metadata);
     if (!rawSchema) {
+      // 注：在 @nestjs/core/pipes/pipes-consumer.js 中，ParamsTokenFactory.exchangeEnumForString(3)
+      // 会将 HTTP @Body (RouteParamtypes.BODY = 3)、GraphQL @Args (GqlParamtype.ARGS = 3)
+      // 与 gRPC @Payload (RpcParamtype.PAYLOAD = 3) 统一映射为 metadata.type === 'body'；
+      // 而自定义参数装饰器 (@CurrentUser / @RawBody 等) 映射为 'custom'，属于框架上下文，绝不能误杀。
       if (
         this.mode === 'standard-schema' &&
         this.missingSchema === 'reject' &&

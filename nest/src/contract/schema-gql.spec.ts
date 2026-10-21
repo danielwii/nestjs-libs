@@ -26,9 +26,11 @@ enum ArticleVisibility {
 registerEnumType(ArticleVisibility, { name: 'ArticleVisibility' });
 
 describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
-  const TagInputSchema = z.object({
-    label: z.string().min(1),
-  });
+  const TagInputSchema = z
+    .object({
+      label: z.string().min(1),
+    })
+    .readonly();
 
   class TagInput extends createSchemaInputType(TagInputSchema, 'TagInput') {}
 
