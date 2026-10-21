@@ -79,6 +79,18 @@ export type BootstrapMode = 'api' | 'grpc' | 'scheduler';
 
 export type ValidationMode = 'standard-schema' | 'legacy';
 
+export type MissingSchemaPolicy = 'allow' | 'reject';
+
+export interface AppStandardSchemaValidationPipeOptions extends StandardSchemaValidationPipeOptions {
+  /**
+   * 当入站参数（`@Body` / `@Query` / `@Param` / GraphQL `@Args`）的 `metatype` 是自定义 DTO 类，
+   * 但既未在参数上绑定 `{ schema }`、类自身也无 `static schema` 时的处置策略：
+   * - `'allow'`（迁移期默认）：原样放行，配合静态覆盖率门禁 `collectInboundContractCoverage` 分批推进存量迁移（Expand -> Contract）。
+   * - `'reject'`（终态 Default-Deny）：立即抛出 `Oops.Validation` 拒绝请求，封死运行时静默裸奔漏洞。
+   */
+  missingSchema?: MissingSchemaPolicy;
+}
+
 export interface BootstrapOptions {
   /** 启动模式：api（默认）、grpc、scheduler */
   mode?: BootstrapMode;
@@ -124,9 +136,9 @@ export interface BootstrapOptions {
    * 全域 Standard Schema 校验管道配置。
    * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema）
    * - 设为 false：完全停用 StandardSchemaValidationPipe
-   * - 传入 StandardSchemaValidationPipeOptions：自定义 Standard Schema 管道的配置（如自建 exceptionFactory、transform 等）
+   * - 传入 AppStandardSchemaValidationPipeOptions：自定义 Standard Schema 管道的配置（如 missingSchema: 'reject'、exceptionFactory 等）
    */
-  standardSchemaValidationPipe?: boolean | StandardSchemaValidationPipeOptions;
+  standardSchemaValidationPipe?: boolean | AppStandardSchemaValidationPipeOptions;
   /**
    * 校验模式（必填，无默认值：忘填是编译错误，避免静默落回 legacy）。
    *
@@ -223,7 +235,7 @@ export function connectGrpcMicroserviceWithBoundary(
   bootMode: BootstrapMode,
   provider: string,
   validation: ValidationMode,
-  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | AppStandardSchemaValidationPipeOptions,
 ): INestMicroservice {
   const { inheritAppConfig } = resolveGrpcHybridAppOptions(bootMode);
 
@@ -259,6 +271,10 @@ const BUILTIN_SCALAR_OR_BOX_METATYPES = new Set<unknown>([
   Function,
   Symbol,
   BigInt,
+  Date,
+  Buffer,
+  Uint8Array,
+  ArrayBuffer,
 ]);
 
 function isCustomClassMetatype(metatype: unknown): metatype is { name?: string } {
@@ -267,15 +283,18 @@ function isCustomClassMetatype(metatype: unknown): metatype is { name?: string }
 
 /**
  * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取。
- * 在 `'standard-schema'` 严格模式下，对未绑定 Standard Schema 的自定义入站 DTO 类实施 Default-Deny (Safe-Reject) 拦截，
+ * 当配置 `missingSchema: 'reject'` 时，对未绑定 Standard Schema 的自定义入站 DTO 类实施 Default-Deny (Safe-Reject) 拦截，
  * 杜绝因遗漏 schema 导致的静默裸奔放行。
  */
 export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
+  private readonly missingSchema: MissingSchemaPolicy;
+
   constructor(
-    options?: StandardSchemaValidationPipeOptions,
+    options?: AppStandardSchemaValidationPipeOptions,
     private readonly mode: ValidationMode = 'standard-schema',
   ) {
     super(options);
+    this.missingSchema = options?.missingSchema ?? 'allow';
   }
 
   override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
@@ -283,6 +302,7 @@ export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPip
     if (!rawSchema) {
       if (
         this.mode === 'standard-schema' &&
+        this.missingSchema === 'reject' &&
         (metadata.type === 'body' || metadata.type === 'query' || metadata.type === 'param') &&
         isCustomClassMetatype(metadata.metatype)
       ) {
@@ -324,7 +344,7 @@ export class DualBoundaryValidationPipe extends ValidationPipe {
  */
 export function createGlobalValidationPipes(
   mode: ValidationMode,
-  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | AppStandardSchemaValidationPipeOptions,
 ): PipeTransform[] {
   const pipes: PipeTransform[] = [];
   if (standardSchemaValidationPipeOption !== false) {
@@ -367,7 +387,7 @@ export function configureGrpcMicroserviceBoundary(
   reflector: Reflector,
   provider: string,
   mode: ValidationMode,
-  standardSchemaValidationPipeOption?: boolean | StandardSchemaValidationPipeOptions,
+  standardSchemaValidationPipeOption?: boolean | AppStandardSchemaValidationPipeOptions,
 ): void {
   target.useGlobalPipes(...createGlobalValidationPipes(mode, standardSchemaValidationPipeOption));
   target.useGlobalFilters(new GrpcExceptionFilter(provider));

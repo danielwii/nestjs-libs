@@ -296,13 +296,23 @@ function resolveGqlTypeFn(
   }
 }
 
+function resolveFieldNullableOption(analysis: UnwrappedFieldAnalysis): boolean | 'items' | 'itemsAndList' {
+  if (analysis.leafDef.type === 'array' && analysis.leafDef.element) {
+    const elementAnalysis = analyzeFieldSchema(analysis.leafDef.element);
+    if (elementAnalysis.nullable) {
+      return analysis.nullable ? 'itemsAndList' : 'items';
+    }
+  }
+  return analysis.nullable;
+}
+
 function attachAutoDerivedFields(prototype: object, schema: unknown, callerName: string): void {
   const shape = extractObjectShape(schema, callerName);
   for (const [propertyKey, fieldSchema] of Object.entries(shape)) {
     const analysis = analyzeFieldSchema(fieldSchema);
     const typeFn = resolveGqlTypeFn(analysis, propertyKey, callerName);
     const decorator = Field(typeFn, {
-      nullable: analysis.nullable,
+      nullable: resolveFieldNullableOption(analysis),
       description: analysis.description,
     });
     decorator(prototype, propertyKey);

@@ -818,14 +818,19 @@ describe('AppStandardSchemaValidationPipe & DualBoundaryValidationPipe with call
 
 // 分页输入（CursoredRequestInput 及子类）不携带 static schema：
 // legacy 模式下无 schema 时 whitelist 管道会把它剥成空对象；
-// standard-schema 模式下绑定 cursoredRequestSchema 时原样校验放行，而漏绑 schema 的自定义 DTO 类则触发 Default-Deny 拦截。
+// standard-schema 模式下绑定 cursoredRequestSchema 时原样校验放行，开启 missingSchema: 'reject' 时拦截漏绑 schema 的自定义 DTO 类。
 describe('validation mode, pagination inputs, and Default-Deny boundary', () => {
-  const runPipes = async (pipes: ReturnType<typeof createGlobalValidationPipes>, value: unknown, schema?: unknown) => {
+  const runPipes = async (
+    pipes: ReturnType<typeof createGlobalValidationPipes>,
+    value: unknown,
+    schema?: unknown,
+    metatype: any = CursoredRequestInput,
+  ) => {
     let current = value;
     for (const pipe of pipes) {
       current = await pipe.transform(current, {
         type: 'body',
-        metatype: CursoredRequestInput,
+        metatype,
         ...(schema ? { schema: schema as any } : {}),
       });
     }
@@ -840,15 +845,31 @@ describe('validation mode, pagination inputs, and Default-Deny boundary', () => 
 
   it('standard-schema: pagination fields reach the resolver untouched when cursoredRequestSchema is bound', async () => {
     const input = { first: 5, after: 'c1' };
-    const out = await runPipes(createGlobalValidationPipes('standard-schema'), input, cursoredRequestSchema);
+    const out = await runPipes(
+      createGlobalValidationPipes('standard-schema', { missingSchema: 'reject' }),
+      input,
+      cursoredRequestSchema,
+    );
     expect(out).toEqual({ first: 5, after: 'c1' });
   });
 
-  it('standard-schema: Default-Deny rejects custom DTO classes that are missing a bound Standard Schema', async () => {
+  it('standard-schema: defaults to missingSchema=allow during migration so un-schemed endpoints do not break prior to cutover', async () => {
     const input = { first: 5, after: 'c1' };
-    await expect(runPipes(createGlobalValidationPipes('standard-schema'), input)).rejects.toThrow(
+    const out = await runPipes(createGlobalValidationPipes('standard-schema'), input);
+    expect(out).toEqual({ first: 5, after: 'c1' });
+  });
+
+  it('standard-schema: missingSchema=reject blocks custom DTO classes missing a bound Standard Schema while allowing built-in Date/Buffer', async () => {
+    const input = { first: 5, after: 'c1' };
+    const strictPipes = createGlobalValidationPipes('standard-schema', { missingSchema: 'reject' });
+    await expect(runPipes(strictPipes, input)).rejects.toThrow(
       "Inbound DTO 'CursoredRequestInput' is missing a bound Standard Schema in standard-schema validation mode",
     );
+
+    const now = new Date();
+    expect(await runPipes(strictPipes, now, undefined, Date)).toBe(now);
+    const buf = Buffer.from('ok');
+    expect(await runPipes(strictPipes, buf, undefined, Buffer)).toBe(buf);
   });
 });
 

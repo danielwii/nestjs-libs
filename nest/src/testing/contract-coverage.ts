@@ -56,6 +56,50 @@ function isStandardSchemaPipe(pipe: unknown): boolean {
   return false;
 }
 
+/**
+ * 讀取類級或方法級透過 `@UsePipes(...)` 註冊的 Pipes 元數據 (`__pipes__`)。
+ */
+function extractDeclaredPipes(target: object): unknown[] {
+  const raw = Reflect.getMetadata('__pipes__', target);
+  return Array.isArray(raw) ? raw : [];
+}
+
+/**
+ * 綜合判定一個入參是否具備 Standard Schema 覆蓋：
+ * 1. 參數級 `@Body(pipe)` / 方法級 `@UsePipes(pipe)` / 控制器或解析器級 `@UsePipes(pipe)` 持有 Standard Schema
+ * 2. 參數裝飾器選項自身持有 Standard Schema（例如 NestJS 12 原生 `@Body({ schema })` / `@Query({ schema })` / `@Param('id', { schema })`）
+ * 3. 參數類型 `metatype` 持有 static schema（例如 `createSchemaDto` / `createSchemaInputType` / `createSchemaArgsType`）
+ */
+function hasInboundSchemaCoverage(
+  argMeta: { data?: unknown; pipes?: (PipeTransform | Type<PipeTransform>)[] } | undefined,
+  metatype: Type<unknown> | undefined,
+  classPipes: unknown[],
+  methodPipes: unknown[],
+): boolean {
+  const paramPipes = Array.isArray(argMeta?.pipes) ? argMeta.pipes : [];
+  if (
+    paramPipes.some((pipe) => isStandardSchemaPipe(pipe)) ||
+    methodPipes.some((pipe) => isStandardSchemaPipe(pipe)) ||
+    classPipes.some((pipe) => isStandardSchemaPipe(pipe))
+  ) {
+    return true;
+  }
+
+  if (argMeta && resolveInboundSchema(argMeta)) {
+    return true;
+  }
+
+  if (argMeta?.data && typeof argMeta.data === 'object' && resolveInboundSchema(argMeta.data)) {
+    return true;
+  }
+
+  if (resolveInboundSchema(metatype)) {
+    return true;
+  }
+
+  return false;
+}
+
 function unwrapTarget(target: unknown): unknown {
   if (!target) return target;
   if (typeof target === 'object' && 'forwardRef' in target) {
@@ -235,6 +279,22 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
   const controllers = Array.from(components.controllers);
   const resolvers = Array.from(components.resolvers);
 
+  const componentIds = new Map<Type<unknown>, number>();
+  let nextComponentId = 1;
+  const getComponentKey = (
+    target: Type<unknown>,
+    transport: ContractTransport,
+    propertyKey: string,
+    paramIndex: number,
+  ) => {
+    let id = componentIds.get(target);
+    if (id === undefined) {
+      id = nextComponentId++;
+      componentIds.set(target, id);
+    }
+    return `${id}:${transport}:${target.name}.${propertyKey}#${paramIndex}`;
+  };
+
   const coveredLocations = new Set<string>();
   const uncoveredMap = new Map<string, UncoveredInput>();
 
@@ -247,9 +307,11 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
     const prototype = controller.prototype as object | undefined;
     if (!prototype) continue;
 
+    const classPipes = extractDeclaredPipes(controller);
     const methods = collectPrototypeMethods(prototype);
     for (const [propertyKey, descriptor] of methods.entries()) {
       const handlerFn = descriptor.value as object;
+      const methodPipes = extractDeclaredPipes(handlerFn);
 
       // 檢查是否為 gRPC 微服務方法
       const hasGrpcPattern = Reflect.getMetadata('microservices:pattern', handlerFn) !== undefined;
@@ -271,47 +333,47 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
       const paramtypes: unknown[] = Array.isArray(rawParamtypes) ? rawParamtypes : [];
 
       if (isGrpcHandler) {
-        // 優先從 __routeArguments__ 解析顯式 @Payload() (RpcParamtype.PAYLOAD = 3) 的參數位置，無裝飾器時預設為第 0 個參數
-        const payloadEntry = Object.entries(routeArgs).find(([key]) => Number(key.split(':')[0]) === 3)?.[1];
-        const paramIndex = payloadEntry ? payloadEntry.index : 0;
-        const dataName = typeof payloadEntry?.data === 'string' ? payloadEntry.data : undefined;
-        const location = `${controller.name}.${propertyKey}#${paramIndex}`;
-        grpcLocations.add(location);
+        // 優先從 __routeArguments__ 解析所有顯式 @Payload() (RpcParamtype.PAYLOAD = 3) 的參數位置，無裝飾器時預設為第 0 個參數
+        const payloadEntries = Object.entries(routeArgs)
+          .filter(([key]) => Number(key.split(':')[0]) === 3)
+          .map(([, entry]) => entry);
+        const effectivePayloads: Array<{
+          index: number;
+          data?: unknown;
+          pipes?: (PipeTransform | Type<PipeTransform>)[];
+        }> = payloadEntries.length > 0 ? payloadEntries : [{ index: 0 }];
 
-        if (coveredLocations.has(location) || uncoveredMap.has(location)) {
-          continue;
+        for (const payloadEntry of effectivePayloads) {
+          const paramIndex = payloadEntry.index;
+          const dataName = typeof payloadEntry.data === 'string' ? payloadEntry.data : undefined;
+          const location = `${controller.name}.${propertyKey}#${paramIndex}`;
+          const uniqueKey = getComponentKey(controller, 'grpc', propertyKey, paramIndex);
+          grpcLocations.add(uniqueKey);
+
+          if (coveredLocations.has(uniqueKey) || uncoveredMap.has(uniqueKey)) {
+            continue;
+          }
+
+          const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
+          const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
+
+          if (hasInboundSchemaCoverage(payloadEntry, metatype, classPipes, methodPipes)) {
+            coveredLocations.add(uniqueKey);
+            continue;
+          }
+
+          uncoveredMap.set(uniqueKey, {
+            location,
+            transport: 'grpc',
+            controller: controller.name,
+            method: propertyKey,
+            parameterIndex: paramIndex,
+            kind: 'payload',
+            dataName,
+            metatypeName,
+            reason: `gRPC handler '${propertyKey}' payload lacks Standard Schema`,
+          });
         }
-
-        const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
-        const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
-
-        // 1. 檢查 Pipe 是否直接持有 Standard Schema
-        const hasStandardSchemaPipe =
-          Array.isArray(payloadEntry?.pipes) && payloadEntry.pipes.some((pipe) => isStandardSchemaPipe(pipe));
-
-        if (hasStandardSchemaPipe) {
-          coveredLocations.add(location);
-          continue;
-        }
-
-        // 2. 檢查 metatype 是否持有 Standard Schema
-        const schema = resolveInboundSchema(metatype);
-        if (schema) {
-          coveredLocations.add(location);
-          continue;
-        }
-
-        uncoveredMap.set(location, {
-          location,
-          transport: 'grpc',
-          controller: controller.name,
-          method: propertyKey,
-          parameterIndex: paramIndex,
-          kind: 'payload',
-          dataName,
-          metatypeName,
-          reason: `gRPC handler '${propertyKey}' payload lacks Standard Schema`,
-        });
         continue;
       }
 
@@ -328,9 +390,10 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
 
         const paramIndex = argMeta.index;
         const location = `${controller.name}.${propertyKey}#${paramIndex}`;
-        httpLocations.add(location);
+        const uniqueKey = getComponentKey(controller, 'http', propertyKey, paramIndex);
+        httpLocations.add(uniqueKey);
 
-        if (coveredLocations.has(location) || uncoveredMap.has(location)) {
+        if (coveredLocations.has(uniqueKey) || uncoveredMap.has(uniqueKey)) {
           continue;
         }
 
@@ -339,24 +402,13 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
         const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
 
-        // 1. 檢查 Pipe 是否直接持有 Standard Schema
-        const hasStandardSchemaPipe =
-          Array.isArray(argMeta.pipes) && argMeta.pipes.some((pipe) => isStandardSchemaPipe(pipe));
-
-        if (hasStandardSchemaPipe) {
-          coveredLocations.add(location);
+        if (hasInboundSchemaCoverage(argMeta, metatype, classPipes, methodPipes)) {
+          coveredLocations.add(uniqueKey);
           continue;
         }
 
-        // 2. 檢查 metatype 是否持有 Standard Schema (形式 A, B)
-        const schema = resolveInboundSchema(metatype);
-        if (schema) {
-          coveredLocations.add(location);
-          continue;
-        }
-
-        // 3. 未覆蓋
-        uncoveredMap.set(location, {
+        // 未覆蓋
+        uncoveredMap.set(uniqueKey, {
           location,
           transport: 'http',
           controller: controller.name,
@@ -378,6 +430,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
     const prototype = resolver.prototype as object | undefined;
     if (!prototype) continue;
 
+    const classPipes = extractDeclaredPipes(resolver);
     const methods = collectPrototypeMethods(prototype);
     for (const [propertyKey, descriptor] of methods.entries()) {
       const handlerFn = descriptor.value as object;
@@ -388,6 +441,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
 
       if (!isGqlHandler) continue;
 
+      const methodPipes = extractDeclaredPipes(handlerFn);
       const routeArgs =
         (Reflect.getMetadata('__routeArguments__', resolver, propertyKey) as
           | Record<string, { index: number; data?: unknown; pipes?: (PipeTransform | Type<PipeTransform>)[] }>
@@ -406,9 +460,10 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
 
         const paramIndex = argMeta.index;
         const location = `${resolver.name}.${propertyKey}#${paramIndex}`;
-        graphqlLocations.add(location);
+        const uniqueKey = getComponentKey(resolver, 'graphql', propertyKey, paramIndex);
+        graphqlLocations.add(uniqueKey);
 
-        if (coveredLocations.has(location) || uncoveredMap.has(location)) {
+        if (coveredLocations.has(uniqueKey) || uncoveredMap.has(uniqueKey)) {
           continue;
         }
 
@@ -416,23 +471,12 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
         const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
 
-        // 檢查 Pipe 是否直接持有 Standard Schema
-        const hasStandardSchemaPipe =
-          Array.isArray(argMeta.pipes) && argMeta.pipes.some((pipe) => isStandardSchemaPipe(pipe));
-
-        if (hasStandardSchemaPipe) {
-          coveredLocations.add(location);
+        if (hasInboundSchemaCoverage(argMeta, metatype, classPipes, methodPipes)) {
+          coveredLocations.add(uniqueKey);
           continue;
         }
 
-        // 檢查 metatype 是否持有 Standard Schema
-        const schema = resolveInboundSchema(metatype);
-        if (schema) {
-          coveredLocations.add(location);
-          continue;
-        }
-
-        uncoveredMap.set(location, {
+        uncoveredMap.set(uniqueKey, {
           location,
           transport: 'graphql',
           controller: resolver.name,

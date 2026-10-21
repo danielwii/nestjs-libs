@@ -46,6 +46,8 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
     nullableNote: z.string().nullable(),
     defaultCategory: z.string().default('general'),
     tags: z.array(z.string()),
+    nullableItemTags: z.array(z.string().nullable()),
+    optionalNullableItemTags: z.array(z.string().nullable()).optional(),
     nestedTag: TagInputSchema.optional(),
   });
 
@@ -155,6 +157,9 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
         expect(sdl).toContain('defaultCategory: String');
         expect(sdl).not.toContain('defaultCategory: String!');
         expect(sdl).toContain('tags: [String!]!');
+        expect(sdl).toContain('nullableItemTags: [String]!');
+        expect(sdl).toContain('optionalNullableItemTags: [String]');
+        expect(sdl).not.toContain('optionalNullableItemTags: [String]!');
         expect(sdl).toContain('nestedTag: TagInput');
         expect(sdl).toContain('input TagInput {');
         expect(sdl).toContain('label: String!');

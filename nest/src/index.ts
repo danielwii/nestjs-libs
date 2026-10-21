@@ -7,4 +7,4 @@ export * from './common/response';
 export * from './exceptions/error-codes';
 export * from './exceptions/oops-error';
 export * from './exceptions/oops';
-export * from './contract';
+export * from './contract/schema-dto';

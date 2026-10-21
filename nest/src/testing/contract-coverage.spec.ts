@@ -332,5 +332,65 @@ describe('collectInboundContractCoverage (Multi-Protocol Inbound Coverage, Zero 
       expect(report.uncoveredInputs[0]?.parameterIndex).toBe(1);
       expect(report.uncoveredInputs[0]?.dataName).toBe('userId');
     });
+
+    it('應支援 @Body({ schema }) 原生裝飾器選項、@UsePipes() 控制器/方法級管道、多個 gRPC @Payload() 以及跨模組同名控制器去重', () => {
+      const InlineBodySchema = z.object({ token: z.string().min(1) });
+      const MethodPipeSchema = z.object({ page: z.coerce.number().int() });
+
+      const createScopedController = (isCovered: boolean) => {
+        @Controller('scoped')
+        class DuplicateNameController {
+          @Post('action')
+          action(@Body() body: unknown) {
+            return body;
+          }
+        }
+        if (isCovered) {
+          Reflect.defineMetadata('__pipes__', [{ schema: InlineBodySchema }], DuplicateNameController);
+        }
+        return DuplicateNameController;
+      };
+
+      const CoveredDupController = createScopedController(true);
+      const UncoveredDupController = createScopedController(false);
+
+      @Controller('advanced')
+      class AdvancedCoverageController {
+        @Post('inline-schema')
+        inlineSchema(@Body({ schema: InlineBodySchema } as any) body: unknown) {
+          return body;
+        }
+
+        @Post('method-pipe')
+        methodPipe(@Query() query: unknown) {
+          return query;
+        }
+
+        @GrpcMethod('UsersService', 'MultiPayload')
+        multiPayload(@Payload('id', { schema: z.uuid() }) id: string, @Payload('rawNote') rawNote: string) {
+          return { id, rawNote };
+        }
+      }
+
+      const methodDesc = Object.getOwnPropertyDescriptor(AdvancedCoverageController.prototype, 'methodPipe');
+      if (methodDesc?.value) {
+        Reflect.defineMetadata('__pipes__', [{ schema: MethodPipeSchema }], methodDesc.value);
+      }
+
+      @Module({
+        controllers: [CoveredDupController, UncoveredDupController, AdvancedCoverageController],
+      })
+      class AdvancedCoverageModule {}
+
+      const report = collectInboundContractCoverage(AdvancedCoverageModule);
+      // CoveredDup(1 covered) + UncoveredDup(1 uncovered) + inlineSchema(1 covered) + methodPipe(1 covered) + multiPayload(1 covered + 1 uncovered) = 6 total (4 covered, 2 uncovered)
+      expect(report.total).toBe(6);
+      expect(report.covered).toBe(4);
+      expect(report.uncovered).toBe(2);
+      expect(report.uncoveredInputs.map((u) => u.location)).toEqual([
+        'DuplicateNameController.action#0',
+        'AdvancedCoverageController.multiPayload#1',
+      ]);
+    });
   });
 });
