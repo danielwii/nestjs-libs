@@ -245,10 +245,10 @@ function resolveGqlTypeFn(
     return () => customType;
   }
 
-  // 2. 檢查是否為已透過 createSchemaInputType 註冊的嵌套 Schema
+  // 2. 檢查是否為已透過 createSchemaInputType 註冊的嵌套 Schema（動態讀取註冊表以支援子類自動提升後的單一引用）
   const registeredTopInput = SCHEMA_INPUT_TYPE_REGISTRY.get(leafNode);
   if (registeredTopInput) {
-    return () => registeredTopInput;
+    return () => SCHEMA_INPUT_TYPE_REGISTRY.get(leafNode) ?? registeredTopInput;
   }
 
   // 3. 根據 Zod v4 _zod.def.type 自動推導
@@ -301,7 +301,7 @@ function resolveGqlTypeFn(
     case 'object': {
       const registeredInput = SCHEMA_INPUT_TYPE_REGISTRY.get(leafNode);
       if (registeredInput) {
-        return () => registeredInput as ReturnTypeFuncValue;
+        return () => (SCHEMA_INPUT_TYPE_REGISTRY.get(leafNode) ?? registeredInput) as ReturnTypeFuncValue;
       }
       throw new TypeError(
         `[${callerName}] Nested object field '${propertyKey}' must be created via createSchemaInputType() first or annotated with .meta({ gqlType }).`,
@@ -360,7 +360,12 @@ function getGqlLazyStorage(): GqlLazyMetadataStorageLike | undefined {
  * 讓 `class MyInput extends createSchemaInputType(schema, 'MyInput') {}`
  * 無需在子類重複標註 `@InputType()` 即可被 NestJS GraphQL `GraphQLSchemaFactory` 自動識別。
  */
-function registerSubclassAutoPromotion(hostClass: Type<unknown>, kind: 'inputType' | 'args', name?: string): void {
+function registerSubclassAutoPromotion(
+  hostClass: Type<unknown>,
+  kind: 'inputType' | 'args',
+  name?: string,
+  registryKeys: object[] = [],
+): void {
   const lazyStorage = getGqlLazyStorage();
   if (!lazyStorage) return;
 
@@ -398,6 +403,9 @@ function registerSubclassAutoPromotion(hostClass: Type<unknown>, kind: 'inputTyp
           const hostMeta = TypeMetadataStorage.getInputTypeMetadataByTarget(hostClass);
           if (hostMeta) {
             hostMeta.isAbstract = true;
+          }
+          for (const key of registryKeys) {
+            SCHEMA_INPUT_TYPE_REGISTRY.set(key, targetType);
           }
         }
         const existing = TypeMetadataStorage.getInputTypeMetadataByTarget(targetType);
@@ -470,17 +478,14 @@ export function createSchemaInputType<S extends StandardSchemaV1>(
   // 1. 從 Zod v4 AST 自動推導並附加 @Field()
   attachAutoDerivedFields(SchemaInputHost.prototype, schema, 'createSchemaInputType');
 
-  // 2. 附加 @InputType(name)
-  InputType(name)(SchemaInputHost);
-  registerSubclassAutoPromotion(SchemaInputHost, 'inputType', name);
-
-  // 3. 註冊 Schema（含外層包裝與解包後的內層 z.object 節點）-> Host 映射以支援嵌套對象自動關聯
-  SCHEMA_INPUT_TYPE_REGISTRY.set(schema, SchemaInputHost);
+  // 2. 附加 @InputType(name) 與註冊 Schema（含外層包裝與解包後的內層 z.object 節點）-> Host 映射
   const unwrappedRoot = analyzeFieldSchema(schema).leafNode;
-  if (unwrappedRoot && typeof unwrappedRoot === 'object') {
-    SCHEMA_INPUT_TYPE_REGISTRY.set(unwrappedRoot, SchemaInputHost);
+  const registryKeys: object[] = [schema, unwrappedRoot, SchemaInputHost];
+  for (const key of registryKeys) {
+    SCHEMA_INPUT_TYPE_REGISTRY.set(key, SchemaInputHost);
   }
-  SCHEMA_INPUT_TYPE_REGISTRY.set(SchemaInputHost, SchemaInputHost);
+  InputType(name)(SchemaInputHost);
+  registerSubclassAutoPromotion(SchemaInputHost, 'inputType', name, registryKeys);
 
   return SchemaInputHost;
 }

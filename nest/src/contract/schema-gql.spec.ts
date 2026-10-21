@@ -123,6 +123,11 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
           return args.keyword;
         }
 
+        @Query(() => String)
+        findByTag(@Args('tag') tag: TagInput): string {
+          return tag.label;
+        }
+
         @Mutation(() => String)
         createArticle(@Args('input') input: CreateArticleInput): string {
           return input.title;
