@@ -114,7 +114,9 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
     | `z.array(T.nullable())` | `[T]!` | Non-null list of nullable items (`nullable: 'items'`) |
     | `z.array(T.nullable()).optional()` / `.nullable()` | `[T]` | Nullable list of nullable items (`nullable: 'itemsAndList'`) |
     | `T.optional()`, `T.nullable()`, `T.nullish()` | `T` (nullable) | All three map to `nullable: true` in GraphQL SDL (`T` without `!`) |
-    | `T.default(val)` / `T.prefault(val)` | `T` (nullable in SDL) | Marks SDL field as `nullable: true` so clients may omit it while Zod supplies `val` at runtime |
+    | `T.default(val)` | `T! = val` | Passes `defaultValue: val` to `@Field({ defaultValue: val, nullable: false })`, matching `@Args(..., { defaultValue: val })` byte-for-byte |
+    | `T.optional().default(val)` / `T.nullable().default(val)` | `T = val` | Passes `defaultValue: val` with `nullable: true` |
+    | `T.prefault(val)` | `T` (nullable in SDL) | Marks SDL field as `nullable: true` without printing `= val` in SDL while Zod supplies `val` pre-parse at runtime |
     | `T.describe('text')` / `T.meta({ description: 'text' })` | `"""text"""` | Emitted as GraphQL SDL field description |
 
 - **Inbound Contract Coverage & Staged Default-Deny (`@app/nest/testing` & `@app/nest/boot`)**:

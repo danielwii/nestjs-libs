@@ -6,7 +6,7 @@ import { isStandardSchema, SCHEMA_DTO_BRAND } from './schema-dto';
 
 import type { SchemaDtoConstructor } from './schema-dto';
 import type { Type } from '@nestjs/common';
-import type { ReturnTypeFuncValue } from '@nestjs/graphql';
+import type { FieldOptions, ReturnTypeFuncValue } from '@nestjs/graphql';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 
 export type GqlInput<S extends StandardSchemaV1> = StandardSchemaV1.InferInput<S>;
@@ -24,6 +24,7 @@ interface ZodDefLike {
   in?: unknown;
   schema?: unknown;
   element?: unknown;
+  defaultValue?: unknown;
   entries?: Record<string, string | number>;
   shape?: Record<string, unknown> | (() => Record<string, unknown>);
 }
@@ -42,6 +43,8 @@ interface UnwrappedFieldAnalysis {
   leafNode: ZodNodeLike;
   leafDef: ZodDefLike;
   nullable: boolean;
+  hasDefaultValue: boolean;
+  defaultValue?: unknown;
   description?: string;
   meta: Record<string, unknown>;
 }
@@ -96,19 +99,11 @@ function extractObjectShape(schema: unknown, callerName: string): Record<string,
 function analyzeFieldSchema(fieldSchema: unknown): UnwrappedFieldAnalysis {
   let current: unknown = fieldSchema;
   let nullable = false;
+  let hasDefaultValue = false;
+  let defaultValue: unknown;
   let description: string | undefined;
   const mergedMeta: Record<string, unknown> = {};
   const visited = new Set<unknown>();
-
-  if (current && typeof current === 'object') {
-    const topNode = current as ZodNodeLike;
-    if (typeof topNode.isOptional === 'function' && topNode.isOptional()) {
-      nullable = true;
-    }
-    if (typeof topNode.isNullable === 'function' && topNode.isNullable()) {
-      nullable = true;
-    }
-  }
 
   while (current && typeof current === 'object' && !visited.has(current)) {
     visited.add(current);
@@ -130,10 +125,32 @@ function analyzeFieldSchema(fieldSchema: unknown): UnwrappedFieldAnalysis {
 
     const def = getZodDef(node);
     if (!def) {
-      return { leafNode: node, leafDef: {}, nullable, description, meta: mergedMeta };
+      return { leafNode: node, leafDef: {}, nullable, hasDefaultValue, defaultValue, description, meta: mergedMeta };
     }
 
-    if (def.type === 'optional' || def.type === 'nullable' || def.type === 'default' || def.type === 'prefault') {
+    if (def.type === 'optional' || def.type === 'nullable') {
+      nullable = true;
+      if (def.innerType) {
+        current = def.innerType;
+        continue;
+      }
+    }
+
+    if (def.type === 'default') {
+      const resolvedDefault = def.defaultValue;
+      if (!hasDefaultValue && resolvedDefault !== undefined && typeof resolvedDefault !== 'function') {
+        hasDefaultValue = true;
+        defaultValue = resolvedDefault;
+      } else if (!hasDefaultValue) {
+        nullable = true;
+      }
+      if (def.innerType) {
+        current = def.innerType;
+        continue;
+      }
+    }
+
+    if (def.type === 'prefault') {
       nullable = true;
       if (def.innerType) {
         current = def.innerType;
@@ -163,13 +180,15 @@ function analyzeFieldSchema(fieldSchema: unknown): UnwrappedFieldAnalysis {
       }
     }
 
-    return { leafNode: node, leafDef: def, nullable, description, meta: mergedMeta };
+    return { leafNode: node, leafDef: def, nullable, hasDefaultValue, defaultValue, description, meta: mergedMeta };
   }
 
   return {
     leafNode: (current as ZodNodeLike | undefined) ?? {},
     leafDef: getZodDef(current) ?? {},
     nullable,
+    hasDefaultValue,
+    defaultValue,
     description,
     meta: mergedMeta,
   };
@@ -311,10 +330,20 @@ function attachAutoDerivedFields(prototype: object, schema: unknown, callerName:
   for (const [propertyKey, fieldSchema] of Object.entries(shape)) {
     const analysis = analyzeFieldSchema(fieldSchema);
     const typeFn = resolveGqlTypeFn(analysis, propertyKey, callerName);
-    const decorator = Field(typeFn, {
-      nullable: resolveFieldNullableOption(analysis),
-      description: analysis.description,
-    });
+    const nullableOpt = resolveFieldNullableOption(analysis);
+    const fieldOptions: FieldOptions =
+      nullableOpt === true
+        ? {
+            nullable: true,
+            description: analysis.description,
+            ...(analysis.hasDefaultValue ? { defaultValue: analysis.defaultValue } : {}),
+          }
+        : {
+            nullable: nullableOpt,
+            description: analysis.description,
+            ...(analysis.hasDefaultValue ? { defaultValue: analysis.defaultValue } : {}),
+          };
+    const decorator = Field(typeFn, fieldOptions);
     decorator(prototype, propertyKey);
   }
 }

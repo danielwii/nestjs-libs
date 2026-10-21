@@ -45,6 +45,8 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
     summary: z.string().describe('可選摘要').optional(),
     nullableNote: z.string().nullable(),
     defaultCategory: z.string().default('general'),
+    optionalDefaultLimit: z.number().int().optional().default(20),
+    prefaultNote: z.string().prefault('fallback'),
     tags: z.array(z.string()),
     nullableItemTags: z.array(z.string().nullable()),
     optionalNullableItemTags: z.array(z.string().nullable()).optional(),
@@ -154,8 +156,10 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
         expect(sdl).not.toContain('summary: String!');
         expect(sdl).toContain('nullableNote: String');
         expect(sdl).not.toContain('nullableNote: String!');
-        expect(sdl).toContain('defaultCategory: String');
-        expect(sdl).not.toContain('defaultCategory: String!');
+        expect(sdl).toContain('defaultCategory: String! = "general"');
+        expect(sdl).toContain('optionalDefaultLimit: Int = 20');
+        expect(sdl).toContain('prefaultNote: String');
+        expect(sdl).not.toContain('prefaultNote: String!');
         expect(sdl).toContain('tags: [String!]!');
         expect(sdl).toContain('nullableItemTags: [String]!');
         expect(sdl).toContain('optionalNullableItemTags: [String]');
