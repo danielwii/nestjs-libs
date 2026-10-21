@@ -10,7 +10,7 @@ import { Oops } from '@app/nest/exceptions/oops';
 import { GrpcServiceTokenGuard } from '@app/nest/guards';
 import { GraphqlAwareClassSerializerInterceptor } from '@app/nest/interceptors/graphql-aware-class-serializer.interceptor';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
-import { CursoredRequestInput } from '@app/utils/graphql';
+import { CursoredRequestInput, cursoredRequestSchema } from '@app/utils/graphql';
 
 import {
   AppStandardSchemaValidationPipe,
@@ -817,26 +817,38 @@ describe('AppStandardSchemaValidationPipe & DualBoundaryValidationPipe with call
 });
 
 // 分页输入（CursoredRequestInput 及子类）不携带 static schema：
-// 只有 legacy 的 whitelist 管道会把它静默剥成空对象，standard-schema 模式下原样放行。
-describe('validation mode and pagination inputs', () => {
-  const runPipes = async (pipes: ReturnType<typeof createGlobalValidationPipes>, value: unknown) => {
+// legacy 模式下无 schema 时 whitelist 管道会把它剥成空对象；
+// standard-schema 模式下绑定 cursoredRequestSchema 时原样校验放行，而漏绑 schema 的自定义 DTO 类则触发 Default-Deny 拦截。
+describe('validation mode, pagination inputs, and Default-Deny boundary', () => {
+  const runPipes = async (pipes: ReturnType<typeof createGlobalValidationPipes>, value: unknown, schema?: unknown) => {
     let current = value;
     for (const pipe of pipes) {
-      current = await pipe.transform(current, { type: 'body', metatype: CursoredRequestInput });
+      current = await pipe.transform(current, {
+        type: 'body',
+        metatype: CursoredRequestInput,
+        ...(schema ? { schema: schema as any } : {}),
+      });
     }
     return current;
   };
 
-  it('legacy: the whitelist pipe strips pagination fields that have no class-validator decorator', async () => {
+  it('legacy: the whitelist pipe strips pagination fields that have no class-validator decorator or schema', async () => {
     const out = await runPipes(createGlobalValidationPipes('legacy'), { first: 5, after: 'c1' });
     expect(out).not.toHaveProperty('after');
     expect(Object.keys(out as object)).not.toContain('first');
   });
 
-  it('standard-schema: pagination fields reach the resolver untouched', async () => {
+  it('standard-schema: pagination fields reach the resolver untouched when cursoredRequestSchema is bound', async () => {
     const input = { first: 5, after: 'c1' };
-    const out = await runPipes(createGlobalValidationPipes('standard-schema'), input);
+    const out = await runPipes(createGlobalValidationPipes('standard-schema'), input, cursoredRequestSchema);
     expect(out).toEqual({ first: 5, after: 'c1' });
+  });
+
+  it('standard-schema: Default-Deny rejects custom DTO classes that are missing a bound Standard Schema', async () => {
+    const input = { first: 5, after: 'c1' };
+    await expect(runPipes(createGlobalValidationPipes('standard-schema'), input)).rejects.toThrow(
+      "Inbound DTO 'CursoredRequestInput' is missing a bound Standard Schema in standard-schema validation mode",
+    );
   });
 });
 

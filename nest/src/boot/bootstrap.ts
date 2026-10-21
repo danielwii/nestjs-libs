@@ -250,13 +250,48 @@ export function connectGrpcMicroserviceWithBoundary(
   return grpcMs;
 }
 
+const BUILTIN_SCALAR_OR_BOX_METATYPES = new Set<unknown>([
+  String,
+  Number,
+  Boolean,
+  Object,
+  Array,
+  Function,
+  Symbol,
+  BigInt,
+]);
+
+function isCustomClassMetatype(metatype: unknown): metatype is { name?: string } {
+  return typeof metatype === 'function' && !BUILTIN_SCALAR_OR_BOX_METATYPES.has(metatype);
+}
+
 /**
- * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取
+ * 现代 Standard Schema 校验管道：支持参数级与类级 schema 自动拾取。
+ * 在 `'standard-schema'` 严格模式下，对未绑定 Standard Schema 的自定义入站 DTO 类实施 Default-Deny (Safe-Reject) 拦截，
+ * 杜绝因遗漏 schema 导致的静默裸奔放行。
  */
 export class AppStandardSchemaValidationPipe extends StandardSchemaValidationPipe {
+  constructor(
+    options?: StandardSchemaValidationPipeOptions,
+    private readonly mode: ValidationMode = 'standard-schema',
+  ) {
+    super(options);
+  }
+
   override async transform<T = unknown>(value: T, metadata: ArgumentMetadata): Promise<T> {
     const rawSchema = resolveInboundSchema(metadata);
-    if (!rawSchema) return value;
+    if (!rawSchema) {
+      if (
+        this.mode === 'standard-schema' &&
+        (metadata.type === 'body' || metadata.type === 'query' || metadata.type === 'param') &&
+        isCustomClassMetatype(metadata.metatype)
+      ) {
+        throw Oops.Validation(
+          `Inbound DTO '${metadata.metatype.name || 'AnonymousDto'}' is missing a bound Standard Schema in standard-schema validation mode`,
+        );
+      }
+      return value;
+    }
     return super.transform(value, { ...metadata, schema: rawSchema });
   }
 }
@@ -295,7 +330,7 @@ export function createGlobalValidationPipes(
   if (standardSchemaValidationPipeOption !== false) {
     const options =
       typeof standardSchemaValidationPipeOption === 'object' ? standardSchemaValidationPipeOption : undefined;
-    pipes.push(new AppStandardSchemaValidationPipe(options));
+    pipes.push(new AppStandardSchemaValidationPipe(options, mode));
   }
   if (mode === 'legacy') {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- 唯一的 legacy 挂载点，随 'legacy' 取值一并删除

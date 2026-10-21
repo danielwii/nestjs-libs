@@ -1,6 +1,5 @@
 import 'reflect-metadata';
 
-import { getRawInputExemption } from '@app/nest/contract/raw-input';
 import { resolveInboundSchema } from '@app/nest/contract/schema-dto';
 
 import type { PipeTransform, Type } from '@nestjs/common';
@@ -20,28 +19,14 @@ export interface UncoveredInput {
   reason: string;
 }
 
-export interface ExemptInput {
-  location: string;
-  transport: ContractTransport;
-  controller: string;
-  method: string;
-  parameterIndex: number;
-  kind: ContractInputKind;
-  dataName?: string;
-  reason: string;
-  exitCondition?: string;
-}
-
 export interface CoverageReport {
   total: number;
   covered: number;
-  exempt: number;
   uncovered: number;
   httpInputs: number;
   graphqlInputs: number;
   grpcInputs: number;
   uncoveredInputs: UncoveredInput[];
-  exemptInputs: ExemptInput[];
 }
 
 /**
@@ -226,13 +211,13 @@ function collectAllComponents(
 }
 
 /**
- * 收集入站契約 Standard Schema 覆蓋率報告（零啟動成本靜態反射分析）。
+ * 收集入站契約 Standard Schema 覆蓋率報告（零啟動成本靜態反射分析，零豁免逃生口）。
  *
  * 核心特性：
  * 1. 零啟動成本：不依賴 NestFactory.create，不初始化 DI 容器，不建立資料庫/網路連線。
  * 2. 全協議支持：涵蓋 HTTP 路由 (@Body, @Query, @Param)、GraphQL 解析器 (@Args)、gRPC 微服務 (@GrpcMethod)。
- * 3. 邊界防禦與單一真理源：覆蓋判定唯一依賴 resolveInboundSchema，絕無類名猜測逃生口。
- * 4. 框架上下文自動豁免：@Headers 等傳輸上下文自動豁免，不佔用業務邊界審計分母。
+ * 3. 邊界防禦與單一真理源：覆蓋判定唯一依賴 resolveInboundSchema，絕無類名猜測或豁免逃生口。
+ * 4. 框架上下文自動識別：@Headers, @Req, @Res, @Ctx 等傳輸上下文不屬於業務入參，不佔用業務邊界審計分母。
  * 5. 多根求並集 (Multi-Root Union)：支援單一根模組或根模組陣列，依 location 去重求並集。
  * 6. 零入參防護門禁 (Fail-Fast Zero Inputs Invariant)：若未列舉到任何入境參數（total === 0），直接拋錯中斷，杜絕虛假 100% 安全感。
  *
@@ -251,7 +236,6 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
   const resolvers = Array.from(components.resolvers);
 
   const coveredLocations = new Set<string>();
-  const exemptMap = new Map<string, ExemptInput>();
   const uncoveredMap = new Map<string, UncoveredInput>();
 
   const httpLocations = new Set<string>();
@@ -294,32 +278,14 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
         const location = `${controller.name}.${propertyKey}#${paramIndex}`;
         grpcLocations.add(location);
 
-        if (coveredLocations.has(location) || exemptMap.has(location) || uncoveredMap.has(location)) {
+        if (coveredLocations.has(location) || uncoveredMap.has(location)) {
           continue;
         }
 
         const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
 
-        // 1. 檢查 @RawInput 豁免 (支援參數級或方法級)
-        const exemption = getRawInputExemption(prototype, propertyKey, paramIndex);
-
-        if (exemption) {
-          exemptMap.set(location, {
-            location,
-            transport: 'grpc',
-            controller: controller.name,
-            method: propertyKey,
-            parameterIndex: paramIndex,
-            kind: 'payload',
-            dataName,
-            reason: exemption.reason,
-            exitCondition: exemption.exitCondition,
-          });
-          continue;
-        }
-
-        // 2. 檢查 Pipe 是否直接持有 Standard Schema
+        // 1. 檢查 Pipe 是否直接持有 Standard Schema
         const hasStandardSchemaPipe =
           Array.isArray(payloadEntry?.pipes) && payloadEntry.pipes.some((pipe) => isStandardSchemaPipe(pipe));
 
@@ -328,7 +294,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
           continue;
         }
 
-        // 3. 檢查 metatype 是否持有 Standard Schema
+        // 2. 檢查 metatype 是否持有 Standard Schema
         const schema = resolveInboundSchema(metatype);
         if (schema) {
           coveredLocations.add(location);
@@ -344,7 +310,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
           kind: 'payload',
           dataName,
           metatypeName,
-          reason: `gRPC handler '${propertyKey}' payload lacks Standard Schema and is not exempted via @RawInput`,
+          reason: `gRPC handler '${propertyKey}' payload lacks Standard Schema`,
         });
         continue;
       }
@@ -356,7 +322,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
 
         // 3: BODY, 4: QUERY, 5: PARAM
         if (typeNumber !== 3 && typeNumber !== 4 && typeNumber !== 5) {
-          // 其餘 (0:req, 1:res, 2:next, 6:headers 等) 均為框架傳輸層上下文，自動豁免
+          // 其餘 (0:req, 1:res, 2:next, 6:headers 等) 均為框架傳輸層上下文
           continue;
         }
 
@@ -364,7 +330,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
         const location = `${controller.name}.${propertyKey}#${paramIndex}`;
         httpLocations.add(location);
 
-        if (coveredLocations.has(location) || exemptMap.has(location) || uncoveredMap.has(location)) {
+        if (coveredLocations.has(location) || uncoveredMap.has(location)) {
           continue;
         }
 
@@ -373,24 +339,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
         const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
 
-        // 1. 檢查是否被 @RawInput 顯式豁免
-        const exemption = getRawInputExemption(prototype, propertyKey, paramIndex);
-        if (exemption) {
-          exemptMap.set(location, {
-            location,
-            transport: 'http',
-            controller: controller.name,
-            method: propertyKey,
-            parameterIndex: paramIndex,
-            kind,
-            dataName,
-            reason: exemption.reason,
-            exitCondition: exemption.exitCondition,
-          });
-          continue;
-        }
-
-        // 2. 檢查 Pipe 是否直接持有 Standard Schema
+        // 1. 檢查 Pipe 是否直接持有 Standard Schema
         const hasStandardSchemaPipe =
           Array.isArray(argMeta.pipes) && argMeta.pipes.some((pipe) => isStandardSchemaPipe(pipe));
 
@@ -399,14 +348,14 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
           continue;
         }
 
-        // 3. 檢查 metatype 是否持有 Standard Schema (形式 A, B)
+        // 2. 檢查 metatype 是否持有 Standard Schema (形式 A, B)
         const schema = resolveInboundSchema(metatype);
         if (schema) {
           coveredLocations.add(location);
           continue;
         }
 
-        // 4. 未覆蓋
+        // 3. 未覆蓋
         uncoveredMap.set(location, {
           location,
           transport: 'http',
@@ -459,30 +408,13 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
         const location = `${resolver.name}.${propertyKey}#${paramIndex}`;
         graphqlLocations.add(location);
 
-        if (coveredLocations.has(location) || exemptMap.has(location) || uncoveredMap.has(location)) {
+        if (coveredLocations.has(location) || uncoveredMap.has(location)) {
           continue;
         }
 
         const dataName = typeof argMeta.data === 'string' ? argMeta.data : undefined;
         const metatype = paramtypes[paramIndex] as Type<unknown> | undefined;
         const metatypeName = metatype && typeof metatype === 'function' ? metatype.name : undefined;
-
-        // 檢查 @RawInput 豁免
-        const exemption = getRawInputExemption(prototype, propertyKey, paramIndex);
-        if (exemption) {
-          exemptMap.set(location, {
-            location,
-            transport: 'graphql',
-            controller: resolver.name,
-            method: propertyKey,
-            parameterIndex: paramIndex,
-            kind: 'args',
-            dataName,
-            reason: exemption.reason,
-            exitCondition: exemption.exitCondition,
-          });
-          continue;
-        }
 
         // 檢查 Pipe 是否直接持有 Standard Schema
         const hasStandardSchemaPipe =
@@ -518,9 +450,8 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
   }
 
   const covered = coveredLocations.size;
-  const exemptInputs = Array.from(exemptMap.values());
   const uncoveredInputs = Array.from(uncoveredMap.values());
-  const total = covered + exemptInputs.length + uncoveredInputs.length;
+  const total = covered + uncoveredInputs.length;
 
   // 零入參防護門禁 (Fail-Fast Zero Inputs Invariant)：total === 0 必須報錯中斷
   if (total === 0) {
@@ -532,12 +463,10 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
   return {
     total,
     covered,
-    exempt: exemptInputs.length,
     uncovered: uncoveredInputs.length,
     httpInputs: httpLocations.size,
     graphqlInputs: graphqlLocations.size,
     grpcInputs: grpcLocations.size,
     uncoveredInputs,
-    exemptInputs,
   };
 }
