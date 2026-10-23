@@ -52,6 +52,7 @@ import {
   supportsForcedToolChoice,
 } from '../types/model.types';
 import { getCostFromUsage } from '../utils/cost-calculator';
+import { summarizeMessages } from '../utils/message-summary';
 import { bedrockServiceTierOptions } from './bedrock.client';
 import { getOpenAI, getOpenRouter } from './llm.clients';
 import { createLanguageModel } from './model-router';
@@ -1201,13 +1202,8 @@ export class LLM {
         ? Object.keys(schema.shape)
         : ['(non-object schema)'];
 
-    // messages 摘要：role + content 长度
-    const msgSummary = messages
-      .map((m) => {
-        const len = typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length;
-        return `${m.role}:${len}`;
-      })
-      .join(', ');
+    // messages 摘要：按 part 类型统计字符数与二进制字节数，严禁对 Uint8Array/Buffer 调用 JSON.stringify
+    const msgSummary = summarizeMessages(messages);
 
     const instructionsPart = instructions ? `, instructions=${instructions.length}ch` : '';
 
