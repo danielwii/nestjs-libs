@@ -239,8 +239,11 @@ function bootstrapSentry() {
       release,
       environment,
       serverName,
-      // 不做 performance monitoring，只做错误追踪（v11 默认已不接管 OTel）
-      tracesSampleRate: 0,
+      // [DOC-01 / DEF-10 C1] 严禁传入 `tracesSampleRate: 0`！
+      // 在 @sentry/core 中 `hasSpansEnabled(options)` 判定条件为 `options.tracesSampleRate != null || !!options.tracesSampler`。
+      // 传入 `0`（非 null/undefined）会让 `hasSpansEnabled` 返回 `true`，触发 @sentry/bun 挂载全部 32 个
+      // tracing integrations（含 `VercelAI`，它会在 diagnostics_channel 上对多模态 Uint8Array 消息调用 JSON.stringify）。
+      // 省略 `tracesSampleRate` 使 `hasSpansEnabled() === false`，仅加载错误追踪 integrations。
       beforeSend(event: {
         message?: string;
         logentry?: { formatted?: string; message?: string };
