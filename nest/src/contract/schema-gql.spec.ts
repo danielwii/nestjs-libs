@@ -3,12 +3,15 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import {
   Args,
+  ArgsType,
   GraphQLSchemaBuilderModule,
   GraphQLSchemaFactory,
+  InputType,
   Mutation,
   Query,
   registerEnumType,
   Resolver,
+  TypeMetadataStorage,
 } from '@nestjs/graphql';
 
 import { resolveInboundSchema, SCHEMA_DTO_BRAND } from './schema-dto';
@@ -216,12 +219,195 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
 
       const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, { logger: false });
       try {
+        // 隔離全倉測試並行載入的其他模組（如 pagination.dto.ts 的 @InterfaceType/@ObjectType）對整份 printSchema 快照的干擾
+        const storageAll = (
+          TypeMetadataStorage as unknown as {
+            metadataByTargetCollection?: { all?: { interface?: Map<unknown, unknown>; objectType?: unknown[] } };
+          }
+        ).metadataByTargetCollection?.all;
+        storageAll?.interface?.clear();
+        if (storageAll?.objectType) storageAll.objectType.length = 0;
+
         const factory = app.get(GraphQLSchemaFactory);
         const schema = await factory.create([ExplicitDescResolver]);
         const sdl = printSchema(schema);
 
         expect(sdl).toContain('"""覆蓋後的類級描述"""');
         expect(sdl).toContain('input ExplicitDescInput @oneOf {');
+        expect(sdl).toBe(
+          [
+            'type Query {',
+            '  filterUser(filter: ExplicitDescInput!): String!',
+            '}',
+            '',
+            '"""覆蓋後的類級描述"""',
+            'input ExplicitDescInput @oneOf {',
+            '  byId: String',
+            '  byEmail: String',
+            '}',
+          ].join('\n'),
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('應支援同一 Schema 中並存多個不同的 createSchemaInputType 子類且互不誤判為外部裝飾器', async () => {
+      const FirstHostSchema = z
+        .object({
+          alpha: z.string().describe('Alpha 欄位'),
+        })
+        .describe('第一個工廠子類');
+
+      const SecondHostSchema = z
+        .object({
+          beta: z.number().int().optional().meta({ deprecationReason: '舊欄位' }),
+        })
+        .describe('第二個工廠子類');
+
+      class FirstSubInput extends createSchemaInputType(FirstHostSchema, 'FirstSubInput') {}
+      class SecondSubInput extends createSchemaInputType(SecondHostSchema, 'SecondSubInput') {}
+
+      @Resolver()
+      class MultiHostResolver {
+        @Query(() => String)
+        combineInputs(@Args('first') first: FirstSubInput, @Args('second') second: SecondSubInput): string {
+          return `${first.alpha}:${second.beta ?? 0}`;
+        }
+      }
+
+      const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, { logger: false });
+      try {
+        const storageAll = (
+          TypeMetadataStorage as unknown as {
+            metadataByTargetCollection?: { all?: { interface?: Map<unknown, unknown>; objectType?: unknown[] } };
+          }
+        ).metadataByTargetCollection?.all;
+        storageAll?.interface?.clear();
+        if (storageAll?.objectType) storageAll.objectType.length = 0;
+
+        const factory = app.get(GraphQLSchemaFactory);
+        const schema = await factory.create([MultiHostResolver]);
+        const sdl = printSchema(schema);
+
+        expect(sdl).toBe(
+          [
+            'type Query {',
+            '  combineInputs(first: FirstSubInput!, second: SecondSubInput!): String!',
+            '}',
+            '',
+            '"""第一個工廠子類"""',
+            'input FirstSubInput {',
+            '  """Alpha 欄位"""',
+            '  alpha: String!',
+            '}',
+            '',
+            '"""第二個工廠子類"""',
+            'input SecondSubInput {',
+            '  beta: Int @deprecated(reason: "舊欄位")',
+            '}',
+          ].join('\n'),
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('當 createSchemaInputType 子類重複標註 @InputType() 時應在 Schema 建構期 Fail-Fast 拋錯', async () => {
+      const DupSchema = z.object({ name: z.string() }).describe('不應被覆寫的描述');
+
+      @InputType()
+      class DecoratedSubInput extends createSchemaInputType(DupSchema, 'DecoratedSubInput') {}
+
+      @Resolver()
+      class BadSubResolver {
+        @Query(() => String)
+        mutateBad(@Args('input') input: DecoratedSubInput): string {
+          return input.name;
+        }
+      }
+
+      const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, { logger: false });
+      try {
+        const factory = app.get(GraphQLSchemaFactory);
+        await expect(factory.create([BadSubResolver])).rejects.toThrow(
+          '[createSchemaInputType] Subclass "DecoratedSubInput" must not be decorated with @InputType()',
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('當 createSchemaInputType 子類重複標註 @InputType("Other") 時應在 Schema 建構期 Fail-Fast 拋錯', async () => {
+      const DupSchema = z.object({ code: z.string() });
+
+      @InputType('OtherInputName')
+      class RenamedSubInput extends createSchemaInputType(DupSchema, 'RenamedSubInput') {}
+
+      @Resolver()
+      class BadRenamedResolver {
+        @Query(() => String)
+        mutateRenamed(@Args('input') input: RenamedSubInput): string {
+          return input.code;
+        }
+      }
+
+      const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, { logger: false });
+      try {
+        const factory = app.get(GraphQLSchemaFactory);
+        await expect(factory.create([BadRenamedResolver])).rejects.toThrow(
+          '[createSchemaInputType] Subclass "RenamedSubInput" must not be decorated with @InputType()',
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('當 createSchemaInputType(S, "Custom") 子類被無參 @InputType() 劫持名稱時應 Fail-Fast 拋錯', async () => {
+      const CustomSchema = z.object({ value: z.string() });
+
+      @InputType()
+      class HijackedNameInput extends createSchemaInputType(CustomSchema, 'CustomGraphQLInputName') {}
+
+      @Resolver()
+      class BadHijackResolver {
+        @Query(() => String)
+        mutateHijack(@Args('input') input: HijackedNameInput): string {
+          return input.value;
+        }
+      }
+
+      const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, { logger: false });
+      try {
+        const factory = app.get(GraphQLSchemaFactory);
+        await expect(factory.create([BadHijackResolver])).rejects.toThrow(
+          '[createSchemaInputType] Subclass "HijackedNameInput" must not be decorated with @InputType()',
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('當 createSchemaArgsType 子類重複標註 @ArgsType() 時應在 Schema 建構期 Fail-Fast 拋錯', async () => {
+      const DupArgsSchema = z.object({ page: z.number().int() });
+
+      @ArgsType()
+      class DecoratedSubArgs extends createSchemaArgsType(DupArgsSchema) {}
+
+      @Resolver()
+      class BadArgsResolver {
+        @Query(() => String)
+        queryBadArgs(@Args() args: DecoratedSubArgs): string {
+          return String(args.page);
+        }
+      }
+
+      const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, { logger: false });
+      try {
+        const factory = app.get(GraphQLSchemaFactory);
+        await expect(factory.create([BadArgsResolver])).rejects.toThrow(
+          '[createSchemaArgsType] Subclass "DecoratedSubArgs" must not be decorated with @ArgsType()',
+        );
       } finally {
         await app.close();
       }

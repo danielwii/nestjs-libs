@@ -59,6 +59,7 @@ interface UnwrappedFieldAnalysis {
  * 支援嵌套對象 Schema 自動解析對應的 GraphQL InputType。
  */
 const SCHEMA_INPUT_TYPE_REGISTRY = new WeakMap<object, Type<unknown>>();
+const PROMOTED_METADATA_BY_TARGET = new WeakMap<Type<unknown>, object>();
 const SUBCLASS_PROMOTERS = new Set<() => void>();
 const SUBCLASS_FIELD_SYNCS = new Set<() => void>();
 
@@ -411,8 +412,8 @@ function getGqlLazyStorage(): GqlLazyMetadataStorageLike | undefined {
 }
 
 /**
- * 讓 `class MyInput extends createSchemaInputType(schema, 'MyInput') {}`
- * 無需在子類重複標註 `@InputType()` 即可被 NestJS GraphQL `GraphQLSchemaFactory` 自動識別。
+ * 讓 `class MyInput extends createSchemaInputType(schema, 'MyInput') {}` 自動被 NestJS GraphQL `GraphQLSchemaFactory` 識別；
+ * 子類不得重複標註 `@InputType()` 或 `@ArgsType()`（否則在 Schema 建構期 Fail-Fast 拋出 Error，防止雙重真理源覆寫工廠元數據）。
  */
 function registerSubclassAutoPromotion(
   hostClass: Type<unknown>,
@@ -469,21 +470,35 @@ function registerSubclassAutoPromotion(
         }
         const existing = TypeMetadataStorage.getInputTypeMetadataByTarget(targetType);
         if (!existing) {
-          TypeMetadataStorage.addInputTypeMetadata({
+          const promotedMeta = {
             target: targetType,
             name: name ?? targetType.name,
             description: inputOptions?.description,
             isOneOf: inputOptions?.isOneOf,
             isAbstract: false,
-          });
+          };
+          PROMOTED_METADATA_BY_TARGET.set(targetType, promotedMeta);
+          TypeMetadataStorage.addInputTypeMetadata(promotedMeta);
+        } else if (targetType !== hostClass && PROMOTED_METADATA_BY_TARGET.get(targetType) !== existing) {
+          PROMOTED_METADATA_BY_TARGET.set(targetType, existing);
+          throw new Error(
+            `[createSchemaInputType] Subclass "${targetType.name}" must not be decorated with @InputType(). Remove @InputType() and configure name/description/isOneOf via createSchemaInputType(schema, name, options) or schema.describe()/meta() instead.`,
+          );
         }
       } else {
         const existing = TypeMetadataStorage.getArgumentsMetadataByTarget(targetType);
         if (!existing) {
-          TypeMetadataStorage.addArgsMetadata({
+          const promotedMeta = {
             target: targetType,
             name: targetType.name || hostClass.name,
-          });
+          };
+          PROMOTED_METADATA_BY_TARGET.set(targetType, promotedMeta);
+          TypeMetadataStorage.addArgsMetadata(promotedMeta);
+        } else if (targetType !== hostClass && PROMOTED_METADATA_BY_TARGET.get(targetType) !== existing) {
+          PROMOTED_METADATA_BY_TARGET.set(targetType, existing);
+          throw new Error(
+            `[createSchemaArgsType] Subclass "${targetType.name}" must not be decorated with @ArgsType(). Remove @ArgsType() and let createSchemaArgsType(schema) manage GraphQL metadata as the single source of truth.`,
+          );
         }
       }
     };
@@ -498,6 +513,9 @@ function registerSubclassAutoPromotion(
     }
 
     for (const inputMeta of TypeMetadataStorage.getInputTypesMetadata()) {
+      if (inputMeta.target !== hostClass) {
+        promoteTarget(inputMeta.target);
+      }
       const fields = (
         collection.get(inputMeta.target) as unknown as {
           fields?: { getAll: () => Array<{ typeFn?: () => unknown }> };
@@ -508,6 +526,12 @@ function registerSubclassAutoPromotion(
         const rawType = field.typeFn?.();
         const candidate = Array.isArray(rawType) ? rawType[0] : rawType;
         promoteTarget(candidate);
+      }
+    }
+
+    for (const argsMeta of TypeMetadataStorage.getArgumentsMetadata()) {
+      if (argsMeta.target !== hostClass) {
+        promoteTarget(argsMeta.target);
       }
     }
   };
@@ -521,7 +545,7 @@ function registerSubclassAutoPromotion(
 
   if (kind === 'inputType') {
     // @nestjs/graphql 的 TypeFieldsAccessor.extractFromInputType 從父類繼承欄位時會漏掉 deprecationReason；
-    // 因此在 FIELD_LAZY_METADATA 階段將 hostClass 欄位元數據直接掛載至提升後的子類 targetType（CALO-SPEC-062 F51）。
+    // 因此在 FIELD_LAZY_METADATA 階段將 hostClass 欄位元數據直接掛載至提升後的子類 targetType。
     const runFieldSyncPass = () => {
       if (promotedInputTargets.size === 0) return;
       const collection = (
@@ -549,19 +573,20 @@ function registerSubclassAutoPromotion(
     };
 
     SUBCLASS_FIELD_SYNCS.add(runFieldSyncPass);
-    lazyStorage.store(
-      hostClass,
-      () => {
-        for (const promote of SUBCLASS_PROMOTERS) {
-          promote();
-        }
-        for (const sync of SUBCLASS_FIELD_SYNCS) {
-          sync();
-        }
-      },
-      { isField: true },
-    );
   }
+
+  lazyStorage.store(
+    hostClass,
+    () => {
+      for (const promote of SUBCLASS_PROMOTERS) {
+        promote();
+      }
+      for (const sync of SUBCLASS_FIELD_SYNCS) {
+        sync();
+      }
+    },
+    { isField: true },
+  );
 }
 
 /**
