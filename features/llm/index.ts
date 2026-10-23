@@ -31,6 +31,7 @@ export * from './schemas';
 export * from './types';
 // Utils
 export * from './utils/cost-calculator';
+export * from './utils/message-summary';
 export * from './utils/vector';
 // Batch
 export * from './batch';
