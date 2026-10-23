@@ -1196,19 +1196,18 @@ export class LLM {
    * 帮助排查"空 schema"等结构性问题，不需要开 Proxyman。
    */
   private static logInputSummary(id: string, schema: z.ZodType, messages: Message[], instructions?: string): void {
-    // schema top-level keys（不依赖 z 运行时，直接检查 shape 属性）
-    const schemaKeys =
-      'shape' in schema && typeof schema.shape === 'object' && schema.shape !== null
-        ? Object.keys(schema.shape)
-        : ['(non-object schema)'];
+    // [DEF-10 C1 Eliminate] 使用 LogTape 原生惰性回呼：非 debug 级别下零计算、零分配；
+    // 开启 debug 时按 AI SDK ModelMessage 强类型分派摘要，严禁对二进制 Buffer 调用 JSON.stringify。
+    LLM.logger.debug((l) => {
+      const schemaKeys =
+        'shape' in schema && typeof schema.shape === 'object' && schema.shape !== null
+          ? Object.keys(schema.shape)
+          : ['(non-object schema)'];
+      const msgSummary = summarizeMessages(messages);
+      const instructionsPart = instructions ? `, instructions=${instructions.length}ch` : '';
 
-    // messages 摘要：按 part 类型统计字符数与二进制字节数，严禁对 Uint8Array/Buffer 调用 JSON.stringify
-    const msgSummary = summarizeMessages(messages);
-
-    const instructionsPart = instructions ? `, instructions=${instructions.length}ch` : '';
-
-    LLM.logger
-      .debug`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${instructionsPart}`;
+      return l`[LLM:input] id=${id}, schema=[${schemaKeys.join(',')}], messages=[${msgSummary}]${instructionsPart}`;
+    });
   }
 
   private static logEnd(
