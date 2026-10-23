@@ -94,3 +94,122 @@ describe('resolveAiSdkOtelMissingDependencyDiagnostic', () => {
     });
   });
 });
+
+describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & multimodal OOM regression)', () => {
+  it('disables Sentry spans/VercelAI integration and never JSON.stringifies Uint8Array image bytes during LLM.generateObject', () => {
+    const probeScript = `
+      import * as Sentry from '@sentry/bun';
+      import * as core from '@sentry/core';
+      import { z } from 'zod';
+      import { LLM } from './features/llm/clients/llm.class';
+
+      const client = Sentry.getClient();
+      if (!client) {
+        throw new Error('Expected Sentry client to be initialized by instrument.ts preload');
+      }
+      if (core.hasSpansEnabled()) {
+        throw new Error('Expected hasSpansEnabled() to be false when Sentry is errors-only');
+      }
+      if (client.getIntegrationByName('VercelAI') !== undefined) {
+        throw new Error('Expected VercelAI tracing integration not to be installed');
+      }
+
+      const origStringify = JSON.stringify;
+      let maxStringifyLen = 0;
+      let sawByteExpansion = false;
+      JSON.stringify = function (...args: Parameters<typeof JSON.stringify>) {
+        const res = origStringify.apply(this, args);
+        if (typeof res === 'string') {
+          if (res.length > maxStringifyLen) maxStringifyLen = res.length;
+          if (res.length > 1_000_000 && res.includes('{"0":')) {
+            sawByteExpansion = true;
+          }
+        }
+        return res;
+      } as typeof JSON.stringify;
+
+      globalThis.fetch = (async () =>
+        new Response(
+          origStringify({
+            id: 'chatcmpl-test',
+            object: 'chat.completion',
+            created: 1700000000,
+            model: 'google/gemini-2.5-flash',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: '{"ok":true}',
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )) as unknown as typeof fetch;
+
+      const { object } = await LLM.generateObject({
+        id: 'sentry-preload-4img',
+        model: 'openrouter:gemini-2.5-flash',
+        schema: z.object({ ok: z.boolean() }),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Inspect 4 images' },
+              { type: 'image', image: new Uint8Array(1_500_000).fill(200) },
+              { type: 'image', image: new Uint8Array(1_500_000).fill(201) },
+              { type: 'image', image: new Uint8Array(1_500_000).fill(202) },
+              { type: 'image', image: new Uint8Array(1_500_000).fill(203) },
+            ],
+          },
+        ],
+      });
+
+      console.log(origStringify({
+        ok: object.ok,
+        hasSpansEnabled: core.hasSpansEnabled(),
+        hasVercelAI: client.getIntegrationByName('VercelAI') !== undefined,
+        sawByteExpansion,
+        maxStringifyLen,
+      }));
+      process.exit(0);
+    `;
+
+    const proc = Bun.spawnSync(['bun', '--preload', './instrument.ts', '-e', probeScript], {
+      cwd: import.meta.dir,
+      env: {
+        ...process.env,
+        SENTRY_DSN: 'https://public@sentry.example.com/1',
+        OPENROUTER_API_KEY: 'sk-or-test-key',
+        OTEL_LOG_LEVEL: 'NONE',
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    const stdout = proc.stdout.toString().trim();
+    const stderr = proc.stderr.toString().trim();
+    if (proc.exitCode !== 0) {
+      throw new Error(`Preload probe failed (exit=${proc.exitCode}):\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`);
+    }
+
+    const lastLine = stdout.split('\n').at(-1) ?? '';
+    const result = JSON.parse(lastLine) as {
+      ok: boolean;
+      hasSpansEnabled: boolean;
+      hasVercelAI: boolean;
+      sawByteExpansion: boolean;
+      maxStringifyLen: number;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(result.hasSpansEnabled).toBe(false);
+    expect(result.hasVercelAI).toBe(false);
+    expect(result.sawByteExpansion).toBe(false);
+    // OpenRouter HTTP request body encodes 4 * 1.5MB as base64 (~8MB), far below the 76.9M-char byte-indexed expansion
+    expect(result.maxStringifyLen).toBeLessThan(15_000_000);
+  });
+});
