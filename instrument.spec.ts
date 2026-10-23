@@ -107,12 +107,6 @@ describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & mul
       if (!client) {
         throw new Error('Expected Sentry client to be initialized by instrument.ts preload');
       }
-      if (core.hasSpansEnabled()) {
-        throw new Error('Expected hasSpansEnabled() to be false when Sentry is errors-only');
-      }
-      if (client.getIntegrationByName('VercelAI') !== undefined) {
-        throw new Error('Expected VercelAI tracing integration not to be installed');
-      }
 
       const origStringify = JSON.stringify;
       let maxStringifyLen = 0;
@@ -128,8 +122,11 @@ describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & mul
         return res;
       } as typeof JSON.stringify;
 
-      globalThis.fetch = (async () =>
-        new Response(
+      let authHeader: string | null = null;
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        authHeader = headers.get('authorization');
+        return new Response(
           origStringify({
             id: 'chatcmpl-test',
             object: 'chat.completion',
@@ -148,7 +145,8 @@ describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & mul
             usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
-        )) as unknown as typeof fetch;
+        );
+      }) as unknown as typeof fetch;
 
       const { object } = await LLM.generateObject({
         id: 'sentry-preload-4img',
@@ -170,6 +168,7 @@ describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & mul
 
       console.log(origStringify({
         ok: object.ok,
+        authHeader,
         hasSpansEnabled: core.hasSpansEnabled(),
         hasVercelAI: client.getIntegrationByName('VercelAI') !== undefined,
         sawByteExpansion,
@@ -199,6 +198,7 @@ describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & mul
     const lastLine = stdout.split('\n').at(-1) ?? '';
     const result = JSON.parse(lastLine) as {
       ok: boolean;
+      authHeader: string | null;
       hasSpansEnabled: boolean;
       hasVercelAI: boolean;
       sawByteExpansion: boolean;
@@ -206,6 +206,7 @@ describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & mul
     };
 
     expect(result.ok).toBe(true);
+    expect(result.authHeader).toBe('Bearer sk-or-test-key');
     expect(result.hasSpansEnabled).toBe(false);
     expect(result.hasVercelAI).toBe(false);
     expect(result.sawByteExpansion).toBe(false);
