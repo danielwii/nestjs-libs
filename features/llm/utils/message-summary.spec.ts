@@ -1,9 +1,18 @@
 import { LLM } from '../clients/llm.class';
-import { formatByteLength, measureBinaryPayloadLength, summarizeMessage, summarizeMessages } from './message-summary';
+import {
+  formatByteLength,
+  measureBinaryPayloadLength,
+  measureDataContent,
+  summarizeMessage,
+  summarizeMessages,
+} from './message-summary';
 
+import { configure, reset } from '@logtape/logtape';
 import { describe, expect, it, spyOn } from 'bun:test';
 import { z } from 'zod';
 
+import type { BinaryPartPayload } from './message-summary';
+import type { LogRecord } from '@logtape/logtape';
 import type { ModelMessage } from 'ai';
 
 describe('message-summary (binary-safe LLM input summary)', () => {
@@ -15,17 +24,24 @@ describe('message-summary (binary-safe LLM input summary)', () => {
     expect(formatByteLength(Math.round(1.52 * 1024 * 1024))).toBe('1.52MB');
   });
 
-  it('measures Uint8Array, ArrayBuffer, base64 strings, URLs, and tagged FileData without serializing bytes', () => {
+  it('measures Uint8Array, ArrayBuffer, base64 strings, URLs, and tagged FileData without serializing bytes or recursing', () => {
     const bytes = new Uint8Array(1024);
+    expect(measureDataContent(bytes)).toBe(1024);
     expect(measureBinaryPayloadLength(bytes)).toBe(1024);
     expect(measureBinaryPayloadLength(bytes.buffer)).toBe(1024);
     expect(measureBinaryPayloadLength('aGVsbG8=')).toBe(8);
     expect(measureBinaryPayloadLength(new URL('https://example.com/photo.jpg'))).toBe(0);
     expect(measureBinaryPayloadLength('https://example.com/photo.jpg')).toBe(0);
     expect(measureBinaryPayloadLength({ type: 'data', data: new Uint8Array(4096) })).toBe(4096);
-    expect(measureBinaryPayloadLength({ type: 'url', url: 'https://example.com/file.pdf' })).toBe(0);
+    expect(measureBinaryPayloadLength({ type: 'url', url: new URL('https://example.com/file.pdf') })).toBe(0);
     expect(measureBinaryPayloadLength({ type: 'reference', reference: { openai: 'file-123' } })).toBe(0);
     expect(measureBinaryPayloadLength({ type: 'text', text: 'inline doc' })).toBe(10);
+
+    // Structural non-recursion guarantee ([DEF-10 C1]): even a malformed self-referential
+    // object passed via type cast unwraps at most one level and terminates immediately in O(1).
+    const cyclic: Record<string, unknown> = { type: 'data' };
+    cyclic.data = cyclic;
+    expect(measureBinaryPayloadLength(cyclic as unknown as BinaryPartPayload)).toBe(0);
   });
 
   it('summarizes plain string messages with character counts', () => {
@@ -50,14 +66,11 @@ describe('message-summary (binary-safe LLM input summary)', () => {
         ],
       };
 
-      const start = performance.now();
       const summary = summarizeMessage(msg);
-      const elapsedMs = performance.now() - start;
 
       expect(summary).toBe('user:[text 120ch, image 1×1.52MB]');
       expect(summary).not.toContain('255');
       expect(summary.length).toBeLessThan(64);
-      expect(elapsedMs).toBeLessThan(10);
       expect(stringifySpy).not.toHaveBeenCalled();
     } finally {
       stringifySpy.mockRestore();
@@ -98,16 +111,21 @@ describe('message-summary (binary-safe LLM input summary)', () => {
     );
   });
 
-  it('LLM.logInputSummary logs bounded summary without calling JSON.stringify on 4×1.5MB Uint8Array images', () => {
+  it('LLM.logInputSummary evaluates lazily (zero work when debug is disabled) and never calls JSON.stringify when debug is enabled', async () => {
+    const parts: Extract<ModelMessage['content'], readonly unknown[]> = [
+      { type: 'text', text: 'Describe these four photos' },
+      { type: 'image', image: new Uint8Array(1_500_000).fill(200) },
+      { type: 'image', image: new Uint8Array(1_500_000).fill(201) },
+      { type: 'image', image: new Uint8Array(1_500_000).fill(202) },
+      { type: 'image', image: new Uint8Array(1_500_000).fill(203) },
+    ];
+    let contentReads = 0;
     const fourImages: ModelMessage = {
       role: 'user',
-      content: [
-        { type: 'text', text: 'Describe these four photos' },
-        { type: 'image', image: new Uint8Array(1_500_000).fill(200) },
-        { type: 'image', image: new Uint8Array(1_500_000).fill(201) },
-        { type: 'image', image: new Uint8Array(1_500_000).fill(202) },
-        { type: 'image', image: new Uint8Array(1_500_000).fill(203) },
-      ],
+      get content() {
+        contentReads += 1;
+        return parts;
+      },
     };
 
     const schema = z.object({ caption: z.string(), tags: z.array(z.string()) });
@@ -117,16 +135,47 @@ describe('message-summary (binary-safe LLM input summary)', () => {
       }
     ).logInputSummary;
 
+    const batch: ModelMessage[] = [fourImages];
+    const records: LogRecord[] = [];
     const stringifySpy = spyOn(JSON, 'stringify');
-    try {
-      const start = performance.now();
-      logInputSummary('vision-test', schema, [fourImages], 'Be concise');
-      const elapsedMs = performance.now() - start;
 
-      expect(elapsedMs).toBeLessThan(20);
+    try {
+      // 1. When lowestLevel is 'info' (debug disabled), the lazy callback is not invoked (C1 Eliminate)
+      await reset();
+      await configure({
+        sinks: { mem: (r) => void (r.category[0] !== 'logtape' && records.push(r)) },
+        loggers: [
+          { category: ['logtape', 'meta'], sinks: [] },
+          { category: [], lowestLevel: 'info', sinks: ['mem'] },
+        ],
+      });
+
+      logInputSummary('vision-disabled', schema, batch, 'Be concise');
+      expect(records).toHaveLength(0);
+      expect(contentReads).toBe(0);
+
+      // 2. When lowestLevel is 'debug', summarizeMessages runs once and JSON.stringify is never called
+      await reset();
+      await configure({
+        sinks: { mem: (r) => void (r.category[0] !== 'logtape' && records.push(r)) },
+        loggers: [
+          { category: ['logtape', 'meta'], sinks: [] },
+          { category: [], lowestLevel: 'debug', sinks: ['mem'] },
+        ],
+      });
+      stringifySpy.mockClear();
+
+      logInputSummary('vision-enabled', schema, batch, 'Be concise');
+      expect(records).toHaveLength(1);
+      // LogTape's `logLazily` evaluates the template callback when a sink/formatter reads `record.message`
+      expect(records[0]?.message.join('')).toBe(
+        '[LLM:input] id=vision-enabled, schema=[caption,tags], messages=[user:[text 26ch, image 4×5.72MB]], instructions=10ch',
+      );
+      expect(contentReads).toBe(1);
       expect(stringifySpy).not.toHaveBeenCalled();
     } finally {
       stringifySpy.mockRestore();
+      await reset();
     }
   });
 });

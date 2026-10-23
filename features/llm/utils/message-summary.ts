@@ -1,4 +1,8 @@
+import type { DataContent, FilePart, ImagePart, ProviderReference, ReasoningFilePart } from '@ai-sdk/provider-utils';
 import type { ModelMessage } from 'ai';
+
+type ModelMessagePart = Extract<ModelMessage['content'], readonly unknown[]>[number];
+export type BinaryPartPayload = ImagePart['image'] | FilePart['data'] | ReasoningFilePart['data'];
 
 /**
  * Format a byte count into a compact human-readable unit (`B`, `KB`, `MB`).
@@ -19,35 +23,49 @@ function isUrlString(value: string): boolean {
 }
 
 /**
- * Compute the byte/char size of an AI SDK binary/data payload without ever
- * calling `JSON.stringify` or copying underlying buffers:
- * - `Uint8Array` / `Buffer` / `ArrayBufferView` -> `byteLength`
- * - `ArrayBuffer` -> `byteLength`
- * - `URL` or `http(s)://` string -> `0`
- * - base64 / data-URL / inline string -> `string.length`
- * - tagged AI SDK v7 `FileData` (`{ type: 'data' | 'url' | 'reference' | 'text', ... }`) -> unwrapped
+ * Measure a leaf `DataContent | URL | ProviderReference` value in O(1) without
+ * copying buffers, serializing bytes, or recursing (`[DEF-10]` C1 Eliminate).
  */
-export function measureBinaryPayloadLength(payload: unknown): number {
-  if (payload == null) return 0;
-  if (ArrayBuffer.isView(payload)) return payload.byteLength;
-  if (payload instanceof ArrayBuffer) return payload.byteLength;
-  if (payload instanceof URL) return 0;
-  if (typeof payload === 'string') {
-    return isUrlString(payload) ? 0 : payload.length;
-  }
-  if (typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    if (record.type === 'url' || record.type === 'reference') {
-      return 0;
-    }
-    if (record.type === 'data' && 'data' in record) {
-      return measureBinaryPayloadLength(record.data);
-    }
-    if (record.type === 'text' && typeof record.text === 'string') {
-      return record.text.length;
-    }
+export function measureDataContent(data: DataContent | URL | ProviderReference): number {
+  if (ArrayBuffer.isView(data)) return data.byteLength;
+  if (data instanceof ArrayBuffer) return data.byteLength;
+  if (data instanceof URL) return 0;
+  if (typeof data === 'string') {
+    return isUrlString(data) ? 0 : data.length;
   }
   return 0;
+}
+
+/**
+ * Compute the byte/char size of an AI SDK v7 image/file part payload without
+ * calling `JSON.stringify` or recursing (`[CFT-01b]`, `【ARC-03】`, `[DEF-10]` C1):
+ * - Bare `DataContent` (`Uint8Array` / `Buffer` / `ArrayBuffer` / base64 string) -> `measureDataContent`
+ * - `URL` or `http(s)://` string or `ProviderReference` -> `0`
+ * - Tagged `FileData` discriminated union (`{ type: 'data' | 'url' | 'reference' | 'text' }`) ->
+ *   unwrapped at most one level into `measureDataContent` (acyclic by construction).
+ */
+export function measureBinaryPayloadLength(payload: BinaryPartPayload): number {
+  if (payload == null) return 0;
+  if (
+    typeof payload === 'object' &&
+    !ArrayBuffer.isView(payload) &&
+    !(payload instanceof ArrayBuffer) &&
+    !(payload instanceof URL) &&
+    'type' in payload
+  ) {
+    switch (payload.type) {
+      case 'data':
+        return measureDataContent(payload.data);
+      case 'text':
+        return typeof payload.text === 'string' ? payload.text.length : 0;
+      case 'url':
+      case 'reference':
+        return 0;
+      default:
+        return 0;
+    }
+  }
+  return measureDataContent(payload);
 }
 
 type PartAccumulator =
@@ -55,9 +73,42 @@ type PartAccumulator =
   | { kind: 'binary'; type: string; count: number; bytes: number }
   | { kind: 'count'; type: string; count: number };
 
+function accumulateChars(groups: Map<string, PartAccumulator>, type: 'text' | 'reasoning', chars: number): void {
+  const existing = groups.get(type);
+  if (existing?.kind === 'chars') {
+    existing.chars += chars;
+  } else {
+    groups.set(type, { kind: 'chars', type, chars });
+  }
+}
+
+function accumulateBinary(
+  groups: Map<string, PartAccumulator>,
+  type: 'image' | 'file' | 'reasoning-file',
+  bytes: number,
+): void {
+  const existing = groups.get(type);
+  if (existing?.kind === 'binary') {
+    existing.count += 1;
+    existing.bytes += bytes;
+  } else {
+    groups.set(type, { kind: 'binary', type, count: 1, bytes });
+  }
+}
+
+function accumulateCount(groups: Map<string, PartAccumulator>, type: string): void {
+  const existing = groups.get(type);
+  if (existing?.kind === 'count') {
+    existing.count += 1;
+  } else {
+    groups.set(type, { kind: 'count', type, count: 1 });
+  }
+}
+
 /**
- * Summarize a single `ModelMessage` for diagnostic logging without ever
- * calling `JSON.stringify` on message content or binary buffers.
+ * Summarize a single `ModelMessage` for diagnostic logging by dispatching
+ * directly on the AI SDK v7 `ModelMessage` discriminated union (`[CFT-01b]`,
+ * `【ARC-03】`), never calling `JSON.stringify` on binary buffers.
  *
  * Examples:
  * - `{ role: 'user', content: 'hello' }` -> `'user:5ch'`
@@ -74,41 +125,37 @@ export function summarizeMessage(message: ModelMessage): string {
   }
 
   const groups = new Map<string, PartAccumulator>();
+  const parts: readonly ModelMessagePart[] = content;
 
-  for (const part of content as readonly unknown[]) {
-    if (part == null || typeof part !== 'object') continue;
-    const rawPart = part as Record<string, unknown>;
-    const partType = typeof rawPart.type === 'string' ? rawPart.type : 'unknown';
+  for (const part of parts) {
+    if (part == null || typeof part !== 'object' || !('type' in part)) continue;
 
-    if (partType === 'text' || partType === 'reasoning') {
-      const textLen = typeof rawPart.text === 'string' ? rawPart.text.length : 0;
-      const existing = groups.get(partType);
-      if (existing?.kind === 'chars') {
-        existing.chars += textLen;
-      } else {
-        groups.set(partType, { kind: 'chars', type: partType, chars: textLen });
+    switch (part.type) {
+      case 'text':
+      case 'reasoning':
+        accumulateChars(groups, part.type, typeof part.text === 'string' ? part.text.length : 0);
+        break;
+      case 'image':
+        accumulateBinary(groups, 'image', measureBinaryPayloadLength(part.image));
+        break;
+      case 'file':
+      case 'reasoning-file':
+        accumulateBinary(groups, part.type, measureBinaryPayloadLength(part.data));
+        break;
+      case 'tool-call':
+      case 'tool-result':
+      case 'tool-approval-request':
+      case 'tool-approval-response':
+      case 'custom':
+        accumulateCount(groups, part.type);
+        break;
+      default: {
+        // Fallback if a consumer widens or casts a custom runtime part type
+        const rawType = (part as { readonly type?: unknown }).type;
+        const safeType = typeof rawType === 'string' ? rawType.slice(0, 64) : 'unknown';
+        accumulateCount(groups, safeType);
+        break;
       }
-      continue;
-    }
-
-    if (partType === 'image' || partType === 'file' || partType === 'reasoning-file') {
-      const payload = partType === 'image' ? rawPart.image : rawPart.data;
-      const byteLen = measureBinaryPayloadLength(payload);
-      const existing = groups.get(partType);
-      if (existing?.kind === 'binary') {
-        existing.count += 1;
-        existing.bytes += byteLen;
-      } else {
-        groups.set(partType, { kind: 'binary', type: partType, count: 1, bytes: byteLen });
-      }
-      continue;
-    }
-
-    const existing = groups.get(partType);
-    if (existing?.kind === 'count') {
-      existing.count += 1;
-    } else {
-      groups.set(partType, { kind: 'count', type: partType, count: 1 });
     }
   }
 
