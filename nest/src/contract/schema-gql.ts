@@ -480,7 +480,6 @@ function registerSubclassAutoPromotion(
           PROMOTED_METADATA_BY_TARGET.set(targetType, promotedMeta);
           TypeMetadataStorage.addInputTypeMetadata(promotedMeta);
         } else if (targetType !== hostClass && PROMOTED_METADATA_BY_TARGET.get(targetType) !== existing) {
-          PROMOTED_METADATA_BY_TARGET.set(targetType, existing);
           throw new Error(
             `[createSchemaInputType] Subclass "${targetType.name}" must not be decorated with @InputType(). Remove @InputType() and configure name/description/isOneOf via createSchemaInputType(schema, name, options) or schema.describe()/meta() instead.`,
           );
@@ -495,7 +494,6 @@ function registerSubclassAutoPromotion(
           PROMOTED_METADATA_BY_TARGET.set(targetType, promotedMeta);
           TypeMetadataStorage.addArgsMetadata(promotedMeta);
         } else if (targetType !== hostClass && PROMOTED_METADATA_BY_TARGET.get(targetType) !== existing) {
-          PROMOTED_METADATA_BY_TARGET.set(targetType, existing);
           throw new Error(
             `[createSchemaArgsType] Subclass "${targetType.name}" must not be decorated with @ArgsType(). Remove @ArgsType() and let createSchemaArgsType(schema) manage GraphQL metadata as the single source of truth.`,
           );

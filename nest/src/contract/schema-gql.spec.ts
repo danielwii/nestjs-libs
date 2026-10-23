@@ -313,7 +313,42 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
       }
     });
 
-    it('當 createSchemaInputType 子類重複標註 @InputType() 時應在 Schema 建構期 Fail-Fast 拋錯', async () => {
+    const cleanupInvalidTargets = (...targets: object[]) => {
+      const targetSet = new Set(targets);
+      const storage = TypeMetadataStorage as unknown as {
+        queries?: Array<{ target: object }>;
+        mutations?: Array<{ target: object }>;
+        metadataByTargetCollection?: {
+          storageMap?: Map<object, unknown>;
+          all?: {
+            inputType?: Array<{ target: object }>;
+            argumentType?: Array<{ target: object }>;
+          };
+        };
+      };
+      if (storage.queries) {
+        storage.queries = storage.queries.filter((q) => !targetSet.has(q.target));
+      }
+      if (storage.mutations) {
+        storage.mutations = storage.mutations.filter((m) => !targetSet.has(m.target));
+      }
+      const all = storage.metadataByTargetCollection?.all;
+      if (all?.inputType) {
+        all.inputType.splice(0, all.inputType.length, ...all.inputType.filter((i) => !targetSet.has(i.target)));
+      }
+      if (all?.argumentType) {
+        all.argumentType.splice(
+          0,
+          all.argumentType.length,
+          ...all.argumentType.filter((a) => !targetSet.has(a.target)),
+        );
+      }
+      for (const t of targets) {
+        storage.metadataByTargetCollection?.storageMap?.delete(t);
+      }
+    };
+
+    it('當 createSchemaInputType 子類重複標註 @InputType() 時應在 Schema 建構期 Fail-Fast 拋錯（且重試仍冪等拋錯）', async () => {
       const DupSchema = z.object({ name: z.string() }).describe('不應被覆寫的描述');
 
       @InputType()
@@ -333,7 +368,12 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
         await expect(factory.create([BadSubResolver])).rejects.toThrow(
           '[createSchemaInputType] Subclass "DecoratedSubInput" must not be decorated with @InputType()',
         );
+        // 驗證重試時不會因狀態污染而放行，依然冪等拋錯
+        await expect(factory.create([BadSubResolver])).rejects.toThrow(
+          '[createSchemaInputType] Subclass "DecoratedSubInput" must not be decorated with @InputType()',
+        );
       } finally {
+        cleanupInvalidTargets(DecoratedSubInput, BadSubResolver);
         await app.close();
       }
     });
@@ -359,6 +399,7 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
           '[createSchemaInputType] Subclass "RenamedSubInput" must not be decorated with @InputType()',
         );
       } finally {
+        cleanupInvalidTargets(RenamedSubInput, BadRenamedResolver);
         await app.close();
       }
     });
@@ -384,11 +425,12 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
           '[createSchemaInputType] Subclass "HijackedNameInput" must not be decorated with @InputType()',
         );
       } finally {
+        cleanupInvalidTargets(HijackedNameInput, BadHijackResolver);
         await app.close();
       }
     });
 
-    it('當 createSchemaArgsType 子類重複標註 @ArgsType() 時應在 Schema 建構期 Fail-Fast 拋錯', async () => {
+    it('當 createSchemaArgsType 子類重複標註 @ArgsType() 時應在 Schema 建構期 Fail-Fast 拋錯（且重試仍冪等拋錯）', async () => {
       const DupArgsSchema = z.object({ page: z.number().int() });
 
       @ArgsType()
@@ -408,7 +450,11 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
         await expect(factory.create([BadArgsResolver])).rejects.toThrow(
           '[createSchemaArgsType] Subclass "DecoratedSubArgs" must not be decorated with @ArgsType()',
         );
+        await expect(factory.create([BadArgsResolver])).rejects.toThrow(
+          '[createSchemaArgsType] Subclass "DecoratedSubArgs" must not be decorated with @ArgsType()',
+        );
       } finally {
+        cleanupInvalidTargets(DecoratedSubArgs, BadArgsResolver);
         await app.close();
       }
     });
