@@ -183,7 +183,7 @@ describe('instrument.ts preload with SENTRY_DSN enabled (Sentry error-only & mul
       env: {
         ...process.env,
         SENTRY_DSN: 'https://public@sentry.example.com/1',
-        OPENROUTER_API_KEY: 'sk-or-test-key',
+        AI_OPENROUTER_API_KEY: 'sk-or-test-key',
         OTEL_LOG_LEVEL: 'NONE',
       },
       stdout: 'pipe',
