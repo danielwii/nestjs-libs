@@ -19,6 +19,7 @@ export type AIObjectFailureReason =
   | 'tool-calls'
   | 'error'
   | 'other'
+  | 'interrupted'
   | 'unknown'
   | 'no-tool-call'
   | 'validation-failed'

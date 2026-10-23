@@ -11,6 +11,11 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 
 export type GqlInput<S extends StandardSchemaV1> = StandardSchemaV1.InferInput<S>;
 
+export interface SchemaInputTypeOptions {
+  description?: string;
+  isOneOf?: boolean;
+}
+
 interface ZodDefLike {
   type?: string;
   format?: string;
@@ -54,6 +59,8 @@ interface UnwrappedFieldAnalysis {
  * 支援嵌套對象 Schema 自動解析對應的 GraphQL InputType。
  */
 const SCHEMA_INPUT_TYPE_REGISTRY = new WeakMap<object, Type<unknown>>();
+const SUBCLASS_PROMOTERS = new Set<() => void>();
+const SUBCLASS_FIELD_SYNCS = new Set<() => void>();
 
 function getZodDef(node: unknown): ZodDefLike | undefined {
   if (!node || typeof node !== 'object') return undefined;
@@ -96,7 +103,7 @@ function extractObjectShape(schema: unknown, callerName: string): Record<string,
  * 遞歸剝離欄位外層修飾器 (optional / nullable / default / prefault / readonly / pipe)，
  * 並沿途聚合 nullable 狀態、description 與 .meta() 元數據。
  */
-function analyzeFieldSchema(fieldSchema: unknown): UnwrappedFieldAnalysis {
+function analyzeFieldSchema(fieldSchema: unknown, isRoot = false): UnwrappedFieldAnalysis {
   let current: unknown = fieldSchema;
   let nullable = false;
   let hasDefaultValue = false;
@@ -108,6 +115,21 @@ function analyzeFieldSchema(fieldSchema: unknown): UnwrappedFieldAnalysis {
   while (current && typeof current === 'object' && !visited.has(current)) {
     visited.add(current);
     const node = current as ZodNodeLike;
+
+    // 若當前節點已是透過 createSchemaInputType 註冊的嵌套 InputType Schema，
+    // 停止向內剝離，避免將嵌套 InputType 自身的類級 description / meta 誤貼到父級欄位上。
+    if (!isRoot && SCHEMA_INPUT_TYPE_REGISTRY.has(node)) {
+      return {
+        leafNode: node,
+        leafDef: getZodDef(node) ?? {},
+        nullable,
+        hasDefaultValue,
+        defaultValue,
+        description,
+        meta: mergedMeta,
+      };
+    }
+
     const nodeMeta = typeof node.meta === 'function' ? node.meta() : undefined;
 
     if (nodeMeta && typeof nodeMeta === 'object') {
@@ -246,9 +268,14 @@ function resolveGqlTypeFn(
   }
 
   // 2. 檢查是否為已透過 createSchemaInputType 註冊的嵌套 Schema（動態讀取註冊表以支援子類自動提升後的單一引用）
-  const registeredTopInput = SCHEMA_INPUT_TYPE_REGISTRY.get(leafNode);
-  if (registeredTopInput) {
-    return () => SCHEMA_INPUT_TYPE_REGISTRY.get(leafNode) ?? registeredTopInput;
+  const lookupKey = SCHEMA_INPUT_TYPE_REGISTRY.has(leafNode)
+    ? leafNode
+    : leafNode.shape && typeof leafNode.shape === 'object' && SCHEMA_INPUT_TYPE_REGISTRY.has(leafNode.shape)
+      ? leafNode.shape
+      : undefined;
+  const fallbackInput = lookupKey ? SCHEMA_INPUT_TYPE_REGISTRY.get(lookupKey) : undefined;
+  if (lookupKey && fallbackInput) {
+    return () => SCHEMA_INPUT_TYPE_REGISTRY.get(lookupKey) ?? fallbackInput;
   }
 
   // 3. 根據 Zod v4 _zod.def.type 自動推導
@@ -325,31 +352,58 @@ function resolveFieldNullableOption(analysis: UnwrappedFieldAnalysis): boolean |
   return analysis.nullable;
 }
 
-function attachAutoDerivedFields(prototype: object, schema: unknown, callerName: string): void {
+function resolveDeprecationReason(meta: Record<string, unknown>): string | undefined {
+  if (typeof meta.deprecationReason === 'string') {
+    return meta.deprecationReason;
+  }
+  if (typeof meta.deprecated === 'string') {
+    return meta.deprecated;
+  }
+  if (meta.deprecated === true) {
+    return 'No longer supported';
+  }
+  return undefined;
+}
+
+function resolveGqlFieldName(meta: Record<string, unknown>): string | undefined {
+  if (typeof meta.gqlName === 'string' && meta.gqlName.length > 0) {
+    return meta.gqlName;
+  }
+  return undefined;
+}
+
+function attachAutoDerivedFields(prototype: object, schema: unknown, callerName: string): Record<string, unknown> {
   const shape = extractObjectShape(schema, callerName);
   for (const [propertyKey, fieldSchema] of Object.entries(shape)) {
     const analysis = analyzeFieldSchema(fieldSchema);
     const typeFn = resolveGqlTypeFn(analysis, propertyKey, callerName);
     const nullableOpt = resolveFieldNullableOption(analysis);
+    const deprecationReason = resolveDeprecationReason(analysis.meta);
+    const gqlName = resolveGqlFieldName(analysis.meta);
+    const sharedFieldOptions: FieldOptions = {
+      description: analysis.description,
+      ...(deprecationReason !== undefined ? { deprecationReason } : {}),
+      ...(gqlName !== undefined ? { name: gqlName } : {}),
+      ...(analysis.hasDefaultValue ? { defaultValue: analysis.defaultValue } : {}),
+    };
     const fieldOptions: FieldOptions =
       nullableOpt === true
         ? {
             nullable: true,
-            description: analysis.description,
-            ...(analysis.hasDefaultValue ? { defaultValue: analysis.defaultValue } : {}),
+            ...sharedFieldOptions,
           }
         : {
             nullable: nullableOpt,
-            description: analysis.description,
-            ...(analysis.hasDefaultValue ? { defaultValue: analysis.defaultValue } : {}),
+            ...sharedFieldOptions,
           };
     const decorator = Field(typeFn, fieldOptions);
     decorator(prototype, propertyKey);
   }
+  return shape;
 }
 
 interface GqlLazyMetadataStorageLike {
-  store: (fn: () => void) => void;
+  store: (targetOrFn: object | (() => void), fn?: () => void, options?: { isField?: boolean }) => void;
 }
 
 function getGqlLazyStorage(): GqlLazyMetadataStorageLike | undefined {
@@ -365,11 +419,15 @@ function registerSubclassAutoPromotion(
   kind: 'inputType' | 'args',
   name?: string,
   registryKeys: object[] = [],
+  inputOptions?: SchemaInputTypeOptions,
 ): void {
   const lazyStorage = getGqlLazyStorage();
   if (!lazyStorage) return;
 
-  lazyStorage.store(() => {
+  const promotedInputTargets = new Set<Type<unknown>>();
+  const syncedInputTargets = new Set<Type<unknown>>();
+
+  const runPromotionPass = () => {
     const allOperations = [
       ...TypeMetadataStorage.getQueriesMetadata(),
       ...TypeMetadataStorage.getMutationsMetadata(),
@@ -400,6 +458,7 @@ function registerSubclassAutoPromotion(
 
       if (kind === 'inputType') {
         if (targetType !== hostClass) {
+          promotedInputTargets.add(targetType);
           const hostMeta = TypeMetadataStorage.getInputTypeMetadataByTarget(hostClass);
           if (hostMeta) {
             hostMeta.isAbstract = true;
@@ -413,6 +472,8 @@ function registerSubclassAutoPromotion(
           TypeMetadataStorage.addInputTypeMetadata({
             target: targetType,
             name: name ?? targetType.name,
+            description: inputOptions?.description,
+            isOneOf: inputOptions?.isOneOf,
             isAbstract: false,
           });
         }
@@ -449,7 +510,58 @@ function registerSubclassAutoPromotion(
         promoteTarget(candidate);
       }
     }
+  };
+
+  SUBCLASS_PROMOTERS.add(runPromotionPass);
+  lazyStorage.store(() => {
+    for (const promote of SUBCLASS_PROMOTERS) {
+      promote();
+    }
   });
+
+  if (kind === 'inputType') {
+    // @nestjs/graphql 的 TypeFieldsAccessor.extractFromInputType 從父類繼承欄位時會漏掉 deprecationReason；
+    // 因此在 FIELD_LAZY_METADATA 階段將 hostClass 欄位元數據直接掛載至提升後的子類 targetType（CALO-SPEC-062 F51）。
+    const runFieldSyncPass = () => {
+      if (promotedInputTargets.size === 0) return;
+      const collection = (
+        TypeMetadataStorage as unknown as {
+          metadataByTargetCollection?: {
+            get: (target: object) => {
+              fields?: { getAll: () => Array<Record<string, unknown>> };
+            };
+          };
+        }
+      ).metadataByTargetCollection;
+      const hostFields = collection?.get(hostClass).fields?.getAll();
+      if (!hostFields || hostFields.length === 0) return;
+      for (const targetType of promotedInputTargets) {
+        if (syncedInputTargets.has(targetType)) continue;
+        syncedInputTargets.add(targetType);
+        for (const fieldMeta of hostFields) {
+          TypeMetadataStorage.addClassFieldMetadata({
+            ...(fieldMeta as unknown as Parameters<typeof TypeMetadataStorage.addClassFieldMetadata>[0]),
+            target: targetType,
+            options: { ...((fieldMeta.options as Record<string, unknown> | undefined) ?? {}) },
+          });
+        }
+      }
+    };
+
+    SUBCLASS_FIELD_SYNCS.add(runFieldSyncPass);
+    lazyStorage.store(
+      hostClass,
+      () => {
+        for (const promote of SUBCLASS_PROMOTERS) {
+          promote();
+        }
+        for (const sync of SUBCLASS_FIELD_SYNCS) {
+          sync();
+        }
+      },
+      { isField: true },
+    );
+  }
 }
 
 /**
@@ -457,10 +569,12 @@ function registerSubclassAutoPromotion(
  *
  * @param schema 符合 Standard Schema 規範的 Zod v4 物件 Schema
  * @param name GraphQL SDL 中的 InputType 唯一名稱
+ * @param options 可選的 InputType 類級選項（如 description、isOneOf；若未傳入則自動讀取根 Schema 的 .describe() / .meta()）
  */
 export function createSchemaInputType<S extends StandardSchemaV1>(
   schema: S,
   name: string,
+  options?: SchemaInputTypeOptions,
 ): SchemaDtoConstructor<StandardSchemaV1.InferOutput<S>, StandardSchemaV1.InferInput<S>> {
   if (!isStandardSchema(schema)) {
     throw new TypeError(
@@ -476,16 +590,23 @@ export function createSchemaInputType<S extends StandardSchemaV1>(
   Object.defineProperty(SchemaInputHost, 'name', { value: name });
 
   // 1. 從 Zod v4 AST 自動推導並附加 @Field()
-  attachAutoDerivedFields(SchemaInputHost.prototype, schema, 'createSchemaInputType');
+  const shape = attachAutoDerivedFields(SchemaInputHost.prototype, schema, 'createSchemaInputType');
 
-  // 2. 附加 @InputType(name) 與註冊 Schema（含外層包裝與解包後的內層 z.object 節點）-> Host 映射
-  const unwrappedRoot = analyzeFieldSchema(schema).leafNode;
-  const registryKeys: object[] = [schema, unwrappedRoot, SchemaInputHost];
+  // 2. 提取根 Schema 的類級元數據（options 顯式參數優先，否則讀取根 Schema 的 .describe() / .meta()）
+  const rootAnalysis = analyzeFieldSchema(schema, true);
+  const resolvedInputOptions: SchemaInputTypeOptions = {
+    description: options?.description ?? rootAnalysis.description,
+    isOneOf: options?.isOneOf ?? (rootAnalysis.meta.isOneOf === true ? true : undefined),
+  };
+
+  // 3. 附加 @InputType(name, options) 與註冊 Schema（含外層包裝、解包後的內層 z.object 節點與 shape）-> Host 映射
+  const unwrappedRoot = rootAnalysis.leafNode;
+  const registryKeys: object[] = [schema, unwrappedRoot, shape, SchemaInputHost];
   for (const key of registryKeys) {
     SCHEMA_INPUT_TYPE_REGISTRY.set(key, SchemaInputHost);
   }
-  InputType(name)(SchemaInputHost);
-  registerSubclassAutoPromotion(SchemaInputHost, 'inputType', name, registryKeys);
+  InputType(name, resolvedInputOptions)(SchemaInputHost);
+  registerSubclassAutoPromotion(SchemaInputHost, 'inputType', name, registryKeys, resolvedInputOptions);
 
   return SchemaInputHost;
 }

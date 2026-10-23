@@ -30,34 +30,42 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
     .object({
       label: z.string().min(1),
     })
+    .describe('標籤輸入對象')
     .readonly();
 
   class TagInput extends createSchemaInputType(TagInputSchema, 'TagInput') {}
 
-  const CreateArticleSchema = z.object({
-    title: z.string().min(1).describe('文章標題'),
-    viewCount: z.number().int(),
-    rank: z.int(),
-    score: z.number(),
-    authorId: z.string().uuid(),
-    traceId: z.uuid(),
-    customId: z.string().meta({ gqlType: 'ID' }),
-    isPublished: z.boolean(),
-    visibility: z.enum(ArticleVisibility),
-    summary: z.string().describe('可選摘要').optional(),
-    nullableNote: z.string().nullable(),
-    defaultCategory: z.string().default('general'),
-    optionalDefaultLimit: z.number().int().optional().default(20),
-    prefaultNote: z.string().prefault('fallback'),
-    tags: z.array(z.string()),
-    nullableItemTags: z.array(z.string().nullable()),
-    optionalNullableItemTags: z.array(z.string().nullable()).optional(),
-    nestedTag: TagInputSchema.optional(),
-  });
+  const CreateArticleSchema = z
+    .object({
+      title: z.string().min(1).describe('文章標題'),
+      viewCount: z.number().int(),
+      rank: z.int(),
+      score: z.number(),
+      authorId: z.string().uuid(),
+      traceId: z.uuid(),
+      customId: z.string().meta({ gqlType: 'ID' }),
+      isPublished: z.boolean(),
+      visibility: z.enum(ArticleVisibility),
+      summary: z.string().describe('可選摘要').optional(),
+      nullableNote: z.string().nullable(),
+      defaultCategory: z.string().default('general'),
+      optionalDefaultLimit: z.number().int().optional().default(20),
+      prefaultNote: z.string().prefault('fallback'),
+      legacySlug: z.string().optional().meta({ deprecationReason: '請改用 title 自動生成 slug' }),
+      legacyCode: z.string().optional().meta({ deprecated: true, deprecationReason: 'will be removed' }),
+      legacyFlag: z.boolean().optional().meta({ deprecated: true }),
+      aliasedField: z.string().optional().meta({ gqlName: 'external_alias' }),
+      tags: z.array(z.string()),
+      nullableItemTags: z.array(z.string().nullable()),
+      optionalNullableItemTags: z.array(z.string().nullable()).optional(),
+      nestedTag: TagInputSchema.optional(),
+    })
+    .meta({ description: '建立文章輸入契約' });
 
   const QueryArgsSchema = z.object({
     keyword: z.string().describe('搜尋關鍵字'),
     limit: z.number().int().optional(),
+    oldFilter: z.string().optional().meta({ deprecationReason: '已廢棄的過濾參數' }),
   });
 
   describe('createSchemaInputType factory', () => {
@@ -140,14 +148,16 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
         const schema = await factory.create([ArticleTestResolver]);
         const sdl = printSchema(schema);
 
-        // 驗證 ArgsType 展開至 Query 參數且保留 nullable 與 description
+        // 驗證 ArgsType 展開至 Query 參數且保留 nullable、description 與 deprecationReason
         expect(sdl).toContain('searchArticles(');
         expect(sdl).toContain('"""搜尋關鍵字"""');
         expect(sdl).toContain('keyword: String!');
         expect(sdl).toContain('limit: Int');
+        expect(sdl).toContain('oldFilter: String @deprecated(reason: "已廢棄的過濾參數")');
 
-        // 驗證 InputType 所有標量、枚舉、陣列、可選與嵌套類型精確推導
-        expect(sdl).toContain('input CreateArticleInput {');
+        // 驗證 InputType 類級 description 與所有標量、枚舉、陣列、可選、deprecationReason、別名與嵌套類型精確推導
+        expect(sdl).toContain('"""建立文章輸入契約"""\ninput CreateArticleInput {');
+        expect(sdl).toContain('"""標籤輸入對象"""\ninput TagInput {');
         expect(sdl).toContain('"""文章標題"""');
         expect(sdl).toContain('title: String!');
         expect(sdl).toContain('viewCount: Int!');
@@ -167,6 +177,10 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
         expect(sdl).toContain('optionalDefaultLimit: Int = 20');
         expect(sdl).toContain('prefaultNote: String');
         expect(sdl).not.toContain('prefaultNote: String!');
+        expect(sdl).toContain('legacySlug: String @deprecated(reason: "請改用 title 自動生成 slug")');
+        expect(sdl).toContain('legacyCode: String @deprecated(reason: "will be removed")');
+        expect(sdl).toContain('legacyFlag: Boolean @deprecated');
+        expect(sdl).toContain('external_alias: String');
         expect(sdl).toContain('tags: [String!]!');
         expect(sdl).toContain('nullableItemTags: [String]!');
         expect(sdl).toContain('optionalNullableItemTags: [String]');
@@ -174,6 +188,40 @@ describe('schema-gql (100% Zod v4 AST Native Auto-Derivation)', () => {
         expect(sdl).toContain('nestedTag: TagInput');
         expect(sdl).toContain('input TagInput {');
         expect(sdl).toContain('label: String!');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('應支援透過 createSchemaInputType 第三參數 options 顯式指定或覆蓋類級 description 與 isOneOf', async () => {
+      const FilterOptionSchema = z
+        .object({
+          byId: z.string().optional(),
+          byEmail: z.string().optional(),
+        })
+        .describe('預設描述');
+
+      class ExplicitDescInput extends createSchemaInputType(FilterOptionSchema, 'ExplicitDescInput', {
+        description: '覆蓋後的類級描述',
+        isOneOf: true,
+      }) {}
+
+      @Resolver()
+      class ExplicitDescResolver {
+        @Query(() => String)
+        filterUser(@Args('filter') filter: ExplicitDescInput): string {
+          return filter.byId ?? filter.byEmail ?? '';
+        }
+      }
+
+      const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, { logger: false });
+      try {
+        const factory = app.get(GraphQLSchemaFactory);
+        const schema = await factory.create([ExplicitDescResolver]);
+        const sdl = printSchema(schema);
+
+        expect(sdl).toContain('"""覆蓋後的類級描述"""');
+        expect(sdl).toContain('input ExplicitDescInput @oneOf {');
       } finally {
         await app.close();
       }

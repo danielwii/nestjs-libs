@@ -94,8 +94,8 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
   - Core system environments are validated at bootstrap via `baseEnvSchema` (Fail-Fast). For modular or custom service configurations, pass Zod schemas directly to `createEnvConfig(schema)`.
   - **Decouple `DEFAULT_LLM_MODEL` from SysEnv**: `DEFAULT_LLM_MODEL` is no longer a system-level environment variable on `AbstractEnvironmentVariables` / `SysEnv`. Downstream applications requiring a default LLM model should declare it directly in their own application environment class (e.g. `class AppEnvironmentVariables extends AbstractEnvironmentVariables { @LLMModelField() DEFAULT_LLM_MODEL?: string; }`). This prevents non-AI API services from being blocked by mandatory AI provider key validations during bootstrap.
 - **GraphQL Code-First DTOs (`@app/nest/contract` — 100% Zod v4 AST Auto-Derivation)**:
-  - Instead of maintaining duplicate `@Field()` decorators or manual field tables alongside Zod schemas, use `createSchemaInputType(schema, 'MyInput')` and `createSchemaArgsType(schema)` from `@app/nest/contract` (or `@app/nest/contract/schema-gql`).
-  - Both factories inspect the Zod v4 AST (`schema.shape` and `_zod.def`) and register `@InputType(name)` / `@ArgsType()` + `@Field()` metadata automatically, including automatic promotion of `class MyInput extends createSchemaInputType(MySchema, 'MyInput') {}` subclasses during `GraphQLSchemaFactory.create()`.
+  - Instead of maintaining duplicate `@Field()` decorators or manual field tables alongside Zod schemas, use `createSchemaInputType(schema, 'MyInput', options?)` and `createSchemaArgsType(schema)` from `@app/nest/contract` (or `@app/nest/contract/schema-gql`).
+  - Both factories inspect the Zod v4 AST (`schema.shape` and `_zod.def`) and register `@InputType(name, options)` / `@ArgsType()` + `@Field()` metadata automatically, including automatic promotion of `class MyInput extends createSchemaInputType(MySchema, 'MyInput') {}` subclasses during `GraphQLSchemaFactory.create()`.
   - **Zod v4 $\to$ GraphQL SDL Derivation Mapping Table**:
 
     | Zod v4 Schema Expression | Derived GraphQL SDL Type | Notes |
@@ -108,7 +108,7 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
     | `z.boolean()` | `Boolean!` | Boolean scalar |
     | `z.date()` | `DateTime!` | Mapped to `@nestjs/graphql` `Date` scalar |
     | `z.enum(MyEnum)` / `z.nativeEnum(MyEnum)` | `MyEnum!` | Enum must be registered via `registerEnumType(MyEnum, { name })` |
-    | `NestedInputSchema` (registered via `createSchemaInputType`) | `NestedInput!` | Looked up automatically from the `createSchemaInputType` WeakMap registry |
+    | `NestedInputSchema` (registered via `createSchemaInputType`) | `NestedInput!` | Looked up automatically from the `createSchemaInputType` WeakMap registry (without leaking the nested `InputType`'s class-level description onto the parent field) |
     | `z.array(T)` | `[T!]!` | Non-null list of non-null items (`nullable: false`) |
     | `z.array(T).optional()` / `.nullable()` / `.nullish()` | `[T!]` | Nullable list of non-null items (`nullable: true`) |
     | `z.array(T.nullable())` | `[T]!` | Non-null list of nullable items (`nullable: 'items'`) |
@@ -117,7 +117,10 @@ migrating to NestJS 12 first-class `@standard-schema/spec` (Zod, Valibot, ArkTyp
     | `T.default(val)` | `T! = val` | Passes `defaultValue: val` to `@Field({ defaultValue: val, nullable: false })`, matching `@Args(..., { defaultValue: val })` byte-for-byte |
     | `T.optional().default(val)` / `T.nullable().default(val)` | `T = val` | Passes `defaultValue: val` with `nullable: true` |
     | `T.prefault(val)` | `T` (nullable in SDL) | Marks SDL field as `nullable: true` without printing `= val` in SDL while Zod supplies `val` pre-parse at runtime |
-    | `T.describe('text')` / `T.meta({ description: 'text' })` | `"""text"""` | Emitted as GraphQL SDL field description |
+    | `T.describe('text')` / `T.meta({ description: 'text' })` | `"""text"""` | Emitted as GraphQL SDL field description (on fields) or `@InputType` class description (when placed on the root object schema or passed via `createSchemaInputType(schema, name, { description })`) |
+    | `T.meta({ deprecationReason: 'reason' })` (or `{ deprecated: true, deprecationReason?: 'reason' }`) | `@deprecated(reason: "reason")` / `@deprecated` | Emitted on both `@InputType` fields and `@ArgsType` arguments (including promoted subclasses) |
+    | `T.meta({ gqlName: 'external_name' })` | `external_name: T` | Overrides the GraphQL SDL field/argument name (`@Field({ name })`) |
+    | `RootSchema.meta({ isOneOf: true })` / `createSchemaInputType(S, name, { isOneOf: true })` | `input X @oneOf` | Forwards `isOneOf: true` to `@InputType` |
 
 - **Inbound Contract Coverage & Staged Default-Deny (`@app/nest/testing` & `@app/nest/boot`)**:
   - **Static Coverage Gate (`collectInboundContractCoverage`)**: Scans the NestJS module tree (including `DynamicModule`, `forwardRef`, controller/resolver inheritance chains, `@Body({ schema })`, `@UsePipes()`, and multi-`@Payload()` gRPC handlers) at zero boot cost with zero escape hatches (`@RawInput` is removed). Framework transport contexts (`@Req`, `@Res`, `@Headers`, `@Ctx`, etc.) are automatically excluded from the business input denominator.
