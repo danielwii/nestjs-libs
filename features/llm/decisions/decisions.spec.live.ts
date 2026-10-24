@@ -3,7 +3,7 @@
  *
  * Run with Doppler or env key:
  * ```bash
- * OPENAI_API_KEY=$(doppler --config-dir ~/.doppler-personal secrets get OPENAI_API_KEY --project personal-dev --config dev --plain) bun test features/llm/decisions/decisions.spec.live.ts
+ * AI_OPENAI_API_KEY=<key> bun test features/llm/decisions/decisions.spec.live.ts
  * ```
  */
 
@@ -14,7 +14,7 @@ import { LLM } from '../clients/llm.class';
 
 import { describe, expect, it } from 'bun:test';
 
-const rawKey = process.env.AI_OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+const rawKey = process.env.AI_OPENAI_API_KEY?.trim();
 const HAS_OPENAI_KEY = !!rawKey && rawKey !== 'undefined';
 const describeLive = HAS_OPENAI_KEY ? describe : describe.skip;
 

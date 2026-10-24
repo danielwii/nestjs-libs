@@ -25,7 +25,8 @@ export function setDecisionsFetcherForTest(fetcher: typeof fetch | null): void {
 }
 
 export function getOpenAIDecisionsApiKey(): string {
-  const key = SysEnv.AI_OPENAI_API_KEY?.trim() ?? process.env.OPENAI_API_KEY?.trim();
+  // Only the standard key name (no fallback to the bare provider env name).
+  const key = SysEnv.AI_OPENAI_API_KEY?.trim();
   if (!key) {
     throw Oops.Panic.Config('AI_OPENAI_API_KEY is not configured');
   }
