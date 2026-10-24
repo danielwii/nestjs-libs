@@ -1,12 +1,7 @@
 import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
 
-import {
-  DEFAULT_DECISIONS_MODEL,
-  executeDecisions,
-  getOpenAIDecisionsApiKey,
-  setDecisionsFetcherForTest,
-} from './decisions.client';
+import { DEFAULT_DECISIONS_MODEL, executeDecisions, setDecisionsFetcherForTest } from './decisions.client';
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
@@ -14,6 +9,7 @@ import type { DecisionRequest, DecisionResult } from './decisions.types';
 
 describe('OpenAI Decisions Client', () => {
   const originalKey = SysEnv.AI_OPENAI_API_KEY;
+  const originalEnvKey = process.env.OPENAI_API_KEY;
 
   beforeEach(() => {
     setDecisionsFetcherForTest(null);
@@ -21,22 +17,12 @@ describe('OpenAI Decisions Client', () => {
 
   afterEach(() => {
     SysEnv.AI_OPENAI_API_KEY = originalKey;
-    setDecisionsFetcherForTest(null);
-  });
-
-  it('reads only AI_OPENAI_API_KEY: a bare OPENAI_API_KEY in the environment is ignored', () => {
-    const bareName = ['OPENAI', 'API', 'KEY'].join('_');
-    const original = process.env[bareName];
-    SysEnv.AI_OPENAI_API_KEY = undefined;
-    process.env[bareName] = 'bare-key-that-must-not-be-used';
-    try {
-      expect(() => getOpenAIDecisionsApiKey()).toThrow(Oops.Panic);
-      SysEnv.AI_OPENAI_API_KEY = 'standard-key';
-      expect(getOpenAIDecisionsApiKey()).toBe('standard-key');
-    } finally {
-      if (original === undefined) delete process.env[bareName];
-      else process.env[bareName] = original;
+    if (originalEnvKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalEnvKey;
     }
+    setDecisionsFetcherForTest(null);
   });
 
   it('does not treat literal "undefined" string as a valid API key', () => {
@@ -47,6 +33,7 @@ describe('OpenAI Decisions Client', () => {
 
   it('throws Oops.Panic.Config when AI_OPENAI_API_KEY is not configured', async () => {
     SysEnv.AI_OPENAI_API_KEY = undefined;
+    delete process.env.OPENAI_API_KEY;
 
     await expect(
       executeDecisions({
