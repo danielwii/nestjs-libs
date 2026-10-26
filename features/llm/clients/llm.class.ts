@@ -2667,8 +2667,8 @@ export class LLM {
       }
       cleanup();
       LLM.logEnd(id, 'systemOne', `${selectedProvider}:${result.model}`, startTime, {
-        inputTokens: result.usage.input_tokens,
-        outputTokens: result.usage.output_tokens,
+        inputTokens: result.usage.input_tokens ?? undefined,
+        outputTokens: result.usage.output_tokens ?? undefined,
       });
       return result;
     } catch (error) {
