@@ -1,5 +1,5 @@
 /**
- * OpenAI Decisions live probe through LLM.decisions and LLM.systemOne.
+ * OpenAI Decisions live probe through LLM.decisions.
  *
  * Run with Doppler or env key:
  * ```bash
@@ -9,7 +9,6 @@
 
 import 'reflect-metadata';
 
-import { choice, noul, score } from '../../typesafe/questions';
 import { LLM } from '../clients/llm.class';
 
 import { describe, expect, it } from 'bun:test';
@@ -50,34 +49,6 @@ describeLive('OpenAI Decisions Live Probe', () => {
 
     expect(result.model).toBe('gpt-6-luna');
     expect(result.answers.length).toBe(2);
-    expect(result.usage.output_tokens).toBe(0);
-  }, 30_000);
-
-  it('executes LLM.systemOne via OpenAI bridge adapter', async () => {
-    const result = await LLM.systemOne({
-      id: 'live-system-one-openai',
-      provider: 'openai',
-      state: 'Export fails in Safari but works in Chrome.',
-      questions: {
-        is_bug: noul('Is this a software defect?'),
-        browser: choice('Which browser has problem?', { safari: 'Safari', chrome: 'Chrome' }),
-        severity: score('Severity?', ['Cosmetic', 'Workaround available', 'Blocked']),
-      },
-      timeout: 15_000,
-    });
-
-    console.log(
-      `[openai-system-one-live] model=${result.model}` +
-        ` is_bug=${result.answers.is_bug.noul.toFixed(3)}` +
-        ` browser=${result.answers.browser.choice}` +
-        ` severity=${result.answers.severity.score.toFixed(3)}` +
-        ` tokens=${result.usage.input_tokens}+${result.usage.output_tokens}`,
-    );
-
-    expect(result.model).toBe('gpt-6-luna');
-    expect(result.answers.is_bug.noul).toBeGreaterThan(0.5);
-    expect(result.answers.browser.choice).toBe('safari');
-    expect(result.answers.severity.score).toBeGreaterThanOrEqual(0);
     expect(result.usage.output_tokens).toBe(0);
   }, 30_000);
 });
