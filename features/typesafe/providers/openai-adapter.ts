@@ -1,4 +1,5 @@
 import { DEFAULT_DECISIONS_MODEL, executeDecisions } from '@app/features/llm/decisions/decisions.client';
+import { Oops } from '@app/nest/exceptions/oops';
 
 import type {
   DecisionChoiceQuestion,
@@ -55,7 +56,7 @@ export function transformSystemOneToOpenAIDecisionRequest<const Q extends Questi
         choices,
       };
       questions.push(choiceQ);
-    } else {
+    } else if (q.type === 'score') {
       const instructions = serializeEntry(q.instructions) || name;
       const levels = (Array.isArray(q.criteria) ? q.criteria : []).map((levelDesc, idx) => {
         const text = serializeEntry(levelDesc) || `Level ${idx}`;
@@ -71,6 +72,10 @@ export function transformSystemOneToOpenAIDecisionRequest<const Q extends Questi
         levels,
       };
       questions.push(scoreQ);
+    } else {
+      throw Oops.Validation(
+        `OpenAI Decisions provider does not support "${q.type}" questions (question "${name}"); use provider: "typesafe" with model "jev-preview"`,
+      );
     }
   }
 

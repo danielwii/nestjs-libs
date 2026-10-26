@@ -1,5 +1,7 @@
 import { setDecisionsFetcherForTest } from '@app/features/llm/decisions/decisions.client';
+import { Oops } from '@app/nest/exceptions/oops';
 
+import { box } from '../questions';
 import { systemOneViaOpenAI, transformSystemOneToOpenAIDecisionRequest } from './openai-adapter';
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
@@ -148,5 +150,16 @@ describe('OpenAISystemOneAdapter', () => {
     expect(urgAns.score).toBe(1.9);
     expect(urgAns.confidence).toBe(0.92);
     expect(urgAns.probabilities['2']).toBe(0.85);
+  });
+
+  it('rejects box questions with Oops.Validation since OpenAI Decisions API does not support bounding-box localization', () => {
+    expect(() =>
+      transformSystemOneToOpenAIDecisionRequest({
+        state: 'photo',
+        questions: {
+          damage: box('The damaged area'),
+        },
+      }),
+    ).toThrow(Oops.Block);
   });
 });
