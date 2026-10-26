@@ -36,7 +36,6 @@ import { ApiFetcher } from '@app/utils/fetch';
 
 import { getTypeSafeClient } from '../../typesafe/client';
 import { classifyTypeSafeError } from '../../typesafe/errors';
-import { systemOneViaOpenAI } from '../../typesafe/providers/openai-adapter';
 import { executeDecisions } from '../decisions/decisions.client';
 import { classifyOpenAIDecisionsError } from '../decisions/decisions.errors';
 import { llmCaptureSchema } from '../schemas/capture.schema';
@@ -2628,55 +2627,40 @@ export class LLM {
   }
 
   /**
-   * System One 快思維決策門面（Bridge Pattern）：
-   * 支援 TypeSafe (Jev) 與 OpenAI (gpt-6-luna / Decisions API) 雙引擎切換。
+   * TypeSafe System One (Jev) 原生決策客戶端
    *
-   * @param params 請求參數，可指定 provider: 'typesafe' | 'openai'
+   * 專用於調用 TypeSafe Jev 模型（`jev-latest` / `jev-preview`），
+   * 與 OpenAI Decisions (`LLM.decisions`) 保持獨立實現與各自原生契約。
    */
   static async systemOne<const Q extends Questions>(
     params: SystemOneRequest<Q> & {
       id: string;
-      provider?: 'typesafe' | 'openai';
       timeout?: number;
       abortSignal?: AbortSignal;
-      apiKey?: string;
     },
   ): Promise<SystemOneResult<Q>> {
-    const { id, provider, timeout, abortSignal, apiKey, ...request } = params;
+    const { id, timeout, abortSignal, ...request } = params;
 
-    // 解析 provider：顯式指定 > 環境變數指定 > 預設向後相容走 typesafe
-    const selectedProvider: 'typesafe' | 'openai' =
-      provider ?? (process.env.AI_SYSTEM_ONE_PROVIDER === 'openai' ? 'openai' : 'typesafe');
-
-    const model = request.model ?? (selectedProvider === 'typesafe' ? 'jev-latest' : 'gpt-6-luna');
-    const modelKey = `${selectedProvider}:${model}`;
+    const model = request.model ?? 'jev-latest';
+    const modelKey = `typesafe:${model}`;
     const startTime = Date.now();
 
     const questionNames = Object.keys(request.questions).join(',');
-    LLM.logger
-      .debug`[LLM:input] id=${id}, method=systemOne, provider=${selectedProvider}, questions=[${questionNames}]`;
+    LLM.logger.debug`[LLM:input] id=${id}, method=systemOne, questions=[${questionNames}]`;
     LLM.logStart(id, 'systemOne', modelKey);
 
     const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
     try {
-      let result: SystemOneResult<Q>;
-      if (selectedProvider === 'openai') {
-        result = await systemOneViaOpenAI(request, { signal, apiKey });
-      } else {
-        result = await getTypeSafeClient().systemOne(request, { signal });
-      }
+      const result = await getTypeSafeClient().systemOne(request, { signal });
       cleanup();
-      LLM.logEnd(id, 'systemOne', `${selectedProvider}:${result.model}`, startTime, {
+      LLM.logEnd(id, 'systemOne', `typesafe:${result.model}`, startTime, {
         inputTokens: result.usage.input_tokens ?? undefined,
         outputTokens: result.usage.output_tokens ?? undefined,
       });
       return result;
     } catch (error) {
       cleanup();
-      const classified =
-        selectedProvider === 'openai'
-          ? classifyOpenAIDecisionsError(error, modelKey)
-          : classifyTypeSafeError(error, modelKey);
+      const classified = classifyTypeSafeError(error, modelKey);
       LLM.logError(id, 'systemOne', modelKey, classified);
       throw classified;
     }
