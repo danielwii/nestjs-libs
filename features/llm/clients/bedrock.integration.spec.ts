@@ -274,9 +274,10 @@ describe('bedrock request payload', () => {
     );
 
     const body = firstJsonBody();
-    // type=disabled 时 provider 不下发 thinking 字段，也不应有 serviceTier
+    // @ai-sdk/amazon-bedrock >= 5.0.126 将 reasoningConfig.type=disabled 映射为 additionalModelRequestFields.thinking={ type: 'disabled' }
     expect(JSON.stringify(body)).not.toContain('reasoningConfig');
-    expect(JSON.stringify(body)).not.toContain('thinking');
+    const additional = body.additionalModelRequestFields as Record<string, unknown>;
+    expect(additional.thinking).toEqual({ type: 'disabled' });
     expect(body.serviceTier).toBeUndefined();
   });
 
