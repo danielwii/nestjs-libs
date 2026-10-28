@@ -142,6 +142,7 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
     { keys: ['openrouter:gpt-6-sol-pro', 'openrouter:openai/gpt-6-sol-pro'], expected: 1.2 },
     { keys: ['openrouter:gpt-6-luna', 'openrouter:openai/gpt-6-luna'], expected: 0.06 },
     { keys: ['openrouter:gpt-6-luna-pro', 'openrouter:openai/gpt-6-luna-pro'], expected: 0.06 },
+    { keys: ['openrouter:gpt-6.1-terra', 'openrouter:openai/gpt-6.1-terra'], expected: 0.6 },
   ] as const;
 
   it('uses standard per-token fallback pricing for shorthand and canonical aliases', () => {
@@ -164,6 +165,7 @@ describe('getCostFromUsage OpenRouter 2026-07 catalog additions', () => {
       { keys: ['openrouter:gpt-6-sol-pro', 'openrouter:openai/gpt-6-sol-pro'], expected: 2.7 },
       { keys: ['openrouter:gpt-6-luna', 'openrouter:openai/gpt-6-luna'], expected: 0.135 },
       { keys: ['openrouter:gpt-6-luna-pro', 'openrouter:openai/gpt-6-luna-pro'], expected: 0.135 },
+      { keys: ['openrouter:gpt-6.1-terra', 'openrouter:openai/gpt-6.1-terra'], expected: 1.35 },
     ] as const;
 
     for (const { keys, expected } of cases) {

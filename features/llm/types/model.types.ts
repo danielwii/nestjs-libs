@@ -737,6 +737,16 @@ export interface LLMModelRegistry {
    */
   'openrouter:gpt-6-luna-pro': ModelConfig<'openrouter'>;
   'openrouter:openai/gpt-6-luna-pro': ModelConfig<'openrouter'>;
+  /**
+   * GPT-6.1 Terra
+   *
+   * OpenRouter standard (≤272K input tokens): Input $1/M, Output $5/M;
+   * long context (>272K input): Input $2/M, Output $7.50/M. Context 1.05M.
+   *
+   * @see https://openrouter.ai/openai/gpt-6.1-terra
+   */
+  'openrouter:gpt-6.1-terra': ModelConfig<'openrouter'>;
+  'openrouter:openai/gpt-6.1-terra': ModelConfig<'openrouter'>;
 
   // ---- xAI Grok (4.20+) ----
   /**
@@ -1498,6 +1508,8 @@ const modelRegistry = new Map<string, ModelConfig>([
   ['openrouter:openai/gpt-6-luna', { provider: 'openrouter', modelId: 'openai/gpt-6-luna' }],
   ['openrouter:gpt-6-luna-pro', { provider: 'openrouter', modelId: 'openai/gpt-6-luna-pro' }],
   ['openrouter:openai/gpt-6-luna-pro', { provider: 'openrouter', modelId: 'openai/gpt-6-luna-pro' }],
+  ['openrouter:gpt-6.1-terra', { provider: 'openrouter', modelId: 'openai/gpt-6.1-terra' }],
+  ['openrouter:openai/gpt-6.1-terra', { provider: 'openrouter', modelId: 'openai/gpt-6.1-terra' }],
 
   // Grok 4.20
   ['openrouter:grok-4.20', { provider: 'openrouter', modelId: 'x-ai/grok-4.20' }],

@@ -242,6 +242,11 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
     output: 10.0,
     longContext: { inputTokenThreshold: 272_000, input: 4.0, output: 15.0 },
   },
+  'openai/gpt-6.1-terra': {
+    input: 1.0,
+    output: 5.0,
+    longContext: { inputTokenThreshold: 272_000, input: 2.0, output: 7.5 },
+  },
 
   // Cohere
   'cohere/command-a-plus': { input: 0.3, output: 1.5 },

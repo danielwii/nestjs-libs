@@ -690,6 +690,11 @@ const openRouterCatalogAdditions = [
     modelId: 'openai/gpt-6-luna-pro',
     reasoningRequired: false,
   },
+  {
+    keys: ['openrouter:gpt-6.1-terra', 'openrouter:openai/gpt-6.1-terra'],
+    modelId: 'openai/gpt-6.1-terra',
+    reasoningRequired: false,
+  },
 ] as const;
 
 describe('OpenRouter 2026-07 model catalog additions', () => {
