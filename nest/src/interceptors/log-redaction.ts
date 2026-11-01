@@ -63,8 +63,10 @@ const DEFAULT_MAX_DEPTH = 4;
 const FINGERPRINT_HEX_LENGTH = 12;
 const EPHEMERAL_REDACTION_KEY = randomBytes(32).toString('hex');
 
-const SENSITIVE_PAYLOAD_KEY_PATTERN =
-  /^(authorization|cookie|set-cookie|password|passcode|token|secret|api[-_]?key|apikey|access[-_]?token|refresh[-_]?token)$/i;
+// Credential-like payload keys are recognised by class rather than by an exact list: after dropping `-` / `_` and
+// lowercasing, a key that ends in one of these singular words is a credential (`fetchToken`, `fetch_token`,
+// `clientSecret`, `set-cookie`). Plurals and prefixes such as `maxTokens` or `tokenCount` do not end in the word.
+const SENSITIVE_PAYLOAD_KEY_SUFFIX = /(token|secret|password|passcode|apikey|authorization|cookie)$/;
 const SENSITIVE_HEADER_KEY_PATTERN =
   /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token|x-service-token|x-access-token|x-refresh-token|x-csrf-token)$/i;
 
@@ -309,7 +311,7 @@ function binaryPayload(input: ArrayBuffer | ArrayBufferView): Extract<LogSafePay
 }
 
 function isSensitivePayloadKey(key: string): boolean {
-  return SENSITIVE_PAYLOAD_KEY_PATTERN.test(key);
+  return SENSITIVE_PAYLOAD_KEY_SUFFIX.test(key.replace(/[-_]/g, '').toLowerCase());
 }
 
 export function normalizePayloadForLog(
@@ -322,11 +324,15 @@ export function normalizePayloadForLog(
   const seen = new WeakSet<object>();
 
   function visit(input: unknown, depth: number, key?: string): LogSafePayloadValue {
+    // A credential-like key masks its whole value whatever the value's type (string, number, array, object), without
+    // looking inside it. Only an absent value (null / undefined) has nothing to mask.
+    if (key && input !== null && input !== undefined && isSensitivePayloadKey(key)) {
+      return typeof input === 'string'
+        ? redactedPayload('secret', 'sensitive_field', input, input.length)
+        : redactedPayload('secret', 'sensitive_field');
+    }
     if (input === null || typeof input === 'number' || typeof input === 'boolean') return input;
     if (typeof input === 'string') {
-      if (key && isSensitivePayloadKey(key)) {
-        return redactedPayload('secret', 'sensitive_field', input, input.length);
-      }
       if (input.length > maxStringLength) {
         return redactedPayload('long_string', 'log_budget_exceeded', input, input.length);
       }
