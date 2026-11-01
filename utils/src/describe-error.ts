@@ -16,9 +16,14 @@ const FALLBACK_CLASS_NAME = 'Error';
 const FALLBACK_CODE = 'other';
 
 function className(error: Error): string {
-  // `constructor` can be shadowed by an own property, so it is not assumed to be a function
-  const name = (error.constructor as { name?: unknown } | undefined)?.name;
-  return typeof name === 'string' && CLASS_NAME_SHAPE.test(name) ? name : FALLBACK_CLASS_NAME;
+  // `constructor` can be shadowed by an own property (even a throwing getter), so it is not assumed to be a function.
+  // This runs while another failure is being handled and must never throw in its place.
+  try {
+    const name = (error.constructor as { name?: unknown } | undefined)?.name;
+    return typeof name === 'string' && CLASS_NAME_SHAPE.test(name) ? name : FALLBACK_CLASS_NAME;
+  } catch {
+    return FALLBACK_CLASS_NAME;
+  }
 }
 
 function shapedCode(code: unknown): string {
@@ -84,10 +89,16 @@ export interface ErrorDescription {
  * - a value that is not an `Error` is reported as its `typeof` only.
  */
 export function describeErrorParts(error: unknown): ErrorDescription {
-  if (!(error instanceof Error)) return { name: typeof error, causes: [] };
+  // Callers describe a failure while handling it, so a hostile value (a Proxy whose traps throw, for example) must
+  // degrade to its `typeof` instead of replacing the original failure with a new one.
+  try {
+    if (!(error instanceof Error)) return { name: typeof error, causes: [] };
 
-  const code = errorCode(error);
-  return { name: className(error), ...(code !== undefined ? { code } : {}), causes: causeLayers(error) };
+    const code = errorCode(error);
+    return { name: className(error), ...(code !== undefined ? { code } : {}), causes: causeLayers(error) };
+  } catch {
+    return { name: typeof error, causes: [] };
+  }
 }
 
 /** One-line form of {@link describeErrorParts}, e.g. `Panic code=0x0405SYS01 cause=TypeError>RangeError`. */

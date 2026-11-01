@@ -23,6 +23,14 @@ class Traced {
   }
 }
 
+// An error whose constructor getter throws: describing it must not replace it with a different failure.
+const hostile = Object.defineProperty(new TypeError(`${probe} hostile message`), 'constructor', {
+  get() {
+    throw new RangeError(`${probe} constructor getter`);
+  },
+});
+let hostilePropagated = false;
+
 const attempts: Array<() => Promise<unknown>> = [
   () =>
     runStageScope('fixture', 'stage.fail', async () => {
@@ -63,6 +71,16 @@ const attempts: Array<() => Promise<unknown>> = [
     scope.end(Object.assign(new Error(`${probe} manual message`), { code: `${probe} free text code` }));
   },
   () => new Traced().fail(),
+  async () => {
+    try {
+      await runStageScope('fixture', 'stage.hostile', async () => {
+        throw hostile;
+      });
+    } catch (caught) {
+      hostilePropagated = caught === hostile;
+      throw caught;
+    }
+  },
 ];
 
 for (const attempt of attempts) {
@@ -82,5 +100,5 @@ const spans = exporter.getFinishedSpans().map((span) => ({
   events: span.events.map((event) => ({ name: event.name, attributes: event.attributes })),
 }));
 
-process.stdout.write(`${JSON.stringify({ spans })}\n`);
+process.stdout.write(`${JSON.stringify({ spans, hostilePropagated })}\n`);
 await provider.shutdown();

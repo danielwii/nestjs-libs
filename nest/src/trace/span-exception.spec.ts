@@ -13,19 +13,19 @@ interface ExportedSpan {
 
 const SPAN_STATUS_ERROR = 2;
 
-function exportSpans(probe: string): ExportedSpan[] {
+function runFixture(probe: string): { spans: ExportedSpan[]; hostilePropagated: boolean } {
   const result = spawnSync(process.execPath, [join(import.meta.dir, 'span-exception.fixture.ts'), probe], {
     cwd: join(import.meta.dir, '../../..'),
     encoding: 'utf8',
   });
   expect(result.status).toBe(0);
   expect(result.stderr).toBe('');
-  return (JSON.parse(result.stdout.trim()) as { spans: ExportedSpan[] }).spans;
+  return JSON.parse(result.stdout.trim()) as { spans: ExportedSpan[]; hostilePropagated: boolean };
 }
 
 describe('span exceptions', () => {
   const probe = `probe-${randomUUID()}`;
-  const spans = exportSpans(probe);
+  const { spans, hostilePropagated } = runFixture(probe);
   const byName = (name: string) => {
     const span = spans.find((candidate) => candidate.name === name);
     expect(span).toBeDefined();
@@ -40,6 +40,7 @@ describe('span exceptions', () => {
       'telemetry.string',
       'stage.manual',
       'decorated.fail',
+      'stage.hostile',
     ]);
     for (const span of spans) expect(span.status.code).toBe(SPAN_STATUS_ERROR);
   });
@@ -79,5 +80,10 @@ describe('span exceptions', () => {
 
   it('keeps the message out of the status of a span created by the Trace decorator', () => {
     expect(byName('decorated.fail').status.message).toBe('RangeError');
+  });
+
+  it('still ends the span and rethrows the original error when the error cannot be inspected', () => {
+    expect(hostilePropagated).toBe(true);
+    expect(byName('stage.hostile').status).toEqual({ code: SPAN_STATUS_ERROR, message: 'Error' });
   });
 });

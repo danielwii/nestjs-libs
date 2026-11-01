@@ -157,4 +157,30 @@ describe('describeError', () => {
     expect(describeErrorParts(`${PROBE} thrown`)).toEqual({ name: 'string', causes: [] });
     expect(describeErrorParts(new Error('x'))).toEqual({ name: 'Error', causes: [] });
   });
+
+  it('survives an error whose constructor getter throws, on the error and on a cause', () => {
+    const hostile = (message: string, options?: { cause?: unknown }) => {
+      const error = new TypeError(message, options);
+      Object.defineProperty(error, 'constructor', {
+        get() {
+          throw new Error(PROBE);
+        },
+      });
+      return error;
+    };
+
+    expect(describeError(hostile(`${PROBE} outer`))).toBe('Error');
+    expect(describeError(new RangeError('x', { cause: hostile(`${PROBE} cause`) }))).toBe('RangeError cause=Error');
+  });
+
+  it('degrades to the typeof of a value whose traps throw', () => {
+    const hostile = new Proxy(new Error(`${PROBE} message`), {
+      getPrototypeOf() {
+        throw new Error(PROBE);
+      },
+    });
+
+    expect(describeError(hostile)).toBe('object');
+    expect(describeErrorParts(hostile)).toEqual({ name: 'object', causes: [] });
+  });
 });
