@@ -138,7 +138,7 @@ export async function withTelemetrySpan<T>(options: TelemetrySpanOptions<T>): Pr
 
       return result;
     } catch (error) {
-      LangfuseContract.error(span, error instanceof Error ? error : new Error(String(error)));
+      LangfuseContract.error(span, error);
       throw error;
     } finally {
       span.end();

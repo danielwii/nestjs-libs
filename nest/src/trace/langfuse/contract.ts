@@ -1,3 +1,5 @@
+import { describeError, describeErrorParts } from '@app/utils/describe-error';
+
 import { safeSerialize, safeSerializeOutput } from './serializer';
 
 import { SpanStatusCode } from '@opentelemetry/api';
@@ -104,19 +106,21 @@ export class LangfuseContract {
   }
 
   /**
-   * 标记 span 警告
+   * 在 span 上记录异常事件。只写 `describeError` 的内容（类名、错误码、cause 类名），
+   * 不写 message / stack：它们取决于抛错的人，可能带请求里的文字。返回这段描述，供状态消息使用。
    */
-  static warning(span: Span, message: string, observation?: ObservationMetadata): void {
-    this.setObservation(span, { ...observation, level: 'WARNING', statusMessage: message });
-    span.setStatus({ code: SpanStatusCode.OK, message });
+  static recordException(span: Span, error: unknown): string {
+    const description = describeError(error);
+    span.recordException({ name: describeErrorParts(error).name, message: description });
+    return description;
   }
 
   /**
    * 标记 span 错误
    */
-  static error(span: Span, error: Error, observation?: ObservationMetadata): void {
-    span.recordException(error);
-    this.setObservation(span, { ...observation, level: 'ERROR', statusMessage: error.message });
-    span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+  static error(span: Span, error: unknown, observation?: ObservationMetadata): void {
+    const description = this.recordException(span, error);
+    this.setObservation(span, { ...observation, level: 'ERROR', statusMessage: description });
+    span.setStatus({ code: SpanStatusCode.ERROR, message: description });
   }
 }

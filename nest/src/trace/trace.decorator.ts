@@ -1,3 +1,5 @@
+import { describeError } from '@app/utils/describe-error';
+
 import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 import type { Span } from '@opentelemetry/api';
@@ -25,10 +27,8 @@ export const Trace =
           async () => await originalMethod.apply(this, args),
         );
       } catch (e: unknown) {
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: e instanceof Error ? e.message : String(e),
-        });
+        // 状态消息只写 describeError 的内容，不写 message。
+        span.setStatus({ code: SpanStatusCode.ERROR, message: describeError(e) });
         throw e;
       } finally {
         span.end();
