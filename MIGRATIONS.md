@@ -1,5 +1,31 @@
 # Migrations
 
+## Telemetry and request-log content capture is opt-in
+
+Model-call telemetry and the request-entry log used to record prompts, completions and request payloads unless told not to.
+They now record sizes, timings and identifiers only; content is written when the application asks for it.
+
+- **Model-call telemetry:** `DEFAULT_LLM_TELEMETRY` is `recordInputs: false, recordOutputs: false`. Every model call also passes
+  through `withProvenanceTelemetry`, which now fills each item the caller left out from that default. A partial object such as
+  `{ isEnabled: true }` therefore no longer records content (the AI SDK treats an omitted item as "record"). To keep content in
+  spans, set `recordInputs: true` / `recordOutputs: true` explicitly on the call or in `ai.telemetry`.
+- **`LoggerInterceptor`:** the entry log of an HTTP body or an RPC payload writes `{ topLevelKeys, payloadLength }` instead of the
+  normalized payload. Key names are not written. To log (masked) values again, construct it with
+  `new LoggerInterceptor({ logPayloadValues: true })`, or set `LOG_REQUEST_PAYLOADS=true`; the option wins over the variable.
+- **Gemini embeddings:** the API key is sent in the `x-goog-api-key` header instead of a `?key=` query parameter. The `#fetch`
+  debug log writes only origin and path (`urlForLog`), never the query string or fragment.
+- **Span errors:** a span's exception event, status message and `langfuse.observation.status_message` carry
+  `describeError(error)` (class name, a code that passed a shape check, and `cause` class names) instead of `error.message` and
+  the stack. `describeError` / `describeErrorParts` are in `@app/utils/describe-error`.
+  - `LangfuseContract.error` accepts `unknown`; `LangfuseContract.recordException(span, error)` is new.
+  - **Breaking:** `LangfuseContract.warning` is removed (it wrote arbitrary text to the status message and had no callers).
+  - The `@Trace` decorator's status message follows the same rule.
+- Credential-like payload keys are masked by class, not by an exact list: after dropping `-` / `_` and lowercasing, a key ending in
+  `token`, `secret`, `password`, `passcode`, `apikey`, `authorization` or `cookie` masks its whole value, whatever its type
+  (`fetchToken`, `client_secret`, `{ token: ['x'] }`). `maxTokens`, `inputTokens` and `tokenCount` are unchanged.
+- The gRPC service token is compared in constant time; a length mismatch is rejected before the byte comparison, with the same
+  `Invalid service token` response.
+
 ## `Oops.Panic.AIObjectGenerationFailed` no longer puts model output in the message
 
 When structured output failed, the error message carried the model's partial output (or the validation values, or parser text).

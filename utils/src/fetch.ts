@@ -5,6 +5,20 @@ import { getAppLogger } from '@app/utils/app-logger';
 const proxyUrl = SysEnv.APP_PROXY_ENABLED ? `${SysEnv.APP_PROXY_HOST}:${SysEnv.APP_PROXY_PORT}` : '';
 
 /**
+ * The part of a URL that is safe to log: origin and path. The query string and fragment (and any user info) are
+ * dropped because they commonly carry credentials or request values.
+ */
+export function urlForLog(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    // relative or malformed: keep what precedes the first query / fragment delimiter
+    return url.split(/[?#]/, 1)[0] ?? '';
+  }
+}
+
+/**
  * 支持代理的 fetch 包装
  *
  * Bun 原生 fetch 支持 proxy 选项（Bun 1.3.4+），无需第三方库。
@@ -27,7 +41,7 @@ export class ApiFetcher {
     const hasAuth = !!(headers?.['authorization'] ?? headers?.['Authorization']);
 
     ApiFetcher.logger
-      .debug`#fetch url=${urlStr} method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth} proxy=${!!proxyUrl}`;
+      .debug`#fetch url=${urlForLog(urlStr)} method=${method} bodyLen=${bodyLength} contentType=${contentType} hasAuth=${hasAuth} proxy=${!!proxyUrl}`;
 
     const response = await fetch(url, {
       ...options,
