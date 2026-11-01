@@ -45,6 +45,12 @@ const provider = new NodeTracerProvider({
 });
 provider.register();
 
+// `default` uses the library default policy; `opt-in` explicitly asks for content capture.
+const telemetry =
+  process.argv[2] === 'opt-in'
+    ? { ...DEFAULT_LLM_TELEMETRY, recordInputs: true, recordOutputs: true }
+    : DEFAULT_LLM_TELEMETRY;
+
 const first = registerAiSdkOtel();
 const second = registerAiSdkOtel();
 
@@ -52,7 +58,7 @@ await generateText({
   model,
   instructions: 'fixture input',
   messages: [{ role: 'user', content: 'hello' }],
-  telemetry: DEFAULT_LLM_TELEMETRY,
+  telemetry,
   runtimeContext: {
     tags: ['contract:v7'],
     userId: 'must-not-export',

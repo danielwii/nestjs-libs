@@ -303,6 +303,13 @@ export class AbstractEnvironmentVariables implements HostSetVariables {
   @DatabaseField('boolean', 'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）')
   LLM_FETCH_VERBOSE: boolean = false;
 
+  /**
+   * 请求入口日志（LoggerInterceptor）是否写出 HTTP body / RPC payload 的值（凭据键已脱敏、长字符串已截断）。
+   * 默认 false：只写顶层键个数与 payload 总长度。
+   * 刻意不加 @DatabaseField：打开它会让请求内容进日志，应是部署配置里看得见的决定，不能从数据库热切换。
+   */
+  LOG_REQUEST_PAYLOADS: boolean = false;
+
   INFRA_REDIS_URL?: string;
 
   // ==================== Cluster (node-registry) ====================
@@ -639,6 +646,8 @@ export const baseEnvSchema = z.object({
     format: 'boolean',
     description: 'LLM fetch 详细日志（Bun verbose，打印 HTTP headers + TLS 到 stderr）',
   }),
+  // 不是 database field：打开会让请求内容进日志，只能由部署配置决定
+  LOG_REQUEST_PAYLOADS: coerceBoolean(z.boolean().default(false)),
   PRISMA_TRANSACTION_TIMEOUT: asDatabaseField(coerceNumber(z.number().default(30_000)), {
     format: 'number',
     description: 'Prisma 事务超时时间（毫秒）',

@@ -123,6 +123,63 @@ describe('log redaction normalizers', () => {
     expect(JSON.stringify(out)).not.toContain('sk-123');
   });
 
+  it('redacts credential-like keys whatever their naming style', () => {
+    const out = normalizePayloadForLog({
+      fetchToken: 'probe-a1',
+      fetch_token: 'probe-a2',
+      idToken: 'probe-a3',
+      clientSecret: 'probe-a4',
+      'x-api-key': 'probe-a5',
+      Set_Cookie: 'probe-a6',
+      db_PASSWORD: 'probe-a7',
+    }) as Record<string, unknown>;
+
+    for (const key of Object.keys(out)) {
+      expect(out[key]).toMatchObject({ redacted: true, kind: 'secret', reason: 'sensitive_field' });
+    }
+    expect(JSON.stringify(out)).not.toContain('probe-a');
+  });
+
+  it('masks the whole value of a credential-like key whatever its type', () => {
+    const out = normalizePayloadForLog({
+      token: ['probe-b1'],
+      apiKey: { v: 'probe-b2' },
+      secret: 123,
+      password: true,
+      refreshToken: [{ nested: 'probe-b3' }],
+    }) as Record<string, unknown>;
+
+    for (const key of Object.keys(out)) {
+      expect(out[key]).toEqual({ redacted: true, kind: 'secret', reason: 'sensitive_field' });
+    }
+    expect(JSON.stringify(out)).not.toContain('probe-b');
+  });
+
+  it('applies the credential key rule before the array and depth budgets', () => {
+    const out = normalizePayloadForLog({
+      sessionToken: ['probe-c1', 'probe-c2', 'probe-c3', 'probe-c4', 'probe-c5', 'probe-c6'],
+      a: { b: { c: { clientSecret: { v: 'probe-c7' } } } },
+    });
+
+    expect(out).toEqual({
+      sessionToken: { redacted: true, kind: 'secret', reason: 'sensitive_field' },
+      a: { b: { c: { clientSecret: { redacted: true, kind: 'secret', reason: 'sensitive_field' } } } },
+    });
+  });
+
+  it('keeps absent credential values as they are', () => {
+    expect(normalizePayloadForLog({ token: null })).toEqual({ token: null });
+  });
+
+  it('does not redact plural or prefixed look-alikes of credential keys', () => {
+    expect(normalizePayloadForLog({ maxTokens: 5, inputTokens: 7, tokenCount: 3, secretary: 'kept' })).toEqual({
+      maxTokens: 5,
+      inputTokens: 7,
+      tokenCount: 3,
+      secretary: 'kept',
+    });
+  });
+
   it('redacts long nested strings instead of preserving prefixes', () => {
     const sensitiveContext = 'home address: 123 Secret St\n' + 'x'.repeat(500);
     const out = normalizePayloadForLog({ environment: { enhancements: { careContext: sensitiveContext } } }) as {

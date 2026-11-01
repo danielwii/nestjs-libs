@@ -100,4 +100,29 @@ describe('GrpcServiceTokenGuard', () => {
 
     expect(new GrpcServiceTokenGuard().canActivate(rpcContext(metadata))).toBe(true);
   });
+
+  it.each([
+    ['same length, different bytes', 'expectee'],
+    ['shorter than expected', 'expect'],
+    ['longer than expected', 'expected-and-more'],
+    ['a prefix of the expected token', 'exp'],
+    ['expected token plus one extra character', 'expectedX'],
+  ])('rejects an unequal token (%s) with the same Invalid service token response', (_label, received) => {
+    process.env.GRPC_SERVICE_TOKEN = 'expected';
+    const metadata = new Metadata();
+    metadata.set('x-service-token', received);
+
+    expectUnauthenticated(() => new GrpcServiceTokenGuard().canActivate(rpcContext(metadata)), 'Invalid service token');
+  });
+
+  it('rejects an empty token as missing, as before', () => {
+    process.env.GRPC_SERVICE_TOKEN = 'expected';
+    const metadata = new Metadata();
+    metadata.set('x-service-token', '');
+
+    expectUnauthenticated(
+      () => new GrpcServiceTokenGuard().canActivate(rpcContext(metadata)),
+      'Missing service token in gRPC metadata',
+    );
+  });
 });

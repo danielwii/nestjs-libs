@@ -1,5 +1,6 @@
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import { SysEnv } from '@app/env';
 import { OopsError } from '@app/nest/exceptions/oops-error';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
@@ -11,6 +12,7 @@ import * as _ from 'radash';
 import { catchError, finalize } from 'rxjs';
 
 import type { IdentityRequest } from '../types/identity.interface';
+import type { LogSafePayloadValue } from './log-redaction';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import type { Request } from 'express';
 import type { Observable } from 'rxjs';
@@ -27,8 +29,55 @@ export function isExpectedOopsError(error: unknown): boolean {
   return error instanceof OopsError && error.httpStatus < 500;
 }
 
+/** What the request-entry log writes about a payload by default: sizes only, no keys and no values. */
+export interface PayloadSummary {
+  /** Number of top-level keys (object) or items (array). */
+  topLevelKeys: number;
+  /** Length of the payload's JSON form (byte length for binary); `null` when it cannot be serialized. */
+  payloadLength: number | null;
+}
+
+function summarizePayload(value: unknown): PayloadSummary {
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    return { topLevelKeys: 0, payloadLength: value.byteLength };
+  }
+  const topLevelKeys = Array.isArray(value)
+    ? value.length
+    : typeof value === 'object' && value !== null
+      ? Object.keys(value).length
+      : 0;
+  try {
+    // JSON.stringify returns undefined (not a string) for values such as `undefined` or a bare function
+    const json = JSON.stringify(value) as string | undefined;
+    return { topLevelKeys, payloadLength: json?.length ?? null };
+  } catch {
+    // circular structures and BigInt values cannot be serialized
+    return { topLevelKeys, payloadLength: null };
+  }
+}
+
+export interface LoggerInterceptorOptions {
+  /**
+   * Write request / RPC payload values to the log (credential-like keys and oversized values are still masked).
+   * Off by default: the entry log then carries only the top-level key count and the payload length.
+   * When not set, the typed `SysEnv.LOG_REQUEST_PAYLOADS` deployment setting (default false) decides.
+   */
+  logPayloadValues?: boolean;
+}
+
 export class LoggerInterceptor implements NestInterceptor {
   private readonly logger = getAppLogger('LoggerInterceptor');
+
+  constructor(private readonly options: LoggerInterceptorOptions = {}) {}
+
+  /**
+   * The only place a request or RPC payload is turned into something loggable: a summary unless the application
+   * explicitly asked for values.
+   */
+  private payloadForLog(value: unknown): LogSafePayloadValue | PayloadSummary {
+    const includeValues = this.options.logPayloadValues ?? SysEnv.LOG_REQUEST_PAYLOADS;
+    return includeValues ? normalizePayloadForLog(value) : summarizePayload(value);
+  }
 
   public intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> | Promise<Observable<unknown>> {
     // 注意：Subscription 必须直接返回原始结果，任何额外的 pipe 都会把 AsyncIterator 变成 Observable，
@@ -98,7 +147,7 @@ export class LoggerInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const body = normalizePayloadForLog(req.body ?? {});
+    const body = this.payloadForLog(req.body ?? {});
     // 获取客户端真实 IP：优先使用 Cloudflare cf-connecting-ip，其次 x-forwarded-for，最后 req.ip
     const cfConnectingIp = req.headers['cf-connecting-ip'];
     const realIp =
@@ -191,8 +240,7 @@ export class LoggerInterceptor implements NestInterceptor {
     const traceId = this.extractGrpcTraceId(rpcContext);
 
     return RequestContext.run({ traceId, userId: null }, () => {
-      // Truncate large data for logging (similar to HTTP body truncation)
-      const logSafeData = normalizePayloadForLog(data);
+      const logSafeData = this.payloadForLog(data);
       this.logger.debug`-> ${TAG} call... data=${logSafeData}`;
 
       const now = Date.now();

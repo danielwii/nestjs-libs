@@ -594,7 +594,12 @@ export function mergeProvenanceRuntimeContext<RUNTIME_CONTEXT extends Context>(
   return { tags } as unknown as RUNTIME_CONTEXT;
 }
 
-function withProvenanceTelemetry<RUNTIME_CONTEXT extends Context, TOOLS extends ToolSet>(
+/**
+ * Every model call passes its telemetry through here. The AI SDK treats an omitted `recordInputs` / `recordOutputs` as
+ * "record", so a partial object such as `{ isEnabled: true }` would capture content; fill each omitted item from the
+ * default policy (not recorded). Only an explicit `true` records content.
+ */
+export function withProvenanceTelemetry<RUNTIME_CONTEXT extends Context, TOOLS extends ToolSet>(
   telemetry: TelemetryOptions<RUNTIME_CONTEXT, TOOLS>,
 ): TelemetryOptions<RUNTIME_CONTEXT, TOOLS> {
   if (telemetry.isEnabled === false) {
@@ -603,6 +608,8 @@ function withProvenanceTelemetry<RUNTIME_CONTEXT extends Context, TOOLS extends 
 
   return {
     ...telemetry,
+    recordInputs: telemetry.recordInputs ?? DEFAULT_TELEMETRY.recordInputs,
+    recordOutputs: telemetry.recordOutputs ?? DEFAULT_TELEMETRY.recordOutputs,
     includeRuntimeContext: {
       ...telemetry.includeRuntimeContext,
       tags: true,
@@ -2590,10 +2597,11 @@ export class LLM {
             body.taskType = TASK_MAP[task] ?? task;
           }
 
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent?key=${apiKey}`;
+          // The key travels in a header: a URL (and its query string) ends up in logs, traces and proxies.
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent`;
           const response = await ApiFetcher.fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
             body: JSON.stringify(body),
             signal,
           });

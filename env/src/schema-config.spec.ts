@@ -85,6 +85,17 @@ describe('createEnvConfig & baseEnvSchema', () => {
       expect(parsed.PRISMA_TRANSACTION_TIMEOUT).toBe(30_000);
     });
 
+    it('parses LOG_REQUEST_PAYLOADS as a boolean that defaults to false and is not a database field', () => {
+      expect(baseEnvSchema.parse({}).LOG_REQUEST_PAYLOADS).toBe(false);
+      expect(baseEnvSchema.parse({ LOG_REQUEST_PAYLOADS: 'true' }).LOG_REQUEST_PAYLOADS).toBe(true);
+      expect(baseEnvSchema.parse({ LOG_REQUEST_PAYLOADS: '1' }).LOG_REQUEST_PAYLOADS).toBe(true);
+      expect(baseEnvSchema.parse({ LOG_REQUEST_PAYLOADS: 'false' }).LOG_REQUEST_PAYLOADS).toBe(false);
+      expect(baseEnvSchema.parse({ LOG_REQUEST_PAYLOADS: '' }).LOG_REQUEST_PAYLOADS).toBe(false);
+
+      const { databaseFields } = createEnvConfig(baseEnvSchema, { loadDotEnv: false });
+      expect(databaseFields.map((field) => field.key)).not.toContain('LOG_REQUEST_PAYLOADS');
+    });
+
     it('should reject invalid ports such as 0, negative values, or non-numeric strings', () => {
       expect(() => baseEnvSchema.parse({ PORT: '0' })).toThrow();
       expect(() => baseEnvSchema.parse({ PORT: '-1' })).toThrow();

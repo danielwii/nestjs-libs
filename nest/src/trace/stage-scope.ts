@@ -60,6 +60,7 @@
  * ```
  */
 import { resolveParentContext } from './container-span';
+import { LangfuseContract } from './langfuse/contract';
 
 import { context as otelContext, SpanStatusCode, trace } from '@opentelemetry/api';
 
@@ -112,14 +113,10 @@ export async function runStageScope<T>(
       }
       return result;
     } catch (error) {
-      if (error instanceof Error) {
-        span.recordException(error);
-      }
+      // 异常事件和状态消息只写 describeError 的内容，不写 message / stack。
+      const description = LangfuseContract.recordException(span, error);
       if (options?.autoStatus !== false) {
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: error instanceof Error ? error.message : 'error',
-        });
+        span.setStatus({ code: SpanStatusCode.ERROR, message: description });
       }
       throw error;
     } finally {
@@ -243,8 +240,8 @@ export function openStageScope(containerKey: string, spanName: string, attribute
     },
     end: (error?: Error) => {
       if (error) {
-        span.recordException(error);
-        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        const description = LangfuseContract.recordException(span, error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: description });
       }
       // 注意：不自动设置 OK 状态，由调用者通过 LangfuseContract.success() 设置
       span.end();

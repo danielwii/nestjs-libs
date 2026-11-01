@@ -38,6 +38,8 @@ import { RpcException } from '@nestjs/microservices';
 
 import { getAppLogger } from '@app/utils/app-logger';
 
+import { timingSafeEqual } from 'node:crypto';
+
 import { status } from '@grpc/grpc-js';
 
 import type { Metadata } from '@grpc/grpc-js';
@@ -49,6 +51,14 @@ export function getConfiguredGrpcServiceToken(): string | undefined {
   const token = process.env.GRPC_SERVICE_TOKEN?.trim();
   if (!token) return undefined;
   return token;
+}
+
+/** `timingSafeEqual` throws on unequal lengths, so a length mismatch is rejected before comparing bytes. */
+function isSameToken(received: string, expected: string): boolean {
+  const receivedBytes = Buffer.from(received);
+  const expectedBytes = Buffer.from(expected);
+  if (receivedBytes.length !== expectedBytes.length) return false;
+  return timingSafeEqual(receivedBytes, expectedBytes);
 }
 
 @Injectable()
@@ -80,7 +90,7 @@ export class GrpcServiceTokenGuard implements CanActivate {
       });
     }
 
-    if (token !== expectedToken) {
+    if (!isSameToken(token, expectedToken)) {
       throw new RpcException({
         code: status.UNAUTHENTICATED,
         message: 'Invalid service token',
