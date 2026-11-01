@@ -1,5 +1,6 @@
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import { SysEnv } from '@app/env';
 import { OopsError } from '@app/nest/exceptions/oops-error';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
@@ -59,7 +60,7 @@ export interface LoggerInterceptorOptions {
   /**
    * Write request / RPC payload values to the log (credential-like keys and oversized values are still masked).
    * Off by default: the entry log then carries only the top-level key count and the payload length.
-   * When not set, the `LOG_REQUEST_PAYLOADS=true` environment variable turns it on.
+   * When not set, the typed `SysEnv.LOG_REQUEST_PAYLOADS` deployment setting (default false) decides.
    */
   logPayloadValues?: boolean;
 }
@@ -74,7 +75,7 @@ export class LoggerInterceptor implements NestInterceptor {
    * explicitly asked for values.
    */
   private payloadForLog(value: unknown): LogSafePayloadValue | PayloadSummary {
-    const includeValues = this.options.logPayloadValues ?? process.env.LOG_REQUEST_PAYLOADS === 'true';
+    const includeValues = this.options.logPayloadValues ?? SysEnv.LOG_REQUEST_PAYLOADS;
     return includeValues ? normalizePayloadForLog(value) : summarizePayload(value);
   }
 

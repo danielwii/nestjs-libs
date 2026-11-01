@@ -1,3 +1,5 @@
+import { SysEnv } from '@app/env';
+
 import { Oops } from '../exceptions/oops';
 import { isExpectedOopsError, LoggerInterceptor } from './logger.interceptor';
 
@@ -84,8 +86,10 @@ describe('LoggerInterceptor request-entry payload log', () => {
     });
   });
 
+  const originalLogRequestPayloads = SysEnv.LOG_REQUEST_PAYLOADS;
+
   afterEach(async () => {
-    delete process.env.LOG_REQUEST_PAYLOADS;
+    SysEnv.LOG_REQUEST_PAYLOADS = originalLogRequestPayloads;
     await reset();
   });
 
@@ -156,8 +160,8 @@ describe('LoggerInterceptor request-entry payload log', () => {
     expect(logged()).not.toContain('topLevelKeys');
   });
 
-  it('writes normalized values when LOG_REQUEST_PAYLOADS=true is set, and the option wins over it', async () => {
-    process.env.LOG_REQUEST_PAYLOADS = 'true';
+  it('writes normalized values when SysEnv.LOG_REQUEST_PAYLOADS is on, and the option wins over it', async () => {
+    SysEnv.LOG_REQUEST_PAYLOADS = true;
     await run(rpcContext(rpcPayload));
     expect(logged()).toContain(`${PROBE} short subject`);
 
@@ -166,12 +170,14 @@ describe('LoggerInterceptor request-entry payload log', () => {
     expect(logged()).not.toContain(PROBE);
   });
 
-  it('keeps payload values out unless the variable is exactly "true"', async () => {
-    for (const value of ['1', 'TRUE', 'false', '']) {
-      process.env.LOG_REQUEST_PAYLOADS = value;
-      records = [];
-      await run(rpcContext(rpcPayload));
-      expect(logged()).not.toContain(PROBE);
-    }
+  it('keeps payload values out when neither the option nor the setting is on', async () => {
+    expect(SysEnv.LOG_REQUEST_PAYLOADS).toBe(false);
+    await run(rpcContext(rpcPayload));
+    expect(logged()).not.toContain(PROBE);
+
+    SysEnv.LOG_REQUEST_PAYLOADS = false;
+    records = [];
+    await run(rpcContext(rpcPayload), new LoggerInterceptor({}));
+    expect(logged()).not.toContain(PROBE);
   });
 });

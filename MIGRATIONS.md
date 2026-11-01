@@ -11,7 +11,8 @@ They now record sizes, timings and identifiers only; content is written when the
   spans, set `recordInputs: true` / `recordOutputs: true` explicitly on the call or in `ai.telemetry`.
 - **`LoggerInterceptor`:** the entry log of an HTTP body or an RPC payload writes `{ topLevelKeys, payloadLength }` instead of the
   normalized payload. Key names are not written. To log (masked) values again, construct it with
-  `new LoggerInterceptor({ logPayloadValues: true })`, or set `LOG_REQUEST_PAYLOADS=true`; the option wins over the variable.
+  `new LoggerInterceptor({ logPayloadValues: true })`, or set the deployment setting `LOG_REQUEST_PAYLOADS=true` (typed
+  `SysEnv.LOG_REQUEST_PAYLOADS`, default `false`, deliberately not a database field); the option wins over the setting.
 - **Gemini embeddings:** the API key is sent in the `x-goog-api-key` header instead of a `?key=` query parameter. The `#fetch`
   debug log writes only origin and path (`urlForLog`), never the query string or fragment.
 - **Span errors:** a span's exception event, status message and `langfuse.observation.status_message` carry
