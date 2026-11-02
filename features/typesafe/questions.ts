@@ -10,6 +10,3 @@ export const choice: TypeSafeSdk['choice'] = ((...args: [unknown, unknown]) =>
 
 export const score: TypeSafeSdk['score'] = ((...args: [unknown, unknown]) =>
   (loadTypeSafeSdk().score as (...a: unknown[]) => unknown)(...args)) as TypeSafeSdk['score'];
-
-export const box: TypeSafeSdk['box'] = ((...args: [unknown?]) =>
-  (loadTypeSafeSdk().box as (...a: unknown[]) => unknown)(...args)) as TypeSafeSdk['box'];
