@@ -2662,8 +2662,8 @@ export class LLM {
       const result = await getTypeSafeClient().systemOne(request, { signal });
       cleanup();
       LLM.logEnd(id, 'systemOne', `typesafe:${result.model}`, startTime, {
-        inputTokens: result.usage.input_tokens ?? undefined,
-        outputTokens: result.usage.output_tokens ?? undefined,
+        inputTokens: result.usage.input_tokens,
+        outputTokens: result.usage.output_tokens,
       });
       return result;
     } catch (error) {
