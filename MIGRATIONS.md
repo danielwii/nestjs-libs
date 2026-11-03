@@ -1,5 +1,87 @@
 # Migrations
 
+## Api-mode security response headers: the default policy is tightened
+
+In `api` mode `bootstrap` now sends, by default, the header set meant for API responses:
+
+- `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` (no other directives)
+- `Referrer-Policy: no-referrer`
+- `X-Frame-Options: DENY`
+
+The other helmet 8 defaults (HSTS, `X-Content-Type-Options`, ...) are unchanged. The values follow the "Security Headers" section of the
+OWASP REST Security Cheat Sheet. `grpc` and `scheduler` modes still mount no helmet. The headers are mounted before CORS, so the answer
+to an allowed origin's preflight carries them too.
+
+- **What can break:** a page the process serves that has to run script, load external resources or be framed by the same origin, for
+  example a GraphQL playground or Swagger UI: the new policy allows none of that. JSON responses are not affected. A controller that
+  sets its own `Content-Security-Policy` or `Referrer-Policy` with `res.setHeader` still overrides these headers.
+- **Relax one path:** `securityHeaders.routes` takes `{ prefix, helmet }` entries. A request whose path equals the prefix or starts with
+  the prefix plus `/` uses that entry's helmet options (`/docs` matches `/docs` and `/docs/x`, not `/docsx`; the query string is ignored).
+  The first matching entry wins; a path that matches none uses the default. A prefix must start with `/`, must not end with `/`, must not
+  be `/` itself (use `defaults` to change every route) and must not appear twice; otherwise start-up fails with `Oops.Panic.Config`.
+
+  ```ts
+  bootstrap(AppModule, onInit, {
+    validation: 'standard-schema',
+    securityHeaders: {
+      routes: [
+        {
+          prefix: '/docs',
+          helmet: {
+            contentSecurityPolicy: {
+              useDefaults: false,
+              directives: {
+                'default-src': ["'self'"],
+                'script-src': ["'self'"],
+                'style-src': ["'self'", "'unsafe-inline'"],
+                'img-src': ["'self'", 'data:'],
+                'frame-ancestors': ["'none'"],
+              },
+            },
+            referrerPolicy: { policy: 'no-referrer' },
+          },
+        },
+      ],
+    },
+  });
+  ```
+
+- **Replace the default as a whole:** `securityHeaders.defaults` replaces `API_SECURITY_HEADERS` for every route that is not in `routes`.
+  Nothing is merged: a route entry or `defaults` goes to helmet as given, so whatever it leaves out takes helmet's own default (helmet adds
+  its built-in CSP directives unless `contentSecurityPolicy.useDefaults` is `false`). To change one value of the default, spread it:
+  `defaults: { ...API_SECURITY_HEADERS, referrerPolicy: { policy: 'same-origin' } }`.
+- **Restore the previous behavior:** pass the previous helmet options to `defaults`, unchanged:
+
+  ```ts
+  bootstrap(AppModule, onInit, {
+    validation: 'standard-schema',
+    securityHeaders: {
+      defaults: {
+        contentSecurityPolicy: {
+          directives: {
+            'default-src': ["'self'"],
+            'base-uri': ["'self'"],
+            'block-all-mixed-content': [],
+            'font-src': ["'self'", 'https:', 'data:'],
+            'frame-ancestors': ["'self'"],
+            'img-src': ["'self'", 'data:', '*'],
+            'object-src': ["'none'"],
+            'script-src': ["'self'", "'unsafe-inline'", '*'],
+            'script-src-attr': ["'none'"],
+            'style-src': ["'self'", 'https:', "'unsafe-inline'"],
+            'upgrade-insecure-requests': [],
+          },
+        },
+        referrerPolicy: { policy: 'unsafe-url' },
+      },
+    },
+  });
+  ```
+
+- **New exports** from `@app/nest/boot`: `API_SECURITY_HEADERS`, `SecurityHeadersOptions`, `SecurityHeadersRoute` and
+  `applySecurityHeaders(app, options?)` (what `bootstrap` calls in `api` mode, before `enableCors`; an app that builds its own Nest
+  application can call it the same way).
+
 ## Telemetry and request-log content capture is opt-in
 
 Model-call telemetry and the request-entry log used to record prompts, completions and request payloads unless told not to.
