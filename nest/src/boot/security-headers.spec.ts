@@ -77,7 +77,7 @@ function directivesOf(response: { headers: Headers }): Record<string, string[]> 
   );
 }
 
-describe('applySecurityHeaders defaults (T1)', () => {
+describe('applySecurityHeaders defaults', () => {
   it('sends exactly the two API directives, Referrer-Policy no-referrer and X-Frame-Options DENY on a plain response', async () => {
     const base = await start();
 
@@ -122,7 +122,7 @@ describe('applySecurityHeaders defaults (T1)', () => {
   });
 });
 
-describe('securityHeaders.defaults replaces the default as a whole (T2)', () => {
+describe('securityHeaders.defaults replaces the default as a whole', () => {
   it('with useDefaults: false the policy has only the given directive, none of API_SECURITY_HEADERS', async () => {
     const base = await start({
       defaults: { contentSecurityPolicy: { useDefaults: false, directives: { 'default-src': ["'self'"] } } },
@@ -146,7 +146,7 @@ describe('securityHeaders.defaults replaces the default as a whole (T2)', () => 
   });
 });
 
-describe('securityHeaders.routes (T3, T4)', () => {
+describe('securityHeaders.routes', () => {
   const relaxed = {
     contentSecurityPolicy: { useDefaults: false, directives: { 'default-src': ["'self'"] } },
     referrerPolicy: { policy: 'same-origin' },
@@ -213,7 +213,7 @@ describe('securityHeaders.routes (T3, T4)', () => {
   });
 });
 
-describe('malformed securityHeaders.routes are refused at start-up (T5)', () => {
+describe('malformed securityHeaders.routes are refused at start-up', () => {
   const refused = async (routes: unknown, mentions: RegExp) => {
     const app = await NestFactory.create(ProbeModule, { logger: false });
     try {
@@ -273,7 +273,7 @@ describe('malformed securityHeaders.routes are refused at start-up (T5)', () => 
   });
 });
 
-describe('a controller that sets its own headers (T7)', () => {
+describe('a controller that sets its own headers', () => {
   it('its Content-Security-Policy and Referrer-Policy win over the default', async () => {
     const base = await start();
 
