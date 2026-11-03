@@ -1,9 +1,10 @@
 import { prodFormatter, setActiveTraceIdResolver } from '@app/utils/log-formatter';
 
-import { registerActiveTraceIdResolver } from './configure';
+import { configureLogging, registerActiveTraceIdResolver } from './configure';
 
+import { getLogger, reset } from '@logtape/logtape';
 import { context, ROOT_CONTEXT, trace, TraceFlags } from '@opentelemetry/api';
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import type { LogRecord } from '@app/utils/log-formatter';
 import type { Context, ContextManager, Span } from '@opentelemetry/api';
@@ -86,5 +87,51 @@ describe('registerActiveTraceIdResolver', () => {
 
       expect(output.traceId).toBe(TRACE_ID);
     });
+  });
+});
+
+describe('configureLogging level', () => {
+  // The preload (instrument.ts) calls configureLogging() before the app loads; bootstrap calls it again with SysEnv.LOG_LEVEL.
+  // Before, the first call pinned LogTape to debug and LOG_LEVEL never took effect.
+  const debugLines = async (run: () => Promise<void>): Promise<string[]> => {
+    const seen: string[] = [];
+    const spy = spyOn(console, 'debug').mockImplementation((...args: unknown[]) => {
+      seen.push(args.map(String).join(' '));
+    });
+    try {
+      await run();
+      getLogger(['configure-spec']).debug('probe-debug-line');
+    } finally {
+      spy.mockRestore();
+    }
+    return seen.filter((line) => line.includes('probe-debug-line'));
+  };
+  const envBefore = process.env.LOG_LEVEL;
+
+  afterAll(async () => {
+    if (envBefore === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = envBefore;
+    await reset();
+  });
+
+  it('the preload call reads LOG_LEVEL from the environment', async () => {
+    process.env.LOG_LEVEL = 'log';
+    expect(await debugLines(() => configureLogging())).toEqual([]);
+  });
+
+  it('a later call with another level reconfigures instead of being ignored', async () => {
+    process.env.LOG_LEVEL = 'log';
+    expect(await debugLines(() => configureLogging('debug'))).toHaveLength(1);
+    expect(await debugLines(() => configureLogging('log'))).toEqual([]);
+  });
+
+  it('without LOG_LEVEL the default stays debug', async () => {
+    delete process.env.LOG_LEVEL;
+    expect(await debugLines(() => configureLogging())).toHaveLength(1);
+  });
+
+  it('an unknown LOG_LEVEL falls back to debug rather than throwing in the preload', async () => {
+    process.env.LOG_LEVEL = 'chatty';
+    expect(await debugLines(() => configureLogging())).toHaveLength(1);
   });
 });
