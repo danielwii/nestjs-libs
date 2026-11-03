@@ -24,6 +24,7 @@ import { normalizeTimezone } from '@app/utils/datetime';
 import { maskSecret } from '@app/utils/security';
 
 import { resolveInboundSchema } from '../contract';
+import { applySecurityHeaders } from './security-headers';
 
 import os from 'node:os';
 
@@ -33,11 +34,11 @@ import cookieParser from 'cookie-parser';
 import { json } from 'express';
 import session from 'express-session';
 import { graphqlUploadExpress } from 'graphql-upload-ts';
-import helmet from 'helmet';
 import morgan from 'morgan';
 import { createClient } from 'redis';
 import responseTime from 'response-time';
 
+import type { SecurityHeadersOptions } from './security-headers';
 import type { SysEnvConfigKey } from '@app/env';
 import type { Server } from '@grpc/grpc-js';
 import type { PackageDefinition } from '@grpc/proto-loader';
@@ -132,6 +133,11 @@ export interface BootstrapOptions {
   grpcProvider?: string;
   /** HTTP 端口（grpc 模式下用于健康检查），默认从 SysEnv.PORT 读取 */
   httpPort?: number;
+  /**
+   * api 模式的 HTTP 安全响应头：不给就用 `API_SECURITY_HEADERS`；`defaults` 整份替换它，`routes` 按路径前缀换一份。
+   * grpc、scheduler 模式不挂 helmet，这一项不起作用。参数写错时启动失败（`Oops.Panic.Config`）。
+   */
+  securityHeaders?: SecurityHeadersOptions;
   /**
    * 全域 Standard Schema 校验管道配置。
    * - 默认：启用 NestJS 12 原生 StandardSchemaValidationPipe（自动拾取 @Body({ schema }), @Args({ schema }) 及 static schema）
@@ -512,6 +518,9 @@ export async function bootstrap(
 
   // --- api 专属：HTTP middleware ---
   if (isApi) {
+    // 安全响应头必须挂在 enableCors 之前：cors 中间件会直接结束允许来源的 OPTIONS 预检，挂在它后面预检响应就没有这些头。
+    applySecurityHeaders(app, options.securityHeaders);
+
     /*
     https://github.com/expressjs/cors#configuration-options
     https://github.com/expressjs/cors#configuring-cors-asynchronously
@@ -579,34 +588,6 @@ export async function bootstrap(
         }),
       );
     }
-
-    // https://helmetjs.github.io/
-    // Helmet helps secure Express apps by setting HTTP response headers.
-    app.use(
-      helmet({
-        contentSecurityPolicy: {
-          directives: {
-            'default-src': ["'self'"],
-            'base-uri': ["'self'"],
-            'block-all-mixed-content': [],
-            'font-src': ["'self'", 'https:', 'data:'],
-            'frame-ancestors': ["'self'"],
-            // load all domains' images
-            'img-src': ["'self'", 'data:', '*'],
-            'object-src': ["'none'"],
-            // 'unsafe-inline' used to run some iframe script like payment api
-            'script-src': ["'self'", "'unsafe-inline'", '*'],
-            'script-src-attr': ["'none'"],
-            'style-src': ["'self'", 'https:', "'unsafe-inline'"],
-            'upgrade-insecure-requests': [],
-          },
-        },
-        referrerPolicy: {
-          // IMPORTANT no-referrer is the default, but some payment api will not work
-          policy: 'unsafe-url',
-        },
-      }),
-    );
 
     app.use(cookieParser());
 

@@ -3,3 +3,4 @@ export * from './bootstrap';
 export * from './grpc-bootstrap';
 export * from './initializable.module';
 export * from './lifecycle';
+export * from './security-headers';
