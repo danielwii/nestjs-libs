@@ -372,3 +372,46 @@ export function normalizePayloadForLog(
 
   return visit(value, 0);
 }
+
+/** The parts of an Express request that say which route it reached; also satisfied by a bare `IncomingMessage`. */
+export interface RouteResolvableRequest {
+  baseUrl?: string;
+  originalUrl?: string;
+  url?: string;
+  route?: { path?: unknown } | null;
+}
+
+// A route whose own path starts with a wildcard (`*path`, `{*path}`, Express 4 `*`) is a catch-all, not an endpoint.
+const CATCH_ALL_ROUTE_PATH = /^\/?\{?\*/;
+
+/**
+ * The route template Express matched for this request (`/api/invites/:token`), or `undefined` before routing or when
+ * no route matched (an unknown path, a middleware that answered first, a handler mounted with `app.use`).
+ *
+ * `req.route.path` is relative to the router the route sits in, and `req.baseUrl` is where that router is mounted;
+ * Nest registers its routes on the app itself, so `baseUrl` is empty and the path already carries the global prefix.
+ *
+ * A catch-all route counts as no match: Nest answers unknown paths under the global prefix with `router.all('*path')`
+ * mounted at the prefix, whose template (`/api*path`) would hide which path the 404 was for.
+ */
+export function matchedRouteTemplate(req: RouteResolvableRequest): string | undefined {
+  const routePath = req.route?.path;
+  if (typeof routePath !== 'string' || CATCH_ALL_ROUTE_PATH.test(routePath)) return undefined;
+  return `${req.baseUrl ?? ''}${routePath}`;
+}
+
+/**
+ * How a request's path is written to access logs, request logs and span names.
+ *
+ * A raw URL can carry credentials in a path segment (`/api/invites/<invite token>`) or in the query string
+ * (`?token=…`), so logs use the matched route template, which names the segment instead of copying it. When no route
+ * matched, the path is written without its query string: query values never reach the log, and path segments are kept
+ * as they are rather than guessed at by pattern — a guess misses unfamiliar secret formats and mangles ordinary ids.
+ */
+export function requestRouteForLog(req: RouteResolvableRequest): string {
+  const template = matchedRouteTemplate(req);
+  if (template !== undefined) return template;
+  const raw = req.originalUrl ?? req.url ?? '';
+  const queryStart = raw.indexOf('?');
+  return queryStart === -1 ? raw : raw.slice(0, queryStart);
+}

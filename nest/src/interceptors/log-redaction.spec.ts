@@ -1,8 +1,10 @@
 import {
+  matchedRouteTemplate,
   normalizeAuthorizationHeader,
   normalizeCookieHeader,
   normalizeHeadersForLog,
   normalizePayloadForLog,
+  requestRouteForLog,
 } from './log-redaction';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -250,5 +252,41 @@ describe('log redaction normalizers', () => {
     expect(normalizePayloadForLog(value)).toEqual({
       self: { redacted: true, kind: 'circular_reference', reason: 'circular_reference' },
     });
+  });
+});
+
+describe('requestRouteForLog', () => {
+  const TOKEN = '5f0c2a9e8d7b46c1a3e2f1d0c9b8a7e6';
+  const url = `/api/invites/${TOKEN}?token=${TOKEN}`;
+
+  it('uses the matched route template, prefixed with the mount point of its router', () => {
+    expect(requestRouteForLog({ originalUrl: url, url, baseUrl: '', route: { path: '/api/invites/:token' } })).toBe(
+      '/api/invites/:token',
+    );
+    expect(
+      requestRouteForLog({
+        originalUrl: `/api/members/${TOKEN}/withdraw-invite`,
+        url: `/${TOKEN}/withdraw-invite`,
+        baseUrl: '/api/members',
+        route: { path: '/:token/withdraw-invite' },
+      }),
+    ).toBe('/api/members/:token/withdraw-invite');
+  });
+
+  it('drops the query string and keeps the path when no route matched', () => {
+    expect(requestRouteForLog({ originalUrl: url, url })).toBe(`/api/invites/${TOKEN}`);
+    expect(requestRouteForLog({ url: '/plain' })).toBe('/plain');
+    expect(requestRouteForLog({})).toBe('');
+  });
+
+  it('treats a catch-all route and a non-string route path as no match', () => {
+    for (const path of ['*path', '/{*path}', '*', '/*']) {
+      const req = { originalUrl: '/api/unknown?token=x', baseUrl: '/api', route: { path } };
+      expect(matchedRouteTemplate(req)).toBeUndefined();
+      expect(requestRouteForLog(req)).toBe('/api/unknown');
+    }
+    expect(matchedRouteTemplate({ route: { path: /^\/regex/ } })).toBeUndefined();
+    // a wildcard after a literal segment is still an endpoint template
+    expect(matchedRouteTemplate({ baseUrl: '', route: { path: '/files/*path' } })).toBe('/files/*path');
   });
 });
