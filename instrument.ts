@@ -236,7 +236,7 @@ function bootstrapSentry() {
       // 传入 `0`（非 null/undefined）会让 `hasSpansEnabled` 返回 `true`，触发 @sentry/bun 挂载全部 32 个
       // tracing integrations（含 `VercelAI`，它会在 diagnostics_channel 上对多模态 Uint8Array 消息调用 JSON.stringify）。
       // 省略 `tracesSampleRate` 使 `hasSpansEnabled() === false`，仅加载错误追踪 integrations。
-      // Only structure leaves the process (data-exposure spec S12): see sentry-structure.ts. Leaving tracesSampleRate,
+      // Only structure leaves the process (owner decision 2026-11-05): see sentry-structure.ts. Leaving tracesSampleRate,
       // tracesSampler and enableLogs out of these options is a premise of that file, not an omission.
       ...sentryStructureOptions(),
       integrations: [Sentry.bunRuntimeMetricsIntegration()],

@@ -1,5 +1,5 @@
 /**
- * Sentry sends structure only (data-exposure spec S12, test T44). The first group drives the real `@sentry/bun` with a
+ * Sentry sends structure only (owner decision 2026-11-05). The first group drives the real `@sentry/bun` with a
  * transport that keeps every envelope, so what is asserted is what would leave the process.
  */
 import { Oops } from '@app/nest/exceptions/oops';

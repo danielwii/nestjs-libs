@@ -3,8 +3,8 @@
  *
  * Why: an error report is written by whoever threw, and an exception message, a provider error or a breadcrumb can
  * hold request text (an email, something a user said). One filter at the single `Sentry.init` blocks every call site
- * at once, including the ones written later (owner rule bcc433eb of 2026-11-05 covers OpenRouter; this is the Sentry
- * half of the same data-exposure spec, S12).
+ * at once, including the ones written later (owner decision 2026-11-05; the OpenRouter half is in
+ * utils/src/openrouter-deny.ts).
  *
  * What an event keeps: the exception class names along the `cause` chain, an error code that passed a shape check
  * (read from `hint.originalException` through `describeErrorParts`, so no reporting site changes), stack frames
@@ -178,7 +178,7 @@ export function sentryStructureOptions() {
     beforeSend: (event: Json, hint?: { originalException?: unknown }) => structureOfEvent(event, hint),
     beforeBreadcrumb: (crumb: Json) => structureOfBreadcrumb(crumb),
     // With the SDK default (`traceLifecycle: 'stream'`) @sentry/bun 11.10 ignores beforeSendTransaction and sends spans
-    // as span items that carry the segment name and the user's email, name and IP (found by the spec, T44). 'static'
+    // as span items that carry the segment name and the user's email, name and IP (found by sentry-structure.spec.ts). 'static'
     // makes the drop below take effect, so switching tracing on later still sends no text.
     traceLifecycle: 'static' as const,
     beforeSendTransaction: () => null,

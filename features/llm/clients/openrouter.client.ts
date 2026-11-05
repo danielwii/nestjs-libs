@@ -138,7 +138,7 @@ export function resolveOpenRouterOptions(
 export async function createOpenRouterClient(options: OpenRouterClientOptions) {
   const { apiKey, useProxy = true, customFetch } = options;
 
-  // Every request to OpenRouter carries data_collection: 'deny' (owner rule bcc433eb, data-exposure spec S11; see
+  // Every request to OpenRouter carries data_collection: 'deny' (owner decision 2026-11-05; see
   // openrouter-deny.ts). ApiFetcher.fetch applies it itself; a fetch the caller supplies, or the bare one, is wrapped.
   const fetchFn = customFetch
     ? withOpenRouterDeny(customFetch)

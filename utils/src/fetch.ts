@@ -29,7 +29,7 @@ export class ApiFetcher {
   private static readonly logger = getAppLogger('ApiFetcher');
 
   static fetch = (async (url: string | URL | Request, callerOptions?: RequestInit): Promise<Response> => {
-    // A request to OpenRouter always carries data_collection: 'deny' (owner rule bcc433eb, data-exposure spec S11; see
+    // A request to OpenRouter always carries data_collection: 'deny' (owner decision 2026-11-05; see
     // openrouter-deny.ts). It is applied first so the logged body length and the Grok check below read the body that is sent.
     const options = openRouterDeniedInit(url, callerOptions);
     const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
@@ -132,7 +132,7 @@ const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
  * Sends a request to the OpenRouter API through {@link ApiFetcher.fetch}: proxy, debug log and
  * `provider.data_collection: 'deny'` included. For code that cannot go through the AI SDK provider (a streamed upload,
  * an audio request); the address is not exported on purpose, so that a request cannot be sent to it by another route
- * and miss the deny (data-exposure spec S11).
+ * and miss the deny (owner decision 2026-11-05).
  *
  * @example openRouterFetch('/chat/completions', { method: 'POST', headers, body: JSON.stringify(payload) })
  */

@@ -3,8 +3,8 @@
  * switch it off.
  *
  * Why: the prompts and attachments that go through this library must not reach an upstream provider that is allowed
- * to train on them. A policy that lives only in an account setting leaves no evidence in code (owner rule bcc433eb,
- * 2026-11-05; data-exposure spec S11). The rule is the same for every application that uses this library and has no
+ * to train on them. A policy that lives only in an account setting leaves no evidence in code (owner decision
+ * 2026-11-05). The rule is the same for every application that uses this library and has no
  * switch: an application that needs another data policy does not use this layer and writes its own client.
  *
  * Where it is written: once, at the lowest layer. The AI SDK provider merges everything the caller passed (routing,

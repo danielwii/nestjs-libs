@@ -1,6 +1,6 @@
 /**
  * Every request the library sends to OpenRouter carries `provider.data_collection: 'deny'`, whichever layer the caller
- * wrote `provider` from (owner rule bcc433eb, data-exposure spec S11, test T41). The AI SDK provider is the real one;
+ * wrote `provider` from (owner decision 2026-11-05). The AI SDK provider is the real one;
  * only the global `fetch` underneath is replaced, so what is asserted is the body that would be sent.
  */
 import { SysEnv } from '@app/env';
