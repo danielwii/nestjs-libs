@@ -19,8 +19,8 @@
  *  - A `Request` object passed as the first argument is sent unchanged, because its body cannot be read here without
  *    consuming it. The AI SDK provider passes a URL string and an init object.
  *  - Only the host is checked, not the path: a JSON object posted to any `openrouter.ai` endpoint gets `provider`.
- *    The batch endpoint receives it on the envelope, not on each request inside it; nothing in this repository
- *    submits a batch from application code.
+ *    A batch posted through `ApiFetcher.fetch` therefore gets it on its envelope too; `LLMBatch.create` also writes it into
+ *    the body of every request inside the batch, which is the part OpenRouter acts on.
  *  - Zero-data-retention (`zdr`) is a stricter policy that is not applied here.
  */
 

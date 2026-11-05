@@ -47,7 +47,27 @@ const EVENT_KEYS = [
   'sdk',
   'type',
 ];
-const CONTEXT_KEYS = ['runtime', 'os', 'device', 'app', 'culture', 'cloud_resource'];
+/**
+ * The contexts that stay, each with the fixed keys the SDK itself fills (@sentry/bun 11.10: the runtime from the Bun integration,
+ * the rest from the node context integration). A key outside the list is dropped, so a context another piece of code set under one
+ * of these names cannot carry text, and only a primitive value stays under a listed key.
+ */
+const CONTEXT_KEYS: Record<string, readonly string[]> = {
+  runtime: ['name', 'version'],
+  os: ['name', 'version', 'kernel_version', 'build'],
+  device: [
+    'arch',
+    'boot_time',
+    'memory_size',
+    'free_memory',
+    'processor_count',
+    'cpu_description',
+    'processor_frequency',
+  ],
+  app: ['app_start_time', 'app_memory', 'free_memory'],
+  culture: ['locale', 'timezone'],
+  cloud_resource: ['cloud.provider', 'cloud.region', 'cloud.platform'],
+};
 const TRACE_KEYS = ['trace_id', 'span_id', 'parent_span_id', 'op', 'status', 'origin'];
 const FRAME_KEYS = ['filename', 'abs_path', 'module', 'function', 'lineno', 'colno', 'in_app', 'platform', 'package'];
 const MECHANISM_KEYS = ['type', 'handled', 'source', 'exception_id', 'parent_id', 'is_exception_group'];
@@ -57,6 +77,10 @@ export const REMOVED_TEXT = '[text removed]';
 
 function isJson(value: unknown): value is Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPrimitive(value: unknown): boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
 function pick(source: Json, keys: readonly string[]): Json {
@@ -148,8 +172,17 @@ export function structureOfEvent(event: Json, hint?: { originalException?: unkno
 
   const contexts: Json = {};
   if (isJson(event.contexts)) {
-    Object.assign(contexts, pick(event.contexts, CONTEXT_KEYS));
-    if (isJson(event.contexts.trace)) contexts.trace = pick(event.contexts.trace, TRACE_KEYS);
+    for (const [name, keys] of Object.entries(CONTEXT_KEYS)) {
+      const context = event.contexts[name];
+      if (!isJson(context)) continue;
+      const kept = Object.fromEntries(Object.entries(pick(context, keys)).filter(([, value]) => isPrimitive(value)));
+      if (Object.keys(kept).length > 0) contexts[name] = kept;
+    }
+    if (isJson(event.contexts.trace)) {
+      contexts.trace = Object.fromEntries(
+        Object.entries(pick(event.contexts.trace, TRACE_KEYS)).filter(([, value]) => isPrimitive(value)),
+      );
+    }
   }
   if (hint?.originalException instanceof Error) {
     const { name, code, causes } = describeErrorParts(hint.originalException);

@@ -2,6 +2,7 @@ import { SysEnv } from '@app/env';
 import { Oops } from '@app/nest/exceptions/oops';
 import { getAppLogger } from '@app/utils/app-logger';
 import { ApiFetcher } from '@app/utils/fetch';
+import { applyOpenRouterDeny } from '@app/utils/openrouter-deny';
 
 import { getModelId } from '../types/model.types';
 import { BatchResponseSchema, CreateBatchParamsSchema } from './schemas/batch.schema';
@@ -71,12 +72,14 @@ export class LLMBatch {
     // 3. 模型名稱正規化 (利用 Model Registry 將 openrouter:gpt-6-sol 解析為 openai/gpt-6-sol)
     const normalizedModel = normalizeModel(parsed.data.model);
 
+    // Every request inside the batch carries provider.data_collection: 'deny' (owner decision 2026-11-05; see openrouter-deny.ts).
+    // The envelope is rewritten by ApiFetcher.fetch like any body to OpenRouter, but the requests are the part OpenRouter acts on.
     const normalizedRequests = parsed.data.requests.map((r) => ({
       custom_id: r.custom_id,
-      body: {
+      body: applyOpenRouterDeny({
         ...r.body,
         model: r.body.model ? normalizeModel(r.body.model) : normalizedModel,
-      },
+      }),
     }));
 
     LLMBatch.logger.info`Submitting batch job: model=${normalizedModel} totalRequests=${normalizedRequests.length}`;

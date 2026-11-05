@@ -7,7 +7,7 @@
 - **Kept:** exception class names along the `cause` chain, an error code that passed a shape check (`Oops` combined code, or a plain
   error's `code`), stack frames without variables or source lines, the user `id`, trace ids, short tag values, the runtime contexts, and
   breadcrumb type / category / level.
-- **Dropped:** exception values, messages and `logentry`, `request`, `extra`, free-text contexts (for example `llm.providerError`), user
+- **Dropped:** exception values, messages and `logentry`, `request`, `extra`, free-text contexts (for example `llm.providerError`), keys the SDK does not fill inside the kept contexts (`runtime`, `os`, `device`, `app`, `culture`, `cloud_resource`, `trace` keep a fixed list of keys and primitive values), user
   fields other than `id`, the transaction name, the fingerprint, and every console breadcrumb. The event is rebuilt from an allowlist, so
   a field the SDK adds later is dropped until it is added to the list. `sendDefaultPii` is `false`.
 - **What can break:** anything that reads exception messages in Sentry (alerts, issue rules, saved searches on message text) sees the
@@ -31,8 +31,7 @@ the model settings or `extraBody`, is overwritten; other `provider` keys such as
   OpenRouter API through `ApiFetcher.fetch` (the API address is not exported), and `applyOpenRouterDeny(body)` (`@app/utils/openrouter-deny`)
   applies the policy to a body object, for a caller that streams its own body.
 - **Not rewritten:** a body that is not a JSON-object string (a stream, `FormData`, bytes) and a `Request` object passed as the first
-  argument are sent as they are. `LLMBatch` posts through `ApiFetcher.fetch`, so the batch envelope gets the field, but the requests inside it do
-  not; nothing in this repository submits a batch from application code.
+  argument are sent as they are. `LLMBatch.create` writes the field into the body of every request in the batch (the envelope gets it too, from `ApiFetcher.fetch`).
 
 ## Api-mode security response headers: the default policy is tightened
 

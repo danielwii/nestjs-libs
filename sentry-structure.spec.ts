@@ -60,6 +60,8 @@ describe('what leaves through the real SDK', () => {
     Sentry.setTag('turn', 'turn-9');
     Sentry.setTag('free', `${SECRET} free text`);
     Sentry.setContext('llm', { providerError: `${SECRET}-provider` });
+    // an allowed context name with a key the SDK does not fill (the SDK sets `runtime` itself, so `os` is used here)
+    Sentry.setContext('os', { name: 'Linux', [`${SECRET}-key`]: `${SECRET}-os` });
 
     Sentry.captureException(new Error(`${SECRET}-message`, { cause: new TypeError(`${SECRET}-cause`) }));
     Sentry.captureException(Oops.Panic.Config(`${SECRET}-oops`, { cause: new RangeError(`${SECRET}-inner`) }));
@@ -169,6 +171,28 @@ describe('structureOfEvent', () => {
       exception: {
         values: [{ type: 'Error', stacktrace: { frames: [{ filename: 'a.ts', function: 'f', lineno: 3 }] } }],
       },
+    });
+  });
+
+  it('keeps only the keys the SDK fills in an allowed context, and only primitive values (nested contexts)', () => {
+    const out = structureOfEvent({
+      contexts: {
+        runtime: { name: 'bun', version: '1.4.4', note: `${SECRET}-key`, nested: { text: SECRET } },
+        os: { name: 'Mac OS X', version: '15.0', kernel_version: '24.0.0', extra: SECRET },
+        device: { arch: 'arm64', processor_count: 8, cpu_description: { text: SECRET } },
+        culture: { locale: 'en-US', timezone: 'Asia/Tokyo', free: SECRET },
+        trace: { trace_id: 'abc', span_id: 'def', data: { text: SECRET } },
+        llm: { providerError: SECRET },
+        state: { text: SECRET },
+      },
+    });
+    expect(JSON.stringify(out)).not.toContain('SECRET-');
+    expect(out?.contexts).toEqual({
+      runtime: { name: 'bun', version: '1.4.4' },
+      os: { name: 'Mac OS X', version: '15.0', kernel_version: '24.0.0' },
+      device: { arch: 'arm64', processor_count: 8 },
+      culture: { locale: 'en-US', timezone: 'Asia/Tokyo' },
+      trace: { trace_id: 'abc', span_id: 'def' },
     });
   });
 
