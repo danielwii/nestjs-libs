@@ -1,5 +1,22 @@
 # Migrations
 
+## OpenRouter: every request carries `provider.data_collection: 'deny'`
+
+Every request this library sends to OpenRouter now has `provider.data_collection` set to `'deny'`, which keeps the request away from
+providers that may train on it. It is written once, at the lowest layer: `ApiFetcher.fetch` (and so `getOpenRouter()`) and the `fetch` that
+`createOpenRouterClient` gives the AI SDK provider (a `customFetch` is wrapped too). A value the caller wrote, from `providerOptions`,
+the model settings or `extraBody`, is overwritten; other `provider` keys such as `order` are kept.
+
+- **What can break:** a model that has no provider satisfying the policy is rejected by OpenRouter. Check each model you use before you
+  upgrade. A caller that wrote `data_collection: 'allow'` no longer gets it.
+- **There is no switch.** An application that needs another data policy does not use this layer and writes its own client.
+- **New exports** for code that cannot go through the AI SDK provider: `openRouterFetch(path, init)` (`@app/utils/fetch`) sends to the
+  OpenRouter API through `ApiFetcher.fetch` (the API address is not exported), and `applyOpenRouterDeny(body)` (`@app/utils/openrouter-deny`)
+  applies the policy to a body object, for a caller that streams its own body.
+- **Not rewritten:** a body that is not a JSON-object string (a stream, `FormData`, bytes) and a `Request` object passed as the first
+  argument are sent as they are. `LLMBatch` posts through `ApiFetcher.fetch`, so the batch envelope gets the field, but the requests inside it do
+  not; nothing in this repository submits a batch from application code.
+
 ## Api-mode security response headers: the default policy is tightened
 
 In `api` mode `bootstrap` now sends, by default, the header set meant for API responses:
