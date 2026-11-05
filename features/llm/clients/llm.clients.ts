@@ -138,7 +138,7 @@ function bedrockCredentialHint(): string {
  *
  * 自动使用：
  * - SysEnv.AI_OPENROUTER_API_KEY
- * - ApiFetcher.fetch（带代理）
+ * - ApiFetcher.fetch（带代理；发往 OpenRouter 的请求在这里被写上 provider.data_collection: 'deny'，见 utils/src/openrouter-deny.ts）
  */
 export function getOpenRouter() {
   if (!_openrouter) {

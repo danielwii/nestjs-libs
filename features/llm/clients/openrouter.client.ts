@@ -4,6 +4,8 @@
  * 使用 @openrouter/ai-sdk-provider 访问 OpenRouter
  */
 
+import { withOpenRouterDeny } from '@app/utils/openrouter-deny';
+
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
 import type { OpenRouterModelOptions, OpenRouterProviderRouting } from '../types/model.types';
@@ -136,7 +138,13 @@ export function resolveOpenRouterOptions(
 export async function createOpenRouterClient(options: OpenRouterClientOptions) {
   const { apiKey, useProxy = true, customFetch } = options;
 
-  const fetchFn = customFetch ?? (useProxy ? await getProxyFetch() : fetch);
+  // Every request to OpenRouter carries data_collection: 'deny' (owner rule bcc433eb, data-exposure spec S11; see
+  // openrouter-deny.ts). ApiFetcher.fetch applies it itself; a fetch the caller supplies, or the bare one, is wrapped.
+  const fetchFn = customFetch
+    ? withOpenRouterDeny(customFetch)
+    : useProxy
+      ? await getProxyFetch()
+      : withOpenRouterDeny(fetch);
 
   return createOpenRouter({
     apiKey,

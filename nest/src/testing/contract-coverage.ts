@@ -136,13 +136,35 @@ interface DiscoveredComponents {
 }
 
 /**
+ * 判斷一個方法是否為 GraphQL handler（@Query / @Mutation / @ResolveField 等）
+ */
+function isGraphQLHandler(handlerFn: object): boolean {
+  return (
+    Reflect.hasMetadata('graphql:resolver_type', handlerFn) ||
+    Reflect.hasMetadata('graphql:resolver_name', handlerFn) ||
+    Reflect.getMetadataKeys(handlerFn).some((k) => typeof k === 'string' && k.startsWith('graphql:'))
+  );
+}
+
+/**
  * 判斷一個類別是否為 GraphQL Resolver
+ *
+ * 也要看方法：@nestjs/graphql 14.2.0 起，不帶型別的 `@Resolver()` 不再在類別上寫 `graphql:resolver_type` /
+ * `graphql:resolver_name`（為了讓父類 Resolver 的設定保持有效），類別上只剩 `__entryProvider__`；方法上的
+ * `graphql:` metadata 還在。只看類別會把這種 resolver 整個跳過，GraphQL 入參少算。
  */
 function isGraphQLResolverClass(target: Type<unknown>): boolean {
-  return (
+  if (
     Reflect.hasMetadata('graphql:resolver_type', target) ||
     Reflect.hasMetadata('graphql:resolver_name', target) ||
     Reflect.getMetadataKeys(target).some((k) => typeof k === 'string' && k.startsWith('graphql:'))
+  ) {
+    return true;
+  }
+  const prototype = target.prototype as object | undefined;
+  if (!prototype) return false;
+  return [...collectPrototypeMethods(prototype).values()].some((descriptor) =>
+    isGraphQLHandler(descriptor.value as object),
   );
 }
 
@@ -434,12 +456,7 @@ export function collectInboundContractCoverage(rootModuleOrModules: unknown | re
     const methods = collectPrototypeMethods(prototype);
     for (const [propertyKey, descriptor] of methods.entries()) {
       const handlerFn = descriptor.value as object;
-      const isGqlHandler =
-        Reflect.hasMetadata('graphql:resolver_type', handlerFn) ||
-        Reflect.hasMetadata('graphql:resolver_name', handlerFn) ||
-        Reflect.getMetadataKeys(handlerFn).some((k) => typeof k === 'string' && k.startsWith('graphql:'));
-
-      if (!isGqlHandler) continue;
+      if (!isGraphQLHandler(handlerFn)) continue;
 
       const methodPipes = extractDeclaredPipes(handlerFn);
       const routeArgs =
