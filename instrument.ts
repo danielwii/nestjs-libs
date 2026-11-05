@@ -67,6 +67,7 @@ import {
   resolveAiSdkOtelMissingDependencyDiagnostic,
   resolveLangfuseBaseUrl,
 } from './instrument-helpers';
+import { sentryStructureOptions } from './sentry-structure';
 
 import { config as dotenvConfig } from '@dotenvx/dotenvx';
 import { getLogger } from '@logtape/logtape';
@@ -209,15 +210,6 @@ function createLangfuseProcessor(): unknown | null {
 
 // ==================== Sentry 错误追踪（独立于 OTel） ====================
 
-const noisyPatterns = [
-  /MISSING_ENV_FILE/i,
-  /injecting env/i,
-  /#shutdownTracing/,
-  /TimeoutNegativeWarning/,
-  /DeprecationWarning/,
-  /^[DI] \d{4}-\d{2}-\d{2}T.+\| v\d+\.\d+\.\d+ \d+ \|/, // @grpc/grpc-js debug/info logs written to stderr
-];
-
 /**
  * Sentry 仅负责错误追踪，不接管 OTel。
  *
@@ -244,25 +236,13 @@ function bootstrapSentry() {
       // 传入 `0`（非 null/undefined）会让 `hasSpansEnabled` 返回 `true`，触发 @sentry/bun 挂载全部 32 个
       // tracing integrations（含 `VercelAI`，它会在 diagnostics_channel 上对多模态 Uint8Array 消息调用 JSON.stringify）。
       // 省略 `tracesSampleRate` 使 `hasSpansEnabled() === false`，仅加载错误追踪 integrations。
-      beforeSend(event: {
-        message?: string;
-        logentry?: { formatted?: string; message?: string };
-        exception?: { values?: Array<{ type?: string; value?: string }> };
-      }) {
-        const message = event.message ?? event.logentry?.formatted ?? event.logentry?.message;
-        const exceptionValues = event.exception?.values ?? [];
-        const exceptionTexts = exceptionValues.map((v) => [v.type, v.value].filter(Boolean).join(':')).filter(Boolean);
-
-        const haystack = [message, ...exceptionTexts].filter(Boolean).join('\n');
-        if (haystack && noisyPatterns.some((pattern) => pattern.test(haystack))) {
-          return null;
-        }
-        return event;
-      },
+      // Only structure leaves the process (data-exposure spec S12): see sentry-structure.ts. Leaving tracesSampleRate,
+      // tracesSampler and enableLogs out of these options is a premise of that file, not an omission.
+      ...sentryStructureOptions(),
       integrations: [Sentry.bunRuntimeMetricsIntegration()],
     });
 
-    sentryLogger.info`${`enabled (errors only, native bun) server=${serverName ?? 'unknown'} env=${environment}`}`;
+    sentryLogger.info`${`enabled (errors only, structure only, native bun) server=${serverName ?? 'unknown'} env=${environment}`}`;
   } catch (error) {
     sentryLogger.error`${`init failed: ${error instanceof Error ? error.message : String(error)}`}`;
   }

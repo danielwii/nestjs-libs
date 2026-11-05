@@ -1,5 +1,22 @@
 # Migrations
 
+## Sentry: events carry structure only
+
+`instrument.ts` now initialises Sentry with `sentryStructureOptions()` (`sentry-structure.ts`). Nothing a caller can set turns it off.
+
+- **Kept:** exception class names along the `cause` chain, an error code that passed a shape check (`Oops` combined code, or a plain
+  error's `code`), stack frames without variables or source lines, the user `id`, trace ids, short tag values, the runtime contexts, and
+  breadcrumb type / category / level.
+- **Dropped:** exception values, messages and `logentry`, `request`, `extra`, free-text contexts (for example `llm.providerError`), user
+  fields other than `id`, the transaction name, the fingerprint, and every console breadcrumb. The event is rebuilt from an allowlist, so
+  a field the SDK adds later is dropped until it is added to the list. `sendDefaultPii` is `false`.
+- **What can break:** anything that reads exception messages in Sentry (alerts, issue rules, saved searches on message text) sees the
+  class name and `error_code` instead. Group and search by those.
+- **Tracing and logs stay off.** `tracesSampleRate`, `tracesSampler` and `enableLogs` are not set. `beforeSendTransaction` and
+  `beforeSendLog` drop everything, and `traceLifecycle` is `'static'`: with `@sentry/bun` 11.10 the default (`'stream'`) ignores
+  `beforeSendTransaction` and sends spans carrying the segment name and the user's email, name and IP address.
+- Noise events (`MISSING_ENV_FILE`, deprecation warnings, ...) are still dropped; they are matched before any text is removed.
+
 ## OpenRouter: every request carries `provider.data_collection: 'deny'`
 
 Every request this library sends to OpenRouter now has `provider.data_collection` set to `'deny'`, which keeps the request away from
