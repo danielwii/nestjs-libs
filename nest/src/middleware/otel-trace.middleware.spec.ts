@@ -209,7 +209,7 @@ describe('otelTraceMiddleware span name (real Nest app, real tracer provider)', 
   it('names the span after the route template once the route is matched', () => {
     const { statuses, spans } = output();
 
-    expect(statuses).toEqual([200, 401, 404, 404]);
+    expect(statuses).toEqual([200, 401, 404, 404, 404]);
     expect(spans.map((span) => span.name)).toEqual([
       'GET /api/invites/:token',
       // guard 拒绝：interceptor 没跑，finish 时改名
@@ -217,6 +217,7 @@ describe('otelTraceMiddleware span name (real Nest app, real tracer provider)', 
       // 未匹配（Nest 前缀下的 catch-all / 前缀外）：去掉查询串的路径
       'GET /api/unknown/segment',
       'GET /outside/segment',
+      'GET /api/members/:id',
     ]);
     expect(spans[0]?.attributes['http.route']).toBe('/api/invites/:token');
     expect(spans[0]?.attributes['http.status_code']).toBe(200);
@@ -235,5 +236,18 @@ describe('otelTraceMiddleware span name (real Nest app, real tracer provider)', 
     const everything = JSON.stringify({ spans, logs });
     expect(everything).not.toContain(PATH_TOKEN);
     expect(everything).not.toContain(QUERY_TOKEN);
+  });
+
+  it("writes Nest's route 404 to the log without the query string (AnyExceptionFilter)", () => {
+    const { logs } = output();
+
+    // Nest 抛的是 `Cannot GET /api/unknown/segment?token=…`；过滤器的 warning 写不带查询串的路径
+    const notFound = logs.filter((log) => log.message.includes('NotFoundException(404)'));
+    expect(notFound.map((log) => log.message.match(/Cannot GET \S+/)?.[0])).toContain(
+      'Cannot GET /api/unknown/segment',
+    );
+    expect(JSON.stringify(notFound)).not.toContain(QUERY_TOKEN);
+    // 应用自己抛的 404 不是 Nest 的路由 404：保留自己的文字
+    expect(notFound.some((log) => log.message.includes('Member not found'))).toBe(true);
   });
 });

@@ -1,15 +1,25 @@
 /**
- * Runs a real Nest app (Express adapter, global prefix) with otelTraceMiddleware, LoggerInterceptor and the LogTape
- * Nest logger under a real tracer provider, sends requests that carry a token in the path and the query string, and
+ * Runs a real Nest app (Express adapter, global prefix) with otelTraceMiddleware, LoggerInterceptor, AnyExceptionFilter and
+ * the LogTape Nest logger under a real tracer provider, sends requests that carry a token in the path and the query string, and
  * prints the exported spans and the `spanName` every log line was written with.
  *
  * A separate process because registering a global tracer provider would leak into every other spec in the run.
  */
 import 'reflect-metadata';
 
-import { Controller, Get, Logger, Module, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Logger,
+  Module,
+  NotFoundException,
+  Post,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 
+import { AnyExceptionFilter } from '@app/nest/exceptions/any-exception.filter';
 import { LoggerInterceptor } from '@app/nest/interceptors/logger.interceptor';
 import { LogtapeNestLogger } from '@app/nest/logging/nest-logger';
 
@@ -59,6 +69,11 @@ class InviteController {
     return { ok: true };
   }
 
+  @Get('members/:id')
+  member(): never {
+    throw new NotFoundException('Member not found');
+  }
+
   @Post('members/:token/withdraw-invite')
   @UseGuards(RejectingGuard)
   withdraw(): { ok: boolean } {
@@ -73,6 +88,8 @@ const app = await NestFactory.create(FixtureModule, { logger: new LogtapeNestLog
 app.setGlobalPrefix('api');
 app.use(otelTraceMiddleware);
 app.useGlobalInterceptors(new LoggerInterceptor());
+// as bootstrap does in api mode: the filter logs a 404 for an unknown path at warning level
+app.useGlobalFilters(new AnyExceptionFilter(app));
 await app.listen(0, '127.0.0.1');
 const baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
 
@@ -82,6 +99,7 @@ const requests: Array<[string, string]> = [
   ['POST', `/api/members/${pathToken}/withdraw-invite?token=${queryToken}`],
   ['GET', `/api/unknown/segment?token=${queryToken}`],
   ['GET', `/outside/segment?token=${queryToken}`],
+  ['GET', `/api/members/m_1?token=${queryToken}`],
 ];
 for (const [method, path] of requests) {
   const response = await fetch(`${baseUrl}${path}`, { method });

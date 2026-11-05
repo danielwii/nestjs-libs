@@ -1,9 +1,10 @@
-import { HttpStatus } from '@nestjs/common';
+import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { SysEnv } from '@app/env';
 import { ApiRes } from '@app/nest/common/response';
 import { ErrorCodes } from '@app/nest/exceptions/error-codes';
+import { requestRouteForLog } from '@app/nest/interceptors/log-redaction';
 import { getAppLogger } from '@app/utils/app-logger';
 import { getErrorMessage, getErrorName } from '@app/utils/error';
 
@@ -66,6 +67,18 @@ export function clientAddr(req?: { ip?: string; headers?: unknown }): string {
   parts.push(`xff=${xff ?? '-'}`);
   if (cf && cf !== ip) parts.push(`cf=${cf}`);
   return parts.join(' ');
+}
+
+/**
+ * 路由 404 的日志文字。Nest 对没有路由匹配的路径抛 `NotFoundException(`Cannot ${method} ${originalUrl}`)`（@nestjs/core
+ * routes-resolver 的 registerNotFoundHandler；router-explorer 里绑了 host 的路由也一样），文字带查询串，查询串里可能是凭证
+ * （`?token=…`）。日志里按请求日志的同一规则写路径（`requestRouteForLog`：没匹配到路由就是不带查询串的路径），响应体照旧是 Nest 的原文。
+ * 只认结构：`NotFoundException` 且文字恰好等于 Nest 用这个请求拼出来的那句；应用自己抛的 404 保留自己的文字。
+ */
+function routeNotFoundLogMessage(exception: unknown, request: IdentityRequest | undefined): string | undefined {
+  if (!(exception instanceof NotFoundException) || request === undefined) return undefined;
+  if (getErrorMessage(exception) !== `Cannot ${request.method} ${request.originalUrl ?? request.url}`) return undefined;
+  return `Cannot ${request.method} ${requestRouteForLog(request)}`;
 }
 
 /**
@@ -337,12 +350,12 @@ export class AnyExceptionFilter implements ExceptionFilter {
       ? `<GraphqlRequest> (${request?.user?.uid})[${clientAddr(request)}]`
       : `(${request?.user?.uid})[${clientAddr(request)}]`;
     const name = getErrorName(exception);
+    const message = (isGraphql ? undefined : routeNotFoundLogMessage(exception, request)) ?? descriptor.message;
 
     if (descriptor.logLevel === 'error') {
-      this.logger
-        .error`${tag} ${name}(${descriptor.httpStatus}) ${descriptor.message} code=${descriptor.code} ${exception}`;
+      this.logger.error`${tag} ${name}(${descriptor.httpStatus}) ${message} code=${descriptor.code} ${exception}`;
     } else {
-      this.logger.warning`${tag} ${name}(${descriptor.httpStatus}) ${descriptor.message} code=${descriptor.code}`;
+      this.logger.warning`${tag} ${name}(${descriptor.httpStatus}) ${message} code=${descriptor.code}`;
     }
   }
 

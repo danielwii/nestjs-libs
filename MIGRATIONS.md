@@ -17,6 +17,9 @@ the request carried that span name as `spanName`. They now write the route Expre
   `LoggerInterceptor` runs and again when the response finishes, which also sets `http.route` for a matched route. Log lines written
   before the interceptor (middleware, guards) carry `spanName=POST`. A span someone else created (Sentry, `HttpInstrumentation`) is not
   renamed. Dashboards or queries that filter on a raw path in the access log or in `spanName` need the template instead.
+- **`AnyExceptionFilter`:** the warning for a path no route matches (Nest throws `Cannot GET <url>`, query string included) is
+  logged as `Cannot GET <path without the query string>`. The response body keeps Nest's message, and a 404 thrown by application code
+  keeps its own text.
 
 ## Sentry: events carry structure only
 
