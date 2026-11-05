@@ -66,6 +66,43 @@ describe('LLMBatch (Generic OpenRouter Batch SDK)', () => {
       expect(res.status).toBe('validating');
     });
 
+    it('writes data_collection deny into the body of every request in the batch, over a value the caller wrote', async () => {
+      let capturedInit: RequestInit | undefined;
+      (ApiFetcher as unknown as { fetch: typeof fetch }).fetch = (async (_url, init) => {
+        capturedInit = init;
+        return new Response(
+          JSON.stringify({
+            id: 'batch_deny',
+            endpoint: '/v1/chat/completions',
+            model: 'openai/gpt-6-sol',
+            status: 'validating',
+            created_at: 1790100000,
+            request_counts: { total: 2, completed: 0, failed: 0 },
+          }),
+          { status: 202, headers: { 'Content-Type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      await LLMBatch.create({
+        model: 'openrouter:gpt-6-sol',
+        requests: [
+          {
+            custom_id: 'req-1',
+            body: {
+              messages: [{ role: 'user', content: 'hello' }],
+              provider: { data_collection: 'allow', order: ['openai'] },
+            },
+          },
+          { custom_id: 'req-2', body: { messages: [{ role: 'user', content: 'world' }] } },
+        ],
+      });
+
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.requests).toHaveLength(2);
+      expect(body.requests[0]?.body.provider).toEqual({ data_collection: 'deny', order: ['openai'] });
+      expect(body.requests[1]?.body.provider).toEqual({ data_collection: 'deny' });
+    });
+
     it('M2: rejects duplicate custom_id in the same batch with Oops.Validation before HTTP call', async () => {
       let httpCalled = false;
       (ApiFetcher as unknown as { fetch: unknown }).fetch = (async () => {

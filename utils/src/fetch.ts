@@ -1,5 +1,6 @@
 import { SysEnv } from '@app/env';
 import { getAppLogger } from '@app/utils/app-logger';
+import { openRouterDeniedInit } from '@app/utils/openrouter-deny';
 
 // 代理配置：启动时读取一次，与 SysEnv 保持单一来源
 const proxyUrl = SysEnv.APP_PROXY_ENABLED ? `${SysEnv.APP_PROXY_HOST}:${SysEnv.APP_PROXY_PORT}` : '';
@@ -27,7 +28,10 @@ export function urlForLog(url: string): string {
 export class ApiFetcher {
   private static readonly logger = getAppLogger('ApiFetcher');
 
-  static fetch = (async (url: string | URL | Request, options?: RequestInit): Promise<Response> => {
+  static fetch = (async (url: string | URL | Request, callerOptions?: RequestInit): Promise<Response> => {
+    // A request to OpenRouter always carries data_collection: 'deny' (owner decision 2026-11-05; see
+    // openrouter-deny.ts). It is applied first so the logged body length and the Grok check below read the body that is sent.
+    const options = openRouterDeniedInit(url, callerOptions);
     const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
     const method = options?.method ?? 'GET';
     const bodyLength = options?.body
@@ -119,4 +123,19 @@ export class ApiFetcher {
       });
     }
   }
+}
+
+/** The only place in this library that holds the OpenRouter API address; callers pass the path that follows it. */
+const OPENROUTER_API_BASE = 'https://openrouter.ai/api/v1';
+
+/**
+ * Sends a request to the OpenRouter API through {@link ApiFetcher.fetch}: proxy, debug log and
+ * `provider.data_collection: 'deny'` included. For code that cannot go through the AI SDK provider (a streamed upload,
+ * an audio request); the address is not exported on purpose, so that a request cannot be sent to it by another route
+ * and miss the deny (owner decision 2026-11-05).
+ *
+ * @example openRouterFetch('/chat/completions', { method: 'POST', headers, body: JSON.stringify(payload) })
+ */
+export function openRouterFetch(path: `/${string}`, init?: RequestInit): Promise<Response> {
+  return ApiFetcher.fetch(`${OPENROUTER_API_BASE}${path}`, init);
 }

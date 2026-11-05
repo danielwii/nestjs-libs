@@ -1,5 +1,39 @@
 # Migrations
 
+## Sentry: events carry structure only
+
+`instrument.ts` now initialises Sentry with `sentryStructureOptions()` (`sentry-structure.ts`). Nothing a caller can set turns it off.
+
+- **Kept:** exception class names along the `cause` chain, an error code that passed a shape check (`Oops` combined code, or a plain
+  error's `code`), stack frames without variables or source lines, the user `id`, trace ids, short tag values, the runtime contexts, and
+  breadcrumb type / category / level.
+- **Dropped:** exception values, messages and `logentry`, `request`, `extra`, free-text contexts (for example `llm.providerError`), keys the SDK does not fill inside the kept contexts (`runtime`, `os`, `device`, `app`, `culture`, `cloud_resource`, `trace` keep a fixed list of keys and primitive values), user
+  fields other than `id`, the transaction name, the fingerprint, and every console breadcrumb. The event is rebuilt from an allowlist, so
+  a field the SDK adds later is dropped until it is added to the list. `sendDefaultPii` is `false`.
+- **What can break:** anything that reads exception messages in Sentry (alerts, issue rules, saved searches on message text) sees the
+  class name and `error_code` instead. Group and search by those.
+- **Tracing and logs stay off.** `tracesSampleRate`, `tracesSampler` and `enableLogs` are not set. `beforeSendTransaction` and
+  `beforeSendLog` drop everything, and `traceLifecycle` is `'static'`: with `@sentry/bun` 11.10 the default (`'stream'`) ignores
+  `beforeSendTransaction` and sends spans carrying the segment name and the user's email, name and IP address.
+- Noise events (`MISSING_ENV_FILE`, deprecation warnings, ...) are still dropped; they are matched before any text is removed.
+
+## OpenRouter: every request carries `provider.data_collection: 'deny'`
+
+Every request this library sends to OpenRouter now has `provider.data_collection` set to `'deny'`, which keeps the request away from
+providers that may train on it. It is written once, at the lowest layer: `ApiFetcher.fetch` (and so `getOpenRouter()`) and the `fetch` that
+`createOpenRouterClient` gives the AI SDK provider (a `customFetch` is wrapped too). A value the caller wrote, from `providerOptions`,
+the model settings or `extraBody`, is overwritten; other `provider` keys such as `order` are kept.
+
+- **What can break:** a model that has no provider satisfying the policy is rejected by OpenRouter. Check each model you use before you
+  upgrade. A caller that wrote `data_collection: 'allow'` no longer gets it.
+- **There is no switch.** An application that needs another data policy does not use this layer and writes its own client.
+- **New exports** for code that cannot go through the AI SDK provider: `openRouterFetch(path, init)` (`@app/utils/fetch`) sends to the
+  OpenRouter API through `ApiFetcher.fetch` (the API address is not exported), and `applyOpenRouterDeny(body)` (`@app/utils/openrouter-deny`)
+  applies the policy to a body object, for a caller that streams its own body.
+- **Not rewritten:** a body that is not a JSON-object string (a stream, `FormData`, bytes) and a `Request` object passed as the first
+  argument are sent as they are. `LLMBatch.create` writes the field into the body of every request in the batch (the envelope gets it too, from `ApiFetcher.fetch`).
+- **Batch envelope:** a request to `/batches` also carries the top-level `provider` field. This has not been checked against the real batch API; before the first use of `LLMBatch` in an application, submit one real batch and confirm it is accepted.
+
 ## Api-mode security response headers: the default policy is tightened
 
 In `api` mode `bootstrap` now sends, by default, the header set meant for API responses:
