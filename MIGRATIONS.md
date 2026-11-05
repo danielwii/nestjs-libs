@@ -32,6 +32,7 @@ the model settings or `extraBody`, is overwritten; other `provider` keys such as
   applies the policy to a body object, for a caller that streams its own body.
 - **Not rewritten:** a body that is not a JSON-object string (a stream, `FormData`, bytes) and a `Request` object passed as the first
   argument are sent as they are. `LLMBatch.create` writes the field into the body of every request in the batch (the envelope gets it too, from `ApiFetcher.fetch`).
+- **Batch envelope:** a request to `/batches` also carries the top-level `provider` field. This has not been checked against the real batch API; before the first use of `LLMBatch` in an application, submit one real batch and confirm it is accepted.
 
 ## Api-mode security response headers: the default policy is tightened
 
