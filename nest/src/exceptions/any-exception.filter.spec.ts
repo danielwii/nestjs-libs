@@ -429,6 +429,15 @@ describe('AnyExceptionFilter', () => {
       expect(response.status).toHaveBeenCalledWith(500);
     });
 
+    it('unknown Error 不把原始报文回给客户端', async () => {
+      const { host, response } = createHttpHost();
+
+      await filter.catch(new TypeError("Cannot read properties of undefined (reading 'trim')"), host);
+
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(response._body).toEqual({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Internal server error' });
+    });
+
     it('unknown Error 即使伪造 status 也仍为 500 + Sentry', async () => {
       const scopedFilter = new AnyExceptionFilter();
       const captureExceptionBySentry = mock(() => undefined);
@@ -439,7 +448,7 @@ describe('AnyExceptionFilter', () => {
       await scopedFilter.catch(exception, host);
 
       expect(response.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-      expect(response._body).toEqual({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'forged status' });
+      expect(response._body).toEqual({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Internal server error' });
       expect(captureExceptionBySentry).toHaveBeenCalledTimes(1);
       expect(captureExceptionBySentry).toHaveBeenCalledWith(exception, host);
     });
@@ -671,8 +680,8 @@ describe('AnyExceptionFilter', () => {
         const gqlError = e as GraphQLError;
         expect(gqlError.extensions.httpStatus).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
         expect(gqlError.extensions.code).toBe(ErrorCodes.SYSTEM_INTERNAL_ERROR);
-        expect(gqlError.extensions.userMessage).toBe('unexpected graphql error');
-        expect(gqlError.message).toBe('unexpected graphql error');
+        expect(gqlError.extensions.userMessage).toBe('Internal server error');
+        expect(gqlError.message).toBe('Internal server error');
       }
     });
   });
