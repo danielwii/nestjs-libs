@@ -5,7 +5,8 @@ import { OopsError } from '@app/nest/exceptions/oops-error';
 import { RequestContext } from '@app/nest/trace/request-context';
 import { getAppLogger } from '@app/utils/app-logger';
 
-import { normalizeHeadersForLog, normalizePayloadForLog } from './log-redaction';
+import { nameOwnServerSpanByRoute } from '../middleware/otel-trace.middleware';
+import { normalizeHeadersForLog, normalizePayloadForLog, requestRouteForLog } from './log-redaction';
 
 import { context, trace } from '@opentelemetry/api';
 import * as _ from 'radash';
@@ -147,6 +148,11 @@ export class LoggerInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    // 到这里 Express 已匹配路由：日志和 span 名都用路由模板，不用原始 URL（路径段 / 查询串可能带凭据，
+    // 见 requestRouteForLog）。先给 otelTraceMiddleware 自建的 span 改名，handler 里的日志 spanName 才带模板。
+    const route = requestRouteForLog(req);
+    nameOwnServerSpanByRoute(req);
+
     const body = this.payloadForLog(req.body ?? {});
     // 获取客户端真实 IP：优先使用 Cloudflare cf-connecting-ip，其次 x-forwarded-for，最后 req.ip
     const cfConnectingIp = req.headers['cf-connecting-ip'];
@@ -157,10 +163,11 @@ export class LoggerInterceptor implements NestInterceptor {
     // CF-Ray 用于 Cloudflare 日志追踪
     const cfRay = req.headers['cf-ray'];
     const info = {
-      path: req.url,
+      // 路由模板（未匹配时为去掉查询串的路径）；路径参数的值不写，参数名已在模板里
+      path: route,
       body,
-      query: req.query,
-      params: req.params,
+      // 查询串只写参数名，值可能是凭据
+      queryKeys: Object.keys(req.query),
       headers: normalizeHeadersForLog(req.headers),
       /*
             raw: req.raw,
@@ -194,7 +201,7 @@ export class LoggerInterceptor implements NestInterceptor {
     return RequestContext.run({ traceId, userId: userIdFromRequest ?? null }, () => {
       if (!isHealthCheck) {
         this.logger
-          .debug`-> ${TAG} call... ip=${ipAddress} cfRay=${cfRay} ${req.method} ${req.url} ua=${req.headers['user-agent']}`;
+          .debug`-> ${TAG} call... ip=${ipAddress} cfRay=${cfRay} ${req.method} ${route} ua=${req.headers['user-agent']}`;
       }
 
       const now = Date.now();

@@ -7,8 +7,12 @@
  * 2. traceId 格式合法（W3C 32 字符 hex）
  * 3. 健康检查路径：不建 span 也不写 header（next 直接调用）
  * 4. Sentry 模式（SENTRY_DSN 已配置）：不自建 span，读取 active span（Sentry 建的）后写 header
+ * 5. span 名与请求内日志的 spanName 用路由模板，不带原始 URL 里的 token / 查询串（真实 Nest app，子进程跑）
  */
 import { otelTraceMiddleware } from './otel-trace.middleware';
+
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
@@ -177,5 +181,73 @@ describe('otelTraceMiddleware', () => {
       expect(next).toHaveBeenCalled();
       expect(res.setHeader).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('otelTraceMiddleware span name (real Nest app, real tracer provider)', () => {
+  // A credential in a path segment (calo's 32-hex invite token) and another in the query string.
+  const PATH_TOKEN = '5f0c2a9e8d7b46c1a3e2f1d0c9b8a7e6';
+  const QUERY_TOKEN = 'b1c2d3e4f5a6978877665544332211ff';
+
+  interface FixtureOutput {
+    statuses: number[];
+    spans: Array<{ name: string; attributes: Record<string, unknown> }>;
+    logs: Array<{ message: string; spanName?: string }>;
+  }
+
+  // 子进程：注册全局 tracer provider 会污染同一进程里的其它 spec
+  const result = spawnSync(
+    process.execPath,
+    [join(import.meta.dir, 'otel-trace.middleware.fixture.ts'), PATH_TOKEN, QUERY_TOKEN],
+    { cwd: join(import.meta.dir, '../../..'), encoding: 'utf8' },
+  );
+  const output = (): FixtureOutput => {
+    expect(result.status).toBe(0);
+    return JSON.parse(result.stdout.trim()) as FixtureOutput;
+  };
+
+  it('names the span after the route template once the route is matched', () => {
+    const { statuses, spans } = output();
+
+    expect(statuses).toEqual([200, 401, 404, 404, 404]);
+    expect(spans.map((span) => span.name)).toEqual([
+      'GET /api/invites/:token',
+      // guard 拒绝：interceptor 没跑，finish 时改名
+      'POST /api/members/:token/withdraw-invite',
+      // 未匹配（Nest 前缀下的 catch-all / 前缀外）：去掉查询串的路径
+      'GET /api/unknown/segment',
+      'GET /outside/segment',
+      'GET /api/members/:id',
+    ]);
+    expect(spans[0]?.attributes['http.route']).toBe('/api/invites/:token');
+    expect(spans[0]?.attributes['http.status_code']).toBe(200);
+    expect(spans[2]?.attributes['http.route']).toBeUndefined();
+  });
+
+  it('keeps the token in the path and the query string out of span names, attributes and log spanName', () => {
+    const { spans, logs } = output();
+
+    const handlerLog = logs.find((log) => log.message === 'handler ran');
+    expect(handlerLog?.spanName).toBe('GET /api/invites/:token');
+    // guard 先于 interceptor：路由模板还没写进 span，只有 method
+    const guardLog = logs.find((log) => log.message === 'guard ran');
+    expect(guardLog?.spanName).toBe('POST');
+
+    const everything = JSON.stringify({ spans, logs });
+    expect(everything).not.toContain(PATH_TOKEN);
+    expect(everything).not.toContain(QUERY_TOKEN);
+  });
+
+  it("writes Nest's route 404 to the log without the query string (AnyExceptionFilter)", () => {
+    const { logs } = output();
+
+    // Nest 抛的是 `Cannot GET /api/unknown/segment?token=…`；过滤器的 warning 写不带查询串的路径
+    const notFound = logs.filter((log) => log.message.includes('NotFoundException(404)'));
+    expect(notFound.map((log) => log.message.match(/Cannot GET \S+/)?.[0])).toContain(
+      'Cannot GET /api/unknown/segment',
+    );
+    expect(JSON.stringify(notFound)).not.toContain(QUERY_TOKEN);
+    // 应用自己抛的 404 不是 Nest 的路由 404：保留自己的文字
+    expect(notFound.some((log) => log.message.includes('Member not found'))).toBe(true);
   });
 });

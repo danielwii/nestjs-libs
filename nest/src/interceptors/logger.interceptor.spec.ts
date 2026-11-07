@@ -181,3 +181,80 @@ describe('LoggerInterceptor request-entry payload log', () => {
     expect(logged()).not.toContain(PROBE);
   });
 });
+
+describe('LoggerInterceptor request path in logs', () => {
+  // A credential in a path segment (calo's 32-hex invite token) and another in the query string.
+  const PATH_TOKEN = '5f0c2a9e8d7b46c1a3e2f1d0c9b8a7e6';
+  const QUERY_TOKEN = 'b1c2d3e4f5a6978877665544332211ff';
+  let records: LogRecord[] = [];
+
+  beforeEach(async () => {
+    records = [];
+    await configure({
+      reset: true,
+      sinks: { memory: (record) => void (record.category[0] !== 'logtape' && records.push(record)) },
+      loggers: [{ category: [], sinks: ['memory'], lowestLevel: 'debug' }],
+    });
+  });
+
+  afterEach(async () => {
+    await reset();
+  });
+
+  const logged = () => JSON.stringify(records.map((record) => [record.message, record.properties]));
+
+  /** An Express request as the interceptor sees it: routing has already run, so `route` is set when a route matched. */
+  function invitesContext(route: { path: string } | undefined): ExecutionContext {
+    const req = {
+      url: `/api/invites/${PATH_TOKEN}?token=${QUERY_TOKEN}`,
+      originalUrl: `/api/invites/${PATH_TOKEN}?token=${QUERY_TOKEN}`,
+      baseUrl: '',
+      path: `/api/invites/${PATH_TOKEN}`,
+      route,
+      method: 'GET',
+      body: {},
+      query: { token: QUERY_TOKEN },
+      params: route ? { token: PATH_TOKEN } : {},
+      headers: {},
+      ips: [],
+      hostname: 'localhost',
+    };
+    return {
+      getType: () => 'http',
+      getClass: () => FixtureController,
+      getHandler: () => FixtureController.prototype.handle,
+      switchToHttp: () => ({ getRequest: () => req }),
+    } as unknown as ExecutionContext;
+  }
+
+  const failing: CallHandler = { handle: () => throwError(() => new Error('fixture failure')) };
+
+  it('writes the route template, not the token in the path, in the entry and the failure log', async () => {
+    await expect(
+      lastValueFrom(await new LoggerInterceptor().intercept(invitesContext({ path: '/api/invites/:token' }), failing)),
+    ).rejects.toThrow('fixture failure');
+
+    const entry = records.find((record) => record.message.map(String).join('').includes('call...'));
+    expect(entry?.message.map(String).join('')).toContain('GET /api/invites/:token');
+    expect(logged()).toContain('"path":"/api/invites/:token"');
+    expect(logged()).not.toContain(PATH_TOKEN);
+  });
+
+  it('writes query parameter names but never their values', async () => {
+    await expect(
+      lastValueFrom(await new LoggerInterceptor().intercept(invitesContext({ path: '/api/invites/:token' }), failing)),
+    ).rejects.toThrow('fixture failure');
+
+    expect(logged()).toContain('"queryKeys":["token"]');
+    expect(logged()).not.toContain(QUERY_TOKEN);
+  });
+
+  it('writes the path without its query string when no route matched', async () => {
+    await expect(
+      lastValueFrom(await new LoggerInterceptor().intercept(invitesContext(undefined), failing)),
+    ).rejects.toThrow('fixture failure');
+
+    expect(logged()).toContain(`"path":"/api/invites/${PATH_TOKEN}"`);
+    expect(logged()).not.toContain(QUERY_TOKEN);
+  });
+});

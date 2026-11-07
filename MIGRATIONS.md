@@ -1,5 +1,26 @@
 # Migrations
 
+## Access log, request log and HTTP span names write the route template, not the raw URL
+
+A request path can carry a credential in a segment (`/api/invites/<token>`) or in the query string (`?token=…`). The api-mode access
+log, `LoggerInterceptor` and the SERVER span `otelTraceMiddleware` creates used to copy the raw URL, and every log line written inside
+the request carried that span name as `spanName`. They now write the route Express matched (`requestRouteForLog` in
+`@app/nest/interceptors/log-redaction`); when no route matched, the path without its query string. A catch-all route (Nest's
+`*path` handler for unknown paths under the global prefix) counts as no match.
+
+- **Access log (morgan):** the request line is `":method :route HTTP/…"` instead of `":method :url HTTP/…"`, so
+  `GET /api/invites/:token` instead of `GET /api/invites/5f0c…?token=…`. The rest of the line is unchanged. The format and the `xff`
+  token moved to `createAccessLogMiddleware` in `@app/nest/boot/access-log`.
+- **`LoggerInterceptor`:** `path` is the route template, `query` is replaced by `queryKeys` (parameter names only) and `params` is gone
+  (its names are in the template). The `-> … call...` debug line writes the template too.
+- **Span name:** the span `otelTraceMiddleware` creates starts as the method alone (`POST`) and is renamed to `{method} {route}` when
+  `LoggerInterceptor` runs and again when the response finishes, which also sets `http.route` for a matched route. Log lines written
+  before the interceptor (middleware, guards) carry `spanName=POST`. A span someone else created (Sentry, `HttpInstrumentation`) is not
+  renamed. Dashboards or queries that filter on a raw path in the access log or in `spanName` need the template instead.
+- **`AnyExceptionFilter`:** the warning for a path no route matches (Nest throws `Cannot GET <url>`, query string included) is
+  logged as `Cannot GET <path without the query string>`. The response body keeps Nest's message, and a 404 thrown by application code
+  keeps its own text.
+
 ## Sentry: events carry structure only
 
 `instrument.ts` now initialises Sentry with `sentryStructureOptions()` (`sentry-structure.ts`). Nothing a caller can set turns it off.
