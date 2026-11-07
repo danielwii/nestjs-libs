@@ -120,6 +120,17 @@ export function clientAddr(req?: { ip?: string; headers?: unknown }): string {
  */
 const GRPC_STATUS_INTERNAL = 13;
 
+/**
+ * 未识别异常回给客户端的固定文案。
+ *
+ * 走到兜底分支的异常没有任何一方为它写过对外文案：它的 message 是运行时自己的话
+ * （`Cannot read properties of undefined (reading 'trim')`、驱动报文、内部 URL……），
+ * 原样回给客户端等于把代码结构和依赖交给探测者（2026-11 CASA 带登录 DAST 在 prod 上
+ * 就是这样读到的）。想让用户看到具体原因的异常应当抛 `Oops.*` 或 HttpException。
+ * 原始报文与 stack 照旧进日志和 Sentry。
+ */
+export const UNKNOWN_ERROR_PUBLIC_MESSAGE = 'Internal server error';
+
 export class AnyExceptionFilter implements ExceptionFilter {
   private readonly logger = getAppLogger('AnyExceptionFilter');
   private i18nService: II18nService | null = null;
@@ -198,16 +209,15 @@ export class AnyExceptionFilter implements ExceptionFilter {
         });
       }
 
-      // 未识别异常：兜底 500 + Sentry
+      // 未识别异常：兜底 500 + Sentry。原始报文只进日志，见 UNKNOWN_ERROR_PUBLIC_MESSAGE。
       this.captureExceptionBySentry(exception, host);
-      const fallbackMessage = getErrorMessage(exception) || 'Internal server error';
       this.logger
-        .error`<GraphqlRequest> (${request?.user?.uid})[${clientAddr(request)}] ${getErrorName(exception)} ${fallbackMessage} ${exception}`;
-      throw new GraphQLError(fallbackMessage, {
+        .error`<GraphqlRequest> (${request?.user?.uid})[${clientAddr(request)}] ${getErrorName(exception)} ${getErrorMessage(exception)} ${exception}`;
+      throw new GraphQLError(UNKNOWN_ERROR_PUBLIC_MESSAGE, {
         extensions: {
           code: ErrorCodes.SYSTEM_INTERNAL_ERROR,
           httpStatus: HttpStatus.INTERNAL_SERVER_ERROR,
-          userMessage: fallbackMessage,
+          userMessage: UNKNOWN_ERROR_PUBLIC_MESSAGE,
         },
       });
     }
@@ -289,9 +299,8 @@ export class AnyExceptionFilter implements ExceptionFilter {
     // anything reaching this branch must fail closed as 500 even if a raw or
     // forged object happens to expose a numeric `status` field.
     const status = HttpStatus.INTERNAL_SERVER_ERROR;
-    const message = getErrorMessage(exception);
 
-    this.respond(response, status, { statusCode: status, message }, request);
+    this.respond(response, status, { statusCode: status, message: UNKNOWN_ERROR_PUBLIC_MESSAGE }, request);
   }
 
   /**
