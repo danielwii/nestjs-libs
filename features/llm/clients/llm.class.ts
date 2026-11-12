@@ -36,8 +36,7 @@ import { ApiFetcher } from '@app/utils/fetch';
 
 import { getTypeSafeClient } from '../../typesafe/client';
 import { classifyTypeSafeError } from '../../typesafe/errors';
-import { executeDecisions } from '../decisions/decisions.client';
-import { classifyOpenAIDecisionsError } from '../decisions/decisions.errors';
+import { classifyDecideError, executeDecide } from '../decide';
 import { llmCaptureSchema } from '../schemas/capture.schema';
 import { EMBEDDING_MODELS } from '../types/embedding.types';
 import {
@@ -79,7 +78,7 @@ import {
 import { ResultAsync } from 'neverthrow';
 import { z } from 'zod';
 
-import type { DecisionQuestion, DecisionRequest, DecisionResult } from '../decisions/decisions.types';
+import type { DecideParams, DecideResult, DecisionModelKey, DecisionQuestions } from '../decide';
 import type { EmbeddingModel, EmbeddingModelKey, EmbeddingProvider, EmbeddingTaskType } from '../types/embedding.types';
 import type {
   BedrockModelOptions,
@@ -2637,8 +2636,7 @@ export class LLM {
   /**
    * TypeSafe System One (Jev) 原生決策客戶端
    *
-   * 專用於調用 TypeSafe Jev 模型（`jev-latest` / `jev-preview`），
-   * 與 OpenAI Decisions (`LLM.decisions`) 保持獨立實現與各自原生契約。
+   * @deprecated Prefer `LLM.decide({ model: 'typesafe:jev-1.14.0', ... })` or `LLM.safeDecide(...)`.
    */
   static async systemOne<const Q extends Questions>(
     params: SystemOneRequest<Q> & {
@@ -2675,46 +2673,52 @@ export class LLM {
   }
 
   /**
-   * OpenAI Decisions API (gpt-6-luna) 原生決策客戶端
+   * Polymorphic System-1 Decision Models (`typesafe:*` | `google:*` | `openai:*`) — Safe `ResultAsync` entry
    *
-   * 支援純文字與多模態圖片 (inline base64 Data URL) 輸入，
-   * 具備零生成 Token (output_tokens: 0) 與超低延遲特性 (~150ms)。
-   *
-   * @see https://developers.openai.com/api/docs/guides/decisions
+   * Compiles `D.noul`, `D.choice`, `D.score`, `D.box` and multimodal inputs (`D.text`, `D.image`,
+   * `D.pdf`, `D.audio`, `D.video`, `D.fileUri`) into provider-native wire calls with zero output tokens.
    */
-  static async decisions<const Q extends readonly DecisionQuestion[] = readonly DecisionQuestion[]>(
-    params: DecisionRequest<Q> & {
-      id?: string;
-      timeout?: number;
-      abortSignal?: AbortSignal;
-      apiKey?: string;
-      baseUrl?: string;
-    },
-  ): Promise<DecisionResult<Q>> {
-    const { id = `decisions-${Date.now()}`, timeout, abortSignal, apiKey, baseUrl, ...request } = params;
-    const model = request.model ?? 'gpt-6-luna';
-    const modelKey = `openai:${model}`;
-    const startTime = Date.now();
+  static safeDecide<const M extends DecisionModelKey, const Q extends DecisionQuestions<M>>(
+    params: DecideParams<M, Q>,
+  ): ResultAsync<DecideResult<Q>, OopsError> {
+    return ResultAsync.fromPromise(
+      (async () => {
+        const { id, model: modelKey, timeout, abortSignal } = params;
+        const startTime = Date.now();
+        const questionNames = Object.keys(params.questions).join(',');
 
-    const questionNames = request.questions.map((q) => q.name).join(',');
-    LLM.logger.debug`[LLM:input] id=${id}, method=decisions, questions=[${questionNames}]`;
-    LLM.logStart(id, 'decisions', modelKey);
+        LLM.logger.debug`[LLM:input] id=${id}, method=decide, model=${modelKey}, questions=[${questionNames}]`;
+        LLM.logStart(id, 'decide', modelKey);
 
-    const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
-    try {
-      const result = await executeDecisions(request, { signal, apiKey, baseUrl });
-      cleanup();
-      LLM.logEnd(id, 'decisions', `openai:${result.model}`, startTime, {
-        inputTokens: result.usage.input_tokens,
-        outputTokens: result.usage.output_tokens,
-      });
-      return result;
-    } catch (error) {
-      cleanup();
-      const classified = classifyOpenAIDecisionsError(error, modelKey);
-      LLM.logError(id, 'decisions', modelKey, classified);
-      throw classified;
-    }
+        const { signal, cleanup } = createManagedSignal(timeout ?? SysEnv.AI_LLM_TIMEOUT_MS, abortSignal);
+        try {
+          const result = await executeDecide(params, signal);
+          cleanup();
+          LLM.logEnd(id, 'decide', modelKey, startTime, result.usage);
+          return result;
+        } catch (error) {
+          cleanup();
+          const classified = classifyDecideError(error, modelKey);
+          LLM.logError(id, 'decide', modelKey, classified);
+          throw classified;
+        }
+      })(),
+      (error) => classifyDecideError(error, params.model),
+    );
+  }
+
+  /**
+   * Polymorphic System-1 Decision Models (`typesafe:*` | `google:*` | `openai:*`)
+   */
+  static async decide<const M extends DecisionModelKey, const Q extends DecisionQuestions<M>>(
+    params: DecideParams<M, Q>,
+  ): Promise<DecideResult<Q>> {
+    return (await LLM.safeDecide(params)).match(
+      (value) => value,
+      (error) => {
+        throw error;
+      },
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────

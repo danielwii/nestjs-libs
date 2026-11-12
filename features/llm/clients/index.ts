@@ -44,6 +44,7 @@ export {
 
 // LLM 统一入口
 export { choice, noul, score } from '../../typesafe/questions';
+export { D } from '../decide';
 export { summarizeMessage, summarizeMessages } from '../utils/message-summary';
 export {
   LLM,
