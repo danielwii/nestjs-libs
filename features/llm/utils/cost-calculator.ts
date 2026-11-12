@@ -287,6 +287,68 @@ function getPricing(modelId: string, promptTokens: number): TokenPricing | null 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// System-1 决策模型定价表（与生成式 LLMModelRegistry 物理隔离，输出 Token 恒为 0）
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface DecisionModelPricing {
+  /** 每百万非缓存输入 token 价格（美元） */
+  input: number;
+  /** 每百万缓存命中输入 token 价格（美元，缺省与 input 相同） */
+  cachedInput?: number;
+}
+
+/**
+ * 闭集决策模型定价表（美元 / 百万输入 Token）
+ *
+ * - TypeSafe Jev (`jev-1.14.0` / `jev-latest`): $0.05 / 1M input
+ * - Google Gemini Decision 1 (`gemini-decision-1`): $0.06 / 1M input ($0.006 / 1M cached)
+ * - OpenAI Decisions API (`gpt-6-luna`): $0.10 / 1M input ($0.01 / 1M cached)
+ */
+const DECISION_MODEL_PRICING: Readonly<Record<string, DecisionModelPricing>> = {
+  'typesafe:jev-1.14.0': { input: 0.05 },
+  'typesafe:jev-latest': { input: 0.05 },
+  'typesafe:jev-preview': { input: 0.05 },
+  'jev-1.14.0': { input: 0.05 },
+  'jev-latest': { input: 0.05 },
+  'jev-preview': { input: 0.05 },
+  'google:gemini-decision-1': { input: 0.06, cachedInput: 0.006 },
+  'gemini-decision-1': { input: 0.06, cachedInput: 0.006 },
+  'openai:gpt-6-luna': { input: 0.1, cachedInput: 0.01 },
+  'gpt-6-luna': { input: 0.1, cachedInput: 0.01 },
+};
+
+function calculateDecisionModelCost(modelKey: string, promptTokens: number, cachedPromptTokens = 0): number | null {
+  const pricing = DECISION_MODEL_PRICING[modelKey];
+  if (!pricing) return null;
+
+  const totalInput = Math.max(0, promptTokens);
+  const cachedInput = Math.min(Math.max(0, cachedPromptTokens), totalInput);
+  const uncachedInput = Math.max(0, totalInput - cachedInput);
+  const cachedRate = pricing.cachedInput ?? pricing.input;
+
+  return (uncachedInput / 1_000_000) * pricing.input + (cachedInput / 1_000_000) * cachedRate;
+}
+
+function extractCachedInputTokens(usageObj: Record<string, unknown>): number {
+  const details = usageObj.inputTokenDetails as Record<string, unknown> | undefined;
+  if (details && typeof details.cacheReadTokens === 'number') {
+    return details.cacheReadTokens;
+  }
+  const snakeDetails = usageObj.input_tokens_details as Record<string, unknown> | undefined;
+  if (snakeDetails && typeof snakeDetails.cached_tokens === 'number') {
+    return snakeDetails.cached_tokens;
+  }
+  if (typeof usageObj.cached_content_token_count === 'number') {
+    return usageObj.cached_content_token_count;
+  }
+  if (typeof usageObj.cachedInputTokens === 'number') {
+    return usageObj.cachedInputTokens;
+  }
+  return 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 成本计算
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -294,6 +356,9 @@ function getPricing(modelId: string, promptTokens: number): TokenPricing | null 
  * 计算 LLM 调用成本（内部使用）
  */
 function calculateCost(modelId: string, promptTokens: number, completionTokens: number, multiplier = 1): number | null {
+  const decisionCost = calculateDecisionModelCost(modelId, promptTokens);
+  if (decisionCost !== null) return decisionCost * multiplier;
+
   const pricing = getPricing(modelId, promptTokens);
   if (!pricing) return null;
 
@@ -311,7 +376,11 @@ function calculateCostFromKey(
   promptTokens: number,
   completionTokens: number,
   context?: CostContext,
+  cachedPromptTokens = 0,
 ): number | null {
+  const decisionCost = calculateDecisionModelCost(modelKey, promptTokens, cachedPromptTokens);
+  if (decisionCost !== null) return decisionCost;
+
   // 不含 ':' 的当作裸 modelId 直接查表
   if (!modelKey.includes(':')) return calculateCost(modelKey, promptTokens, completionTokens);
 
@@ -360,14 +429,21 @@ export function getCostFromUsage(
         ? usageObj.inputTokens
         : typeof usageObj.promptTokens === 'number'
           ? usageObj.promptTokens
-          : 0;
+          : typeof usageObj.input_tokens === 'number'
+            ? usageObj.input_tokens
+            : typeof usageObj.prompt_token_count === 'number'
+              ? usageObj.prompt_token_count
+              : 0;
     const outputTokens =
       typeof usageObj.outputTokens === 'number'
         ? usageObj.outputTokens
         : typeof usageObj.completionTokens === 'number'
           ? usageObj.completionTokens
-          : 0;
-    return calculateCostFromKey(modelKey, inputTokens, outputTokens, context);
+          : typeof usageObj.output_tokens === 'number'
+            ? usageObj.output_tokens
+            : 0;
+    const cachedInputTokens = extractCachedInputTokens(usageObj);
+    return calculateCostFromKey(modelKey, inputTokens, outputTokens, context, cachedInputTokens);
   }
 
   return null;
