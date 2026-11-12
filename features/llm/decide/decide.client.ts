@@ -15,6 +15,7 @@ import { ApiFetcher } from '@app/utils/fetch';
 
 import { getTypeSafeApiKey } from '../../typesafe/api-key';
 import { getCostFromUsage } from '../utils/cost-calculator';
+import { DECISION_PART_BRAND } from './d';
 import { createDecisionSafetyBlockError, DecideHttpError, resolveDecisionProvider } from './decide.errors';
 
 import type { TokenUsage } from '../clients/llm.class';
@@ -30,6 +31,7 @@ import type {
   DecisionInput,
   DecisionInputPart,
   DecisionModelKey,
+  DecisionProvider,
   DecisionQuestionFor,
   DecisionQuestions,
   GoogleDecisionProviderOptions,
@@ -60,17 +62,44 @@ export function setDecideFetcherForTest(fetcher: DecideFetcher | null): void {
 // Shared Normalization & Compilation Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
+const ALLOWED_TEXT_PART_KEYS = new Set(['type', 'text', 'providerOptions']);
+const ALLOWED_FILE_PART_KEYS = new Set([
+  'type',
+  'mediaType',
+  'data',
+  'filename',
+  'fileUri',
+  'key',
+  'resolution',
+  'providerOptions',
+]);
+
+function isSingleDecisionInputPart(item: unknown): boolean {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return false;
+  }
+  if ((item as Record<symbol, unknown>)[DECISION_PART_BRAND] === true) {
+    return true;
+  }
+  const record = item as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (record.type === 'text') {
+    return typeof record.text === 'string' && keys.every((k) => ALLOWED_TEXT_PART_KEYS.has(k));
+  }
+  if (record.type === 'file') {
+    return (
+      typeof record.mediaType === 'string' &&
+      (('data' in record && record.data !== undefined) || typeof record.fileUri === 'string') &&
+      keys.every((k) => ALLOWED_FILE_PART_KEYS.has(k))
+    );
+  }
+  return false;
+}
+
 function isDecisionInputPartArray<M extends DecisionModelKey>(
   input: DecisionInput<M>,
 ): input is readonly DecisionInputPart<M>[] {
-  if (!Array.isArray(input) || input.length === 0) return false;
-  const first = input[0];
-  return (
-    typeof first === 'object' &&
-    first !== null &&
-    'type' in first &&
-    ((first as { type?: unknown }).type === 'text' || (first as { type?: unknown }).type === 'file')
-  );
+  return Array.isArray(input) && input.length > 0 && input.every(isSingleDecisionInputPart);
 }
 
 function toBase64(data: DataContent): string {
@@ -135,8 +164,7 @@ function computeChoiceAnswer<K extends string>(
 ): ChoiceAnswer<K> {
   const entries = Object.entries(probabilities) as Array<[K, number]>;
   const sortedProbs = entries.map(([, p]) => p).sort((a, b) => b - a);
-  const topProbability =
-    typeof probabilities[choiceKey] === 'number' ? probabilities[choiceKey] : (sortedProbs[0] ?? 0);
+  const topProbability = probabilities[choiceKey];
   const runnerUpProbability = sortedProbs[1] ?? 0;
   const margin = Number(Math.max(0, topProbability - runnerUpProbability).toFixed(12));
 
@@ -160,12 +188,20 @@ function computeScoreAnswer(score: number, probabilities: readonly number[]): Sc
   };
 }
 
-function normalizeScoreProbabilities(rawProbabilities: unknown, expectedLength: number): readonly number[] {
+function normalizeScoreProbabilities(
+  provider: DecisionProvider,
+  questionKey: string,
+  rawProbabilities: unknown,
+  expectedLength: number,
+): readonly number[] {
   if (Array.isArray(rawProbabilities)) {
-    if (rawProbabilities.every((item) => typeof item === 'number')) {
+    if (
+      rawProbabilities.length === expectedLength &&
+      rawProbabilities.every((item): item is number => typeof item === 'number' && Number.isFinite(item))
+    ) {
       return rawProbabilities;
     }
-    const ordered = new Array<number>(expectedLength).fill(0);
+    const ordered = new Array<number | undefined>(expectedLength).fill(undefined);
     for (const item of rawProbabilities) {
       if (item && typeof item === 'object') {
         const entry = item as { value?: unknown; label?: unknown; probability?: unknown };
@@ -175,27 +211,46 @@ function normalizeScoreProbabilities(rawProbabilities: unknown, expectedLength: 
             : typeof entry.label === 'string'
               ? Number.parseInt(entry.label, 10)
               : Number.NaN;
-        if (Number.isInteger(idx) && idx >= 0 && idx < expectedLength && typeof entry.probability === 'number') {
+        if (
+          Number.isInteger(idx) &&
+          idx >= 0 &&
+          idx < expectedLength &&
+          typeof entry.probability === 'number' &&
+          Number.isFinite(entry.probability)
+        ) {
           ordered[idx] = entry.probability;
         }
       }
     }
-    return ordered;
+    if (ordered.every((val): val is number => typeof val === 'number' && Number.isFinite(val))) {
+      return ordered;
+    }
+    throw Oops.Panic.ExternalService(
+      provider,
+      `Malformed score probabilities for question "${questionKey}": expected ${expectedLength} finite numeric levels`,
+    );
   }
 
   if (rawProbabilities && typeof rawProbabilities === 'object') {
     const record = rawProbabilities as Record<string, unknown>;
-    const ordered = new Array<number>(expectedLength).fill(0);
+    const ordered = new Array<number>(expectedLength);
     for (let i = 0; i < expectedLength; i++) {
       const val = record[String(i)];
-      if (typeof val === 'number') {
-        ordered[i] = val;
+      if (typeof val !== 'number' || !Number.isFinite(val)) {
+        throw Oops.Panic.ExternalService(
+          provider,
+          `Malformed score probabilities for question "${questionKey}": missing finite numeric level "${i}"`,
+        );
       }
+      ordered[i] = val;
     }
     return ordered;
   }
 
-  return new Array<number>(expectedLength).fill(0);
+  throw Oops.Panic.ExternalService(
+    provider,
+    `Malformed score answer for question "${questionKey}": missing probabilities distribution`,
+  );
 }
 
 function buildTokenUsage(modelKey: DecisionModelKey, inputTokens: number, cachedInputTokens = 0): TokenUsage {
@@ -395,7 +450,7 @@ async function executeTypeSafeDecide<M extends DecisionModelKey, Q extends Decis
     if (!rawAns) {
       throw Oops.Panic.ExternalService('typesafe', `Missing answer for question "${key}" in TypeSafe response`);
     }
-    normalizedAnswers[key] = normalizeProviderAnswer(q, rawAns);
+    normalizedAnswers[key] = normalizeProviderAnswer('typesafe', key, q, rawAns);
   }
 
   const inputTokens = raw.usage?.input_tokens ?? 0;
@@ -537,7 +592,7 @@ async function executeGoogleDecide<M extends DecisionModelKey, Q extends Decisio
     if (!rawAns) {
       throw Oops.Panic.ExternalService('google', `Missing answer for question "${key}" in Google Decision response`);
     }
-    normalizedAnswers[key] = normalizeProviderAnswer(q, rawAns);
+    normalizedAnswers[key] = normalizeProviderAnswer('google', key, q, rawAns);
   }
 
   const inputTokens =
@@ -697,7 +752,7 @@ async function executeOpenAIDecide<M extends DecisionModelKey, Q extends Decisio
     if (!rawAns) {
       throw Oops.Panic.ExternalService('openai', `Missing answer for question "${name}" in OpenAI Decisions response`);
     }
-    normalizedAnswers[name] = normalizeProviderAnswer(q, rawAns as unknown as Record<string, unknown>);
+    normalizedAnswers[name] = normalizeProviderAnswer('openai', name, q, rawAns as unknown as Record<string, unknown>);
   }
 
   const inputTokens = raw.usage?.input_tokens ?? 0;
@@ -715,12 +770,24 @@ async function executeOpenAIDecide<M extends DecisionModelKey, Q extends Decisio
 // ═══════════════════════════════════════════════════════════════════════════
 
 function normalizeProviderAnswer(
+  provider: DecisionProvider,
+  questionKey: string,
   question: DecisionQuestionFor<DecisionModelKey>,
   rawAns: Record<string, unknown>,
 ): DecisionAnswer {
   if (question.type === 'noul') {
     const probability =
-      typeof rawAns.probability === 'number' ? rawAns.probability : typeof rawAns.noul === 'number' ? rawAns.noul : 0;
+      typeof rawAns.probability === 'number' && Number.isFinite(rawAns.probability)
+        ? rawAns.probability
+        : typeof rawAns.noul === 'number' && Number.isFinite(rawAns.noul)
+          ? rawAns.noul
+          : undefined;
+    if (probability === undefined) {
+      throw Oops.Panic.ExternalService(
+        provider,
+        `Malformed noul answer for question "${questionKey}": missing finite numeric probability`,
+      );
+    }
     const answer: NoulAnswer = {
       type: 'noul',
       probability,
@@ -729,42 +796,121 @@ function normalizeProviderAnswer(
   }
 
   if (question.type === 'choice') {
-    const rawProbs = rawAns.probabilities;
-    const probsRecord: Record<string, number> = {};
-
-    for (const optionKey of Object.keys(question.criteria)) {
-      probsRecord[optionKey] = 0;
+    const choiceKey = typeof rawAns.choice === 'string' && rawAns.choice.length > 0 ? rawAns.choice : undefined;
+    if (!choiceKey) {
+      throw Oops.Panic.ExternalService(
+        provider,
+        `Malformed choice answer for question "${questionKey}": missing non-empty string choice`,
+      );
     }
 
+    const rawProbs = rawAns.probabilities;
+    if (!rawProbs || typeof rawProbs !== 'object') {
+      throw Oops.Panic.ExternalService(
+        provider,
+        `Malformed choice answer for question "${questionKey}": missing probabilities distribution`,
+      );
+    }
+
+    const parsedProbs: Record<string, number> = {};
     if (Array.isArray(rawProbs)) {
       for (const item of rawProbs) {
-        if (item && typeof item === 'object') {
-          const entry = item as { value?: unknown; probability?: unknown };
-          if (typeof entry.value === 'string' && typeof entry.probability === 'number') {
-            probsRecord[entry.value] = entry.probability;
-          }
+        if (!item || typeof item !== 'object') {
+          throw Oops.Panic.ExternalService(
+            provider,
+            `Malformed choice probability entry for question "${questionKey}"`,
+          );
         }
+        const entry = item as { value?: unknown; probability?: unknown };
+        if (
+          typeof entry.value !== 'string' ||
+          typeof entry.probability !== 'number' ||
+          !Number.isFinite(entry.probability)
+        ) {
+          throw Oops.Panic.ExternalService(
+            provider,
+            `Malformed choice probability entry for question "${questionKey}": expected string value and finite probability`,
+          );
+        }
+        parsedProbs[entry.value] = entry.probability;
       }
-    } else if (rawProbs && typeof rawProbs === 'object') {
+    } else {
       for (const [k, v] of Object.entries(rawProbs as Record<string, unknown>)) {
-        if (typeof v === 'number') {
-          probsRecord[k] = v;
+        if (typeof v !== 'number' || !Number.isFinite(v)) {
+          throw Oops.Panic.ExternalService(
+            provider,
+            `Malformed choice probability for question "${questionKey}" option "${k}": expected finite number`,
+          );
         }
+        parsedProbs[k] = v;
       }
     }
 
-    const choiceKey = typeof rawAns.choice === 'string' ? rawAns.choice : (Object.keys(probsRecord)[0] ?? '');
+    const probsRecord: Record<string, number> = {};
+    for (const optionKey of Object.keys(question.criteria)) {
+      const p = parsedProbs[optionKey];
+      if (typeof p !== 'number' || !Number.isFinite(p)) {
+        throw Oops.Panic.ExternalService(
+          provider,
+          `Malformed choice answer for question "${questionKey}": missing finite probability for option "${optionKey}"`,
+        );
+      }
+      probsRecord[optionKey] = p;
+    }
+
+    if (typeof probsRecord[choiceKey] !== 'number' || !Number.isFinite(probsRecord[choiceKey])) {
+      throw Oops.Panic.ExternalService(
+        provider,
+        `Malformed choice answer for question "${questionKey}": winning choice "${choiceKey}" has no finite probability`,
+      );
+    }
+
     return computeChoiceAnswer(choiceKey, probsRecord);
   }
 
   if (question.type === 'score') {
-    const scoreValue = typeof rawAns.score === 'number' ? rawAns.score : 0;
-    const probabilities = normalizeScoreProbabilities(rawAns.probabilities, question.criteria.length);
-    return computeScoreAnswer(scoreValue, probabilities);
+    if (typeof rawAns.score !== 'number' || !Number.isFinite(rawAns.score)) {
+      throw Oops.Panic.ExternalService(
+        provider,
+        `Malformed score answer for question "${questionKey}": missing finite numeric score`,
+      );
+    }
+    const probabilities = normalizeScoreProbabilities(
+      provider,
+      questionKey,
+      rawAns.probabilities,
+      question.criteria.length,
+    );
+    return computeScoreAnswer(rawAns.score, probabilities);
+  }
+
+  if (typeof rawAns.confidence !== 'number' || !Number.isFinite(rawAns.confidence)) {
+    throw Oops.Panic.ExternalService(
+      provider,
+      `Malformed box answer for question "${questionKey}": missing finite numeric confidence`,
+    );
   }
 
   const rawBox = rawAns.box as BoundingBox | null | undefined;
-  const confidence = typeof rawAns.confidence === 'number' ? rawAns.confidence : 0;
+  if (rawBox !== null && rawBox !== undefined) {
+    if (
+      typeof rawBox !== 'object' ||
+      typeof rawBox.top !== 'number' ||
+      !Number.isFinite(rawBox.top) ||
+      typeof rawBox.bottom !== 'number' ||
+      !Number.isFinite(rawBox.bottom) ||
+      typeof rawBox.left !== 'number' ||
+      !Number.isFinite(rawBox.left) ||
+      typeof rawBox.right !== 'number' ||
+      !Number.isFinite(rawBox.right)
+    ) {
+      throw Oops.Panic.ExternalService(
+        provider,
+        `Malformed box coordinates for question "${questionKey}": expected finite top/bottom/left/right numbers`,
+      );
+    }
+  }
+
   const boxAnswer: BoxAnswer = {
     type: 'box',
     box: rawBox
@@ -775,7 +921,7 @@ function normalizeProviderAnswer(
           right: rawBox.right,
         }
       : null,
-    confidence,
+    confidence: rawAns.confidence,
   };
   return boxAnswer;
 }

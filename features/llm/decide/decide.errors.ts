@@ -25,8 +25,14 @@ export class DecideHttpError extends Error {
   }
 }
 
-const SAFETY_BLOCK_PATTERN =
-  /\b(safety|prohibited_content|blocklist|recitation|content_filter|moderation|policy_violation|blocked|harm_category)\b/i;
+const STRUCTURED_SAFETY_REASONS = new Set([
+  'SAFETY',
+  'PROHIBITED_CONTENT',
+  'BLOCKLIST',
+  'SPII',
+  'RECITATION',
+  'CONTENT_FILTER',
+]);
 
 function extractErrorDetail(body: unknown, fallback: string): string {
   if (!body) return fallback;
@@ -49,13 +55,45 @@ function extractErrorDetail(body: unknown, fallback: string): string {
   return fallback;
 }
 
-function isSafetyBlockedPayload(body: unknown, detail: string): boolean {
-  if (SAFETY_BLOCK_PATTERN.test(detail)) {
+/**
+ * Classifies HTTP 400/422 as `AI03` (`SafetyBlocked`) exclusively from structured
+ * protocol enum/code fields (never via regex/substring matching on free-text messages).
+ */
+function isSafetyBlockedPayload(body: unknown): boolean {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+  const record = body as Record<string, unknown>;
+  if (record.code === 'content_policy_violation' || record.type === 'content_policy_violation') {
     return true;
   }
-  if (body && typeof body === 'object') {
-    const serialized = JSON.stringify(body);
-    return SAFETY_BLOCK_PATTERN.test(serialized);
+  if (typeof record.block_reason === 'string' && record.block_reason.length > 0) {
+    return true;
+  }
+  if (record.promptFeedback && typeof record.promptFeedback === 'object') {
+    const pf = record.promptFeedback as Record<string, unknown>;
+    if (typeof pf.blockReason === 'string' && pf.blockReason.length > 0) {
+      return true;
+    }
+  }
+  if (record.error && typeof record.error === 'object') {
+    const nested = record.error as Record<string, unknown>;
+    if (nested.code === 'content_policy_violation' || nested.type === 'content_policy_violation') {
+      return true;
+    }
+    if (typeof nested.status === 'string' && STRUCTURED_SAFETY_REASONS.has(nested.status)) {
+      return true;
+    }
+    if (Array.isArray(nested.details)) {
+      for (const item of nested.details) {
+        if (item && typeof item === 'object') {
+          const detailObj = item as Record<string, unknown>;
+          if (typeof detailObj.reason === 'string' && STRUCTURED_SAFETY_REASONS.has(detailObj.reason)) {
+            return true;
+          }
+        }
+      }
+    }
   }
   return false;
 }
@@ -108,9 +146,9 @@ export function classifyDecideError(error: unknown, modelKey: DecisionModelKey):
       return Oops.Block.AIModelRateLimited(modelKey, { cause: error });
     }
 
-    // 400 / 422 -> Distinguish safety/policy block (e.g. Google HTTP 400 SAFETY) from schema/validation error
+    // 400 / 422 -> Distinguish structured safety/policy block from schema/validation error
     if (error.status === 400 || error.status === 422) {
-      if (isSafetyBlockedPayload(error.body, detail)) {
+      if (isSafetyBlockedPayload(error.body)) {
         return createDecisionSafetyBlockError(modelKey, detail, error);
       }
       return Oops.Validation(`${provider} Decision API rejected request (HTTP ${error.status}): ${detail}`, detail);
@@ -129,7 +167,7 @@ export function classifyDecideError(error: unknown, modelKey: DecisionModelKey):
   }
 
   if (error instanceof Error) {
-    if (error.name === 'AbortError' || error.name === 'TimeoutError' || /timed?\s*out|abort/i.test(error.message)) {
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
       return Oops.Panic.AIModelError(modelKey, `Timeout: ${error.message}`, { cause: error });
     }
     return Oops.Panic.ExternalService(provider, error.message, { cause: error });

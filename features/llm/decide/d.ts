@@ -72,8 +72,25 @@ function box(instructions: string): BoxQuestion {
 // 2. Multimodal Input Builders (AI SDK `TextPart` / `FilePart` Compatible)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Non-enumerable brand symbol attached to parts constructed via `D.text`, `D.image`,
+ * `D.pdf`, `D.audio`, `D.video`, and `D.fileUri` so `isDecisionInputPartArray`
+ * unambiguously distinguishes multimodal parts from domain JSON arrays (`#00597d6e`).
+ */
+export const DECISION_PART_BRAND: unique symbol = Symbol.for('@danielwii/libs/decide.part');
+
+function brandDecisionPart<T extends object>(part: T): T {
+  Object.defineProperty(part, DECISION_PART_BRAND, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return part;
+}
+
 function text(value: string): DecisionTextPart {
-  return { type: 'text', text: value };
+  return brandDecisionPart({ type: 'text', text: value });
 }
 
 export interface ImagePartOptions {
@@ -89,13 +106,13 @@ function image(
   data: DataContent,
   options?: ImagePartOptions,
 ): DecisionInlineFilePart & { readonly mediaType: ImageMediaType } {
-  return {
+  return brandDecisionPart({
     type: 'file',
     data,
     mediaType: options?.mediaType ?? 'image/png',
     ...(options?.key ? { key: options.key } : {}),
     ...(options?.resolution ? { resolution: options.resolution } : {}),
-  };
+  });
 }
 
 export interface PdfPartOptions {
@@ -107,12 +124,12 @@ function pdf(
   data: DataContent,
   options?: PdfPartOptions,
 ): DecisionInlineFilePart<GoogleDecisionModelKey> & { readonly mediaType: PdfMediaType } {
-  return {
+  return brandDecisionPart({
     type: 'file',
     data,
     mediaType: 'application/pdf',
     ...(options?.resolution ? { resolution: options.resolution } : {}),
-  };
+  });
 }
 
 export interface AudioPartOptions {
@@ -124,12 +141,12 @@ function audio(
   data: DataContent,
   options: AudioPartOptions,
 ): DecisionInlineFilePart<GoogleDecisionModelKey> & { readonly mediaType: AudioMediaType } {
-  return {
+  return brandDecisionPart({
     type: 'file',
     data,
     mediaType: options.mediaType,
     ...(options.resolution ? { resolution: options.resolution } : {}),
-  };
+  });
 }
 
 export interface VideoPartOptions {
@@ -141,12 +158,12 @@ function video(
   data: DataContent,
   options?: VideoPartOptions,
 ): DecisionInlineFilePart<GoogleDecisionModelKey> & { readonly mediaType: VideoMediaType } {
-  return {
+  return brandDecisionPart({
     type: 'file',
     data,
     mediaType: options?.mediaType ?? 'video/mp4',
     ...(options?.resolution ? { resolution: options.resolution } : {}),
-  };
+  });
 }
 
 export interface FileUriPartOptions {
@@ -156,13 +173,13 @@ export interface FileUriPartOptions {
 
 function fileUri(uri: string | URL, options: FileUriPartOptions): DecisionUriFilePart {
   const url = typeof uri === 'string' ? new URL(uri) : uri;
-  return {
+  return brandDecisionPart({
     type: 'file',
     data: url,
     fileUri: url.toString(),
     mediaType: options.mediaType,
     ...(options.resolution ? { resolution: options.resolution } : {}),
-  };
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

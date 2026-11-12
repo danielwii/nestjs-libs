@@ -464,12 +464,16 @@ describe('LLM.decide & LLM.safeDecide + D.* Polymorphic Decision Engine', () => 
     expect(quotaErr.oopsCode).toBe('AI02');
     expect(quotaErr.httpStatus).toBe(429);
 
-    // 2. Google HTTP 400 SAFETY block -> AI03 Block
+    // 2. Google HTTP 400 structured SAFETY block -> AI03 Block
     setDecideFetcherForTest(
       async () =>
         new Response(
           JSON.stringify({
-            error: { status: 'INVALID_ARGUMENT', message: 'Request blocked by SAFETY filter' },
+            error: {
+              status: 'INVALID_ARGUMENT',
+              message: 'Request blocked by SAFETY filter',
+              details: [{ reason: 'SAFETY' }],
+            },
           }),
           { status: 400 },
         ),
@@ -483,6 +487,53 @@ describe('LLM.decide & LLM.safeDecide + D.* Polymorphic Decision Engine', () => 
     });
     expect(safetyRes.isErr()).toBe(true);
     expect(safetyRes._unsafeUnwrapErr().oopsCode).toBe('AI03');
+
+    // 2b. HTTP 400 with free-text 'safety' in validation message (F2 regression) -> GN01 Validation (NOT AI03)
+    setDecideFetcherForTest(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              status: 'INVALID_ARGUMENT',
+              message: "Invalid schema for question 'safety': options must be non-empty",
+            },
+          }),
+          { status: 400 },
+        ),
+    );
+
+    const freeTextSafetyRes = await LLM.safeDecide({
+      id: 'err-google-validation-with-safety-word',
+      model: 'google:gemini-decision-1',
+      input: 'test',
+      questions: { safety: D.noul('test') },
+    });
+    expect(freeTextSafetyRes.isErr()).toBe(true);
+    expect(freeTextSafetyRes._unsafeUnwrapErr().oopsCode).toBe('GN01');
+
+    // 2c. OpenAI HTTP 400 structured content_policy_violation code -> AI03 Block
+    setDecideFetcherForTest(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'content_policy_violation',
+              type: 'invalid_request_error',
+              message: 'Blocked by policy',
+            },
+          }),
+          { status: 400 },
+        ),
+    );
+
+    const openaiPolicyRes = await LLM.safeDecide({
+      id: 'err-openai-policy-code',
+      model: 'openai:gpt-6-luna',
+      input: 'test',
+      questions: { q: D.noul('test') },
+    });
+    expect(openaiPolicyRes.isErr()).toBe(true);
+    expect(openaiPolicyRes._unsafeUnwrapErr().oopsCode).toBe('AI03');
 
     // 3. Google HTTP 400 malformed schema -> GN01 Validation
     setDecideFetcherForTest(
@@ -534,6 +585,113 @@ describe('LLM.decide & LLM.safeDecide + D.* Polymorphic Decision Engine', () => 
         questions: { q: D.noul('test') },
       }),
     ).rejects.toMatchObject({ oopsCode: 'AI03' });
+  });
+
+  it('fails fast with Oops.Panic.ExternalService (GN10) when upstream decision answers are malformed or missing probability fields (F3)', async () => {
+    // 1. Missing probability on noul answer
+    setDecideFetcherForTest(
+      async () =>
+        new Response(
+          JSON.stringify({
+            model: 'jev-1.14.0',
+            answers: { q: {} },
+            usage: { input_tokens: 10 },
+          }),
+          { status: 200 },
+        ),
+    );
+
+    const missingNoulRes = await LLM.safeDecide({
+      id: 'err-f3-missing-noul',
+      model: 'typesafe:jev-1.14.0',
+      input: 'test',
+      questions: { q: D.noul('test') },
+    });
+    expect(missingNoulRes.isErr()).toBe(true);
+    expect(missingNoulRes._unsafeUnwrapErr().oopsCode).toBe('GN10');
+
+    // 2. Missing probabilities map on choice answer
+    setDecideFetcherForTest(
+      async () =>
+        new Response(
+          JSON.stringify({
+            model: 'jev-1.14.0',
+            answers: { c: { choice: 'a' } },
+            usage: { input_tokens: 10 },
+          }),
+          { status: 200 },
+        ),
+    );
+
+    const missingChoiceProbsRes = await LLM.safeDecide({
+      id: 'err-f3-missing-choice-probs',
+      model: 'typesafe:jev-1.14.0',
+      input: 'test',
+      questions: { c: D.choice('pick', ['a', 'b'] as const) },
+    });
+    expect(missingChoiceProbsRes.isErr()).toBe(true);
+    expect(missingChoiceProbsRes._unsafeUnwrapErr().oopsCode).toBe('GN10');
+
+    // 3. Missing score level in probabilities map on score answer
+    setDecideFetcherForTest(
+      async () =>
+        new Response(
+          JSON.stringify({
+            model: 'jev-1.14.0',
+            answers: { s: { score: 1, probabilities: { '0': 0.5 } } },
+            usage: { input_tokens: 10 },
+          }),
+          { status: 200 },
+        ),
+    );
+
+    const missingScoreLevelRes = await LLM.safeDecide({
+      id: 'err-f3-missing-score-level',
+      model: 'typesafe:jev-1.14.0',
+      input: 'test',
+      questions: { s: D.score('rate', ['low', 'high'] as const) },
+    });
+    expect(missingScoreLevelRes.isErr()).toBe(true);
+    expect(missingScoreLevelRes._unsafeUnwrapErr().oopsCode).toBe('GN10');
+  });
+
+  it('disambiguates domain JSON arrays with type="text" or type="file" from branded D.* multimodal parts (F4 / #4549863171)', async () => {
+    let capturedBody: Record<string, unknown> | undefined;
+    setDecideFetcherForTest(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          model: 'gemini-decision-1',
+          answers: { ok: { probability: 0.9 } },
+          usage_metadata: { prompt_token_count: 12 },
+        }),
+        { status: 200 },
+      );
+    });
+
+    // 1. Domain JSON array starting with { type: 'file', id: 'doc_1' } on Google must be JSON-serialized as input string
+    const domainFileArray = [{ type: 'file', id: 'doc_1' }];
+    await LLM.decide({
+      id: 'f4-domain-file-array',
+      model: 'google:gemini-decision-1',
+      input: domainFileArray,
+      questions: { ok: D.noul('is valid?') },
+    });
+    expect(capturedBody?.input).toBe(JSON.stringify(domainFileArray));
+
+    // 2. Mixed JSON array [{ type: 'text', text: 'x' }, { type: 'event', value: 1 }] on TypeSafe must be passed as state without assets
+    const mixedDomainArray = [
+      { type: 'text', text: 'x' },
+      { type: 'event', value: 1 },
+    ];
+    await LLM.decide({
+      id: 'f4-mixed-domain-array',
+      model: 'typesafe:jev-1.14.0',
+      input: mixedDomainArray,
+      questions: { ok: D.noul('is valid?') },
+    });
+    expect(capturedBody?.state).toEqual(mixedDomainArray);
+    expect(capturedBody?.assets).toBeUndefined();
   });
 
   it('keeps decision models isolated from generative LLMModelRegistry while computing cost for both prefixed and bare decision model keys', () => {
