@@ -4,13 +4,12 @@
  * Unifies TypeSafe Jev (`typesafe:*`), Google Gemini Decision 1 (`google:*`),
  * and OpenAI Decisions API (`openai:*`) behind a compile-time capability-locked
  * deep module that reuses AI SDK v7 (`@ai-sdk/provider`, `@ai-sdk/provider-utils`)
- * and `@app/llm-core` (`TokenUsage`, `TelemetryOptions`) primitives.
+ * and `@app/llm-core` (`TokenUsage`) primitives.
  */
 
 import type { TokenUsage } from '../clients/llm.class';
 import type { JSONObject, JSONValue } from '@ai-sdk/provider';
 import type { DataContent, FilePart, TextPart } from '@ai-sdk/provider-utils';
-import type { TelemetryOptions } from 'ai';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. Model Keys & Provider Capabilities (`[CFT-01]`)
@@ -278,13 +277,14 @@ export interface DecideParams<
   readonly questions: Q;
   /** Optional `AbortSignal` for cancellation. */
   readonly abortSignal?: AbortSignal;
-  /** Request timeout in milliseconds (defaults to `30_000`). */
+  /** Request timeout in milliseconds (defaults to `SysEnv.AI_LLM_TIMEOUT_MS`). */
   readonly timeout?: number;
-  /** Max retries on transient network / 5xx / 429 errors (defaults to `2`). */
-  readonly maxRetries?: number;
-  /** Optional telemetry metadata (aligned with `BaseParams.telemetry`). */
-  readonly telemetry?: TelemetryOptions;
-  /** Provider-specific options. */
+  /**
+   * Provider-specific options.
+   * Note: `maxRetries` is intentionally omitted (Owner decision #4b843150, aligned with
+   * `LLM.embedding` / `LLM.systemOne`): System-1 hot-path gates fail fast via `LLM.safeDecide`
+   * rather than inflating turn tail latency with retry loops.
+   */
   readonly providerOptions?: DecisionProviderOptions<M>;
 }
 
